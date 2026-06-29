@@ -6,6 +6,11 @@
 
 `$ARGUMENTS` — 可选的补充说明（如 `fix: 修复划词不生效的问题`）。留空则自动分析生成。
 
+## 硬性规则
+
+- **禁止附带 Co-Authored-By 签名**。任何时候都不在 commit message 末尾追加 AI 模型的 co-author 信息。
+- **禁止自动 push**。提交后不推送到远端，由用户自行决定。
+
 ## 前置 Skill 调用
 
 自动调用 `superpowers:verification-before-completion` skill — 提交前确认改动正确、lint 通过。
@@ -27,7 +32,6 @@
    - 格式：`<type>: <简短中文描述>`
    - type 选择：`feat`（新功能）/ `fix`（修复）/ `refactor`（重构）/ `style`（样式）/ `docs`（文档）/ `chore`（杂项）/ `perf`（性能）
    - 如果改动较复杂，加上 body 详细说明
-   - 不附带 Co-Authored-By 签名
 
 4. **暂存并提交**：
    - 精确 `git add` 相关文件（不用 `git add -A`）
