@@ -163,7 +163,7 @@ When creating new capabilities, check this snapshot to avoid placing knowledge i
 | w-debug | systematic-debugging | DEBUG |
 | w-review | requesting-code-review, code-standards, quality-standards | REVIEW |
 | w-test | quality-standards | TEST |
-| w-commit | verification-before-completion, quality-standards, workflow-standards | COMMIT |
+| w-commit | verification-before-completion, quality-standards, version-management, git-flow, workflow-standards | COMMIT |
 | w-finish | verification-before-completion, quality-standards | FINISH |
 | w-doc | quality-standards | DOC |
 | w-tree | design-standards | PLAN |
