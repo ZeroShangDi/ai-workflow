@@ -55,12 +55,16 @@ description: >
 
 目标是 150 行以内。如果明显超出，考虑是否做得太多、能否提取专业知识到技能中。但复杂编排器（如 `awf-run`）天然需要更多行——不要为压缩行数而损失完整性和可读性。
 
-### 5. 命令结构模板
+### 5. 命令追求简洁
+
+命令中每个部分都应有存在的必要。优先使用简短、直接的描述，避免冗长的解释。每个步骤保持在 1-3 行。避免重复：如果信息已在某个 skill 中，引用即可，不要复述。目标是开发者从头到尾读完命令后能理解整个流程，而不被细节淹没。
+
+### 6. 命令结构模板
 
 ```markdown
 # [命令名]
 
-[一句话描述]
+[一句话描述这个命令做什么]
 
 ## 参数
 [入参方式]
@@ -106,14 +110,18 @@ description: >
 
 技能是详细参考文档，可以比命令长。目标是 300 行以内。如果超出此规模，考虑技能是否覆盖了过多概念、是否可拆分。但全面覆盖一个真正宽广的概念（如测试规范）的技能可能合理超出 300 行——功能完整性优先于行数。
 
-### 6. 技能文件结构
+### 6. 默认双语
+
+每个技能必须同时提供英文和中文版本：
 
 ```
 .claude/skills/<skill-name>/
-├── SKILL.md            # 英文版（必须）
-├── SKILL.zh-CN.md      # 中文版（必须）
+├── SKILL.md            # 英文版 — 系统加载的规范版本（必须）
+├── SKILL.zh-CN.md      # 中文版 — 给用户看的人工可读翻译（必须）
 └── candidates.md       # 候选规则池（可选）
 ```
+
+**英文是默认版本，中文是给人看的。** 英文 `SKILL.md` 是 Claude Code 加载和用于 skill 匹配的规范版本。中文 `SKILL.zh-CN.md` 是完整翻译，供用户查看和理解 skill 内容。两者必须保持同步——更新其中一个时，另一个也必须同步更新。
 
 ### 7. 技能 frontmatter
 
@@ -143,7 +151,7 @@ description: 一句话说明技能覆盖内容和触发时机
 
 | 命令 | 引用技能 | 阶段 |
 |---------|--------------|-------|
-| awf-run | design-standards, code-standards, quality-standards | 全流程 |
+| awf-run | awf-spec, design-standards, code-standards, quality-standards | 全流程 |
 | w-plan | design-standards | PLAN |
 | w-design | design-standards | DESIGN |
 | w-dev | brainstorming, tdd, code-standards, design-standards | CODE |

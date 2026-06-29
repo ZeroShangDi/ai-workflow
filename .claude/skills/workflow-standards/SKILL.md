@@ -38,10 +38,10 @@ A command's job is to **decide what happens next**, not to encode domain rules. 
 
 ```markdown
 ✗ BAD — command inlines quality rules:
-  1. 检查命名是否符合规范：函数用 camelCase，组件用 PascalCase...
+  1. Check naming: functions use camelCase, components use PascalCase...
 
 ✓ GOOD — command delegates to skill:
-  1. 遵循 **code-standards** skill 检查代码质量
+  1. Follow **code-standards** skill for code quality checks
 ```
 
 ### 2. Commands have a clear single-phase scope
@@ -56,30 +56,34 @@ Describe what steps to take and in what order. Leave the detailed "how" to skill
 
 Target 150 lines or fewer. If a command significantly exceeds this, consider whether it's doing too much and whether specialized knowledge can be extracted into a skill. However, complex orchestrators (like `awf-run`) will naturally run longer — do not compress at the expense of completeness or readability.
 
-### 5. Command structure template
+### 5. Commands prioritize conciseness
+
+Every section in a command should earn its place. Prefer short, direct descriptions over verbose explanations. Each step should be 1-3 lines. Avoid duplication: if information lives in a skill, reference it — don't restate. The goal is that a developer can read the entire command from top to bottom and understand the flow without being overwhelmed by detail.
+
+### 6. Command structure template
 
 ```markdown
-# [命令名]
+# [Command Name]
 
-[一句话描述这个命令做什么]
+[One sentence describing what this command does]
 
-## 参数
-[如何传递参数]
+## Parameters
+[How to pass arguments]
 
-## 前置 Skill 调用
-[哪些 skill 由系统自动加载]
+## Pre-Skills
+[Skills auto-loaded by the system before execution]
 
-## 关联 Skill
-[哪些 skill 在流程中持续生效]
+## Associated Skills
+[Skills that apply continuously during execution]
 
-## 硬性规则（可选）
-[绝对不能违反的规则]
+## Hard Rules (optional)
+[Rules that must never be violated]
 
-## 执行流程
-[步骤序列 — 每个步骤 1-3 行]
+## Execution Flow
+[Step sequence — each step 1-3 lines]
 
-## 注意（可选）
-[边界情况和约束]
+## Notes (optional)
+[Edge cases and constraints]
 ```
 
 ## Skill Design Rules
@@ -107,14 +111,18 @@ Skills provide rules and principles, not workflow state. A skill doesn't know ab
 
 Skills are detailed reference documents, naturally longer than commands. Target 300 lines or fewer. Beyond this, consider whether the skill is covering too many concepts and could be split. But a skill that comprehensively covers a genuinely broad concept (like a testing standard) may legitimately exceed 300 — functional completeness takes priority over line count.
 
-### 6. Skill file structure
+### 6. Bilingual by default
+
+Every skill must provide both an English and a Chinese version:
 
 ```
 .claude/skills/<skill-name>/
-├── SKILL.md            # 英文版（必须）
-├── SKILL.zh-CN.md      # 中文版（必须）
-└── candidates.md       # 候选规则池（可选，如 code-patterns）
+├── SKILL.md            # English — canonical version loaded by the system (required)
+├── SKILL.zh-CN.md      # Chinese — human-readable translation for the user (required)
+└── candidates.md       # Candidate rule pool (optional, e.g., code-patterns)
 ```
+
+**English is the default, Chinese is for the user.** The English `SKILL.md` is the canonical version loaded by Claude Code and used for skill matching. The Chinese `SKILL.zh-CN.md` is a full translation provided for the human user to review and understand the skill's content. Both must be kept in sync — when one is updated, the other must be updated as well.
 
 ### 7. Skill frontmatter
 
@@ -132,14 +140,14 @@ description: One-line summary of what this skill covers and when to invoke it
 When creating a new workflow capability, decide where it belongs:
 
 ```
-需要做什么？
-  ├── 定义一个流程步骤的顺序？ → COMMAND
-  ├── 编码专用知识/规则？ → SKILL
-  ├── 两者都需要？
-  │     ├── 先创建 SKILL（编码知识）
-  │     └── 再创建 COMMAND（编排流程，引用 SKILL）
-  └── 不确定？
-        └── 默认先做成 SKILL。命令可以后续再建，技能可以独立使用。
+What needs to be built?
+  ├── Defines a sequence of steps/flow? → COMMAND
+  ├── Encodes specialized knowledge/rules? → SKILL
+  ├── Both?
+  │     ├── Create SKILL first (encode the knowledge)
+  │     └── Then create COMMAND (orchestrate, referencing the SKILL)
+  └── Unsure?
+        └── Default to SKILL. Commands can be added later; skills work standalone.
 ```
 
 ## Existing Commands and Skills Snapshot
@@ -148,7 +156,7 @@ When creating new capabilities, check this snapshot to avoid placing knowledge i
 
 | Command | Skill(s) Used | Phase |
 |---------|--------------|-------|
-| awf-run | design-standards, code-standards, quality-standards | 全流程 |
+| awf-run | awf-spec, design-standards, code-standards, quality-standards | Full pipeline |
 | w-plan | design-standards | PLAN |
 | w-design | design-standards | DESIGN |
 | w-dev | brainstorming, tdd, code-standards, design-standards | CODE |
