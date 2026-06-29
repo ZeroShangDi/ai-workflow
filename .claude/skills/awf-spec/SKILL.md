@@ -64,6 +64,60 @@ This skill defines the complete specification of the autonomous workflow system.
 - **TEST → DOC automatic** — stale docs detected during testing auto-trigger `/w-doc`, then re-test
 - **Multiple COMMITs allowed** — a requirement can be committed once or multiple times per milestone
 
+## Countdown Pause Mechanism
+
+At phase-transition pause points, the system displays a countdown before auto-advancing. This lets users intervene when needed while keeping the workflow moving in normal operation.
+
+### Concept
+
+```
+Phase A complete
+    │
+    ▼
+┌─────────────────────────────────┐
+│ ⏳ Will auto-enter Phase B in Ns │
+│ Reply anything to pause          │
+└─────────────────────────────────┘
+    │
+    ├── User replies during countdown → workflow pauses, breakpoint saved
+    │
+    └── Countdown expires with no reply → auto-enter Phase B
+```
+
+### Pause Points and Defaults
+
+| Pause Point | Default (s) |
+|-------------|-------------|
+| PLAN → CODE/DESIGN | 15 |
+| DESIGN → CODE | 10 |
+| Before COMMIT | 10 |
+| FINISH → next milestone | 15 |
+
+### Behavior
+
+- **Standard mode**: countdown displayed at each pause point. User can reply to interrupt and save breakpoint. Resume later with `/awf-run --resume`.
+- **`--auto` mode**: countdown is 0 — no pause, auto-advance immediately.
+- **Interruption**: when user replies during countdown, the workflow pauses, current state is saved to `.claude/awf-state.json`, and the user is told how to resume.
+
+### Configuration
+
+User config in `.claude/user/pause-config.json`:
+
+```json
+{
+  "pauseCountdown": {
+    "enabled": true,
+    "duration": 15
+  }
+}
+```
+
+`duration` is the default for all pause points. Per-point overrides can be added later.
+
+### Implementation Note
+
+Real-time dynamic countdown UI is not feasible in CLI. Use `ScheduleWakeup` to simulate: schedule a wakeup after `duration` seconds. If the user has replied by then, cancel the auto-advance. If not, proceed to the next phase.
+
 ## Document System
 
 | Level | Content | Location | Phase |
@@ -156,7 +210,7 @@ Triggered when PLAN marks "requires DESIGN phase":
 2. Multiple commits allowed per task
 3. No Co-Authored-By signature
 4. Update `<req-id>.log.md` with commit info
-5. Pause for confirmation (unless `--auto` mode)
+5. Countdown pause before committing (per Countdown Pause Mechanism; skipped in `--auto` mode)
 
 ### FINISH — Milestone wrap-up
 
@@ -195,7 +249,7 @@ When human intervention is required:
 - Issue check → every state transition
 - State file write → every state transition
 
-**Must-pause actions** (unless `--auto` mode):
+**Must-pause actions** (countdown auto-advance; skipped entirely in `--auto` mode):
 - After PLAN Q&A / after PLAN outputs
 - DESIGN style selection / after each UI page
 - New third-party dependencies
@@ -203,6 +257,8 @@ When human intervention is required:
 - Before each task COMMIT
 - Ambiguous trade-offs (two equally valid approaches)
 - After milestone FINISH
+
+Each of these pause points follows the Countdown Pause Mechanism: display countdown, let user interrupt or auto-advance.
 
 ## Directory Structure
 

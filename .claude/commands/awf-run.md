@@ -6,8 +6,8 @@
 
 | 形式 | 说明 |
 |------|------|
-| `/awf-run <任务描述>` | 标准模式，在关键决策点暂停确认 |
-| `/awf-run --auto <任务描述>` | 快捷模式，跳过所有确认点 |
+| `/awf-run <任务描述>` | 标准模式，关键决策点倒计时暂停，可打断 |
+| `/awf-run --auto <任务描述>` | 快捷模式，跳过所有确认点，无倒计时 |
 | `/awf-run --resume` | 从上次中断处恢复 |
 
 ## 关联 Skill
@@ -46,13 +46,13 @@ PLAN → DESIGN (if UI) → CODE (loop) → REVIEW → TEST → COMMIT → FINIS
 
 详细阶段定义见 **awf-spec** skill。流程概要：
 
-1. **PLAN** — Q&A 对齐 60-70% 细节 → 产出需求文档 → 原型 → WBS → 任务清单 → 用户确认
-2. **DESIGN**（可选）— 生成 3 种风格 → 用户选择 → 逐步生成 UI → 保存偏好
+1. **PLAN** — Q&A 对齐 60-70% 细节 → 产出需求文档 → 原型 → WBS → 任务清单 → 倒计时确认
+2. **DESIGN**（可选）— 生成 3 种风格 → 用户选择 → 逐步生成 UI → 保存偏好 → 倒计时确认
 3. **CODE** — 从任务清单逐个取就绪任务，执行 w-dev → w-review → w-test → w-commit 闭环
 4. **REVIEW** — 审查变更，严重问题回 CODE
 5. **TEST** — pnpm test + typecheck + 逐条验证测试文档
-6. **COMMIT** — Conventional Commits，禁止 Co-Authored-By，暂停确认
-7. **FINISH** — 里程碑收尾：质量/性能/文档/Issue 扫描/总结
+6. **COMMIT** — Conventional Commits，禁止 Co-Authored-By，倒计时暂停
+7. **FINISH** — 里程碑收尾：质量/性能/文档/Issue 扫描/总结 → 倒计时确认
 
 ## 状态持久化
 
@@ -69,10 +69,12 @@ PLAN → DESIGN (if UI) → CODE (loop) → REVIEW → TEST → COMMIT → FINIS
 
 ## 自主决策权限
 
-| 无需询问 | 必须暂停（--auto 除外） |
+| 无需询问 | 倒计时暂停（--auto 跳过） |
 |---------|---------------------|
 | 代码风格 / 命名 / 文件组织 / 类型标注 | PLAN 产出确认 |
 | 依赖复用 / 错误处理 | DESIGN 风格选择 / UI 页面确认 |
 | 审查通过 → 测试 → 提交 | 新增第三方依赖 |
 | Issue 检查 / 状态写入 | 破坏性 API 变更 |
 | 文档过期自动更新 | 任务 COMMIT 前 / FINISH 后 |
+
+倒计时机制详见 **awf-spec** skill。用户可在倒计时期间回复任意内容打断并保存断点，之后通过 `/awf-run --resume` 恢复。
