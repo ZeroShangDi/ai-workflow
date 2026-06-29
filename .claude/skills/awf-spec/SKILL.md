@@ -137,6 +137,7 @@ State written to `.claude/awf-state.json` on every state transition, task comple
   "task": "original task description",
   "currentState": "CODE",
   "currentMilestone": 1,
+  "canCommit": false,
   "plan": {
     "reqDoc": "docs/<feature>.md",
     "wbs": [{ "id": "1", "deliverable": "...", "acceptance": "...", "deps": [] }],
@@ -151,6 +152,31 @@ State written to `.claude/awf-state.json` on every state transition, task comple
 1. `/awf-run --resume` or new `/awf-run` detects existing state file
 2. Shows: last interrupt position + progress summary + pending Issues
 3. User chooses: continue / restart
+
+## Commit Gate — `canCommit` Flag
+
+w-commit does NOT own the decision of *whether* code is ready to commit. It only reads a boolean `canCommit` from `.claude/awf-state.json`.
+
+### Responsibility boundary
+
+| Role | Responsibility |
+|------|---------------|
+| **w-dev / w-review / w-test** | Validate quality and set `canCommit` accordingly |
+| **w-commit** | Only check `canCommit` — if `true`, proceed; if `false`, reject |
+| **Other commands** | May set `canCommit = false` to block commits (e.g., w-debug) |
+
+### When `canCommit` is set
+
+- **Set to `true`**: w-test passes all checks → before entering COMMIT phase
+- **Set to `false`**: on state initialization, after each successful commit (reset), or when any command detects a reason to block
+
+### When no `awf-state.json` exists
+
+w-commit asks the user: "No workflow state detected. Continue committing?" — the user chooses. This supports workflows that don't use `/awf-run`.
+
+### Commit complete hook
+
+After a successful commit, w-commit sets `canCommit = false` in the state file (if one exists), so the next task must re-earn the flag.
 
 ## Phase Details
 
@@ -202,15 +228,17 @@ Triggered when PLAN marks "requires DESIGN phase":
 2. Run `pnpm typecheck`
 3. Verify against `docs/<module>/<req-id>.test.md`
 4. Results to `temp/test-<req-id>.md`
-5. All pass → COMMIT; code bug → back to CODE/DEBUG; stale docs → auto w-doc → re-test
+5. All pass → set `canCommit = true` → enter COMMIT; code bug → back to CODE/DEBUG; stale docs → auto w-doc → re-test
 
 ### COMMIT
 
-1. Analyze changes, generate Conventional Commits message
-2. Multiple commits allowed per task
-3. No Co-Authored-By signature
-4. Update `<req-id>.log.md` with commit info
-5. Countdown pause before committing (per Countdown Pause Mechanism; skipped in `--auto` mode)
+1. Check `canCommit` flag — if `false`, reject; if `true`, proceed (delegates to w-commit)
+2. Analyze changes, generate Conventional Commits message
+3. Multiple commits allowed per task
+4. No Co-Authored-By signature
+5. Update `<req-id>.log.md` with commit info
+6. Countdown pause before committing (per Countdown Pause Mechanism; skipped in `--auto` mode)
+7. After commit: set `canCommit = false` in state file
 
 ### FINISH — Milestone wrap-up
 
