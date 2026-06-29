@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.claude/user/
+.claude/awf-state.json

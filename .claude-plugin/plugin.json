@@ -1,0 +1,20 @@
+{
+  "name": "ai-workflow",
+  "description": "AI 自治开发工作流：从需求规划到编码、审查、测试、提交的全流程自动化斜杠命令和技能集合 — w-plan、w-dev、w-review 等 12 个命令 + 5 套编码/设计/质量标准",
+  "version": "1.0.0",
+  "author": {
+    "name": "v-shangjunhao"
+  },
+  "keywords": [
+    "workflow",
+    "w-plan",
+    "w-dev",
+    "w-review",
+    "autonomous",
+    "ai",
+    "standards",
+    "code-review",
+    "testing"
+  ],
+  "license": "MIT"
+}
