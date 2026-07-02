@@ -88,10 +88,10 @@ Phase A complete
 
 | Pause Point | Default (s) |
 |-------------|-------------|
-| PLAN → CODE/DESIGN | 15 |
-| DESIGN → CODE | 10 |
-| Before COMMIT | 10 |
-| FINISH → next milestone | 15 |
+| PLAN → CODE/DESIGN | 60 |
+| DESIGN → CODE | 60 |
+| Before COMMIT | 60 |
+| FINISH → next milestone | 60 |
 
 ### Behavior
 
@@ -114,9 +114,17 @@ User config in `.claude/user/pause-config.json`:
 
 `duration` is the default for all pause points. Per-point overrides can be added later.
 
-### Implementation Note
+### Implementation
 
-Real-time dynamic countdown UI is not feasible in CLI. Use `ScheduleWakeup` to simulate: schedule a wakeup after `duration` seconds. If the user has replied by then, cancel the auto-advance. If not, proceed to the next phase.
+The countdown works across conversation turns — the AI does NOT block waiting. The mechanism:
+
+1. **AI outputs a static prompt** at the phase transition with the countdown message and duration
+2. **AI schedules a one-shot `CronCreate`** (`recurring: false`) to fire after the countdown period
+3. **The conversation turn ends** — user sees the message and has the countdown window to reply
+4. **If user replies during countdown** → next turn starts with the user's message, AI detects interruption, saves breakpoint to `.claude/awf-state.json`, and tells user how to resume
+5. **If CronCreate fires with no user reply** → AI continues to the next phase
+
+Note: CronCreate has ~60-second minimum granularity. For countdown durations < 60s, round up to 60s. The `--auto` mode skips both the message and the CronCreate entirely.
 
 ## Document System
 
