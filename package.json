@@ -1,6 +1,6 @@
 {
   "name": "ai-workflow",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "AI 自治开发工作流 — Claude Code 插件，提供从需求规划到交付的完整斜杠命令和技能集合",
   "keywords": [
     "claude-code",
