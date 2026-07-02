@@ -1,0 +1,15 @@
+{
+  "name": "ai-workflow-dev",
+  "description": "Local development marketplace for ai-workflow",
+  "owner": {
+    "name": "v-shangjunhao"
+  },
+  "plugins": [
+    {
+      "name": "ai-workflow",
+      "description": "AI 自治开发工作流 — 从需求规划到编码、审查、测试、提交的全流程自动化，包含 12 个斜杠命令和 7 个技能",
+      "version": "1.0.0",
+      "source": "./"
+    }
+  ]
+}

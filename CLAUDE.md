@@ -4,7 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-This is a **Claude Code workflow configuration toolkit** — not a traditional application. It defines a complete AI-assisted development methodology through custom slash commands, skills, standards, and templates. The target projects this workflow operates on are Vue 3 + TypeScript browser extensions (pnpm monorepo, Element Plus, UnoCSS).
+This is a **Claude Code plugin** that provides a complete AI-assisted development methodology through custom slash commands and skills. The target projects this workflow operates on are Vue 3 + TypeScript browser extensions (pnpm monorepo, Element Plus, UnoCSS).
+
+## Installation
+
+**Development (temporary load):**
+```bash
+claude --plugin-dir .
+```
+
+**Local permanent install:**
+```
+/plugin marketplace add .
+/plugin install ai-workflow@ai-workflow-dev
+```
+
+**From official marketplace (after publishing):**
+```
+/plugin install ai-workflow@claude-plugins-official
+```
+
+## Plugin structure
+
+This repo follows the [Claude Code plugin spec](https://code.claude.com/docs/en/plugins):
+
+| Directory | Purpose |
+|-----------|---------|
+| `commands/` | 12 slash commands (auto-discovered by Claude Code) |
+| `skills/` | 7 skills with bilingual SKILL.md files |
+| `.claude-plugin/` | Plugin manifest (`plugin.json`) + marketplace descriptor (`marketplace.json`) |
+| `.claude/` | This repo's own Claude Code dev config — NOT distributed with the plugin |
 
 ## Development workflow state machine
 
@@ -26,7 +55,7 @@ PLAN → DESIGN (if UI) → CODE (loop per task) → REVIEW → TEST → FINISH
 
 Any node can loop back to previous states. FINISH is a milestone marker, not project end.
 
-## Slash commands (`.claude/commands/`)
+## Slash commands
 
 | Command | Purpose |
 |---------|---------|
@@ -43,19 +72,22 @@ Any node can loop back to previous states. FINISH is a milestone marker, not pro
 | `/w-commit` | Smart commit with conventional commit messages |
 | `/w-finish` | Milestone wrap-up: quality/perf/doc/summary/memory/handoff |
 
-## Skills (`.claude/skills/`)
-
-Three standards skills apply at different phases of the workflow:
+## Skills
 
 - **`design-standards`** — Architecture, data modeling, state management, composable extraction. Applied during PLAN/DESIGN.
 - **`code-standards`** — Function design, naming, error handling, defensive programming. Applied during CODE/DEBUG.
 - **`quality-standards`** — Testing pyramid (70/20/10), code review, conventional commits, docs. Applied during REVIEW/TEST/FINISH.
+- **`workflow-standards`** — Workflow conventions for this project.
+- **`git-flow`** — Git branching and commit conventions.
+- **`version-management`** — Version bumping and changelog management.
+- **`testdoc`** — Test case documentation standards.
+- **`awf-spec`** — Autonomous workflow specification format.
 
 These are invoked automatically by the relevant slash commands. Do not invoke them manually unless explicitly requested.
 
 ## User configuration (`.claude/user/`)
 
-Personal preferences stored here, NOT committed to version control:
+Personal preferences stored in the target project's `.claude/user/`, NOT committed to version control:
 - `style-preferences.md` — UI style choices populated by `/w-design` style selection flow
 - `awf-run-requirements.md` — Original requirements document for the awf-run system
 
@@ -64,7 +96,3 @@ Personal preferences stored here, NOT committed to version control:
 - **`docs/`** — Feature docs, test case docs (721 progressive: 70% unit / 20% integration / 10% E2E), and dev logs. Planning-phase docs are project-wide; development-phase docs are per-requirement (`docs/<module>/<req-id>.{md,test.md,log.md}`).
 - **`/temp/`** — Temporary files (audit results, etc.). All files here can be deleted at any time without affecting the system.
 - **`.claude/issues/`** — Issue escalation: when blocked by a human-needed decision, AI creates an issue here with 2+ solution options, then polls for user decision.
-
-## Permissions model
-
-`.claude/settings.json` allows read-only git operations and common dev commands (pnpm, find, grep). Git push is explicitly denied. `.claude/settings.local.json` extends with local-only permissions (e.g., `open`).

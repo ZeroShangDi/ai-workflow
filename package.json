@@ -2,23 +2,20 @@
   "name": "ai-workflow",
   "version": "1.0.0",
   "description": "AI 自治开发工作流 — Claude Code 插件，提供从需求规划到交付的完整斜杠命令和技能集合",
-  "main": "dist/index.js",
-  "bin": {
-    "ai-workflow": "./dist/index.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
-  },
-  "files": [
-    "dist/",
-    ".claude-plugin/",
-    ".claude/"
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "workflow",
+    "w-plan",
+    "w-dev",
+    "w-review",
+    "autonomous",
+    "ai"
   ],
-  "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.4.0"
-  }
+  "files": [
+    "commands/",
+    "skills/",
+    ".claude-plugin/"
+  ],
+  "license": "MIT"
 }
