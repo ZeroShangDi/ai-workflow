@@ -1,0 +1,64 @@
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec
+
+# === PyInstaller artifacts ===
+localpycs/
+*.pkg
+*.pyz
+*.zip
+*.toc
+Analysis-*.toc
+EXE-*.toc
+PKG-*.toc
+PYZ-*.toc
+warn-*.txt
+xref-*.html
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# === Node ===
+node_modules/
+npm-debug.log*
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS ===
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# === Claude Code local state (per-user, not tracked) ===
+.claude/user/
+.claude/awf-state.json
+.claude/settings.local.json
+
+# === Environment ===
+.env
+.env.local
+.env.*.local
+
+# === Large model weights ===
+weights/
+*.bin
+*.safetensors
+*.pth
+*.ckpt
+
+# === Gradio ===
+.gradio/
+uploads/
