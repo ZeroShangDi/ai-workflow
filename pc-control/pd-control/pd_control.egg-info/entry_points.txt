@@ -1,2 +1,0 @@
-[console_scripts]
-pd-control = pd_control.cli:main
