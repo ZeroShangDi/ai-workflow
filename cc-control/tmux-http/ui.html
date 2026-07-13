@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cc-control</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #0e1116; color: #d7dde5;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 18px; border-bottom: 1px solid #222a35; background: #131923;
+    position: sticky; top: 0;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .5px; }
+  .pill {
+    margin-left: auto; padding: 3px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; letter-spacing: .5px;
+    background: #2a3441; color: #8b97a6;
+  }
+  .pill.ready { background: #14361f; color: #4ade80; }
+  .pill.busy  { background: #3a2a12; color: #fbbf24; }
+  .pill.offline { background: #3a1518; color: #f87171; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; max-width: 1100px; margin: 0 auto; }
+  @media (max-width: 780px) { main { grid-template-columns: 1fr; } }
+  .card { background: #131923; border: 1px solid #222a35; border-radius: 10px; padding: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #7c8a9c; }
+  textarea, input[type=text] {
+    width: 100%; background: #0b0f15; color: #e6ebf1; border: 1px solid #2a3441;
+    border-radius: 7px; padding: 9px 11px; font: inherit; resize: vertical;
+  }
+  textarea:focus, input:focus { outline: none; border-color: #3b82f6; }
+  .row { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+  button {
+    background: #1f2937; color: #e6ebf1; border: 1px solid #313d4d; border-radius: 7px;
+    padding: 8px 14px; font: inherit; cursor: pointer;
+  }
+  button:hover { background: #273244; }
+  button.primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+  button.primary:hover { background: #1d4ed8; }
+  button.warn { background: #7f1d1d; border-color: #7f1d1d; color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .full { grid-column: 1 / -1; }
+  pre {
+    margin: 0; background: #0b0f15; border: 1px solid #222a35; border-radius: 7px;
+    padding: 11px; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-size: 12.5px; color: #b9c3cf;
+  }
+  .log div { padding: 2px 0; border-bottom: 1px solid #1a212b; font-size: 12px; }
+  .log .ok { color: #4ade80; } .log .err { color: #f87171; } .log .muted { color: #6b7787; }
+  .hint { color: #6b7787; font-size: 11.5px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>cc-control · tmux-http</h1>
+  <span id="pill" class="pill offline">OFFLINE</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>发送消息 · POST /send</h2>
+    <textarea id="text" rows="3" placeholder="给 Claude 说点什么…（回车即发，Shift+回车换行）"></textarea>
+    <div class="row">
+      <button class="primary" id="sendBtn" onclick="send()">发送 ↵</button>
+    </div>
+    <div class="hint">等就绪 → 打字 → 回车。busy 时会排队等 Stop 信号。</div>
+  </section>
+
+  <section class="card">
+    <h2>斜杠命令 · POST /cmd</h2>
+    <input type="text" id="cmd" value="/clear" placeholder="/clear 或自定义命令" />
+    <div class="row">
+      <button class="primary" onclick="cmd()">执行</button>
+      <button onclick="quickCmd('/clear')">/clear</button>
+      <button onclick="quickCmd('/compact')">/compact</button>
+    </div>
+    <div class="hint">本地命令(如 /clear)可能不触发 Stop，服务有兜底计时器翻回 ready。</div>
+  </section>
+
+  <section class="card">
+    <h2>按键 · POST /key</h2>
+    <div class="row">
+      <button class="warn" onclick="key('C-c')">Ctrl-C 打断</button>
+      <button onclick="key('Escape')">Esc</button>
+      <button onclick="key('Up')">↑</button>
+      <button onclick="key('Down')">↓</button>
+      <button onclick="key('Enter')">Enter</button>
+    </div>
+    <div class="row">
+      <input type="text" id="rawkey" placeholder="自定义: 例如 C-r 或 Up Up Enter" />
+      <button onclick="key(document.getElementById('rawkey').value)">发送按键</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>状态 · GET /status</h2>
+    <div class="row">
+      <button onclick="refresh()">刷新</button>
+      <label style="align-self:center;color:#7c8a9c"><input type="checkbox" id="auto" checked /> 自动轮询(1.5s)</label>
+    </div>
+    <div class="hint">另开终端围观实况：<code>tmux attach -t cc</code>（脱离：Ctrl-b 再按 d）</div>
+  </section>
+
+  <section class="card full">
+    <h2>Pane 实况快照（调试用）</h2>
+    <pre id="snap">（未连接）</pre>
+  </section>
+
+  <section class="card full">
+    <h2>请求日志</h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const base = '';
+
+function log(msg, cls) {
+  const el = document.createElement('div');
+  el.className = cls || 'muted';
+  el.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  $('log').prepend(el);
+}
+
+async function api(path, opts) {
+  try {
+    const res = await fetch(base + path, opts);
+    const data = await res.json();
+    log((opts && opts.method || 'GET') + ' ' + path + ' → ' + res.status + ' ' + JSON.stringify(data), res.ok ? 'ok' : 'err');
+    return { res, data };
+  } catch (e) {
+    log('请求失败 ' + path + ' → ' + e.message + '（服务没起？）', 'err');
+    setPill('offline');
+    return { res: { ok: false }, data: null };
+  }
+}
+
+function post(path, body) {
+  return api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+async function send() {
+  const text = $('text').value;
+  if (!text.trim()) return;
+  const { res } = await post('/send', { text });
+  if (res.ok) $('text').value = '';
+}
+function cmd() { const c = $('cmd').value; if (c.trim()) post('/cmd', { cmd: c }); }
+function quickCmd(c) { $('cmd').value = c; post('/cmd', { cmd: c }); }
+function key(k) { if (k && k.trim()) post('/key', { keys: k }); }
+
+function setPill(state) {
+  const p = $('pill');
+  p.className = 'pill ' + state;
+  p.textContent = state.toUpperCase();
+}
+
+async function refresh() {
+  try {
+    const res = await fetch(base + '/status?snapshot=1');
+    const j = await res.json();
+    setPill(j.state === 'busy' ? 'busy' : 'ready');
+    $('sendBtn').disabled = false;
+    if (typeof j.snapshot === 'string') $('snap').textContent = j.snapshot.replace(/\n+$/,'') || '（空）';
+  } catch (e) {
+    setPill('offline');
+    $('snap').textContent = '（服务未连接：先 `node server.js`）';
+  }
+}
+
+// Enter to send, Shift+Enter for newline
+$('text').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+setInterval(() => { if ($('auto').checked) refresh(); }, 1500);
+refresh();
+</script>
+</body>
+</html>

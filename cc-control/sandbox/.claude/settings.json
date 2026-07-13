@@ -1,0 +1,34 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST http://127.0.0.1:8787/hook -H 'content-type: application/json' -d '{\"event\":\"SessionStart\"}' >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST http://127.0.0.1:8787/hook -H 'content-type: application/json' -d '{\"event\":\"UserPromptSubmit\"}' >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST http://127.0.0.1:8787/hook -H 'content-type: application/json' -d '{\"event\":\"Stop\"}' >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}
