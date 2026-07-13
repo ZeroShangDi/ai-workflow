@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PD-Control Test Page</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; height: 100vh; display: flex; }
+  .sidebar { width: 260px; background: #1e293b; padding: 20px; display: flex; flex-direction: column; gap: 12px; border-right: 1px solid #334155; }
+  .sidebar h2 { font-size: 14px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .sidebar button { padding: 10px 16px; border: 1px solid #475569; border-radius: 6px; background: #334155; color: #e2e8f0; cursor: pointer; font-size: 13px; text-align: left; transition: all 0.15s; }
+  .sidebar button:hover { background: #475569; border-color: #64748b; }
+  .sidebar button:active { background: #16a34a; border-color: #16a34a; }
+  .main { flex: 1; padding: 40px; display: flex; flex-direction: column; gap: 24px; overflow-y: auto; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 24px; }
+  .card h3 { font-size: 16px; margin-bottom: 16px; color: #f8fafc; display: flex; align-items: center; gap: 8px; }
+  .card h3 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.blue { background: #3b82f6; }
+  .dot.green { background: #22c55e; }
+  .dot.amber { background: #f59e0b; }
+  .dot.red { background: #ef4444; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  button { padding: 8px 18px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.15s; }
+  button:active { transform: scale(0.95); }
+  .btn-primary { background: #3b82f6; color: white; }
+  .btn-success { background: #16a34a; color: white; }
+  .btn-danger { background: #dc2626; color: white; }
+  .btn-warning { background: #d97706; color: white; }
+  input[type="text"], input[type="number"] { padding: 8px 12px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 14px; }
+  input[type="text"]:focus { outline: none; border-color: #3b82f6; }
+  input[type="range"] { width: 200px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge.on { background: #16a34a33; color: #22c55e; }
+  .badge.off { background: #dc262633; color: #ef4444; }
+  .log-area { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; height: 180px; overflow-y: auto; font-family: 'Fira Code', monospace; font-size: 12px; line-height: 1.6; }
+  .log-area .ts { color: #64748b; margin-right: 8px; }
+  .log-area .info { color: #3b82f6; }
+  .log-area .ok { color: #22c55e; }
+  .log-area .warn { color: #f59e0b; }
+  .drag-zone { width: 300px; height: 300px; background: #0f172a; border: 2px dashed #475569; border-radius: 10px; display: flex; align-items: center; justify-content: center; position: relative; user-select: none; }
+  .draggable { width: 60px; height: 60px; background: #8b5cf6; border-radius: 8px; cursor: grab; position: absolute; top: 20px; left: 20px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+  .draggable:active { cursor: grabbing; }
+  .progress-bar { width: 100%; height: 20px; background: #334155; border-radius: 99px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius: 99px; transition: width 0.3s; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  #coord-display { font-size: 13px; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Test Panel</h2>
+  <button onclick="log('click', 'Button: Dashboard')">Dashboard</button>
+  <button onclick="log('click', 'Button: Settings')">Settings</button>
+  <button onclick="log('click', 'Button: Profile')">Profile</button>
+  <button onclick="log('click', 'Button: Logout')">Logout</button>
+  <div style="margin-top:auto;">
+    <button class="btn-danger" style="width:100%;" onclick="clearLogs()">Clear Logs</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="dot blue"></span> Button Tests</h3>
+      <div class="row">
+        <button class="btn-primary" onclick="log('click', 'Save')">Save</button>
+        <button class="btn-success" onclick="log('click', 'Submit')">Submit</button>
+        <button class="btn-warning" onclick="log('click', 'Retry')">Retry</button>
+        <button class="btn-danger" onclick="log('click', 'Delete')">Delete</button>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button id="counter-btn" class="btn-primary" onclick="incrementCounter()">Count: 0</button>
+        <span id="toggle-status" class="badge off">OFF</span>
+        <button id="toggle-btn" class="btn-success" onclick="toggleSwitch()">Toggle</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot green"></span> Text Input</h3>
+      <input type="text" id="input1" placeholder="Type something here..." style="width:60%;">
+      <input type="text" id="input2" placeholder="Another field..." style="width:60%; margin-top:12px;">
+      <input type="number" id="input3" placeholder="Number only..." style="width:30%; margin-top:12px;">
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="dot amber"></span> Slider & Progress</h3>
+      <input type="range" id="slider" min="0" max="100" value="50" oninput="updateSlider(this.value)">
+      <span id="slider-val" style="margin-left:12px; font-weight:600;">50%</span>
+      <div class="progress-bar" style="margin-top:16px;">
+        <div class="progress-fill" id="progress-fill" style="width:50%;"></div>
+      </div>
+      <span id="progress-label" style="font-size:12px; color:#94a3b8;">50 / 100</span>
+    </div>
+
+    <div class="card">
+      <h3><span class="dot red"></span> Drag Zone</h3>
+      <div class="drag-zone" id="drag-zone" onmousemove="trackCoords(event)" onclick="log('click', 'Drag zone at ' + event.offsetX + ',' + event.offsetY)">
+        <div class="draggable" id="draggable" style="top:20px;left:20px;">🎯</div>
+      </div>
+      <span id="coord-display">Move mouse over zone to see coordinates</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="dot green"></span> Event Log</h3>
+    <div class="log-area" id="log-area"></div>
+  </div>
+
+</div>
+
+<script>
+let counter = 0, toggled = false, pos = {top:20, left:20};
+const draggable = document.getElementById('draggable');
+let dragging = false, offsetX = 0, offsetY = 0;
+
+draggable.addEventListener('mousedown', (e) => {
+  dragging = true;
+  offsetX = e.offsetX;
+  offsetY = e.offsetY;
+  draggable.style.cursor = 'grabbing';
+});
+document.addEventListener('mouseup', () => {
+  dragging = false;
+  draggable.style.cursor = 'grab';
+});
+document.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const zone = document.getElementById('drag-zone');
+  const rect = zone.getBoundingClientRect();
+  const x = e.clientX - rect.left - offsetX;
+  const y = e.clientY - rect.top - offsetY;
+  pos.left = Math.max(0, Math.min(240, x));
+  pos.top = Math.max(0, Math.min(240, y));
+  draggable.style.left = pos.left + 'px';
+  draggable.style.top = pos.top + 'px';
+});
+
+function trackCoords(e) {
+  document.getElementById('coord-display').textContent = `X: ${e.offsetX}, Y: ${e.offsetY}`;
+}
+
+function incrementCounter() {
+  counter++;
+  document.getElementById('counter-btn').textContent = 'Count: ' + counter;
+  log('counter', 'Count = ' + counter);
+}
+function toggleSwitch() {
+  toggled = !toggled;
+  const el = document.getElementById('toggle-status');
+  el.textContent = toggled ? 'ON' : 'OFF';
+  el.className = 'badge ' + (toggled ? 'on' : 'off');
+  document.getElementById('toggle-btn').className = toggled ? 'btn-danger' : 'btn-success';
+  document.getElementById('toggle-btn').textContent = toggled ? 'Turn Off' : 'Toggle';
+  log('toggle', toggled ? 'ON' : 'OFF');
+}
+function updateSlider(v) {
+  document.getElementById('slider-val').textContent = v + '%';
+  document.getElementById('progress-fill').style.width = v + '%';
+  document.getElementById('progress-label').textContent = v + ' / 100';
+}
+function log(action, msg) {
+  const area = document.getElementById('log-area');
+  const now = new Date().toLocaleTimeString();
+  area.innerHTML += `<div><span class="ts">${now}</span><span class="info">[${action}]</span> ${msg}</div>`;
+  area.scrollTop = area.scrollHeight;
+}
+function clearLogs() {
+  document.getElementById('log-area').innerHTML = '';
+}
+log('ready', 'Test page loaded');
+</script>
+</body>
+</html>

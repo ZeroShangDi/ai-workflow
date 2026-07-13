@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pd-control"
+version = "0.1.0"
+description = "CLI tool for controlling Parallels Desktop Windows VM via mouse, keyboard, and screen capture"
+requires-python = ">=3.9"
+dependencies = [
+    "typer>=0.9",
+    "requests>=2.28",
+]
+
+[project.scripts]
+pd-control = "pd_control.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pd_control*"]

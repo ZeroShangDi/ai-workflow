@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: pd-control
+Version: 0.1.0
+Summary: CLI tool for controlling Parallels Desktop Windows VM via mouse, keyboard, and screen capture
+Requires-Python: >=3.9
+Requires-Dist: typer>=0.9
+Requires-Dist: requests>=2.28
