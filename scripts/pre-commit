@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# ============================================================
+# pre-commit hook — 限制各分支的文件修改范围
+#
+# 安装：ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+# ============================================================
+
+set -euo pipefail
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# --- 分支 → 允许目录映射 ---
+# 非受限分支：develop / main / 其他未列出的分支
+# 根级共享文件始终允许：.gitignore / README.md / scripts/
+
+get_allowed_dir() {
+    case "$1" in
+        feature/tmux-http)       echo "cc-control/tmux-http/" ;;
+        feature/cc-plugins)      echo "cc-control/cc-plugins/" ;;
+        feature/cc-control)      echo "cc-control/" ;;
+        feature/pd-control)      echo "pc-control/pd-control/" ;;
+        feature/browser-control) echo "pc-control/browser-bbx/" ;;
+        *)                       echo "" ;;  # 无限制
+    esac
+}
+
+ALLOWED=$(get_allowed_dir "$BRANCH")
+
+# 非受限分支直接放行
+if [[ -z "$ALLOWED" ]]; then
+    exit 0
+fi
+
+# --- 检查暂存区改动 ---
+# 根级共享文件始终允许
+VIOLATIONS=$(git diff --cached --name-only --diff-filter=ACMR \
+    | grep -v "^$ALLOWED" \
+    | grep -vE '^(\.gitignore|README\.md|scripts/).*' \
+    || true)
+
+if [[ -n "$VIOLATIONS" ]]; then
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║  ❌ 提交被拦截：分支文件范围约束                          ║"
+    echo "╠══════════════════════════════════════════════════════════╣"
+    printf "║  当前分支: %-45s ║\n" "$BRANCH"
+    printf "║  允许范围: %-45s ║\n" "$ALLOWED"
+    echo "╠══════════════════════════════════════════════════════════╣"
+    echo "║  以下文件不在允许范围内:                                 ║"
+    echo "$VIOLATIONS" | while IFS= read -r file; do
+        printf "║    • %-50s ║\n" "$file"
+    done
+    echo "╠══════════════════════════════════════════════════════════╣"
+    echo "║  如需修改共享文件，请在 develop 或 cc-control 分支操作   ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
+    echo ""
+    exit 1
+fi
+
+exit 0
