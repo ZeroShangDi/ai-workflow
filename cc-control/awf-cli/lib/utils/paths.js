@@ -28,5 +28,6 @@ export function getPaths() {
     tmuxHttp: path.join(ccControl, 'tmux-http'),                 // tmux-http 目录
     tmuxServer: path.join(ccControl, 'tmux-http', 'server.js'),  // server.js
     claudePlugins: path.join(os.homedir(), '.claude', 'plugins'), // ~/.claude/plugins/
+    prompts: path.join(ccControl, 'cc-plugins', 'prompts', 'run'), // 阶段提示词模板
   };
 }

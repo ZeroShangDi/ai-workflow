@@ -59,6 +59,9 @@ weights/
 *.pth
 *.ckpt
 
+# === Sandbox ===
+cc-control/sandbox/
+
 # === Gradio ===
 .gradio/
 uploads/

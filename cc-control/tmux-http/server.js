@@ -151,6 +151,38 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.keys });
   }
 
+  // ---- one-shot (non-tmux): single claude -p call, returns stdout ----
+  if (req.method === 'POST' && path === '/oneshot') {
+    const body = await readJson(req);
+    if (!body || typeof body.prompt !== 'string' || body.prompt.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {prompt: non-empty string}' });
+    }
+
+    const { spawn } = require('child_process');
+    const proc = spawn('claude', ['-p', body.prompt], {
+      cwd: body.cwd || process.cwd(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, NO_COLOR: '1' },
+    });
+
+    let output = '';
+    proc.stdout.on('data', (c) => (output += c.toString()));
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        send(res, 200, { ok: true, text: output.trim() });
+      } else {
+        send(res, 500, { ok: false, error: `claude -p exited ${code}`, text: output.trim() || null });
+      }
+    });
+
+    proc.on('error', (err) => {
+      send(res, 500, { ok: false, error: err.message });
+    });
+
+    return;
+  }
+
   return send(res, 404, { ok: false, error: 'not found' });
 });
 
