@@ -7,6 +7,7 @@ import { runCommand } from '../lib/commands/run.js';
 import { pluginCommand } from '../lib/commands/plugin.js';
 import { serverCommand } from '../lib/commands/server.js';
 import { openCommand } from '../lib/commands/open.js';
+import { attachCommand } from '../lib/commands/attach.js';
 
 program
   .name('awf')
@@ -51,5 +52,10 @@ program
   .command('open <target>')
   .description('打开可视化页面：tree / ui')
   .action(openCommand);
+
+program
+  .command('attach')
+  .description('接入 tmux session 观看 Claude Code 实时对话')
+  .action(attachCommand);
 
 program.parse();

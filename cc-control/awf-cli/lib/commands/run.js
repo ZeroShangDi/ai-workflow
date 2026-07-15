@@ -40,8 +40,7 @@ export async function runCommand(task, options) {
   await ensureServer(paths);
   await ensureSession(paths);
 
-  // 注入系统提示词（第一条消息）
-  await injectSystemPrompt(paths, projectRoot);
+  logger.info(`另开终端执行 awf attach 可观看实时对话\n`);
 
   let currentState = loadState(projectRoot);
   while (currentState && currentState.currentState !== 'FINISH') {
@@ -115,26 +114,16 @@ function buildLocalPrompt(phase, ctx, paths) {
 
   let template = fs.readFileSync(file, 'utf-8').trim();
   const t = ctx.task || {};
-  return template
+  const body = template
     .replace(/\{\{task\.id\}\}/g, t.id || '')
     .replace(/\{\{task\.desc\}\}/g, t.desc || '')
     .replace(/\{\{task\.prompt\}\}/g, t.prompt || '')
     .replace(/\{\{task\.wbsRef\}\}/g, t.wbsRef || '')
     .replace(/\{\{fromPhase\}\}/g, ctx.fromPhase || '')
     .replace(/\{\{error\.description\}\}/g, ctx.error?.description || '');
-}
 
-// === 系统提示词 ===
-
-async function injectSystemPrompt(paths, projectRoot) {
-  const systemFile = path.join(paths.prompts, 'state-machine.md');
-  if (!fs.existsSync(systemFile)) return;
-
-  const systemPrompt = fs.readFileSync(systemFile, 'utf-8').trim();
-  logger.info('注入系统提示词...');
-
-  await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: systemPrompt });
-  await waitForReady();
+  const tag = t.id ? `[awf ${phase} task ${t.id}]` : `[awf ${phase}]`;
+  return `${body}\n${tag} 只做这一步，完成后等待下一步指令。`;
 }
 
 // === tmux-http 通信 ===

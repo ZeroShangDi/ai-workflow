@@ -1,5 +1,6 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import http from 'http';
+import path from 'path';
 import { getPaths } from '../utils/paths.js';
 import { logger } from '../utils/logger.js';
 
@@ -14,29 +15,36 @@ export async function serverCommand(action) {
   switch (action) {
     case 'start': {
       const running = await check();
-      if (running) {
-        logger.info(`tmux-http 已在运行 (port ${SERVER_PORT})`);
-        return;
-      }
+      if (!running) {
+        logger.info('启动 tmux-http ...');
+        const proc = spawn('node', [paths.tmuxServer], {
+          stdio: 'ignore',
+          detached: true,
+          cwd: paths.tmuxHttp,
+          env: { ...process.env, CC_PORT: String(SERVER_PORT) },
+        });
+        proc.unref();
 
-      logger.info('启动 tmux-http ...');
-      const proc = spawn('node', [paths.tmuxServer], {
-        stdio: 'inherit',
-        detached: true,
-        cwd: paths.tmuxHttp,
-        env: { ...process.env, CC_PORT: String(SERVER_PORT) },
-      });
-      proc.unref();
-
-      for (let i = 0; i < 30; i++) {
-        await sleep(500);
-        if (await check()) {
-          logger.success(`tmux-http 已启动: http://localhost:${SERVER_PORT}`);
-          return;
+        for (let i = 0; i < 30; i++) {
+          await sleep(500);
+          if (await check()) break;
         }
       }
-      logger.error('启动超时');
-      process.exit(1);
+
+      // 同时确保 tmux session 存在
+      const bootstrap = path.join(paths.tmuxHttp, 'bootstrap.sh');
+      const session = process.env.CC_SESSION || 'cc';
+      try {
+        execSync(`tmux has-session -t ${session} 2>/dev/null`, { stdio: 'ignore' });
+      } catch {
+        logger.info('创建 tmux session...');
+        execSync(`bash "${bootstrap}"`, { stdio: 'inherit', cwd: process.cwd() });
+      }
+
+      logger.success(`环境就绪: server ${SERVER_PORT}, session '${session}'`);
+      logger.info('  awf run    启动工作流');
+      logger.info('  awf attach 观看对话');
+      return;
     }
 
     case 'stop': {
