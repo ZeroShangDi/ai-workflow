@@ -12,6 +12,8 @@ const READY_TIMEOUT = 300000;
 
 const CHAIN = ['DEV', 'REVIEW', 'TEST', 'COMMIT'];
 
+let useLocal = false; // --local 标志，跳过 one-shot 智能生成
+
 /**
  * awf run — 自治工作流编排服务
  *
@@ -22,7 +24,8 @@ const CHAIN = ['DEV', 'REVIEW', 'TEST', 'COMMIT'];
  * PLAN/DESIGN 在 run 之外由人工完成。
  */
 export async function runCommand(task, options) {
-  const { auto } = options;
+  const { auto, local } = options;
+  useLocal = !!local;
   const paths = getPaths();
   const projectRoot = process.cwd();
 
@@ -76,9 +79,9 @@ export async function runCommand(task, options) {
 // === 阶段执行 ===
 
 async function executePhase(phase, ctx, projectRoot, paths) {
-  // 1. 主路径：POST /oneshot 调用 /w-prompt 智能生成
+  // 1. 主路径：POST /oneshot 调用 /w-prompt 智能生成（--local 跳过）
   let prompt = null;
-  if (ctx.task?.id && ctx.task.id !== '-') {
+  if (!useLocal && ctx.task?.id && ctx.task.id !== '-') {
     let instruction = `/w-prompt ${phase} ${ctx.task.id}`;
     if (ctx.fromPhase) instruction += ` --from ${ctx.fromPhase}`;
     if (ctx.error?.description) instruction += ` --error "${ctx.error.description}"`;
@@ -92,7 +95,7 @@ async function executePhase(phase, ctx, projectRoot, paths) {
     }
   }
 
-  // 2. 兜底：本地模板填充
+  // 2. 兜底 / --local：本地模板填充
   if (!prompt) {
     prompt = buildLocalPrompt(phase, ctx, paths);
   }
