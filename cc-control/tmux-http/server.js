@@ -2,11 +2,13 @@
 
 const http = require('http');
 const fs = require('fs');
+const path = require('path');
 const tmuxlib = require('./tmux');
 
 const PORT = Number(process.env.CC_PORT || 8787);
 const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
+const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
 const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 
 // ---- ready/busy state machine, driven by Claude Code hooks ----
@@ -76,10 +78,26 @@ function send(res, code, obj) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  const path = url.pathname;
+  const pathname = url.pathname;
 
-  // control panel (same-origin, avoids CORS)
-  if (req.method === 'GET' && (path === '/' || path === '/ui')) {
+  // dashboard (default) + control panel
+  if (req.method === 'GET' && pathname === '/') {
+    try {
+      const html = fs.readFileSync(__dirname + '/dashboard.html');
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    } catch {
+      try {
+        const html = fs.readFileSync(__dirname + '/ui.html');
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        return res.end(html);
+      } catch {
+        return send(res, 500, { ok: false, error: 'no page found' });
+      }
+    }
+  }
+
+  if (req.method === 'GET' && pathname === '/ui') {
     try {
       const html = fs.readFileSync(__dirname + '/ui.html');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -90,7 +108,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // hook callback: flip the state machine
-  if (req.method === 'POST' && path === '/hook') {
+  if (req.method === 'POST' && pathname === '/hook') {
     const body = (await readJson(req)) || {};
     const event = body.event || url.searchParams.get('event');
     if (event === 'UserPromptSubmit') setBusy();
@@ -99,7 +117,19 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, event: event || null, state });
   }
 
-  if (req.method === 'GET' && path === '/status') {
+  // workflow state
+  if (req.method === 'GET' && pathname === '/state') {
+    try {
+      const statePath = path.join(PROJECT_ROOT, '.awf', 'state.json');
+      const stateJson = fs.readFileSync(statePath, 'utf-8');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(stateJson);
+    } catch {
+      return send(res, 404, { ok: false, error: '.awf/state.json not found' });
+    }
+  }
+
+  if (req.method === 'GET' && pathname === '/status') {
     const out = { ok: true, state, session: tmuxlib.hasSession() };
     if (url.searchParams.get('snapshot')) {
       try { out.snapshot = tmuxlib.capture(); } catch { out.snapshot = null; }
@@ -107,7 +137,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, out);
   }
 
-  if (req.method === 'POST' && path === '/send') {
+  if (req.method === 'POST' && pathname === '/send') {
     const body = await readJson(req);
     if (!body || typeof body.text !== 'string' || body.text.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {text: non-empty string}' });
@@ -122,7 +152,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.text });
   }
 
-  if (req.method === 'POST' && path === '/cmd') {
+  if (req.method === 'POST' && pathname === '/cmd') {
     const body = await readJson(req);
     if (!body || typeof body.cmd !== 'string' || body.cmd.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {cmd: non-empty string}' });
@@ -139,7 +169,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.cmd });
   }
 
-  if (req.method === 'POST' && path === '/key') {
+  if (req.method === 'POST' && pathname === '/key') {
     const body = await readJson(req);
     if (!body || typeof body.keys !== 'string' || body.keys.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {keys: non-empty string}' });
@@ -152,7 +182,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---- one-shot (non-tmux): single claude -p call, returns stdout ----
-  if (req.method === 'POST' && path === '/oneshot') {
+  if (req.method === 'POST' && pathname === '/oneshot') {
     const body = await readJson(req);
     if (!body || typeof body.prompt !== 'string' || body.prompt.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {prompt: non-empty string}' });

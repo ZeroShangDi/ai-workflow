@@ -1,1 +1,1 @@
-/w-dev {{task.prompt}}
+/ai-workflow:w-dev {{task.prompt}}

@@ -21,9 +21,13 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exit 0
 fi
 
+# Plugin dir — cc-plugins 包含 /w-dev /w-review 等自定义命令
+PLUGIN_DIR="${CC_PLUGIN_DIR:-$ROOT/cc-plugins}"
+
 # Detached session with a fixed, wide geometry so the TUI renders predictably.
-tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" "claude"
-echo "started tmux session '$SESSION' running claude in $WORKDIR"
+tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
+  "claude --plugin-dir '$PLUGIN_DIR'"
+echo "started tmux session '$SESSION' running claude in $WORKDIR (plugins: $PLUGIN_DIR)"
 
 # First run in a fresh dir shows a "trust this folder?" prompt whose default is
 # accept — nudge Enter once. Harmless (empty submit) if no prompt is shown.

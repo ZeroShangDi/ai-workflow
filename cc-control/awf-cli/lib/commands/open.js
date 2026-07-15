@@ -4,6 +4,8 @@ import path from 'path';
 import { getPaths } from '../utils/paths.js';
 import { logger } from '../utils/logger.js';
 
+const SERVER_PORT = 8787;
+
 /**
  * awf open — 打开可视化页面
  */
@@ -29,15 +31,16 @@ export async function openCommand(target) {
       break;
     }
 
-    case 'ui': {
-      const url = `http://localhost:8787`;
-      logger.info(`打开 tmux-http 控制台: ${url}`);
+    case 'ui':
+    case 'dashboard': {
+      const url = `http://localhost:${SERVER_PORT || 8787}`;
+      logger.info(`打开 dashboard: ${url}`);
       await openBrowser(url);
       break;
     }
 
     default:
-      logger.error(`未知目标: ${target}，可用: tree | ui`);
+      logger.error(`未知目标: ${target}，可用: tree | ui | dashboard`);
       process.exit(1);
   }
 }

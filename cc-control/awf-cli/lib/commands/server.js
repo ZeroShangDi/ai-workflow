@@ -48,22 +48,15 @@ export async function serverCommand(action) {
     }
 
     case 'stop': {
-      const running = await check();
-      if (!running) {
-        logger.info('tmux-http 未运行');
-        return;
-      }
-
-      // 调用 shutdown endpoint，或直接 kill
+      // 清理 tmux session
+      const session = process.env.CC_SESSION || 'cc';
       try {
-        await fetch(`http://127.0.0.1:${SERVER_PORT}/shutdown`, { method: 'POST' });
-      } catch {
-        // server.js 没有 shutdown endpoint，用 kill
-      }
+        execSync(`tmux kill-session -t ${session} 2>/dev/null`, { stdio: 'ignore' });
+      } catch {}
 
-      const { execSync } = await import('child_process');
+      // 清理 server
       execSync(`lsof -ti:${SERVER_PORT} | xargs kill 2>/dev/null`, { stdio: 'ignore' });
-      logger.success('tmux-http 已停止');
+      logger.success('已停止');
       break;
     }
 

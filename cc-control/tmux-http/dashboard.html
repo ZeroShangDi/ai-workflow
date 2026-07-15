@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWF Run — Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #161822; --border: #252836;
+    --text: #c9d1d9; --dim: #6e7681; --accent: #58a6ff;
+    --done: #3fb950; --active: #d29922; --pending: #484f58;
+    --phase-active: #58a6ff; --phase-done: #3fb950;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font:14px/1.6 -apple-system,BlinkMacSystemFont,sans-serif; height:100vh; display:flex; flex-direction:column; }
+
+  /* top bar */
+  .topbar { display:flex; align-items:center; gap:16px; padding:12px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
+  .topbar .project { font-size:16px; font-weight:600; }
+  .topbar .phase { padding:2px 12px; border-radius:12px; font-size:12px; font-weight:600; background:var(--phase-active); color:#fff; }
+  .topbar .progress { margin-left:auto; font-size:13px; color:var(--dim); }
+  .topbar .progress span { color:var(--text); font-weight:600; }
+
+  /* main */
+  .main { display:flex; flex:1; overflow:hidden; }
+
+  /* tasks panel */
+  .tasks { width:280px; background:var(--panel); border-right:1px solid var(--border); overflow-y:auto; padding:12px; flex-shrink:0; }
+  .tasks h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin-bottom:8px; letter-spacing:1px; }
+  .task-item { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-radius:6px; margin-bottom:2px; cursor:default; transition:background .15s; }
+  .task-item:hover { background:rgba(255,255,255,.04); }
+  .task-item .icon { font-size:14px; line-height:1.4; flex-shrink:0; }
+  .task-item .icon.done { color:var(--done); }
+  .task-item .icon.active { color:var(--active); }
+  .task-item .icon.pending { color:var(--pending); }
+  .task-item .info { flex:1; min-width:0; }
+  .task-item .name { font-size:13px; display:block; }
+  .task-item .name.done { text-decoration:line-through; color:var(--dim); }
+  .task-item .deps { font-size:11px; color:var(--dim); }
+  .task-item.current { background:rgba(88,166,255,.08); border:1px solid rgba(88,166,255,.2); }
+
+  /* output area */
+  .output { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .output-header { display:flex; align-items:center; gap:8px; padding:8px 16px; border-bottom:1px solid var(--border); }
+  .output-header h3 { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:1px; }
+  .output-header .status { font-size:11px; padding:1px 8px; border-radius:8px; }
+  .output-header .status.online { background:var(--done); color:#000; }
+  .output-header .status.offline { background:var(--pending); color:var(--text); }
+  .output-content { flex:1; overflow-y:auto; padding:16px; font:13px/1.7 'SF Mono',Menlo,monospace; white-space:pre-wrap; word-break:break-all; }
+  .output-content .empty { color:var(--dim); font-style:italic; }
+
+  /* phase chain */
+  .phase-chain { display:flex; align-items:center; gap:0; padding:10px 20px; background:var(--panel); border-top:1px solid var(--border); }
+  .phase-step { display:flex; align-items:center; gap:6px; padding:4px 12px; border-radius:6px; font-size:12px; color:var(--dim); }
+  .phase-step .dot { width:8px; height:8px; border-radius:50%; background:var(--pending); }
+  .phase-step.current { color:var(--accent); font-weight:600; }
+  .phase-step.current .dot { background:var(--accent); }
+  .phase-step.done { color:var(--done); }
+  .phase-step.done .dot { background:var(--done); }
+  .phase-arrow { color:var(--dim); font-size:10px; margin:0 2px; }
+
+  .error { display:none; padding:8px 16px; background:#490202; color:#f85149; font-size:12px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="project" id="projectName">—</div>
+  <div class="phase" id="currentPhase">—</div>
+  <div class="progress">Task <span id="progress">0/0</span></div>
+</div>
+<div class="error" id="errorBar"></div>
+
+<div class="main">
+  <div class="tasks" id="taskList">
+    <h3>Tasks</h3>
+  </div>
+  <div class="output">
+    <div class="output-header">
+      <h3>实时输出</h3>
+      <div class="status" id="connStatus">连接中</div>
+    </div>
+    <div class="output-content" id="output"></div>
+  </div>
+</div>
+
+<div class="phase-chain" id="phaseChain"></div>
+
+<script>
+const PHASES = ['DEV', 'REVIEW', 'TEST', 'COMMIT'];
+const PHASE_LABELS = { DEV:'开发', REVIEW:'审查', TEST:'测试', COMMIT:'提交', DEBUG:'调试', DOCS:'文档', FINISH:'收尾', PLAN:'规划', DESIGN:'设计', CODE:'开发' };
+
+let lastSnapshot = '';
+
+async function refresh() {
+  try {
+    // state
+    const sr = await fetch('/state');
+    if (!sr.ok) { document.getElementById('errorBar').style.display = 'block'; document.getElementById('errorBar').textContent = 'state.json 未找到'; return; }
+    const state = await sr.json();
+    document.getElementById('errorBar').style.display = 'none';
+    renderState(state);
+
+    // snapshot
+    const ssr = await fetch('/status?snapshot=true');
+    const ss = await ssr.json();
+    document.getElementById('connStatus').textContent = ssr.ok ? '在线' : '离线';
+    document.getElementById('connStatus').className = 'status ' + (ssr.ok ? 'online' : 'offline');
+    if (ss.snapshot && ss.snapshot !== lastSnapshot) {
+      lastSnapshot = ss.snapshot;
+      document.getElementById('output').textContent = ss.snapshot;
+      document.getElementById('output').scrollTop = document.getElementById('output').scrollHeight;
+    }
+  } catch (e) {
+    document.getElementById('connStatus').textContent = '离线';
+    document.getElementById('connStatus').className = 'status offline';
+  }
+}
+
+function renderState(state) {
+  document.getElementById('projectName').textContent = state.project || state.task || '—';
+  const phase = state.currentState;
+  document.getElementById('currentPhase').textContent = PHASE_LABELS[phase] || phase;
+
+  // tasks
+  const tasks = state.plan?.tasks || [];
+  const done = tasks.filter(t => t.status === 'done').length;
+  document.getElementById('progress').textContent = done + '/' + tasks.length;
+
+  const list = document.getElementById('taskList');
+  list.innerHTML = '<h3>Tasks</h3>';
+  tasks.forEach(t => {
+    const icon = t.status === 'done' ? '✓' : t.status === 'active' ? '●' : '○';
+    const cls = t.status;
+    const div = document.createElement('div');
+    div.className = 'task-item' + (t.status === 'active' ? ' current' : '');
+    div.innerHTML = `<span class="icon ${cls}">${icon}</span>
+      <div class="info">
+        <span class="name ${cls}">[${t.id}] ${t.desc}</span>
+        ${t.deps?.length ? '<span class="deps">← [' + t.deps.join(',') + ']</span>' : ''}
+      </div>`;
+    list.appendChild(div);
+  });
+
+  // phase chain
+  const chain = document.getElementById('phaseChain');
+  chain.innerHTML = PHASES.map((p, i) => {
+    const isCurrent = phase === p || (phase === 'CODE' && p === 'DEV');
+    const isDone = done === tasks.length && p === 'COMMIT' ? false : false; // simplified
+    let cls = '';
+    if (phase === 'FINISH' || (PHASES.indexOf(phase) >= 0 && PHASES.indexOf(p) < PHASES.indexOf(phase))) cls = 'done';
+    else if (isCurrent) cls = 'current';
+    return `<div class="phase-step ${cls}"><span class="dot"></span>${PHASE_LABELS[p]}</div>` +
+      (i < PHASES.length - 1 ? '<span class="phase-arrow">→</span>' : '');
+  }).join('');
+}
+
+setInterval(refresh, 2000);
+refresh();
+</script>
+</body>
+</html>

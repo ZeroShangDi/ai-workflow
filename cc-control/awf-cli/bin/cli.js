@@ -50,7 +50,7 @@ program
 
 program
   .command('open <target>')
-  .description('打开可视化页面：tree / ui')
+  .description('打开可视化页面：dashboard / tree / ui')
   .action(openCommand);
 
 program

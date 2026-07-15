@@ -35,13 +35,36 @@ export async function runCommand(task, options) {
     process.exit(1);
   }
 
+  // 确保 Ctrl-C 也能触发清理
+  let cleaned = false;
+  const doCleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    const session = process.env.CC_SESSION || 'cc';
+    try { execSync(`tmux kill-session -t ${session} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    try { execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    logger.info('服务已关闭');
+  };
+  process.on('SIGINT', () => { doCleanup(); process.exit(0); });
+  process.on('SIGTERM', () => { doCleanup(); process.exit(0); });
+
   logger.info(`工作流: ${state.plan?.summary || task || '(resume)'}`);
 
-  await ensureServer(paths);
+  await ensureServer(paths, projectRoot);
   await ensureSession(paths);
 
-  logger.info(`另开终端执行 awf attach 可观看实时对话\n`);
+  // 自动打开 dashboard
+  spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
+  logger.info(`Dashboard: http://localhost:${SERVER_PORT}\n`);
 
+  try {
+    await runLoop(projectRoot, paths, task);
+  } finally {
+    doCleanup();
+  }
+}
+
+async function runLoop(projectRoot, paths, task) {
   let currentState = loadState(projectRoot);
   while (currentState && currentState.currentState !== 'FINISH') {
     const nextTask = findNextTask(currentState);
@@ -74,6 +97,7 @@ export async function runCommand(task, options) {
 
   logger.success('工作流结束');
 }
+
 
 // === 阶段执行 ===
 
@@ -162,14 +186,14 @@ async function waitForReady() {
 
 // === 环境管理 ===
 
-async function ensureServer(paths) {
+async function ensureServer(paths, projectRoot) {
   if (await checkServer()) { logger.info('tmux-http 已运行'); return; }
 
   logger.info('启动 tmux-http ...');
   const proc = spawn('node', [paths.tmuxServer], {
     stdio: 'ignore', detached: true,
     cwd: paths.tmuxHttp,
-    env: { ...process.env, CC_PORT: String(SERVER_PORT) },
+    env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: projectRoot },
   });
   proc.unref();
 
@@ -184,11 +208,10 @@ async function ensureSession(paths) {
   const bootstrap = path.join(paths.tmuxHttp, 'bootstrap.sh');
   const sessionName = process.env.CC_SESSION || 'cc';
 
+  // 先杀旧 session，确保每次都是全新环境（加载最新插件配置）
   try {
-    execSync(`tmux has-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' });
-    logger.info(`tmux session '${sessionName}' 已存在`);
-    return;
-  } catch { /* create */ }
+    execSync(`tmux kill-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' });
+  } catch {}
 
   logger.info('创建 tmux session...');
   execSync(`bash "${bootstrap}"`, { stdio: 'inherit', cwd: process.cwd() });
