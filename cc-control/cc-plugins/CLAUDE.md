@@ -15,7 +15,7 @@ claude --plugin-dir .
 
 **Local permanent install:**
 ```
-/plugin marketplace add .
+/plugin marketplace add ./
 /plugin install ai-workflow@ai-workflow-dev
 ```
 
