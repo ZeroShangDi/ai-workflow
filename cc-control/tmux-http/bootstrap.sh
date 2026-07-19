@@ -14,7 +14,6 @@ command -v claude >/dev/null 2>&1 || { echo "claude not found on PATH" >&2; exit
 # Render the hook settings (inject the server port) into the controlled workdir.
 mkdir -p "$WORKDIR/.claude"
 sed "s/__PORT__/$PORT/g" "$DIR/hooks/settings.json" > "$WORKDIR/.claude/settings.json"
-echo "wrote hooks -> $WORKDIR/.claude/settings.json"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session '$SESSION' already exists. Kill it with: tmux kill-session -t $SESSION"
@@ -24,16 +23,10 @@ fi
 # Plugin dir — cc-plugins 包含 /w-dev /w-review 等自定义命令
 PLUGIN_DIR="${CC_PLUGIN_DIR:-$ROOT/cc-plugins}"
 
-# Detached session with a fixed, wide geometry so the TUI renders predictably.
+# bypassPermissions: 免除文件读写、命令执行等权限确认，避免阻塞自动化工作流
 tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
-  "claude --plugin-dir '$PLUGIN_DIR'"
-echo "started tmux session '$SESSION' running claude in $WORKDIR (plugins: $PLUGIN_DIR)"
+  "claude --plugin-dir '$PLUGIN_DIR' --permission-mode bypassPermissions"
 
-# First run in a fresh dir shows a "trust this folder?" prompt whose default is
-# accept — nudge Enter once. Harmless (empty submit) if no prompt is shown.
+# Trust prompt — bypassPermissions 下仍可能出现，nudge Enter 消除
 sleep 3
 tmux send-keys -t "$SESSION" Enter
-
-echo
-echo "watch live:   tmux attach -t $SESSION   (detach: Ctrl-b then d)"
-echo "stop session: tmux kill-session -t $SESSION"

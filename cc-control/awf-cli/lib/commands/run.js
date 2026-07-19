@@ -3,8 +3,15 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { getPaths } from '../utils/paths.js';
-import { logger } from '../utils/logger.js';
 import { loadState, findNextTask } from '../utils/state.js';
+
+const CYAN = '\x1b[36m';
+const GREEN = '\x1b[32m';
+const YELLOW = '\x1b[33m';
+const RED = '\x1b[31m';
+const DIM = '\x1b[2m';
+const RESET = '\x1b[0m';
+const LABEL_W = 18;
 
 const SERVER_PORT = 8787;
 const POLL_INTERVAL = 2000;
@@ -12,16 +19,82 @@ const READY_TIMEOUT = 300000;
 
 const CHAIN = ['DEV', 'REVIEW', 'TEST', 'COMMIT'];
 
-let useLocal = false; // --local 标志，跳过 one-shot 智能生成
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+let useLocal = false;
+
+// ── 输出辅助 ──
+
+function logSection(title) {
+  console.log(`${DIM}  ▸ ${title}${RESET}`);
+}
+
+function logStep(label, status, msg) {
+  const prefix = `     ${DIM}${label.padEnd(LABEL_W)}${RESET}`;
+  switch (status) {
+    case 'ok':
+      console.log(`${prefix}${GREEN}✔ ${msg}${RESET}`);
+      break;
+    case 'warn':
+      console.log(`${prefix}${YELLOW}⚠ ${msg}${RESET}`);
+      break;
+    case 'skip':
+      console.log(`${prefix}${DIM}• ${msg}${RESET}`);
+      break;
+    case 'error':
+      console.log(`${prefix}${RED}✘ ${msg}${RESET}`);
+      break;
+  }
+}
+
+function createSpinner(label) {
+  let i = 0;
+  let active = true;
+  const timer = setInterval(() => {
+    if (active) {
+      process.stdout.write(
+        `\r     ${DIM}${SPINNER[i++ % SPINNER.length]} ${label}${RESET}`,
+      );
+    }
+  }, 80);
+  return {
+    stop() {
+      active = false;
+      clearInterval(timer);
+      process.stdout.write('\r\x1b[K');
+    },
+  };
+}
+
+function logPrompt(prompt) {
+  const MAX = 120;
+  const firstLine = prompt.split('\n')[0];
+  if (firstLine.length <= MAX) {
+    console.log(`     ${DIM}prompt${RESET}  ${firstLine}`);
+  } else {
+    console.log(`     ${DIM}prompt${RESET}  ${firstLine.slice(0, MAX)}...`);
+  }
+  const total = prompt.length;
+  if (total > firstLine.length) {
+    console.log(`     ${DIM}(${total.toLocaleString()} chars)${RESET}`);
+  }
+}
+
+function logPhase(phase) {
+  // TODO: token 用量统计 — 当前无法从 tmux session 中提取 API token 消耗
+  const tokenInfo = `${DIM}tokens  —${RESET}`;
+  const phasePad = Math.max(2, 28 - phase.length);
+  console.log(`  ${CYAN}▸ ${phase}${RESET}${' '.repeat(phasePad)}${tokenInfo}`);
+}
+
+function logBanner(text) {
+  console.log(`${CYAN}  ── ${text} ──${RESET}`);
+}
+
+// ── 主命令 ──
 
 /**
- * awf run — 自治工作流编排服务
- *
- * Two invocation modes:
- *   Session (tmux-http)  — 持久多轮，执行开发/审查/测试/提交
- *   One-shot (claude -p) — 单次无状态，只为当前阶段生成提示词
- *
- * PLAN/DESIGN 在 run 之外由人工完成。
+ * awf run — 自治工作流编排
  */
 export async function runCommand(task, options) {
   const { auto, local } = options;
@@ -31,11 +104,11 @@ export async function runCommand(task, options) {
 
   const state = loadState(projectRoot);
   if (!state) {
-    logger.error('未找到 .awf/state.json，请先执行 awf plan');
+    console.log(`${RED}  未找到 .awf/state.json，请先执行 awf plan${RESET}\n`);
     process.exit(1);
   }
 
-  // 确保 Ctrl-C 也能触发清理
+  // Ctrl-C 清理
   let cleaned = false;
   const doCleanup = () => {
     if (cleaned) return;
@@ -43,19 +116,26 @@ export async function runCommand(task, options) {
     const session = process.env.CC_SESSION || 'cc';
     try { execSync(`tmux kill-session -t ${session} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
     try { execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
-    logger.info('服务已关闭');
+    console.log(`${DIM}  服务已关闭${RESET}`);
   };
   process.on('SIGINT', () => { doCleanup(); process.exit(0); });
   process.on('SIGTERM', () => { doCleanup(); process.exit(0); });
 
-  logger.info(`工作流: ${state.plan?.summary || task || '(resume)'}`);
+  // Header
+  const summary = state.plan?.summary || task || '';
+  console.log(`${CYAN}⚡ AI Workflow 运行${RESET}`);
+  console.log(`  ${DIM}工作流:${RESET} ${summary}\n`);
 
+  // ── 1. 启动环境 ──
+  logSection('启动环境');
   await ensureServer(paths, projectRoot);
   await ensureSession(paths);
 
-  // 自动打开 dashboard
+  // dashboard
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
-  logger.info(`Dashboard: http://localhost:${SERVER_PORT}\n`);
+  logStep('dashboard', 'ok', `http://localhost:${SERVER_PORT}`);
+
+  console.log('');
 
   try {
     await runLoop(projectRoot, paths, task);
@@ -64,45 +144,51 @@ export async function runCommand(task, options) {
   }
 }
 
+// ── 任务循环 ──
+
 async function runLoop(projectRoot, paths, task) {
   let currentState = loadState(projectRoot);
+  const allTasks = currentState?.plan?.tasks || [];
+  const total = allTasks.length;
+
   while (currentState && currentState.currentState !== 'FINISH') {
     const nextTask = findNextTask(currentState);
 
     if (!nextTask) {
-      logger.info('所有任务完成，进入 FINISH');
+      console.log(`${DIM}  所有任务完成，进入 FINISH${RESET}`);
       await executePhase('FINISH', { task: { id: '-', desc: '收尾', prompt: '' } }, projectRoot, paths);
       break;
     }
 
-    logger.info(`任务 [${nextTask.id}] ${nextTask.desc}`);
+    const idx = allTasks.findIndex(t => t.id === nextTask.id) + 1;
+    logBanner(`任务 ${idx}/${total}: ${nextTask.desc}`);
 
     for (const phase of CHAIN) {
       await executePhase(phase, { task: nextTask }, projectRoot, paths);
 
       const updated = loadState(projectRoot);
       if (updated?.currentState === 'DEBUG') {
-        logger.warn('DEBUG 中断');
+        logStep('status', 'warn', '进入 DEBUG');
         await executePhase('DEBUG', {
           task: nextTask,
           fromPhase: phase,
           error: { description: '上一阶段触发错误' },
         }, projectRoot, paths);
-        break; // DEBUG 完后回到 CHAIN 开头重新走
+        break;
       }
     }
 
     currentState = loadState(projectRoot);
   }
 
-  logger.success('工作流结束');
+  console.log('');
+  console.log(`${GREEN}  ✔ 工作流结束${RESET}\n`);
 }
 
-
-// === 阶段执行 ===
+// ── 阶段执行 ──
 
 async function executePhase(phase, ctx, projectRoot, paths) {
-  // 1. 主路径：POST /oneshot 调用 /w-prompt 智能生成（--local 跳过）
+  // 1. 获取提示词
   let prompt = null;
   if (!useLocal && ctx.task?.id && ctx.task.id !== '-') {
     let instruction = `/w-prompt ${phase} ${ctx.task.id}`;
@@ -118,19 +204,30 @@ async function executePhase(phase, ctx, projectRoot, paths) {
     }
   }
 
-  // 2. 兜底 / --local：本地模板填充
+  // 2. 兜底 / --local
   if (!prompt) {
     prompt = buildLocalPrompt(phase, ctx, paths);
   }
 
-  logger.info(`  [${phase}] → ${prompt.slice(0, 80)}${prompt.length > 80 ? '...' : ''}`);
+  // 3. 显示阶段、prompt、token 占位
+  logPhase(phase);
+  logPrompt(prompt);
 
-  // 3. 推入 tmux session 执行
+  // 4. 推入 tmux 执行
   await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
-  await waitForReady();
+
+  const spin = createSpinner('executing...');
+  try {
+    await waitForReady();
+    spin.stop();
+    console.log(`     ${GREEN}✔ done${RESET}`);
+  } catch (err) {
+    spin.stop();
+    logStep('', 'error', `超时: ${err.message}`);
+  }
 }
 
-// === 提示词：本地模板回退 ===
+// ── 提示词：本地模板回退 ──
 
 function buildLocalPrompt(phase, ctx, paths) {
   const file = path.join(paths.prompts, `${phase.toLowerCase()}.md`);
@@ -150,7 +247,7 @@ function buildLocalPrompt(phase, ctx, paths) {
   return `${body}\n${tag} 只做这一步，完成后等待下一步指令。`;
 }
 
-// === tmux-http 通信 ===
+// ── tmux-http 通信 ──
 
 async function httpPost(url, body) {
   return new Promise((resolve, reject) => {
@@ -184,12 +281,15 @@ async function waitForReady() {
   throw new Error('等待 Claude Code 就绪超时');
 }
 
-// === 环境管理 ===
+// ── 环境管理 ──
 
 async function ensureServer(paths, projectRoot) {
-  if (await checkServer()) { logger.info('tmux-http 已运行'); return; }
+  if (await checkServer()) {
+    logStep('tmux-http', 'skip', '已运行');
+    return;
+  }
 
-  logger.info('启动 tmux-http ...');
+  const spin = createSpinner('starting tmux-http ...');
   const proc = spawn('node', [paths.tmuxServer], {
     stdio: 'ignore', detached: true,
     cwd: paths.tmuxHttp,
@@ -199,8 +299,13 @@ async function ensureServer(paths, projectRoot) {
 
   for (let i = 0; i < 30; i++) {
     await sleep(500);
-    if (await checkServer()) { logger.success('tmux-http 已启动'); return; }
+    if (await checkServer()) {
+      spin.stop();
+      logStep('tmux-http', 'ok', '已启动');
+      return;
+    }
   }
+  spin.stop();
   throw new Error('tmux-http 启动超时');
 }
 
@@ -208,13 +313,12 @@ async function ensureSession(paths) {
   const bootstrap = path.join(paths.tmuxHttp, 'bootstrap.sh');
   const sessionName = process.env.CC_SESSION || 'cc';
 
-  // 先杀旧 session，确保每次都是全新环境（加载最新插件配置）
   try {
     execSync(`tmux kill-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' });
   } catch {}
 
-  logger.info('创建 tmux session...');
-  execSync(`bash "${bootstrap}"`, { stdio: 'inherit', cwd: process.cwd() });
+  execSync(`bash "${bootstrap}"`, { stdio: 'ignore', cwd: process.cwd() });
+  logStep('session', 'ok', `${sessionName} → sandbox`);
 }
 
 async function checkServer() {
