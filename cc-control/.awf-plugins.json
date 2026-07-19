@@ -1,0 +1,6 @@
+{
+  "plugins": [
+    "superpowers@claude-plugins-official",
+    "figma@claude-plugins-official"
+  ]
+}
