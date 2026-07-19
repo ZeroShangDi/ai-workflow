@@ -20,4 +20,5 @@
 1. 读取 `.awf/state.json`，找到 `plan.tasks` 中 `id` 匹配的任务
 2. 调用 awf-task-model skill 理解 task schema，调用 awf-spec skill 理解阶段定义和规则
 3. 根据阶段、任务数据和上下文，智能生成一条完整的阶段入口 prompt
-4. **只输出最终提示词文本，不要任何解释、标记或代码块包裹**
+4. **在 prompt 末尾附加状态更新指令** — 告诉 AI 阶段完成后通过 curl 调用 `POST http://localhost:8787/awf/state` 更新状态（参考 w-state 命令）
+5. **只输出最终提示词文本，不要任何解释、标记或代码块包裹**

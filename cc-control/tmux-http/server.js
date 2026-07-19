@@ -117,15 +117,80 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, event: event || null, state });
   }
 
-  // workflow state
-  if (req.method === 'GET' && pathname === '/state') {
+  // ── awf state (read + write) ──
+  const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
+
+  function readState() {
+    return JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
+  }
+
+  function writeState(s) {
+    s.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+  }
+
+  if (req.method === 'GET' && pathname === '/awf/state') {
     try {
-      const statePath = path.join(PROJECT_ROOT, '.awf', 'state.json');
-      const stateJson = fs.readFileSync(statePath, 'utf-8');
+      const stateJson = fs.readFileSync(STATE_PATH, 'utf-8');
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(stateJson);
     } catch {
       return send(res, 404, { ok: false, error: '.awf/state.json not found' });
+    }
+  }
+
+  if (req.method === 'POST' && pathname === '/awf/state') {
+    const body = await readJson(req);
+    if (!body || !body.action) {
+      return send(res, 400, { ok: false, error: 'body must contain {action, ...}' });
+    }
+
+    try {
+      const s = readState();
+      const tasks = s.plan?.tasks || [];
+      const milestones = s.milestones || [];
+
+      switch (body.action) {
+        case 'task-status': {
+          const t = tasks.find(t => t.id == body.id);
+          if (!t) return send(res, 404, { ok: false, error: `task ${body.id} not found` });
+          t.status = body.status;
+          break;
+        }
+        case 'task-result': {
+          const t = tasks.find(t => t.id == body.id);
+          if (!t) return send(res, 404, { ok: false, error: `task ${body.id} not found` });
+          if (!t.exec) t.exec = {};
+          if (body.result !== undefined) t.exec.result = body.result;
+          if (body.files) t.exec.files = body.files;
+          break;
+        }
+        case 'task-commit': {
+          const t = tasks.find(t => t.id == body.id);
+          if (!t) return send(res, 404, { ok: false, error: `task ${body.id} not found` });
+          if (!t.commits) t.commits = [];
+          t.commits.push({ hash: body.hash, message: body.message });
+          break;
+        }
+        case 'phase': {
+          s.currentState = body.phase;
+          break;
+        }
+        case 'milestone': {
+          const m = milestones.find(m => m.id == body.id);
+          if (!m) return send(res, 404, { ok: false, error: `milestone ${body.id} not found` });
+          m.status = body.status;
+          break;
+        }
+        default:
+          return send(res, 400, { ok: false, error: `unknown action: ${body.action}` });
+      }
+
+      writeState(s);
+      console.log(`[awf/state] ${body.action} ${body.id || body.phase || ''} -> ok`);
+      return send(res, 200, { ok: true, action: body.action });
+    } catch (err) {
+      return send(res, 500, { ok: false, error: err.message });
     }
   }
 

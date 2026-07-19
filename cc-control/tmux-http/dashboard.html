@@ -95,7 +95,7 @@ let lastSnapshot = '';
 async function refresh() {
   try {
     // state
-    const sr = await fetch('/state');
+    const sr = await fetch('/awf/state');
     if (!sr.ok) { document.getElementById('errorBar').style.display = 'block'; document.getElementById('errorBar').textContent = 'state.json 未找到'; return; }
     const state = await sr.json();
     document.getElementById('errorBar').style.display = 'none';
