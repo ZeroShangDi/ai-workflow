@@ -151,6 +151,7 @@ const server = http.createServer(async (req, res) => {
       const milestones = s.milestones || [];
 
       switch (body.action) {
+        // ── existing task actions ──
         case 'task-status': {
           const t = tasks.find(t => t.id == body.id);
           if (!t) return send(res, 404, { ok: false, error: `task ${body.id} not found` });
@@ -172,6 +173,89 @@ const server = http.createServer(async (req, res) => {
           t.commits.push({ hash: body.hash, message: body.message });
           break;
         }
+
+        // ── new task CRUD ──
+        case 'task-create': {
+          if (!s.plan) s.plan = {};
+          if (!s.plan.tasks) s.plan.tasks = [];
+          if (s.plan.tasks.find(t => t.id == body.id)) {
+            return send(res, 409, { ok: false, error: `task ${body.id} already exists` });
+          }
+          s.plan.tasks.push({
+            id: body.id,
+            desc: body.desc,
+            prompt: body.prompt,
+            wbsRef: body.wbsRef,
+            deps: body.deps || [],
+            status: 'pending',
+          });
+          break;
+        }
+        case 'task-update': {
+          const t = tasks.find(t => t.id == body.id);
+          if (!t) return send(res, 404, { ok: false, error: `task ${body.id} not found` });
+          if (body.desc !== undefined) t.desc = body.desc;
+          if (body.prompt !== undefined) t.prompt = body.prompt;
+          if (body.wbsRef !== undefined) t.wbsRef = body.wbsRef;
+          if (body.deps !== undefined) t.deps = body.deps;
+          break;
+        }
+        case 'task-delete': {
+          const idx = s.plan?.tasks?.findIndex(t => t.id == body.id);
+          if (idx === undefined || idx === -1) {
+            return send(res, 404, { ok: false, error: `task ${body.id} not found` });
+          }
+          s.plan.tasks.splice(idx, 1);
+          break;
+        }
+
+        // ── plan metadata ──
+        case 'plan-configure': {
+          if (!s.plan) s.plan = {};
+          if (body.summary !== undefined) s.plan.summary = body.summary;
+          if (body.reqDoc !== undefined) s.plan.reqDoc = body.reqDoc;
+          if (body.hasUI !== undefined) s.plan.hasUI = body.hasUI;
+          if (body.inScope !== undefined) s.plan.inScope = body.inScope;
+          if (body.outOfScope !== undefined) s.plan.outOfScope = body.outOfScope;
+          if (body.acceptanceCriteria !== undefined) s.plan.acceptanceCriteria = body.acceptanceCriteria;
+          break;
+        }
+
+        // ── WBS management ──
+        case 'wbs-create': {
+          if (!s.plan) s.plan = {};
+          if (!s.plan.wbs) s.plan.wbs = [];
+          if (s.plan.wbs.find(w => w.id == body.id)) {
+            return send(res, 409, { ok: false, error: `wbs ${body.id} already exists` });
+          }
+          s.plan.wbs.push({
+            id: body.id,
+            name: body.name,
+            desc: body.desc,
+            acceptance: body.acceptance,
+            deps: body.deps || [],
+          });
+          break;
+        }
+        case 'wbs-update': {
+          const w = s.plan?.wbs?.find(w => w.id == body.id);
+          if (!w) return send(res, 404, { ok: false, error: `wbs ${body.id} not found` });
+          if (body.name !== undefined) w.name = body.name;
+          if (body.desc !== undefined) w.desc = body.desc;
+          if (body.acceptance !== undefined) w.acceptance = body.acceptance;
+          if (body.deps !== undefined) w.deps = body.deps;
+          break;
+        }
+        case 'wbs-delete': {
+          const idx = s.plan?.wbs?.findIndex(w => w.id == body.id);
+          if (idx === undefined || idx === -1) {
+            return send(res, 404, { ok: false, error: `wbs ${body.id} not found` });
+          }
+          s.plan.wbs.splice(idx, 1);
+          break;
+        }
+
+        // ── existing phase / milestone ──
         case 'phase': {
           s.currentState = body.phase;
           break;
@@ -182,6 +266,20 @@ const server = http.createServer(async (req, res) => {
           m.status = body.status;
           break;
         }
+        case 'milestone-create': {
+          if (!s.milestones) s.milestones = [];
+          if (s.milestones.find(m => m.id == body.id)) {
+            return send(res, 409, { ok: false, error: `milestone ${body.id} already exists` });
+          }
+          s.milestones.push({
+            id: body.id,
+            desc: body.desc,
+            status: body.status || 'active',
+            tasks: body.tasks || [],
+          });
+          break;
+        }
+
         default:
           return send(res, 400, { ok: false, error: `unknown action: ${body.action}` });
       }
