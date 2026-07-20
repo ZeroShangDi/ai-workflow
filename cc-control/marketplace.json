@@ -1,0 +1,15 @@
+{
+  "name": "ai-workflow-dev",
+  "description": "Local development marketplace for ai-workflow",
+  "owner": {
+    "name": "v-shangjunhao"
+  },
+  "plugins": [
+    {
+      "name": "ai-workflow",
+      "description": "持久化多阶段工作流编排 — 给 Claude Code 加上记忆、流程和自主推进能力",
+      "version": "2.0.0",
+      "source": "./"
+    }
+  ]
+}

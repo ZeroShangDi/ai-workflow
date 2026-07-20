@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "awf-state": {
+      "command": "node",
+      "args": ["__TOOLS__/awf-state/server.cjs"],
+      "env": {
+        "AWF_PROJECT_ROOT": "__WORKDIR__"
+      }
+    },
+    "awf-session": {
+      "command": "node",
+      "args": ["__TOOLS__/awf-session/server.cjs"],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:__PORT__"
+      }
+    },
+    "awf-oneshot": {
+      "command": "node",
+      "args": ["__TOOLS__/awf-oneshot/server.cjs"]
+    }
+  }
+}

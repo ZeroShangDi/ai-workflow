@@ -46,6 +46,9 @@ Desktop.ini
 .claude/user/
 .claude/awf-state.json
 .claude/settings.local.json
+cc-control/.claude/user/
+cc-control/.claude/awf-state.json
+cc-control/.claude/settings.local.json
 
 # === Environment ===
 .env

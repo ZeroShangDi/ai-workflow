@@ -1,63 +1,75 @@
-# AI软件工程师
+# AI Workflow Framework
 
-## 总控中心
+> 给 AI 加记忆、加流程、加自主推进能力 — Claude Code 之上的持久化执行层
 
-- 命令行
+## 安装
 
-## 设计
+```bash
+# npm（CLI + 插件）
+npm install -g ai-workflow
 
-一、任务定级
+# Claude Code 插件
+/plugin install ai-workflow@claude-plugins-official
 
-- 空间复杂度（T1原子级，T2任务级，T3模块级，T4需求级，T5项目级，T6阶段级，T7商业级，T8生态级，T9创造级）
-- 时间复杂度（耗时）
-- 是否阻塞
+# 本地开发
+git clone <repo> && cd ai-workflow/cc-control
+npm install && npm link
+claude --plugin-dir .
+```
 
-二、任务完善
+## 快速开始
 
-- 刨根问底做成什么样子？（做什么？怎么做？）【为什么做？谁来做？什么时候做？在哪里做？】
+```bash
+awf init                 # 初始化项目，安装插件
+awf plan "我的需求"       # 交互式规划 → .awf/state.json
+awf run                  # 自主执行：遍历任务，逐阶段推进
+awf attach               # 实时观看 AI 工作
+```
 
-三、任务拆解
+## 架构
 
-- wbs任务树
-- 线性队列
+```
+┌─ CLI (bin/awf.js) ─────────────────────────────────┐
+│  读取 state.json → 启动 Session Server + tmux       │
+│  → 逐任务逐阶段发送 prompt → 轮询 ready/busy        │
+└─────────────────────────────────────────────────────┘
+         │ HTTP                          │ spawn
+         ▼                              ▼
+┌─ Session Server ──────────┐  ┌─ OneShot ───────────┐
+│  /send /cmd /hook /status │  │  claude -p (prompt) │
+│  ready/busy 状态机        │  └─────────────────────┘
+└───────────────────────────┘
+         │ tmux send-keys
+         ▼
+┌─ tmux session (Claude Code) ────────────────────────┐
+│  加载 commands/ + skills/ + 3 个 MCP servers        │
+│  AI 通过 awf_* tools 更新 state.json               │
+└─────────────────────────────────────────────────────┘
+```
 
-## 执行
+## 目录
 
-一、常见Ai问题
+| 目录 | 说明 |
+|------|------|
+| `bin/` | CLI 入口 |
+| `commands/` | 14 个 slash commands |
+| `skills/` | 10 个 skills（编码/设计/质量标准） |
+| `prompts/run/` | 阶段 prompt 模板 |
+| `tools/` | 3 个 MCP Server（state / session / oneshot） |
+| `src/` | 内部实现（CLI + Server） |
+| `scripts/` | 开发脚本 |
+| `tests/` | 测试 + 评测 |
+| `docs/` | 架构文档 |
 
-- 上下文超出、丢失
-- skill中定义了规则，但并没有执行
-- 遇到异常时 AI 没有回撤路径，直接在错误方向上继续
-- 大量AI开发导致技术债增多，熵增，项目失控
+## 开发
 
-二、流水线编排（cc Plugins）
+```bash
+npm test          # 单元 + 集成测试
+npm run lint      # 语法检查
+npm run build     # 打包验证
+npm run eval      # AI 质量评测
+```
 
-- 通用程序开发流程，自定义命令
-- 通用程序开发Skill
-- 细分语言开发Skill
-- 流程编排SKill
+## 许可证
 
-
-
-### 程序控制CC输入（脚本/HTTP/HOOK）
-
-## 观测
-
-### 可视化可观测性（HTML）
-
-
-## 检验
-
-### 浏览器自动化（BBX Mcp）
-
-
-## 测评
-
-- 整体流程稳定性
-- 代码编写
-- 端到端测试
-- Token消耗
-
-## 异常处理
-
-- 中间态问题
+MIT

@@ -1,0 +1,20 @@
+{
+  "name": "ai-workflow",
+  "description": "持久化多阶段工作流编排 — 给 Claude Code 加上记忆、流程和自主推进能力。14 个命令 + 10 个 skills + 3 个 MCP servers",
+  "version": "2.0.0",
+  "author": {
+    "name": "v-shangjunhao"
+  },
+  "keywords": [
+    "workflow",
+    "w-plan",
+    "w-dev",
+    "w-review",
+    "autonomous",
+    "ai",
+    "standards",
+    "code-review",
+    "testing"
+  ],
+  "license": "MIT"
+}
