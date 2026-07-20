@@ -15,7 +15,7 @@
     "src/",
     "scripts/",
     "plugin.json",
-    "marketplace.json"
+    ".claude-plugin/marketplace.json"
   ],
   "scripts": {
     "test": "bash scripts/test.sh",
