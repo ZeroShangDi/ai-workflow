@@ -38,7 +38,7 @@ cc-control/
   scripts/                 # 开发命令（bootstrap, test, lint, build, eval）
   tests/                   # unit / integration / eval / fixtures
   sandbox/                 # 测试沙箱（gitignored）
-  docs/                    # 架构文档
+  docs/                    # features/issues/bugs/logs/discuss 五类项目文档
 ```
 
 ## 核心编排流程
@@ -190,7 +190,7 @@ claude --plugin-dir .     # 临时加载
 | `tools/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
 | `prompts/run/state-machine.md` | 自治执行规则（注入给 AI 的运行时指令） |
 | `skills/awf-spec/SKILL.md` | 核心状态机规范 |
-| `docs/architecture-notes.md` | 架构决策记录 |
+| `docs/discuss/architecture-notes.md` | 架构决策记录 |
 
 ## 用户配置（`.claude/user/`）
 
@@ -200,5 +200,13 @@ Personal preferences stored in the target project's `.claude/user/`, NOT committ
 
 ## 文档系统
 
-- **`docs/`** — Architecture docs, feature docs, test case docs (721 progressive)
+```
+docs/
+├── features/    # w-doc 产出的需求文档 + 测试用例 + WBS + 原型
+├── issues/      # 阻塞问题、待决策事项
+├── bugs/        # 缺陷记录、根因、修复方案
+├── logs/        # 开发日志、变更记录、路线图
+└── discuss/     # 讨论记录、方案对比、架构决策、方法论
+```
+
 - **`.claude/issues/`** — Issue escalation: AI creates issues here for human-needed decisions
