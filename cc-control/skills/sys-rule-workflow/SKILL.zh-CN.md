@@ -1,5 +1,5 @@
 ---
-name: workflow-standards
+name: sys-rule-workflow
 description: >
   自定义命令（.claude/commands/）和技能（.claude/skills/）设计规范。
   在创建新命令、编写新技能、拆分大型技能、审查工作流架构时使用。
@@ -15,7 +15,7 @@ description: >
 | | 命令 (`.claude/commands/`) | 技能 (`.claude/skills/`) |
 |---|---|---|
 | **角色** | 流程编排器 — 控制步骤的执行顺序 | 能力提供者 — 编码专门知识 |
-| **归属** | 一个工作流阶段（如 w-commit = COMMIT 阶段） | 一个领域概念（如 code-standards = 编码规则） |
+| **归属** | 一个工作流阶段（如 w-commit = COMMIT 阶段） | 一个领域概念（如 code-rule-style = 编码规则） |
 | **调用方式** | 用户通过 `/command-name` 调用 | 由命令或 Agent 自动加载调用 |
 | **规模** | 目标 ≤150 行 | 目标 ≤300 行 |
 
@@ -40,7 +40,7 @@ description: >
   1. 检查命名：函数用 camelCase，组件用 PascalCase...
 
 ✓ 好 — 命令委托给技能：
-  1. 遵循 **code-standards** skill 检查代码质量
+  1. 遵循 **code-rule-style** skill 检查代码质量
 ```
 
 ### 2. 命令有明确的单阶段范围
@@ -89,7 +89,7 @@ description: >
 
 ### 1. 一个技能 = 一个概念
 
-技能应封装单个概念的全部知识。`code-standards` 拥有编码相关的所有知识（命名、错误处理、函数设计）。`design-standards` 拥有系统架构相关的所有知识（组件设计、数据建模、状态管理）。
+技能应封装单个概念的全部知识。`code-rule-style` 拥有编码相关的所有知识（命名、错误处理、函数设计）。`code-rule-design` 拥有系统架构相关的所有知识（组件设计、数据建模、状态管理）。
 
 如果技能描述需要"和"或"或"来连接，说明它试图拥有两个概念。
 
@@ -104,7 +104,7 @@ description: >
 ### 4. 高内聚、低耦合
 
 - **内聚**：技能内的一切都与其核心概念直接相关
-- **耦合**：技能不应引用其他技能的细节（通过名称交叉引用没问题，如"遵循 code-standards"）
+- **耦合**：技能不应引用其他技能的细节（通过名称交叉引用没问题，如"遵循 code-rule-style"）
 
 ### 5. 技能规模：目标 ≤300 行
 
@@ -151,15 +151,15 @@ description: 一句话说明技能覆盖内容和触发时机
 
 | 命令 | 引用技能 | 阶段 |
 |---------|--------------|-------|
-| awf-run | awf-spec, design-standards, code-standards, quality-standards | 全流程 |
-| w-plan | design-standards | PLAN |
-| w-design | design-standards | DESIGN |
-| w-dev | brainstorming, tdd, code-standards, design-standards | CODE |
+| awf-run | awf-sys-spec-workflow, code-rule-design, code-rule-style, code-rule-quality | 全流程 |
+| w-plan | code-rule-design | PLAN |
+| w-design | code-rule-design | DESIGN |
+| w-dev | brainstorming, tdd, code-rule-style, code-rule-design | CODE |
 | w-debug | systematic-debugging | DEBUG |
-| w-review | requesting-code-review, code-standards, quality-standards | REVIEW |
-| w-test | quality-standards | TEST |
-| w-commit | verification-before-completion, quality-standards, version-management, git-flow, workflow-standards | COMMIT |
-| w-finish | verification-before-completion, quality-standards | FINISH |
-| w-doc | quality-standards | DOC |
-| w-tree | design-standards | PLAN |
+| w-review | requesting-code-review, code-rule-style, code-rule-quality | REVIEW |
+| w-test | code-rule-quality | TEST |
+| w-commit | verification-before-completion, code-rule-quality, flow-exec-version, flow-rule-git, sys-rule-workflow | COMMIT |
+| w-finish | verification-before-completion, code-rule-quality | FINISH |
+| w-doc | code-rule-quality | DOC |
+| w-tree | code-rule-design | PLAN |
 | w-ui | figma-use | CODE |

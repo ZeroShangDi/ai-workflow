@@ -2,7 +2,7 @@
 
 自动完成提交门控检查、版本判断、分支管理、生成 commit 并打 tag 的完整提交流程。
 
-w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev / w-review / w-test 承担。本命令仅检查 `.claude/awf-state.json` 中的 `canCommit` 标记。详见 **awf-spec** skill 中的"提交门控"章节。
+w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev / w-review / w-test 承担。本命令仅检查 `.claude/awf-state.json` 中的 `canCommit` 标记。详见 **awf-sys-spec-workflow** skill 中的"提交门控"章节。
 
 ## 参数
 
@@ -10,7 +10,7 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 |------|------|
 | `--bump [major\|minor\|patch]` | 提交后升级版本号并打 tag。留空自动从 commit 推导 |
 | `--no-bump` | 跳过版本升级和 tag |
-| `--branch <name>` | 在指定 feature 分支上操作，默认按 git-flow 自动创建 |
+| `--branch <name>` | 在指定 feature 分支上操作，默认按 flow-rule-git 自动创建 |
 | `--no-branch` | 跳过分支管理，直接在当前分支提交 |
 | `<直接输入>` | 手动指定 commit message，留空自动生成 |
 
@@ -26,10 +26,10 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 
 ## 关联 Skill
 
-- **version-management** — 语义化版本方法论：semver 规则、自动判断级别、tag 规范
-- **git-flow** — 分支管理模型：feature/release/hotfix 工作流、命名规范
-- **quality-standards** — Conventional Commits 格式、小提交原则
-- **workflow-standards** — 命令/技能规模约束
+- **flow-exec-version** — 语义化版本方法论：semver 规则、自动判断级别、tag 规范
+- **flow-rule-git** — 分支管理模型：feature/release/hotfix 工作流、命名规范
+- **code-rule-quality** — Conventional Commits 格式、小提交原则
+- **sys-rule-workflow** — 命令/技能规模约束
 
 ## 前置 Skill 调用
 
@@ -54,7 +54,7 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 
 ### 3. 版本判断（`--no-bump` 跳过）
 
-遵循 **version-management** skill：
+遵循 **flow-exec-version** skill：
 
 1. 读取 `package.json` 当前版本
 2. 判断升级级别：显式 `--bump <level>` > 从 commit 自动推导 > 默认 patch
@@ -62,7 +62,7 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 
 ### 4. 分支管理（`--no-branch` 跳过）
 
-遵循 **git-flow** skill，默认使用简化模式：
+遵循 **flow-rule-git** skill，默认使用简化模式：
 
 1. `--branch <name>` 指定 → 切换到该 feature 分支
 2. 未指定 → 自动从 commit type 推导是否需要 feature 分支（`feat:` → 创建 `feature/<desc>`）
@@ -78,7 +78,7 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 
 ### 6. 打 Tag
 
-遵循 **version-management** skill：
+遵循 **flow-exec-version** skill：
 
 1. 执行 `npm version <level>` — 升级版本号 + 创建附注 tag
 2. Tag 格式：`v<MAJOR>.<MINOR>.<PATCH>`

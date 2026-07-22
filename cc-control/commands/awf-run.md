@@ -13,10 +13,10 @@
 ## 关联 Skill
 
 全程生效：
-- **awf-spec** — 状态机模型、阶段定义、状态持久化、Issue 升级、决策权限（此命令的全部详细规范）
-- **design-standards** — 架构设计、数据建模、状态管理
-- **code-standards** — 编码规范：函数设计、命名、错误处理
-- **quality-standards** — 质量标准：测试、审查、提交、文档
+- **awf-sys-spec-workflow** — 状态机模型、阶段定义、状态持久化、Issue 升级、决策权限（此命令的全部详细规范）
+- **code-rule-design** — 架构设计、数据建模、状态管理
+- **code-rule-style** — 编码规范：函数设计、命名、错误处理
+- **code-rule-quality** — 质量标准：测试、审查、提交、文档
 
 ## 状态机模型
 
@@ -44,7 +44,7 @@ PLAN → DESIGN (if UI) → CODE (loop) → REVIEW → TEST → COMMIT → FINIS
 
 ## 执行流程
 
-详细阶段定义见 **awf-spec** skill。流程概要：
+详细阶段定义见 **awf-sys-spec-workflow** skill。流程概要：
 
 1. **PLAN** — Q&A 对齐 60-70% 细节 → 产出需求文档 → 原型 → WBS → 任务清单 → 倒计时确认
 2. **DESIGN**（可选）— 生成 3 种风格 → 用户选择 → 逐步生成 UI → 保存偏好 → 倒计时确认
@@ -77,4 +77,4 @@ PLAN → DESIGN (if UI) → CODE (loop) → REVIEW → TEST → COMMIT → FINIS
 | Issue 检查 / 状态写入 | 破坏性 API 变更 |
 | 文档过期自动更新 | 任务 COMMIT 前 / FINISH 后 |
 
-倒计时机制详见 **awf-spec** skill。用户可在倒计时期间回复任意内容打断并保存断点，之后通过 `/awf-run --resume` 恢复。
+倒计时机制详见 **awf-sys-spec-workflow** skill。用户可在倒计时期间回复任意内容打断并保存断点，之后通过 `/awf-run --resume` 恢复。

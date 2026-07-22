@@ -19,7 +19,7 @@
 
 ## 关联 Skill
 
-收尾检查以 **quality-standards** skill 为质量标准。
+收尾检查以 **code-rule-quality** skill 为质量标准。
 
 ## 执行流程
 

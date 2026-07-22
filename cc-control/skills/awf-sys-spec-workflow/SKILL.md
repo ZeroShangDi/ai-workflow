@@ -1,5 +1,5 @@
 ---
-name: awf-spec
+name: awf-sys-spec-workflow
 description: >
   Autonomous workflow specification — state machine model, phase definitions, state persistence,
   issue escalation, and autonomous decision rules for the awf-run system. Referenced by awf-run
@@ -226,7 +226,7 @@ Triggered when PLAN marks "requires DESIGN phase":
 ### REVIEW
 
 1. Review all changes from current task
-2. Focus on quality-standards dimensions: correctness, security, performance, maintainability
+2. Focus on code-rule-quality dimensions: correctness, security, performance, maintainability
 3. Results written to `temp/review-<req-id>.md`
 4. Critical issues → back to CODE; clean → enter TEST
 
@@ -274,7 +274,7 @@ When human intervention is required:
 ## Autonomous Decision Permissions
 
 **No-ask actions** (execute directly):
-- Code style / naming → per ESLint/Prettier and code-standards
+- Code style / naming → per ESLint/Prettier and code-rule-style
 - File organization → follow existing project structure
 - Dependency choice → prefer reuse
 - Type annotations → strict TS, no `any`

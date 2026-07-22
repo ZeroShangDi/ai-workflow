@@ -63,9 +63,9 @@ ai-workflow/                          # 项目根目录（= 插件目录）
 │   │   ├── w-finish.md
 │   │   └── w-tree.md
 │   ├── skills/                       # → 插件的 skills
-│   │   ├── code-standards/
-│   │   ├── design-standards/
-│   │   ├── quality-standards/
+│   │   ├── code-rule-style/
+│   │   ├── code-rule-design/
+│   │   ├── code-rule-quality/
 │   │   ├── testdoc/
 │   │   └── code-patterns/
 │   └── templates/                    # → 插件的 templates

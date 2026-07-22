@@ -59,7 +59,7 @@
 
 ## 验收标准
 
-- [ ] awf-spec 中定义倒计时机制
+- [ ] awf-sys-spec-workflow 中定义倒计时机制
 - [ ] awf-run.md 引用该机制
 - [ ] 创建 `.claude/user/pause-config.json` 配置模板
 - [ ] `--auto` 模式下倒计时为 0（直接跳过）

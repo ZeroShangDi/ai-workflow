@@ -22,7 +22,7 @@ cc-control/
   bin/awf.js               # CLI 入口（Commander，7 个命令）
 
   commands/                # 14 个 slash commands（auto-discovered by Claude Code）
-  skills/                  # 10 个 skills（编码/设计/质量/workflow 标准）
+  skills/                  # 10 个 skills（awf-* 核心 / core 通用）
   prompts/run/             # 8 个运行时阶段 prompt 模板
 
   tools/                   # 3 个独立 MCP Server
@@ -81,7 +81,7 @@ PLAN → DESIGN (if UI) → CODE (loop per task) → REVIEW → TEST → FINISH
 - **DESIGN**: Generate 3 UI styles → user picks → generate UI incrementally (`/w-design`)
 - **CODE**: Loop through tasks sequentially (`/w-dev`)
 - **DEBUG**: Systematic debugging when bugs surface (`/w-debug`)
-- **REVIEW**: Code review against code-standards + quality-standards (`/w-review`)
+- **REVIEW**: Code review against code-rule-style + code-rule-quality (`/w-review`)
 - **TEST**: Inspect test case docs against actual code behavior (`/w-test`)
 - **FINISH**: Milestone wrap-up — quality, perf, docs, summary, memory, handoff (`/w-finish`)
 
@@ -108,15 +108,16 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 
 ## Skills
 
-- **`design-standards`** — Architecture, data modeling, state management. Applied during PLAN/DESIGN.
-- **`code-standards`** — Function design, naming, error handling, defensive programming. Applied during CODE/DEBUG.
-- **`quality-standards`** — Testing pyramid (70/20/10), code review, conventional commits. Applied during REVIEW/TEST/FINISH.
-- **`workflow-standards`** — Standards for designing commands and skills.
-- **`git-flow`** — Git branching and commit conventions.
-- **`version-management`** — Version bumping and changelog management.
-- **`testdoc`** — Test case documentation standards.
-- **`awf-spec`** — Autonomous workflow specification format.
-- **`awf-task-model`** — Task schema definition for the workflow.
+- **`code-rule-design`** — Architecture, data modeling, state management. Applied during PLAN/DESIGN.
+- **`code-rule-style`** — Function design, naming, error handling, defensive programming. Applied during CODE/DEBUG.
+- **`code-rule-quality`** — Testing pyramid (70/20/10), code review, conventional commits. Applied during REVIEW/TEST/FINISH.
+- **`sys-rule-workflow`** — Standards for designing commands and skills.
+- **`sys-rule-skill`** — Skill lifecycle management — create, update, delete, organize, audit.
+- **`flow-rule-git`** — Git branching and commit conventions.
+- **`flow-exec-version`** — Version bumping and changelog management.
+- **`awf-sys-spec-workflow`** — Autonomous workflow specification format.
+- **`awf-sys-spec-task`** — Task schema definition.
+- **`awf-flow-exec-prompt`** — Prompt generator for awf-run phases.
 
 These are invoked automatically by slash commands. Do not invoke them manually unless explicitly requested.
 
@@ -189,7 +190,7 @@ claude --plugin-dir .     # 临时加载
 | `tools/awf-session/server.cjs` | Session MCP — 2 个 tools |
 | `tools/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
 | `prompts/run/state-machine.md` | 自治执行规则（注入给 AI 的运行时指令） |
-| `skills/awf-spec/SKILL.md` | 核心状态机规范 |
+| `skills/awf-sys-spec-workflow/SKILL.md` | 核心状态机规范 |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
 
 ## 用户配置（`.claude/user/`）

@@ -30,7 +30,7 @@
 
 - [ ] `ai-workflow install` 执行后，`claude plugin list` 能看到 `ai-workflow` 插件
 - [ ] 安装后，在任意项目执行 `claude` 后可使用 `/w-plan`、`/w-dev` 等所有命令
-- [ ] 安装后，skills（code-standards、design-standards、quality-standards 等）自动可用
+- [ ] 安装后，skills（code-rule-style、code-rule-design、code-rule-quality 等）自动可用
 - [ ] `ai-workflow uninstall` 执行后，插件完全移除，不影响 Claude Code 正常运行
 - [ ] CLI 自身代码通过 typecheck 和 lint
 - [ ] 安装在 `~/.claude/plugins/` 下以符号链接方式实现，修改源文件即时生效

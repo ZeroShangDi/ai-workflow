@@ -8,7 +8,7 @@
 
 ## 关联 Skill
 
-方案设计时以 **design-standards** skill 为架构准则。
+方案设计时以 **code-rule-design** skill 为架构准则。
 
 ## 执行流程
 

@@ -1,5 +1,5 @@
 ---
-name: quality-standards
+name: code-rule-quality
 description: >
   质量保障与交付规范——测试、代码审查、提交、文档和技术债务管理。
   在审查代码（w-review）、验证测试（w-test）、提交（w-commit）、

@@ -1,5 +1,5 @@
 ---
-name: git-flow
+name: flow-rule-git
 description: >
   Git Flow 分支管理模型。定义分支命名规范、feature/release/hotfix 工作流和合并规则。
   由 w-commit 在分支管理步骤中引用。触发场景："分支策略"、"git flow"、"feature 分支"、"release 分支"、"hotfix"。

@@ -8,7 +8,7 @@
 
 ## 关联 Skill
 
-测试用例设计和排查标准遵循 **quality-standards** skill 中的测试金字塔、行为测试原则和命名规范。
+测试用例设计和排查标准遵循 **code-rule-quality** skill 中的测试金字塔、行为测试原则和命名规范。
 
 ## 执行流程
 

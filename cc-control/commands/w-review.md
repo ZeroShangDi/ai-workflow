@@ -12,7 +12,7 @@
 
 ## 关联 Skill
 
-审查时以 **code-standards**（微观质量：函数、命名、错误处理）和 **quality-standards**（宏观质量：测试、架构、安全）为双重标准。
+审查时以 **code-rule-style**（微观质量：函数、命名、错误处理）和 **code-rule-quality**（宏观质量：测试、架构、安全）为双重标准。
 
 ## 执行流程
 

@@ -23,7 +23,7 @@
 
 ## 关联 Skill
 
-生成逻辑全部在 `skills/w-prompt/SKILL.md` 中：
+生成逻辑全部在 `skills/awf-flow-exec-prompt/SKILL.md` 中：
 - **提示词字典** — 按场景分类的方法论提示词，标注了适用阶段
 - **阶段生成规则** — DEV/DEBUG/REVIEW/TEST/COMMIT/FINISH 的组装逻辑
 - **风格铁律** — 9 条从用户历史蒸馏的风格约束

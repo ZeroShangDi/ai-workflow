@@ -1,5 +1,5 @@
 ---
-name: quality-standards
+name: code-rule-quality
 description: >
   Quality assurance and delivery standards — testing, code review, commits, documentation, and
   technical debt management. Use when reviewing code (w-review), verifying tests (w-test),

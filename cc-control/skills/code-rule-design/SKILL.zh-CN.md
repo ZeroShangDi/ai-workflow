@@ -1,5 +1,5 @@
 ---
-name: design-standards
+name: code-rule-design
 description: >
   宏观层面的架构与设计规范，涵盖系统结构、模块划分和数据建模。
   在规划功能（w-plan）、拆分任务（w-tree）、设计架构、数据建模或

@@ -1,5 +1,5 @@
 ---
-name: git-flow
+name: flow-rule-git
 description: >
   Git Flow branching model for the workflow system. Defines branch naming conventions, feature/release/hotfix
   workflows, and merge rules. Referenced by w-commit for branch management. Trigger when the user asks about

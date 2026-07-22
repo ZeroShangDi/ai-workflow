@@ -1,5 +1,5 @@
 ---
-name: version-management
+name: flow-exec-version
 description: >
   Semantic versioning methodology for the workflow system. Defines when and how to bump version
   numbers, tag naming conventions, and auto-determination rules from conventional commits.

@@ -1,5 +1,5 @@
 ---
-name: code-standards
+name: code-rule-style
 description: >
   Micro-level coding standards for writing clean, correct code — function design, naming, error handling,
   defensive programming, and code style. Use whenever writing or modifying any code, especially during

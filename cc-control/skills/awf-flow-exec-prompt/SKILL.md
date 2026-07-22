@@ -1,5 +1,5 @@
 ---
-name: w-prompt
+name: awf-flow-exec-prompt
 description: >
   Prompt generator for the awf-run workflow. Generates phase-specific prompts
   in the user's style, drawing from a curated dictionary of methodology prompts.

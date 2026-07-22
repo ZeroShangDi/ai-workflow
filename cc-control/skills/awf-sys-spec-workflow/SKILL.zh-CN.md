@@ -1,5 +1,5 @@
 ---
-name: awf-spec
+name: awf-sys-spec-workflow
 description: >
   自治工作流规范 — 状态机模型、阶段定义、状态持久化、Issue 升级和自主决策规则。
   由 awf-run 命令和 w-finish 引用。在实现或修改工作流管道本身时使用。
@@ -225,7 +225,7 @@ PLAN 标记"需要 DESIGN 阶段"时触发：
 ### REVIEW
 
 1. 审查当前任务的所有变更
-2. 聚焦 quality-standards 维度：正确性、安全性、性能、可维护性
+2. 聚焦 code-rule-quality 维度：正确性、安全性、性能、可维护性
 3. 结果写入 `temp/review-<req-id>.md`
 4. 严重问题 → 回 CODE；无问题 → 进入 TEST
 
@@ -273,7 +273,7 @@ PLAN 标记"需要 DESIGN 阶段"时触发：
 ## 自主决策权限
 
 **无需询问的操作**（直接执行）：
-- 代码风格 / 命名 → 遵循 ESLint/Prettier 和 code-standards
+- 代码风格 / 命名 → 遵循 ESLint/Prettier 和 code-rule-style
 - 文件组织 → 遵循现有项目结构
 - 依赖选择 → 优先复用
 - 类型标注 → 严格 TS，禁止 `any`

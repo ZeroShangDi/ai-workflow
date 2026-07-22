@@ -1,5 +1,5 @@
 ---
-name: awf-task-model
+name: awf-sys-spec-task
 description: >
   Task data schema — the canonical definition of every task field in .awf/state.json.
   Who reads it, who writes it, and when. Referenced by w-plan, awf-run, w-dev, w-review,

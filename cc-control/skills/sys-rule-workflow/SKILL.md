@@ -1,5 +1,5 @@
 ---
-name: workflow-standards
+name: sys-rule-workflow
 description: >
   Design standards for Claude Code custom commands (.claude/commands/) and skills (.claude/skills/).
   Use when creating new slash commands, writing new skills, splitting large skills, or reviewing
@@ -16,7 +16,7 @@ These principles govern how we design the two building blocks of our workflow sy
 | | Command (`.claude/commands/`) | Skill (`.claude/skills/`) |
 |---|---|---|
 | **Role** | Flow orchestrator — controls the sequence of steps | Capability provider — encodes specialized knowledge |
-| **Owner** | One workflow phase (e.g., w-commit = COMMIT phase) | One domain concept (e.g., code-standards = coding rules) |
+| **Owner** | One workflow phase (e.g., w-commit = COMMIT phase) | One domain concept (e.g., code-rule-style = coding rules) |
 | **Reuse** | Called by users via `/command-name` | Called by commands or agents automatically |
 | **Size** | Target ≤150 lines | Target ≤300 lines |
 
@@ -41,7 +41,7 @@ A command's job is to **decide what happens next**, not to encode domain rules. 
   1. Check naming: functions use camelCase, components use PascalCase...
 
 ✓ GOOD — command delegates to skill:
-  1. Follow **code-standards** skill for code quality checks
+  1. Follow **code-rule-style** skill for code quality checks
 ```
 
 ### 2. Commands have a clear single-phase scope
@@ -90,7 +90,7 @@ Every section in a command should earn its place. Prefer short, direct descripti
 
 ### 1. Skills own one concept completely
 
-A skill should encapsulate all knowledge about a single concept. `code-standards` owns everything about writing code — naming, error handling, function design. `design-standards` owns everything about system architecture — component design, data modeling, state management.
+A skill should encapsulate all knowledge about a single concept. `code-rule-style` owns everything about writing code — naming, error handling, function design. `code-rule-design` owns everything about system architecture — component design, data modeling, state management.
 
 If a skill's description needs "and" or "or", it's trying to own two concepts.
 
@@ -105,7 +105,7 @@ Skills provide rules and principles, not workflow state. A skill doesn't know ab
 ### 4. High cohesion, low coupling
 
 - **Cohesion**: everything inside a skill relates directly to its concept
-- **Coupling**: a skill should not reference details of another skill (cross-references by name are fine, e.g., "follow code-standards")
+- **Coupling**: a skill should not reference details of another skill (cross-references by name are fine, e.g., "follow code-rule-style")
 
 ### 5. Skill size: target ≤300 lines
 
@@ -156,15 +156,15 @@ When creating new capabilities, check this snapshot to avoid placing knowledge i
 
 | Command | Skill(s) Used | Phase |
 |---------|--------------|-------|
-| awf-run | awf-spec, design-standards, code-standards, quality-standards | Full pipeline |
-| w-plan | design-standards | PLAN |
-| w-design | design-standards | DESIGN |
-| w-dev | brainstorming, tdd, code-standards, design-standards | CODE |
+| awf-run | awf-sys-spec-workflow, code-rule-design, code-rule-style, code-rule-quality | Full pipeline |
+| w-plan | code-rule-design | PLAN |
+| w-design | code-rule-design | DESIGN |
+| w-dev | brainstorming, tdd, code-rule-style, code-rule-design | CODE |
 | w-debug | systematic-debugging | DEBUG |
-| w-review | requesting-code-review, code-standards, quality-standards | REVIEW |
-| w-test | quality-standards | TEST |
-| w-commit | verification-before-completion, quality-standards, version-management, git-flow, workflow-standards | COMMIT |
-| w-finish | verification-before-completion, quality-standards | FINISH |
-| w-doc | quality-standards | DOC |
-| w-tree | design-standards | PLAN |
+| w-review | requesting-code-review, code-rule-style, code-rule-quality | REVIEW |
+| w-test | code-rule-quality | TEST |
+| w-commit | verification-before-completion, code-rule-quality, flow-exec-version, flow-rule-git, sys-rule-workflow | COMMIT |
+| w-finish | verification-before-completion, code-rule-quality | FINISH |
+| w-doc | code-rule-quality | DOC |
+| w-tree | code-rule-design | PLAN |
 | w-ui | figma-use | CODE |

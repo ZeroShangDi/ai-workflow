@@ -1,5 +1,5 @@
 ---
-name: design-standards
+name: code-rule-design
 description: >
   Macro-level architecture and design standards for structuring systems, modules, and data models.
   Use when planning features (w-plan), breaking down tasks (w-tree), designing architecture,

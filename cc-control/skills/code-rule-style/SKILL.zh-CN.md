@@ -1,5 +1,5 @@
 ---
-name: code-standards
+name: code-rule-style
 description: >
   微观层面的编码规范，涵盖函数设计、命名、错误处理、防御性编程和代码风格。
   在编写或修改代码时使用，尤其在开发（w-dev）和调试（w-debug）阶段。

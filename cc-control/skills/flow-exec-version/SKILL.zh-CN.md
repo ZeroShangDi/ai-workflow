@@ -1,5 +1,5 @@
 ---
-name: version-management
+name: flow-exec-version
 description: >
   语义化版本管理方法论。定义何时及如何升级版本号、tag 命名规范、从 conventional commits 自动判断级别的规则。
   由 w-commit 在版本/tag 步骤中引用。触发场景："版本管理"、"semver"、"打 tag"、"升级版本"、"发布管理"。
