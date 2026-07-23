@@ -1,6 +1,6 @@
 # 智能提交
 
-自动完成提交门控检查、版本判断、分支管理、生成 commit 并打 tag 的完整提交流程。
+自动完成提交门控检查、生成 commit 的提交流程。需要时通过 `--bump` 选项触发版本升级和打 tag。
 
 w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev / w-review / w-test 承担。本命令仅检查 `.claude/awf-state.json` 中的 `canCommit` 标记。详见 **awf-sys-spec-workflow** skill 中的"提交门控"章节。
 
@@ -8,16 +8,15 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 
 | 参数 | 说明 |
 |------|------|
-| `--bump [major\|minor\|patch]` | 提交后升级版本号并打 tag。留空自动从 commit 推导 |
-| `--no-bump` | 跳过版本升级和 tag |
-| `--branch <name>` | 在指定 feature 分支上操作，默认按 flow-rule-git 自动创建 |
-| `--no-branch` | 跳过分支管理，直接在当前分支提交 |
+| `--bump [major\|minor\|patch]` | 需要时显式指定，提交后升级版本号并打 tag。留空自动从 commit 推导 |
+| `--branch <name>` | 在指定 feature 分支上操作 |
 | `<直接输入>` | 手动指定 commit message，留空自动生成 |
 
 示例：
-- `/w-commit` — 全自动：门控检查 → 版本判断 → 分支管理 → 提交 → tag
-- `/w-commit --no-bump` — 跳过版本和 tag
-- `/w-commit feat: 新增搜索功能` — 手动指定 message，其余自动
+- `/w-commit` — 仅提交，不打 tag 不 bump 版本
+- `/w-commit --bump` — 提交 + 自动推导 bump 级别 + 打 tag
+- `/w-commit --bump patch` — 提交 + patch bump + 打 tag
+- `/w-commit feat: 新增搜索功能` — 手动指定 message
 
 ## 硬性规则
 
@@ -52,22 +51,21 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 - `git status` + `git diff` + `git log --oneline -10`
 - 理解本次变更的性质和范围
 
-### 3. 版本判断（`--no-bump` 跳过）
+### 3. 版本判断（仅 `--bump` 时触发）
+
+默认不 bump。仅当显式传入 `--bump` 时才执行。
 
 遵循 **flow-exec-version** skill：
 
 1. 读取 `package.json` 当前版本
 2. 判断升级级别：显式 `--bump <level>` > 从 commit 自动推导 > 默认 patch
-3. 跳过场景：仅 docs/style/chore 且无用户影响、无新提交、显式 `--no-bump`
 
-### 4. 分支管理（`--no-branch` 跳过）
+### 4. 分支管理
 
-遵循 **flow-rule-git** skill，默认使用简化模式：
+遵循 **flow-rule-git** skill：
 
 1. `--branch <name>` 指定 → 切换到该 feature 分支
-2. 未指定 → 自动从 commit type 推导是否需要 feature 分支（`feat:` → 创建 `feature/<desc>`）
-3. 分支不存在则从当前分支创建，已存在则切换
-4. 提交完成后合并回源分支（`--no-ff`）
+2. 未指定 → 直接在当前分支提交，不自动创建分支
 
 ### 5. 提交
 
@@ -76,13 +74,14 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 - `git commit`
 - 提交成功后：若存在 `awf-state.json`，设 `canCommit = false`
 
-### 6. 打 Tag
+### 6. 打 Tag（仅 `--bump` 时触发）
 
 遵循 **flow-exec-version** skill：
 
-1. 执行 `npm version <level>` — 升级版本号 + 创建附注 tag
-2. Tag 格式：`v<MAJOR>.<MINOR>.<PATCH>`
-3. 版本升级本身作为独立 commit：`chore: bump version to vX.Y.Z`
+1. 执行 `npm version <level> --no-git-tag-version` 仅升级版本号
+2. Tag 格式：`cc-v<MAJOR>.<MINOR>.<PATCH>`（cc-control 项目前缀）
+3. 手动 `git tag -a` 创建附注 tag
+4. 版本升级本身作为独立 commit：`chore: bump version to cc-vX.Y.Z`
 
 ### 7. 完成
 
@@ -91,15 +90,13 @@ w-commit 不负责判断代码是否具备提交条件——该职责由 w-dev /
 ```
 ✓ 提交完成
   Commit: feat: 新增搜索功能 (a1b2c3d)
-  版本: 1.4.2 → 1.5.0 (minor)
-  Tag: v1.5.0
-  分支: feature/search → develop (merged --no-ff)
+  版本: 0.1.0 → 0.1.1 (patch)
+  Tag: cc-v0.1.1
 ```
 
 ## 注意
 
 - `--bump` 和 `--branch` 可组合使用
-- 分支合并仅 fast-forward 安全时自动执行，有冲突提示手动处理
 - pre-commit hook 失败 → 修复后新建 commit，不 amend
 - 一次改动涉及多个不相关功能 → 拆分为多次提交
 - 非 awf-run 工作流（无状态文件）亦可使用，会在前置检查时询问确认
