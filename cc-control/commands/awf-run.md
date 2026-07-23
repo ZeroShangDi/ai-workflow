@@ -28,10 +28,12 @@ PLAN → DESIGN (if UI) → CODE (loop) → REVIEW → TEST → COMMIT → FINIS
 ```
 
 **关键规则**：
-- DOC 可在任意节点触发
+- DOCS 触发条件（确定性，不再"任意触发"）：
+  1. complex 任务 DEV 完成后自动 DOCS
+  2. featureGroup 最后一个任务自动 DOCS
+  3. FINISH 固定检查全量文档同步
 - FINISH 是里程碑标识，不是项目终点
 - DEBUG 是中断驱动：CODE/REVIEW/TEST 任一阶段出现问题即切入
-- TEST 发现文档过期 → 自动 w-doc → 重测
 - 每个需求可 commit 一次或多次，一个里程碑内可有多个 commit
 
 ## 文档体系
@@ -48,7 +50,11 @@ PLAN → DESIGN (if UI) → CODE (loop) → REVIEW → TEST → COMMIT → FINIS
 
 1. **PLAN** — Q&A 对齐 60-70% 细节 → 产出需求文档 → 原型 → WBS → 任务清单 → 倒计时确认
 2. **DESIGN**（可选）— 生成 3 种风格 → 用户选择 → 逐步生成 UI → 保存偏好 → 倒计时确认
-3. **CODE** — 从任务清单逐个取就绪任务，执行 w-dev → w-review → w-test → w-commit 闭环
+3. **CODE** — 从任务清单逐个取就绪任务，按复杂度执行阶段链：
+   - simple（配置/文案）→ w-dev → w-commit
+   - medium（bugfix/优化，默认）→ w-dev → w-test → w-commit
+   - complex（新模块/架构）→ w-dev → w-doc → w-review → w-test → w-commit
+   - featureGroup 最后一个任务触发完整集成 TEST + DOCS
 4. **REVIEW** — 审查变更，严重问题回 CODE
 5. **TEST** — pnpm test + typecheck + 逐条验证测试文档
 6. **COMMIT** — Conventional Commits，禁止 Co-Authored-By，倒计时暂停

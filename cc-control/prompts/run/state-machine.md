@@ -18,7 +18,11 @@ DOCS 可在任意阶段触发。
 
 1. **一次只做一件事** — 收到哪个阶段的指令就只执行那个阶段，不越界
 2. **每个阶段结束后更新状态** — 通过 awf-state MCP tools 更新状态（详见下方）
-3. **不要跳过 REVIEW 和 TEST** — 即使代码改动很小也要走完整链条
+3. **阶段链由 CLI 决定，你不需要关心** — 按收到的阶段指令执行。复杂度对应：
+   - simple（配置/文案）→ DEV → COMMIT
+   - medium（bugfix/优化，默认）→ DEV → TEST → COMMIT
+   - complex（新模块/架构）→ DEV → DOCS → REVIEW → TEST → COMMIT
+   - featureGroup 最后一个任务会自动触发完整集成 TEST + DOCS
 4. **遇到 human 决策点时创建 Issue** — 写入 `.awf/issues/`，然后在 exec.result 中说明阻塞原因
 5. **禁止 Co-Authored-By 签名**
 6. **禁止自动 push**
@@ -49,7 +53,7 @@ curl -s -X POST http://localhost:8787/awf/state \
 ## 各阶段更新规范
 
 - **DEV 完成后**: task-status → active，task-result 写入 exec.result + exec.files
-- **REVIEW 完成后**: 通过则推进，严重问题则 task-status 回 active
-- **TEST 完成后**: task-status → done
+- **REVIEW 完成后**（仅 complex 任务）: 通过则推进，严重问题则 task-status 回 active
+- **TEST 完成后**（medium+ 任务）: task-status → done
 - **COMMIT 完成后**: task-commit 追加 commits[]，task-status → done
 - **FINISH 完成后**: milestone → done，phase → FINISH

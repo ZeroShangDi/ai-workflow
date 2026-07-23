@@ -17,7 +17,59 @@ const SERVER_PORT = 8787;
 const POLL_INTERVAL = 2000;
 const READY_TIMEOUT = 300000;
 
-const CHAIN = ['DEV', 'REVIEW', 'TEST', 'COMMIT'];
+// ── 阶段链解析 ──
+
+function resolvePhases(task, state, projectRoot) {
+  // 1. 显式覆盖
+  if (task.phases?.length > 0) return [...task.phases];
+
+  // 2. 复杂度默认
+  const complexity = task.complexity || 'medium';
+  let phases;
+  switch (complexity) {
+    case 'simple':
+      phases = ['DEV', 'COMMIT'];
+      break;
+    case 'medium':
+      phases = ['DEV', 'TEST', 'COMMIT'];
+      break;
+    default:
+      phases = ['DEV', 'REVIEW', 'TEST', 'COMMIT'];
+      break;
+  }
+
+  // 3. 功能组：非最后一个任务跳过 TEST
+  if (task.featureGroup) {
+    const group = (state.plan?.tasks || []).filter(
+      (t) => t.featureGroup === task.featureGroup,
+    );
+    const isLast = group.every(
+      (t) => t.id === task.id || t.status === 'done',
+    );
+    if (!isLast) phases = phases.filter((p) => p !== 'TEST');
+  }
+
+  // 4. 无 git 仓库 → 跳过 COMMIT
+  if (!fs.existsSync(path.join(projectRoot, '.git'))) {
+    phases = phases.filter((p) => p !== 'COMMIT');
+  }
+
+  // 5. 功能组最后一个 → 插入 DOCS
+  if (task.featureGroup) {
+    const group = (state.plan?.tasks || []).filter(
+      (t) => t.featureGroup === task.featureGroup,
+    );
+    const isLast = group.every(
+      (t) => t.id === task.id || t.status === 'done',
+    );
+    if (isLast && !phases.includes('DOCS')) {
+      const devIdx = phases.indexOf('DEV');
+      if (devIdx >= 0) phases.splice(devIdx + 1, 0, 'DOCS');
+    }
+  }
+
+  return phases;
+}
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -163,8 +215,22 @@ async function runLoop(projectRoot, paths, task) {
     const idx = allTasks.findIndex(t => t.id === nextTask.id) + 1;
     logBanner(`任务 ${idx}/${total}: ${nextTask.desc}`);
 
-    for (const phase of CHAIN) {
+    const phases = resolvePhases(nextTask, currentState, projectRoot);
+    for (let i = 0; i < phases.length; i++) {
+      const phase = phases[i];
       await executePhase(phase, { task: nextTask }, projectRoot, paths);
+
+      // complex 任务 DEV 完成后自动 DOCS
+      if (phase === 'DEV') {
+        const updated = loadState(projectRoot);
+        const updatedTask = updated?.plan?.tasks?.find((t) => t.id === nextTask.id);
+        if (
+          (updatedTask?.complexity || 'medium') === 'complex' &&
+          !phases.includes('DOCS')
+        ) {
+          await executePhase('DOCS', { task: nextTask }, projectRoot, paths);
+        }
+      }
 
       const updated = loadState(projectRoot);
       if (updated?.currentState === 'DEBUG') {

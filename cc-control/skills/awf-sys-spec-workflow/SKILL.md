@@ -58,7 +58,10 @@ This skill defines the complete specification of the autonomous workflow system.
 
 ## Key Rules
 
-- **DOC triggers anywhere** — not fixed to a position; before/after coding or during testing
+- **DOCS trigger conditions**（确定性规则，不再"任意触发"）：
+  1. task.complexity === 'complex' → DEV 完成后自动 DOCS（新模块/架构需要文档）
+  2. task 是 featureGroup 最后一个 → 链中自动插入 DOCS（完整功能需要文档）
+  3. FINISH → 固定检查所有 exec.files 是否有对应文档
 - **FINISH = milestone marker** — not project end; complex tasks go through multiple FINISH cycles
 - **DEBUG is interrupt-driven** — triggered when any phase (CODE/REVIEW/TEST) encounters an issue
 - **TEST → DOC automatic** — stale docs detected during testing auto-trigger `/w-doc`, then re-test
@@ -209,7 +212,11 @@ Triggered when PLAN marks "requires DESIGN phase":
 ### CODE — Synchronous loop execution
 
 1. Pick next `status: pending` task with satisfied dependencies
-2. Execute: w-dev → w-review → w-test → w-commit cycle
+2. Execute phase chain based on task complexity:
+   - simple: w-dev → w-commit
+   - medium: w-dev → w-test → w-commit
+   - complex: w-dev → w-doc → w-review → w-test → w-commit
+   - featureGroup last task: full integration TEST + DOCS
 3. Task done → mark `done` → next task
 4. All milestone tasks done → milestone FINISH
 5. All milestones done → project FINISH

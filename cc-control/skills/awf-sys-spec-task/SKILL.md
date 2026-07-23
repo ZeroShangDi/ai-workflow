@@ -20,6 +20,9 @@ This skill defines the task object stored in `plan.tasks[]` inside `.awf/state.j
   "wbsRef": "1.1",
   "deps": [],
   "status": "pending",
+  "complexity": "medium",
+  "featureGroup": null,
+  "phases": null,
 
   "exec": {
     "result": null,
@@ -42,6 +45,9 @@ This skill defines the task object stored in `plan.tasks[]` inside `.awf/state.j
 | `wbsRef` | `string` | w-plan | PLAN | Back-reference to WBS node id, e.g. `"1.1"` |
 | `deps` | `string[]` | w-plan | PLAN | Task ids this task depends on. Empty array = immediately runnable |
 | `status` | `enum` | CODE/DEBUG | CODE | State lifecycle: `pending` → `active` → `done` / `blocked` |
+| `complexity` | `"simple"\|"medium"\|"complex"` | w-plan | PLAN | 控制阶段链。simple=DEV+COMMIT, medium=DEV+TEST+COMMIT, complex=DEV+DOCS+REVIEW+TEST+COMMIT |
+| `featureGroup` | `string\|null` | w-plan | PLAN | 可选，归属的特性组 ID。同组最后一个任务触发集成 TEST + DOCS |
+| `phases` | `string[]\|null` | w-plan | PLAN | 可选，显式指定阶段链，覆盖 complexity 推导 |
 
 **`desc` vs `prompt`**:
 - `desc` is for humans scanning the task list — keep it short
@@ -103,7 +109,7 @@ The `conversation` object (multi-turn prompt history per task) is under design a
 
 | Phase | Reads | Writes |
 |-------|-------|--------|
-| **PLAN** | — | `id`, `desc`, `prompt`, `wbsRef`, `deps`, `status = "pending"` |
+| **PLAN** | — | `id`, `desc`, `prompt`, `wbsRef`, `deps`, `complexity`, `featureGroup`, `phases`, `status = "pending"` |
 | **CODE** | `id`, `desc`, `prompt`, `deps`, `status` | `status`, `exec.result`, `exec.files` |
 | **REVIEW** | `desc`, `exec.result`, `exec.files` | (reports to state, does not write tasks directly) |
 | **TEST** | `desc`, `exec.result` | (sets `canCommit`, does not write tasks directly) |

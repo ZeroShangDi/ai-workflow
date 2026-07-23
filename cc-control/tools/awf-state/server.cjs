@@ -83,6 +83,9 @@ const TOOLS = [
         prompt: { type: 'string', description: '开发 prompt' },
         wbsRef: { type: 'string', description: '关联的 WBS ID' },
         deps: { type: 'array', items: { type: 'string' }, description: '依赖任务 ID 列表' },
+        complexity: { type: 'string', enum: ['simple', 'medium', 'complex'], description: '任务复杂度：simple=DEV+COMMIT, medium=DEV+TEST+COMMIT, complex=DEV+DOCS+REVIEW+TEST+COMMIT' },
+        featureGroup: { type: 'string', description: '可选，归属的特性组 ID，同组最后一个任务触发集成 TEST+DOCS' },
+        phases: { type: 'array', items: { type: 'string' }, description: '可选，显式指定阶段链，覆盖 complexity 推导' },
       },
       required: ['id', 'desc', 'prompt'],
     },
@@ -98,6 +101,9 @@ const TOOLS = [
         prompt: { type: 'string', description: '新的开发 prompt' },
         wbsRef: { type: 'string', description: '新的 WBS 引用' },
         deps: { type: 'array', items: { type: 'string' }, description: '新的依赖列表' },
+        complexity: { type: 'string', enum: ['simple', 'medium', 'complex'], description: '任务复杂度' },
+        featureGroup: { type: 'string', description: '特性组 ID' },
+        phases: { type: 'array', items: { type: 'string' }, description: '显式阶段链' },
       },
       required: ['id'],
     },
@@ -277,6 +283,9 @@ const handlers = {
           s.plan.tasks.push({
             id: args.id, desc: args.desc, prompt: args.prompt,
             wbsRef: args.wbsRef, deps: args.deps || [], status: 'pending',
+            complexity: args.complexity || 'medium',
+            featureGroup: args.featureGroup || null,
+            phases: args.phases || null,
           });
           break;
         }
@@ -287,6 +296,9 @@ const handlers = {
           if (args.prompt !== undefined) t.prompt = args.prompt;
           if (args.wbsRef !== undefined) t.wbsRef = args.wbsRef;
           if (args.deps !== undefined) t.deps = args.deps;
+          if (args.complexity !== undefined) t.complexity = args.complexity;
+          if (args.featureGroup !== undefined) t.featureGroup = args.featureGroup || null;
+          if (args.phases !== undefined) t.phases = args.phases || null;
           break;
         }
         case 'awf_task_delete': {

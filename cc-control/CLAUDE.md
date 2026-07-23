@@ -56,10 +56,12 @@ awf run           # 自主执行：遍历任务，逐阶段推进
 CLI 读取 .awf/state.json
   → 启动 HTTP Session Server (:8787)
   → 创建 tmux session（bootstrap.sh 加载插件 + MCP servers）
-  → 对每个 task 执行 4 阶段链：
-      DEV → REVIEW → TEST → COMMIT
-      ↑                  ↓
-      └── DEBUG（按需）──┘
+  → 对每个 task 按复杂度执行阶段链：
+      simple:  DEV → COMMIT
+      medium:  DEV → TEST → COMMIT
+      complex: DEV → DOCS → REVIEW → TEST → COMMIT
+      ↑                           ↓
+      └── DEBUG（按需）───────────┘
   → FINISH 收尾
 ```
 
