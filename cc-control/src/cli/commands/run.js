@@ -2,7 +2,7 @@ import { spawn, execSync } from 'child_process';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
-import { getPaths } from '../utils/paths.js';
+import { getPaths, pluginCmd } from '../utils/paths.js';
 import { loadState, findNextTask } from '../utils/state.js';
 
 const CYAN = '\x1b[36m';
@@ -191,7 +191,7 @@ async function executePhase(phase, ctx, projectRoot, paths) {
   // 1. 获取提示词
   let prompt = null;
   if (!useLocal && ctx.task?.id && ctx.task.id !== '-') {
-    let instruction = `/w-prompt ${phase} ${ctx.task.id}`;
+    let instruction = `${pluginCmd('w-prompt')} ${phase} ${ctx.task.id}`;
     if (ctx.fromPhase) instruction += ` --from ${ctx.fromPhase}`;
     if (ctx.error?.description) instruction += ` --error "${ctx.error.description}"`;
 
