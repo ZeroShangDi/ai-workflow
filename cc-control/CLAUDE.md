@@ -114,6 +114,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 - **`sys-rule-workflow`** — Standards for designing commands and skills.
 - **`sys-rule-skill`** — Skill lifecycle management — create, update, delete, organize, audit.
 - **`flow-rule-git`** — Git branching and commit conventions.
+- **`flow-rule-task`** — Task decomposition rules — how to split work at the right granularity. Applied during PLAN/WBS.
 - **`flow-exec-version`** — Version bumping and changelog management.
 - **`awf-sys-spec-workflow`** — Autonomous workflow specification format.
 - **`awf-sys-spec-task`** — Task schema definition.
