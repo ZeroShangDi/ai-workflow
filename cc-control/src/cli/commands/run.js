@@ -257,10 +257,9 @@ async function executePhase(phase, ctx, projectRoot, paths) {
   // 1. 获取提示词
   let prompt = null;
 
-  // DEV：直接组装命令 + task.prompt，不经过 one-shot
+  // DEV：task.prompt 原样，不经过 one-shot
   if (phase === 'DEV' && ctx.task) {
-    const body = ctx.task.prompt || ctx.task.desc || '';
-    prompt = `/ai-workflow:w-dev ${body}`;
+    prompt = ctx.task.prompt || ctx.task.desc || '';
   } else if (!useLocal && ctx.task?.id && ctx.task.id !== '-') {
     let instruction = `${pluginCmd('w-prompt')} ${phase} ${ctx.task.id}`;
     if (ctx.fromPhase) instruction += ` --from ${ctx.fromPhase}`;
@@ -277,6 +276,9 @@ async function executePhase(phase, ctx, projectRoot, paths) {
   if (!prompt) {
     prompt = buildLocalPrompt(phase, ctx, paths);
   }
+
+  // 拼阶段命令前缀
+  prompt = withPhaseCmd(phase, prompt);
 
   // 3. 显示阶段、prompt、token 占位
   logPhase(phase);
@@ -409,6 +411,26 @@ async function checkServer() {
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// ── 阶段命令前缀 ──
+
+const PHASE_CMD = {
+  DEV: 'w-dev',
+  TEST: 'w-test',
+  COMMIT: 'w-commit',
+  REVIEW: 'w-review',
+  DEBUG: 'w-debug',
+  DOCS: 'w-doc',
+  FINISH: 'w-finish',
+};
+
+function withPhaseCmd(phase, prompt) {
+  const cmd = PHASE_CMD[phase];
+  if (!cmd) return prompt;
+  const prefixed = `/${PLUGIN_NS}:${cmd}`;
+  if (prompt.startsWith(prefixed)) return prompt;
+  return `${prefixed} ${prompt}`;
+}
 
 // ── One-shot: 直接 spawn claude -p（不再走 HTTP） ──
 
