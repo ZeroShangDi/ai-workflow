@@ -266,7 +266,7 @@ async function executePhase(phase, ctx, projectRoot, paths) {
     if (ctx.error?.description) instruction += ` --error "${ctx.error.description}"`;
 
     // 直接 spawn claude -p，不再依赖 HTTP /oneshot 端点
-    const result = await spawnClaudeOneShot(instruction, projectRoot);
+    const result = await spawnClaudeOneShot(instruction, projectRoot, paths.projectRoot);
     if (result?.ok && result.text) {
       prompt = result.text;
     }
@@ -292,6 +292,13 @@ async function executePhase(phase, ctx, projectRoot, paths) {
     await waitForReady();
     spin.stop();
     console.log(`     ${GREEN}✔ done${RESET}`);
+
+    // 5. 阶段完成后补发 MCP 状态更新，不和命令混在一起
+    const mcp = buildMcpFollowUp(phase, ctx);
+    if (mcp) {
+      await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: mcp });
+      await waitForReady();
+    }
   } catch (err) {
     spin.stop();
     logStep('', 'error', `超时: ${err.message}`);
@@ -432,11 +439,38 @@ function withPhaseCmd(phase, prompt) {
   return `${prefixed} ${prompt}`;
 }
 
+// ── MCP 状态更新：阶段完成后单独发送，不和命令混在一起 ──
+
+function buildMcpFollowUp(phase, ctx) {
+  const t = ctx.task || {};
+  if (!t.id) return null;
+
+  switch (phase) {
+    case 'DEV':
+      return '用 awf_task_result 写入 exec.result 和 exec.files，awf_task_status 标记 active。只做这一步。';
+    case 'COMMIT':
+      return `用 awf_task_commit 记录提交 hash 和 message，awf_task_status 标记 ${t.id} done。只做这一步。`;
+    case 'TEST':
+      return '用 awf_task_result 写入验证结果。通过设 awf_phase COMMIT，有缺陷设 awf_phase DEV。只做这一步。';
+    case 'REVIEW':
+      return '用 awf_task_result 写入审查结果。通过设 awf_phase TEST，不通过设 awf_phase DEV。只做这一步。';
+    case 'DOCS':
+      return '用 awf_task_result 标注文档已同步。只做这一步。';
+    case 'FINISH':
+      return '用 awf_milestone_update 标记 done，awf_phase FINISH。只做这一步。';
+    default:
+      return null;
+  }
+}
+
 // ── One-shot: 直接 spawn claude -p（不再走 HTTP） ──
 
-function spawnClaudeOneShot(prompt, cwd) {
+function spawnClaudeOneShot(prompt, cwd, pluginDir) {
   return new Promise((resolve) => {
-    const proc = spawn('claude', ['-p', prompt], {
+    const args = ['-p', prompt];
+    if (pluginDir) args.unshift('--plugin-dir', pluginDir);
+
+    const proc = spawn('claude', args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NO_COLOR: '1' },
