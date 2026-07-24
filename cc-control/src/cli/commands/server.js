@@ -21,7 +21,7 @@ export async function serverCommand(action) {
           stdio: 'ignore',
           detached: true,
           cwd: paths.projectRoot,
-          env: { ...process.env, CC_PORT: String(SERVER_PORT) },
+          env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: process.cwd() },
         });
         proc.unref();
 

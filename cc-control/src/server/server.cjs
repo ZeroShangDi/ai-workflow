@@ -2,6 +2,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const path = require('path');
 const tmuxlib = require('./tmux.cjs');
 
 const PORT = Number(process.env.CC_PORT || 8787);
@@ -113,6 +114,19 @@ const server = http.createServer(async (req, res) => {
     else if (event === 'Stop' || event === 'SessionStart') setReady();
     console.log(`[hook] ${event} -> ${state}`);
     return send(res, 200, { ok: true, event: event || null, state });
+  }
+
+  // ---- state.json ----
+  if (req.method === 'GET' && pathname === '/awf/state') {
+    const projectRoot = process.env.CC_PROJECT || process.cwd();
+    const statePath = path.join(projectRoot, '.awf', 'state.json');
+    try {
+      const raw = fs.readFileSync(statePath, 'utf-8');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(raw);
+    } catch (e) {
+      return send(res, 404, { ok: false, error: `state.json not found at ${statePath}` });
+    }
   }
 
   // ---- status ----
