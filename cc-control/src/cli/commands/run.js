@@ -2,7 +2,7 @@ import { spawn, execSync } from 'child_process';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
-import { getPaths, pluginCmd } from '../utils/paths.js';
+import { getPaths, pluginCmd, PLUGIN_NS } from '../utils/paths.js';
 import { loadState, findNextTask } from '../utils/state.js';
 
 const CYAN = '\x1b[36m';
@@ -277,6 +277,7 @@ async function executePhase(phase, ctx, projectRoot, paths) {
     prompt = buildLocalPrompt(phase, ctx, paths);
   }
 
+  // 拼阶段命令前缀
   // 拼阶段命令前缀
   prompt = withPhaseCmd(phase, prompt);
 
