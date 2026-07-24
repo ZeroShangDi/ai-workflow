@@ -256,7 +256,12 @@ async function runLoop(projectRoot, paths, task) {
 async function executePhase(phase, ctx, projectRoot, paths) {
   // 1. 获取提示词
   let prompt = null;
-  if (!useLocal && ctx.task?.id && ctx.task.id !== '-') {
+
+  // DEV：直接组装命令 + task.prompt，不经过 one-shot
+  if (phase === 'DEV' && ctx.task) {
+    const body = ctx.task.prompt || ctx.task.desc || '';
+    prompt = `/ai-workflow:w-dev ${body}`;
+  } else if (!useLocal && ctx.task?.id && ctx.task.id !== '-') {
     let instruction = `${pluginCmd('w-prompt')} ${phase} ${ctx.task.id}`;
     if (ctx.fromPhase) instruction += ` --from ${ctx.fromPhase}`;
     if (ctx.error?.description) instruction += ` --error "${ctx.error.description}"`;
