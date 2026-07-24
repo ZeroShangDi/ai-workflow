@@ -181,7 +181,7 @@ export async function runCommand(task, options) {
   // ── 1. 启动环境 ──
   logSection('启动环境');
   await ensureServer(paths, projectRoot);
-  await ensureSession(paths);
+  await ensureSession(paths, projectRoot);
 
   // dashboard
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
@@ -373,15 +373,19 @@ async function ensureServer(paths, projectRoot) {
   throw new Error('tmux-http 启动超时');
 }
 
-async function ensureSession(paths) {
+async function ensureSession(paths, projectRoot) {
   const sessionName = process.env.CC_SESSION || 'cc';
 
   try {
     execSync(`tmux kill-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' });
   } catch {}
 
-  execSync(`bash "${paths.bootstrapScript}"`, { stdio: 'ignore', cwd: process.cwd() });
-  logStep('session', 'ok', `${sessionName} → sandbox`);
+  execSync(`bash "${paths.bootstrapScript}"`, {
+    stdio: 'ignore',
+    cwd: projectRoot,
+    env: { ...process.env, CC_WORKDIR: projectRoot },
+  });
+  logStep('session', 'ok', `${sessionName} → ${projectRoot}`);
 }
 
 async function checkServer() {
