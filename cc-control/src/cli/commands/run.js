@@ -448,15 +448,15 @@ function buildMcpFollowUp(phase, ctx) {
 
   switch (phase) {
     case 'DEV':
-      return '用 awf_task_result 写入 exec.result 和 exec.files，awf_task_status 标记 active。只做这一步。';
+      return '用 awf_task_result 写入 exec.result 和 exec.files，awf_task_status 标记 active，awf_phase DEV。只做这一步。';
     case 'COMMIT':
-      return `用 awf_task_commit 记录提交 hash 和 message，awf_task_status 标记 ${t.id} done。只做这一步。`;
+      return `用 awf_task_commit 记录提交 hash 和 message，awf_task_status 标记 ${t.id} done，awf_phase COMMIT。只做这一步。`;
     case 'TEST':
-      return '用 awf_task_result 写入验证结果。通过设 awf_phase COMMIT，有缺陷设 awf_phase DEV。只做这一步。';
+      return '用 awf_task_result 写入验证结果，awf_phase TEST。通过则继续 COMMIT，有缺陷设 awf_phase DEV。只做这一步。';
     case 'REVIEW':
-      return '用 awf_task_result 写入审查结果。通过设 awf_phase TEST，不通过设 awf_phase DEV。只做这一步。';
+      return '用 awf_task_result 写入审查结果，awf_phase REVIEW。通过继续，不通过设 awf_phase DEV。只做这一步。';
     case 'DOCS':
-      return '用 awf_task_result 标注文档已同步。只做这一步。';
+      return '用 awf_task_result 标注文档已同步，awf_phase DOCS。只做这一步。';
     case 'FINISH':
       return '用 awf_milestone_update 标记 done，awf_phase FINISH。只做这一步。';
     default:
