@@ -244,6 +244,11 @@ async function runLoop(projectRoot, paths, task) {
       }
     }
 
+    // 阶段链全部完成后标记任务 done
+    const doneMcp = `用 awf_task_status 标记 ${nextTask.id} done。只做这一步。`;
+    await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: doneMcp });
+    await waitForReady();
+
     currentState = loadState(projectRoot);
   }
 
