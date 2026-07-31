@@ -94,9 +94,8 @@ export async function initCommand(options) {
   await initWorkspace(paths, force);
 
   // ── 4. Claude Code 项目初始化 ──
-  // TODO: claude -p "/init" 在非交互模式下无法正确触发 skill，待修复
-  // logSection('初始化 Claude Code 上下文');
-  // await initClaudeProject();
+  logSection('初始化 CLAUDE.md');
+  await initClaudeMd(paths.projectRoot, process.cwd());
 
   // ── 引导 ──
   console.log('');
@@ -219,17 +218,69 @@ async function initWorkspace(paths, force) {
   logStep('.awf/', 'ok', '已创建');
 }
 
-async function initClaudeProject() {
-  const spin = createSpinner('正在执行 /init ...');
+/**
+ * 初始化项目 CLAUDE.md — 检查、生成、注入 awf 规则
+ */
+async function initClaudeMd(projectRoot, cwd) {
+  const awfRulesPath = path.join(projectRoot, 'templates', 'awf-rules.md');
+  const templatePath = path.join(projectRoot, 'templates', 'CLAUDE.md.template');
+  const claudeMdPath = path.join(cwd, 'CLAUDE.md');
+
+  // 读取 awf 注入内容
+  let awfRules;
   try {
-    await execAsync('claude -p "/init"', {
-      cwd: process.cwd(),
-      timeout: 300000, // 5 min
-    });
-    spin.stop();
-    logStep('/init', 'ok', '项目上下文已初始化');
+    awfRules = await fs.readFile(awfRulesPath, 'utf-8');
+  } catch {
+    logStep('CLAUDE.md', 'warn', 'awf 规则模板不存在，跳过注入');
+    return;
+  }
+
+  const markerStart = '<!-- awf-rules start -->';
+
+  // 检查 CLAUDE.md 是否存在
+  const claudeMdExists = await fs.stat(claudeMdPath).catch(() => null);
+
+  if (!claudeMdExists) {
+    // 不存在 → 从模板生成 → 注入
+    await generateClaudeMd(templatePath, claudeMdPath, cwd);
+    await appendAwfRules(claudeMdPath, awfRules);
+  } else {
+    // 存在 → 检查是否已有 awf 标记
+    const content = await fs.readFile(claudeMdPath, 'utf-8');
+    if (content.includes(markerStart)) {
+      logStep('CLAUDE.md', 'skip', '已包含 awf 规则，跳过注入');
+    } else {
+      await appendAwfRules(claudeMdPath, awfRules);
+    }
+  }
+}
+
+async function generateClaudeMd(templatePath, targetPath, cwd) {
+  let template;
+  try {
+    template = await fs.readFile(templatePath, 'utf-8');
+  } catch {
+    logStep('CLAUDE.md', 'warn', '模板文件不存在，跳过生成');
+    return;
+  }
+
+  const content = template
+    .replace(/\{\{PROJECT_NAME\}\}/g, path.basename(cwd))
+    .replace(/\{\{PROJECT_DESCRIPTION\}\}/g, '')
+    .replace(/\{\{TECH_STACK\}\}/g, '根据项目文件自动检测或手动填写')
+    .replace(/\{\{PROJECT_STRUCTURE\}\}/g, '');
+
+  await fs.writeFile(targetPath, content);
+  logStep('CLAUDE.md', 'ok', '已从模板生成');
+}
+
+async function appendAwfRules(claudeMdPath, awfRules) {
+  try {
+    const current = await fs.readFile(claudeMdPath, 'utf-8');
+    const separator = current.endsWith('\n') ? '\n' : '\n\n';
+    await fs.writeFile(claudeMdPath, current + separator + awfRules);
+    logStep('CLAUDE.md', 'ok', '已注入 awf 规则');
   } catch (err) {
-    spin.stop();
-    logStep('/init', 'warn', `初始化失败: ${err.message}`);
+    logStep('CLAUDE.md', 'warn', `注入失败: ${err.message}`);
   }
 }
