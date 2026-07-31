@@ -1,0 +1,506 @@
+{
+  "version": "0.1.4",
+  "created": "2026-07-31",
+  "traversal": {
+    "order": "dfs_post",
+    "note": "叶子可停在任意层级。节点无子或子节点全 skip/done → 自身即为可执行任务。小功能拆到不能拆即停。",
+    "leaf_exec_rule": "level >= T4 且 (children 为空 或 全部 status ∈ {done, skip}) → 生成任务",
+    "skip_filter": "not_this_milestone | third_party | done → 子树跳过",
+    "gate_trigger": "子节点全部 done/skip 后，若 level > T4，触发父节点门禁"
+  },
+  "time": {
+    "milestone": "v0.1.4",
+    "requirements": [{
+      "id": "req-1",
+      "desc": "任务层级体系重构 — 时空双轴 + T1-T9 + DFS 后序 + 门禁配置化",
+      "affected_nodes": [
+        "mod-cli-init", "mod-cli-plan", "mod-cli-run",
+        "mod-mcp-state",
+        "mod-skills-awf-core", "mod-skills-flow-rules"
+      ],
+      "status": "active"
+    }]
+  },
+
+  "space": {
+    "id": "sys-cc",
+    "name": "cc-control",
+    "level": "T8",
+    "status": "active",
+    "since": "v0.1.0",
+    "desc": "Claude Code 插件 + CLI 工具，AI 持久记忆与工作流编排",
+    "children": [
+
+      {
+        "id": "proj-cli",
+        "name": "CLI 工具 (bin/awf.js + src/cli/)",
+        "level": "T7", "status": "active", "since": "v0.1.0",
+        "desc": "7 个命令 + 3 个工具模块。Commander 入口，命令路由。",
+        "gates": { "test": { "scope": "full_regression", "required": true }, "review": { "type": "security", "required": true } },
+        "children": [
+
+          {
+            "id": "mod-cli-utils",
+            "name": "CLI 工具模块 (src/cli/utils/)",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "所有命令共享的基础模块",
+            "children": [
+              { "id": "feat-utils-paths", "name": "paths.js — 路径解析 + pluginCmd + getPaths", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-utils-state", "name": "state.js — state.json 读写 + findNextTask + loadState", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-utils-logger", "name": "logger.js — 统一日志输出（info/success/warn/error）", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-cli-init",
+            "name": "init — 项目初始化",
+            "level": "T6", "status": "active", "since": "v0.1.0",
+            "desc": "依赖检查 → 插件安装 → .awf/ 创建 → CLAUDE.md 初始化",
+            "gates": { "test": { "scope": "impacted", "coverage": 70 }, "review": { "type": "code", "required": true } },
+            "children": [
+              { "id": "feat-cli-init-prereq", "name": "前置依赖检查（tmux + claude）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "检查 tmux（缺则告警）和 claude（缺则中止）", "children": [] },
+              { "id": "feat-cli-init-plugins", "name": "插件安装（marketplace + ai-workflow + extra）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "清理旧 symlink → 注册 marketplace → 安装 ai-workflow@ai-workflow-dev + .awf-plugins.json 额外插件", "children": [] },
+              { "id": "feat-cli-init-workspace", "name": "项目初始化（.awf/ + state.json + --force）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "创建 .awf/ 目录，写入初始 state.json。--force 覆盖已有。", "children": [] },
+              {
+                "id": "feat-cli-init-claude-md", "name": "CLAUDE.md 初始化与注入",
+                "level": "T5", "status": "done", "since": "v0.1.3",
+                "desc": "不存在→模板生成+注入。存在→检查标记，缺则追加。已有→跳过。",
+                "children": [
+                  { "id": "task-tpl-rules", "name": "创建 templates/awf-rules.md", "level": "T4", "status": "done" },
+                  { "id": "task-tpl-template", "name": "创建 CLAUDE.md 备用模板", "level": "T4", "status": "done" },
+                  { "id": "task-inject-logic", "name": "实现三种场景判断 + 注入逻辑", "level": "T4", "status": "done" },
+                  { "id": "task-inject-integrate", "name": "集成到 initCommand + sandbox 验证", "level": "T4", "status": "done" }
+                ]
+              },
+              {
+                "id": "feat-cli-init-awf-dir", "name": ".awf/ 目录结构扩展",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "扩展 initWorkspace 生成 versions/ issues/ bugs/ reports/ logs/ + wbs.json",
+                "children": [
+                  { "id": "task-awf-skel", "name": "扩展 initWorkspace 生成完整 .awf/ 目录骨架", "level": "T4", "status": "pending" },
+                  { "id": "task-awf-wbs-tpl", "name": "创建 wbs.json 初始模板", "level": "T4", "status": "pending" },
+                  { "id": "task-awf-readme", "name": "生成 .awf/README.md", "level": "T4", "status": "pending" }
+                ]
+              },
+              { "id": "feat-cli-init-scope", "name": "init --scope 额外参数", "level": "T5", "status": "skip", "since": "v0.1.4", "desc": "user / project / global 三种安装范围", "skip_reason": "not_this_milestone", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-cli-plan",
+            "name": "plan — 交互式规划",
+            "level": "T6", "status": "active", "since": "v0.1.0",
+            "desc": "spawn claude + /w-plan 启动规划会话。支持 --resume。",
+            "gates": { "test": { "scope": "impacted", "coverage": 70 }, "review": { "type": "code", "required": true } },
+            "children": [
+              { "id": "feat-cli-plan-spawn", "name": "规划会话启动（spawn claude + /w-plan）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "spawn claude --settings --dangerously-skip-permissions，注入 /w-plan + 需求描述", "children": [] },
+              {
+                "id": "feat-cli-plan-wbs", "name": "WBS 树生成（T1-T9 空间轴 + DFS 后序）",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "/w-plan 产出空间轴 WBS 树，DFS 后序遍历生成任务清单",
+                "children": [
+                  { "id": "task-wbs-schema", "name": "定义 WBS 树数据结构（T1-T9 层级 + gates + status + skip_reason）", "level": "T4", "status": "pending" },
+                  { "id": "task-wbs-dfs", "name": "实现 DFS 后序遍历（visit children → filter skip/done → gate → task）", "level": "T4", "status": "pending" },
+                  { "id": "task-wbs-export", "name": "任务清单导出（T4+ 叶子 → tasks[], 标注 space/time path）", "level": "T4", "status": "pending" }
+                ]
+              },
+              {
+                "id": "feat-cli-plan-gates", "name": "门禁配置 (.awf/gates.yaml)",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "T5+ 层级门禁 + 需求/里程碑时间门禁的 schema + 模板生成",
+                "children": [
+                  { "id": "task-gates-schema", "name": "设计 gates.yaml schema（levels + time 双段）", "level": "T4", "status": "pending" },
+                  { "id": "task-gates-parser", "name": "实现 gates.yaml 模板生成 + 解析器", "level": "T4", "status": "pending" },
+                  { "id": "task-gates-match", "name": "层级门禁匹配（T5→feature / T6→impacted / T7→full）", "level": "T4", "status": "pending" }
+                ]
+              }
+            ]
+          },
+
+          {
+            "id": "mod-cli-run",
+            "name": "run — 自治工作流编排",
+            "level": "T6", "status": "active", "since": "v0.1.0",
+            "desc": "环境启动 → 任务循环（阶段链 + MCP 跟进）→ 清理",
+            "gates": { "test": { "scope": "impacted", "coverage": 70 }, "review": { "type": "code", "required": true } },
+            "children": [
+              { "id": "feat-cli-run-env", "name": "环境管理（ensureServer + ensureSession）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "spawn tmux-http :8787 → bootstrap.sh 创建 tmux session → open dashboard。SIGINT 清理。", "children": [] },
+              { "id": "feat-cli-run-loop", "name": "任务循环（findNextTask → resolvePhases → executePhase）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "遍历任务，逐阶段执行，完成后统一标记 done", "children": [] },
+              { "id": "feat-cli-run-phase-chain", "name": "阶段链解析（complexity → phases + 功能组 + git 检测）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "simple:DEV+COMMIT / medium:DEV+TEST+COMMIT / complex:DEV+REVIEW+TEST+COMMIT。功能组处理 + 无 git 跳过 COMMIT。", "children": [] },
+              { "id": "feat-cli-run-exec", "name": "阶段执行（prompt → withPhaseCmd → /send → waitReady → MCP 跟进）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "DEV→task.prompt / 其他→spawnClaudeOneShot 或 local 模板 → /send → waitForReady → buildMcpFollowUp", "children": [] },
+              {
+                "id": "feat-cli-run-gate-exec",
+                "name": "门禁执行引擎",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "对接 WBS 树 + gates.yaml。DFS 后序触发门禁链。",
+                "children": [
+                  { "id": "task-run-dfs", "name": "runLoop 对接 WBS 树 DFS 后序输出任务执行顺序", "level": "T4", "status": "pending" },
+                  { "id": "task-run-space-gate", "name": "空间门禁链（子 done → 父门禁 → 通过/失败处理）", "level": "T4", "status": "pending" },
+                  { "id": "task-run-time-gate", "name": "时间门禁链（需求 done → 里程碑门禁）", "level": "T4", "status": "pending" },
+                  { "id": "task-run-gate-fail", "name": "门禁失败处理（retry / skip / abort + 升级 Issue）", "level": "T4", "status": "pending" }
+                ]
+              }
+            ]
+          },
+          { "id": "mod-cli-server", "name": "server — tmux-http 服务管理（start/stop/status）", "level": "T6", "status": "done", "since": "v0.1.0", "desc": "start: spawn node tmuxServer + 确保 tmux session。stop: kill session + 释放端口。status: 健康检查。", "children": [] },
+          { "id": "mod-cli-attach", "name": "attach — 接入 tmux session", "level": "T6", "status": "done", "since": "v0.1.0", "desc": "tmux has-session 检查 → tmux attach。Ctrl-B D 脱离。", "children": [] },
+          { "id": "mod-cli-open", "name": "open — 可视化页面（tree/dashboard/ui）", "level": "T6", "status": "done", "since": "v0.1.3", "desc": "tree: 渲染 WBS → w-tree.html → 浏览器。dashboard: 打开 localhost:8787。", "children": [] },
+          { "id": "mod-cli-plugin", "name": "plugin — 独立插件管理（install/uninstall）", "level": "T6", "status": "done", "since": "v0.1.0", "desc": "install: symlink 到 ~/.claude/plugins/。uninstall: 移除 symlink。", "children": [] }
+        ]
+      },
+
+      {
+        "id": "proj-commands",
+        "name": "Slash Commands (commands/)",
+        "level": "T7", "status": "done", "since": "v0.1.0",
+        "desc": "14 个 auto-discovered slash commands，Markdown 格式",
+        "children": [
+          {
+            "id": "mod-cmd-exec",
+            "name": "编排执行类（6 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "children": [
+              { "id": "feat-cmd-awf-run", "name": "awf-run.md — 自治工作流驱动", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-dev", "name": "w-dev.md — 开发执行", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-debug", "name": "w-debug.md — 系统调试", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-commit", "name": "w-commit.md — 智能提交", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-finish", "name": "w-finish.md — 里程碑收尾", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-doc", "name": "w-doc.md — 文档生成", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+          {
+            "id": "mod-cmd-plan",
+            "name": "规划设计类（3 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "children": [
+              { "id": "feat-cmd-w-plan", "name": "w-plan.md — 任务规划", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-design", "name": "w-design.md — UI 设计", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-tree", "name": "w-tree.md — WBS 可视化", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+          {
+            "id": "mod-cmd-quality",
+            "name": "质量保障类（2 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "children": [
+              { "id": "feat-cmd-w-review", "name": "w-review.md — 代码审查", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-test", "name": "w-test.md — 测试检查", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+          {
+            "id": "mod-cmd-aux",
+            "name": "辅助工具类（3 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "children": [
+              { "id": "feat-cmd-w-prompt", "name": "w-prompt.md — Prompt 生成器", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-state", "name": "w-state.md — 状态管理参考", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-cmd-w-ui", "name": "w-ui.md — UI 还原（Figma）", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          }
+        ]
+      },
+
+      {
+        "id": "proj-mcp",
+        "name": "MCP Servers (tools/)",
+        "level": "T7", "status": "active", "since": "v0.1.0",
+        "desc": "3 个独立 MCP Server，直接文件 I/O，零运行时依赖",
+        "gates": { "test": { "scope": "full_regression", "required": true }, "review": { "type": "security", "required": true } },
+        "children": [
+
+          {
+            "id": "mod-mcp-state",
+            "name": "awf-state — 状态 CRUD",
+            "level": "T6", "status": "active", "since": "v0.1.0",
+            "desc": "直接文件 I/O，零依赖。server.cjs (~15KB) + mcp.json.template。",
+            "gates": { "test": { "scope": "impacted", "coverage": 70 }, "review": { "type": "code", "required": true } },
+            "children": [
+              { "id": "feat-mcp-state-core", "name": "核心 task/plan/milestone/phase CRUD（14 tools）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "awf_read_state / awf_task_status / awf_task_result / awf_task_commit / awf_task_create / awf_task_update / awf_task_delete / awf_plan_configure / awf_wbs_create / awf_wbs_update / awf_wbs_delete / awf_phase / awf_milestone_update / awf_milestone_create", "children": [] },
+              {
+                "id": "feat-mcp-state-wbs-tree",
+                "name": "WBS 树 management tools（新增 4 个）",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "awf_wbs_tree_read / awf_wbs_node_update / awf_wbs_node_create / awf_wbs_node_delete",
+                "children": [
+                  { "id": "task-mcp-tree-read", "name": "awf_wbs_tree_read — 读取完整 WBS 空间树", "level": "T4", "status": "pending" },
+                  { "id": "task-mcp-node-update", "name": "awf_wbs_node_update — 更新 status/skip_reason/gates", "level": "T4", "status": "pending" },
+                  { "id": "task-mcp-node-crud", "name": "awf_wbs_node_create / delete", "level": "T4", "status": "pending" }
+                ]
+              },
+              {
+                "id": "feat-mcp-state-gates",
+                "name": "门禁状态 tools（新增 3 个）",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "awf_gate_status / awf_gate_pass / awf_gate_fail",
+                "children": [
+                  { "id": "task-mcp-gate-status", "name": "awf_gate_status — 查询节点门禁状态", "level": "T4", "status": "pending" },
+                  { "id": "task-mcp-gate-result", "name": "awf_gate_pass / gate_fail — 标记门禁结果 + 写入报告", "level": "T4", "status": "pending" }
+                ]
+              },
+              { "id": "feat-mcp-state-config", "name": "mcp.json.template — MCP 配置模板", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "bootstrap.sh 渲染为实际 mcp.json", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-mcp-session",
+            "name": "awf-session — tmux 观测",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "server.cjs (~4KB)。2 个 tools。",
+            "children": [
+              { "id": "feat-mcp-session-status", "name": "awf_session_status — 查询 session ready/busy", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-mcp-session-capture", "name": "awf_capture_pane — 抓取 tmux pane 内容", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-mcp-oneshot",
+            "name": "awf-oneshot — 无状态 LLM 调用",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "server.cjs (~3.5KB)。1 个 tool。",
+            "children": [
+              { "id": "feat-mcp-oneshot-call", "name": "awf_oneshot — spawn claude -p，返回 stdout", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          }
+        ]
+      },
+
+      {
+        "id": "proj-skills",
+        "name": "Skills (skills/)",
+        "level": "T7", "status": "active", "since": "v0.1.0",
+        "desc": "12 个 skills。awf-* 核心 + code-rule-* 规范 + flow-rule-* 流程 + sys-rule-* 系统 + code-patterns。",
+        "gates": { "test": { "scope": "full_regression", "required": true }, "review": { "type": "code", "required": true } },
+        "children": [
+
+          {
+            "id": "mod-skills-awf-core",
+            "name": "awf 核心（3 个）",
+            "level": "T6", "status": "active", "since": "v0.1.0",
+            "desc": "awf-sys-spec-task / awf-sys-spec-workflow / awf-flow-exec-prompt",
+            "gates": { "test": { "scope": "impacted", "coverage": 70 }, "review": { "type": "code", "required": true } },
+            "children": [
+              {
+                "id": "feat-skills-spec-task",
+                "name": "awf-sys-spec-task — 任务 schema 定义",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "task 字段规范。新增 space/time path + T1-T9 level + exec.gates。",
+                "children": [
+                  { "id": "task-schema-space", "name": "新增 space 字段（空间坐标 path）", "level": "T4", "status": "pending" },
+                  { "id": "task-schema-time", "name": "新增 time 字段（时间坐标 path）", "level": "T4", "status": "pending" },
+                  { "id": "task-schema-level", "name": "新增 level 字段（T1-T9）+ exec.gates 门禁结果", "level": "T4", "status": "pending" },
+                  { "id": "task-schema-doc", "name": "更新 SKILL.md + state.json 示例", "level": "T4", "status": "pending" }
+                ]
+              },
+              {
+                "id": "feat-skills-sys-workflow",
+                "name": "awf-sys-spec-workflow — 工作流规范",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "门禁驱动的阶段推进流程。空间门禁 T5+ + 时间门禁需求/里程碑。",
+                "children": [
+                  { "id": "task-wf-space-gate", "name": "定义空间门禁推进（T5→T6→T7 逐级门禁）", "level": "T4", "status": "pending" },
+                  { "id": "task-wf-time-gate", "name": "定义时间门禁推进（需求→里程碑→merge main）", "level": "T4", "status": "pending" },
+                  { "id": "task-wf-state-machine", "name": "更新 state-machine.md 门禁触发逻辑", "level": "T4", "status": "pending" }
+                ]
+              },
+              { "id": "feat-skills-flow-prompt", "name": "awf-flow-exec-prompt — Prompt 生成器", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "为 awf-run 各阶段生成优化后的 prompt", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-skills-code-rules",
+            "name": "code-rule 代码规范（3 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "code-rule-design / code-rule-style / code-rule-quality",
+            "children": [
+              { "id": "feat-skills-code-design", "name": "code-rule-design — 架构/数据模型/状态管理", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "PLAN/DESIGN 阶段", "children": [] },
+              { "id": "feat-skills-code-style", "name": "code-rule-style — 函数设计/命名/错误处理", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "CODE/DEBUG 阶段", "children": [] },
+              { "id": "feat-skills-code-quality", "name": "code-rule-quality — 测试金字塔/审查/commits", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "REVIEW/TEST/FINISH 阶段", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-skills-flow-rules",
+            "name": "flow-rule 流程规范（2 个）",
+            "level": "T6", "status": "active", "since": "v0.1.0",
+            "desc": "flow-rule-task / flow-rule-git",
+            "gates": { "test": { "scope": "impacted", "coverage": 70 }, "review": { "type": "code", "required": true } },
+            "children": [
+              {
+                "id": "feat-skills-flow-task",
+                "name": "flow-rule-task — 任务拆分规则",
+                "level": "T5", "status": "active", "since": "v0.1.4",
+                "desc": "重写为 T1-T9 空间轴 + 时间轴双轴体系 + DFS 后序 + skip 标记",
+                "children": [
+                  { "id": "task-flow-hierarchy", "name": "重写层级章节 — 时空双轴 + T1-T9 定义", "level": "T4", "status": "pending" },
+                  { "id": "task-flow-dfs-rule", "name": "DFS 后序遍历拆分规则 + skip 过滤 + 拆到不能拆即停", "level": "T4", "status": "pending" },
+                  { "id": "task-flow-gate-timing", "name": "门禁触发时机编排（T5→T6→T7→需求→里程碑）", "level": "T4", "status": "pending" },
+                  { "id": "task-flow-sync-en", "name": "同步 SKILL.md 英文版", "level": "T4", "status": "pending" }
+                ]
+              },
+              { "id": "feat-skills-flow-git", "name": "flow-rule-git — Git 分支与提交规范", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "分支命名 + conventional commits", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-skills-sys-rules",
+            "name": "sys-rule 系统规范（2 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "sys-rule-workflow / sys-rule-skill",
+            "children": [
+              { "id": "feat-skills-sys-workflow-rule", "name": "sys-rule-workflow — 命令和 skill 设计标准", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-skills-sys-skill-rule", "name": "sys-rule-skill — skill 生命周期管理", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+
+          {
+            "id": "mod-skills-other",
+            "name": "其他 skills（2 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "flow-exec-version / code-patterns",
+            "children": [
+              { "id": "feat-skills-flow-version", "name": "flow-exec-version — 版本号与 changelog", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-skills-code-patterns", "name": "code-patterns — 通用代码模式", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          }
+        ]
+      },
+
+      {
+        "id": "proj-server",
+        "name": "Session Server (src/server/)",
+        "level": "T7", "status": "done", "since": "v0.1.0",
+        "desc": "HTTP Server :8787。tmux 会话管理 + Claude Code Hook 驱动状态机 + Web Dashboard。",
+        "gates": { "test": { "scope": "full_regression", "required": true } },
+        "children": [
+          {
+            "id": "mod-server-api",
+            "name": "HTTP API 端点（6 个）",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "server.cjs (~200 行)。所有端点通过 http.createServer 注册。",
+            "children": [
+              { "id": "feat-server-send", "name": "POST /send — 发送消息到 tmux session", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "waitReady → setBusy → submit(text) → 返回", "children": [] },
+              { "id": "feat-server-cmd", "name": "POST /cmd — 发送命令到 tmux（含 /clear 等本地命令）", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "同 /send，附加 fallback 超时恢复 ready", "children": [] },
+              { "id": "feat-server-hook", "name": "POST /hook — Claude Code Hook 回调", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "UserPromptSubmit→busy, Stop/SessionStart→ready。run 命令通过此端点感知状态。", "children": [] },
+              { "id": "feat-server-status", "name": "GET /status — 服务状态查询", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "返回 {state, session}，可选 ?snapshot 返回 pane 快照", "children": [] },
+              { "id": "feat-server-key", "name": "POST /key — 按键发送", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "直接向 tmux 发送按键序列，不走 /send 的 ready 等待", "children": [] },
+              { "id": "feat-server-awf-state", "name": "GET /awf/state — state.json 读取", "level": "T5", "status": "done", "since": "v0.1.3", "desc": "Dashboard 读取 .awf/state.json 渲染状态链", "children": [] }
+            ]
+          },
+          {
+            "id": "mod-server-state-machine",
+            "name": "ready/busy 状态机",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "驱动 run 命令的等待/唤醒。setReady / setBusy / waitReady。",
+            "children": [
+              { "id": "feat-server-state-ctrl", "name": "ready/busy 状态管理（setReady/setBusy）", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-server-state-wait", "name": "waitReady 等待机制（Promise + timeout）", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+          {
+            "id": "mod-server-tmux",
+            "name": "tmux 通信层",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "desc": "tmux.cjs — 底层 tmux 交互",
+            "children": [
+              { "id": "feat-server-tmux-io", "name": "sendText / sendEnter / sendKeys / capture / hasSession", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+          {
+            "id": "mod-server-dashboard",
+            "name": "Web Dashboard",
+            "level": "T6", "status": "done", "since": "v0.1.3",
+            "desc": "前端页面，通过 /awf/state 读取状态渲染",
+            "children": [
+              { "id": "feat-server-dashboard-html", "name": "dashboard.html — 状态链可视化面板", "level": "T5", "status": "done", "since": "v0.1.3", "desc": "GET / 返回。读取 state.json 渲染任务状态链。", "children": [] },
+              { "id": "feat-server-ui-html", "name": "ui.html — 备用控制界面", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "GET /ui 返回。备用控制面板。", "children": [] }
+            ]
+          }
+        ]
+      },
+
+      {
+        "id": "proj-prompts",
+        "name": "运行时 Prompts (prompts/run/)",
+        "level": "T7", "status": "done", "since": "v0.1.0",
+        "desc": "8 个阶段 prompt 模板。executePhase 的 local fallback + AI 运行时指令。",
+        "children": [
+          { "id": "feat-prompt-state-machine", "name": "state-machine.md — 自治执行运行时指令", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "注入给 AI 的核心行为规范。阶段约定 + MCP tools + 自主执行原则。", "children": [] },
+          { "id": "feat-prompt-dev", "name": "dev.md — DEV 阶段模板", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-prompt-test", "name": "test.md — TEST 阶段模板", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-prompt-commit", "name": "commit.md — COMMIT 阶段模板", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-prompt-review", "name": "review.md — REVIEW 阶段模板", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-prompt-debug", "name": "debug.md — DEBUG 阶段模板", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-prompt-docs", "name": "docs.md — DOCS 阶段模板", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-prompt-finish", "name": "finish.md — FINISH 阶段模板", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+        ]
+      },
+
+      {
+        "id": "proj-scripts",
+        "name": "开发脚本 (scripts/)",
+        "level": "T7", "status": "done", "since": "v0.1.0",
+        "desc": "5 个 Shell 脚本。bootstrap 运行时必需，其余为开发期命令。",
+        "children": [
+          { "id": "feat-script-bootstrap", "name": "bootstrap.sh — 启动 tmux session + 渲染 settings + MCP 配置", "level": "T5", "status": "done", "since": "v0.1.0", "desc": "run 命令通过 ensureSession 调用。创建 tmux session 并加载 Claude Code 插件 + MCP。", "children": [] },
+          { "id": "feat-script-test", "name": "test.sh — 单元/集成测试", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-script-lint", "name": "lint.sh — 语法检查", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-script-build", "name": "build.sh — 打包验证", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "feat-script-eval", "name": "eval.sh — AI 质量评测（占位）", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+        ]
+      },
+
+      {
+        "id": "proj-templates",
+        "name": "模板 (templates/)",
+        "level": "T7", "status": "done", "since": "v0.1.3",
+        "desc": "init 命令使用的模板文件",
+        "children": [
+          { "id": "feat-tpl-awf-rules", "name": "awf-rules.md — awf 规则注入内容", "level": "T5", "status": "done", "since": "v0.1.3", "desc": "以 <!-- awf-rules start --> 开头，包含 MCP/命令/状态/阶段约定", "children": [] },
+          { "id": "feat-tpl-claude-md", "name": "CLAUDE.md.template — 项目 CLAUDE.md 模板", "level": "T5", "status": "done", "since": "v0.1.3", "desc": "含 {{PROJECT_NAME}} 等占位符，init 时替换", "children": [] }
+        ]
+      },
+
+      {
+        "id": "proj-tests",
+        "name": "测试 (tests/)",
+        "level": "T7", "status": "done", "since": "v0.1.0",
+        "desc": "测试基础设施 + 测试数据",
+        "children": [
+          { "id": "mod-tests-unit", "name": "tests/unit/ — 单元测试", "level": "T6", "status": "done", "since": "v0.1.0", "children": [] },
+          {
+            "id": "mod-tests-integration",
+            "name": "tests/integration/ — 集成测试",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "children": [
+              { "id": "feat-tests-smoke", "name": "smoke.sh — 端到端冒烟测试", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          },
+          { "id": "mod-tests-eval", "name": "tests/eval/ — AI 质量评测", "level": "T6", "status": "done", "since": "v0.1.0", "children": [] },
+          {
+            "id": "mod-tests-fixtures",
+            "name": "tests/fixtures/ — 测试数据",
+            "level": "T6", "status": "done", "since": "v0.1.0",
+            "children": [
+              { "id": "feat-tests-fixture-chess", "name": "chess-state.json — 棋类项目测试数据", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] },
+              { "id": "feat-tests-fixture-go", "name": "go-game-state.json — Go 项目测试数据", "level": "T5", "status": "done", "since": "v0.1.0", "children": [] }
+            ]
+          }
+        ]
+      },
+
+      {
+        "id": "proj-docs",
+        "name": "文档 (docs/)",
+        "level": "T7", "status": "done", "since": "v0.1.0",
+        "desc": "5 类项目文档 + 架构决策 + 讨论记录",
+        "children": [
+          { "id": "mod-docs-features", "name": "docs/features/ — 需求文档 + 测试用例 + WBS + 原型", "level": "T6", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "mod-docs-issues", "name": "docs/issues/ — 阻塞问题、待决策事项", "level": "T6", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "mod-docs-bugs", "name": "docs/bugs/ — 缺陷记录、根因、修复方案", "level": "T6", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "mod-docs-logs", "name": "docs/logs/ — 开发日志、变更记录、路线图", "level": "T6", "status": "done", "since": "v0.1.0", "children": [] },
+          { "id": "mod-docs-discuss", "name": "docs/discuss/ — 讨论记录、方案对比、架构决策", "level": "T6", "status": "done", "since": "v0.1.0", "children": [] }
+        ]
+      }
+    ]
+  }
+}
