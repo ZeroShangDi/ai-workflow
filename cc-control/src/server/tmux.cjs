@@ -27,16 +27,9 @@ function sendEnter() {
   tmux(['send-keys', '-t', SESSION, 'Enter']);
 }
 
-// Send named keys, space-separated: "Escape", "C-c", "Up Up Enter".
-function sendKeys(keys) {
-  const parts = String(keys).trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return;
-  tmux(['send-keys', '-t', SESSION, ...parts]);
-}
-
 // Read the current pane content (debug snapshot only).
 function capture() {
   return tmux(['capture-pane', '-t', SESSION, '-p']);
 }
 
-module.exports = { SESSION, hasSession, sendText, sendEnter, sendKeys, capture };
+module.exports = { SESSION, hasSession, sendText, sendEnter, capture };

@@ -12,6 +12,26 @@ const SESSION = process.env.CC_SESSION || 'cc';
 
 // ---- helpers ----
 
+function httpPost(path) {
+  return new Promise((resolve) => {
+    const url = new URL(path, AWF_BASE);
+    const options = {
+      hostname: url.hostname, port: url.port, path: url.pathname,
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    };
+    const req = http.request(options, (res) => {
+      let raw = '';
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(raw)); } catch { resolve(raw); }
+      });
+    });
+    req.on('error', (err) => resolve({ ok: false, error: err.message }));
+    req.setTimeout(3000, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.end();
+  });
+}
+
 function httpGet(path) {
   return new Promise((resolve) => {
     const url = new URL(path, AWF_BASE);
@@ -52,6 +72,11 @@ const TOOLS = [
     description: '抓取当前 tmux pane 的完整文本内容',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'awf_await_choice',
+    description: '通知 CLI 当前需要用户选择（如选项列表、yes/no）。调用后 CLI 会轮询到 choicePending 并通过 /choose 发送选择值',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 // ---- JSON-RPC / MCP handler ----
@@ -89,6 +114,11 @@ const handlers = {
         }
         case 'awf_capture_pane': {
           return textResult(capturePane());
+        }
+        case 'awf_await_choice': {
+          logStderr('await_choice → server /choice-pending');
+          const result = await httpPost('/choice-pending');
+          return textResult(result);
         }
         default:
           return textResult({ ok: false, error: `unknown tool: ${name}` });

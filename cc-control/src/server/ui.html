@@ -83,17 +83,18 @@
   </section>
 
   <section class="card">
-    <h2>按键 · POST /key</h2>
+    <h2>选择回应 · POST /choose</h2>
+    <div class="hint">当 AI 列出选项(1/2/3, yes/no)时，选择并发送对应值。</div>
     <div class="row">
-      <button class="warn" onclick="key('C-c')">Ctrl-C 打断</button>
-      <button onclick="key('Escape')">Esc</button>
-      <button onclick="key('Up')">↑</button>
-      <button onclick="key('Down')">↓</button>
-      <button onclick="key('Enter')">Enter</button>
+      <button onclick="choose('1')">1</button>
+      <button onclick="choose('2')">2</button>
+      <button onclick="choose('3')">3</button>
+      <button onclick="choose('yes')">yes</button>
+      <button onclick="choose('no')">no</button>
     </div>
     <div class="row">
-      <input type="text" id="rawkey" placeholder="自定义: 例如 C-r 或 Up Up Enter" />
-      <button onclick="key(document.getElementById('rawkey').value)">发送按键</button>
+      <input type="text" id="choice" placeholder="自定义输入" />
+      <button onclick="choose(document.getElementById('choice').value)">发送</button>
     </div>
   </section>
 
@@ -153,7 +154,7 @@ async function send() {
 }
 function cmd() { const c = $('cmd').value; if (c.trim()) post('/cmd', { cmd: c }); }
 function quickCmd(c) { $('cmd').value = c; post('/cmd', { cmd: c }); }
-function key(k) { if (k && k.trim()) post('/key', { keys: k }); }
+function choose(v) { if (v && v.trim()) post('/choose', { value: v }); }
 
 function setPill(state) {
   const p = $('pill');

@@ -12,7 +12,16 @@ const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 
 // ---- ready/busy state machine, driven by Claude Code hooks ----
 let state = 'ready'; // 'ready' | 'busy'
+let choicePending = false;
 let waiters = [];
+
+function setChoice() {
+  choicePending = true;
+}
+
+function clearChoice() {
+  choicePending = false;
+}
 
 function setReady() {
   state = 'ready';
@@ -131,11 +140,17 @@ const server = http.createServer(async (req, res) => {
 
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
-    const out = { ok: true, state, session: tmuxlib.hasSession() };
+    const out = { ok: true, state, session: tmuxlib.hasSession(), choicePending };
     if (url.searchParams.get('snapshot')) {
       try { out.snapshot = tmuxlib.capture(); } catch { out.snapshot = null; }
     }
     return send(res, 200, out);
+  }
+
+  // AI 通知：即将列出选项，期待 CLI 做选择
+  if (req.method === 'POST' && pathname === '/choice-pending') {
+    setChoice();
+    return send(res, 200, { ok: true, choicePending: true });
   }
 
   if (req.method === 'POST' && pathname === '/send') {
@@ -170,16 +185,23 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.cmd });
   }
 
-  if (req.method === 'POST' && pathname === '/key') {
+  if (req.method === 'POST' && pathname === '/choose') {
     const body = await readJson(req);
-    if (!body || typeof body.keys !== 'string' || body.keys.length === 0) {
-      return send(res, 400, { ok: false, error: 'body must be {keys: non-empty string}' });
+    if (!body || typeof body.value !== 'string' || body.value.length === 0) {
+      clearChoice();
+      return send(res, 400, { ok: false, error: 'body must be {value: non-empty string}' });
     }
     if (!tmuxlib.hasSession()) {
+      clearChoice();
       return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
     }
-    tmuxlib.sendKeys(body.keys);
-    return send(res, 200, { ok: true, sent: body.keys });
+    const ok = await waitReady(READY_TIMEOUT_MS);
+    if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
+    setBusy();
+    clearChoice();
+    await submit(body.value);
+    setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
+    return send(res, 200, { ok: true, sent: body.value });
   }
 
   return send(res, 404, { ok: false, error: 'not found' });

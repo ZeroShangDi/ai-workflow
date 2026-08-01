@@ -356,13 +356,53 @@ async function httpPostJson(url, body) {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
+async function getStatus() {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${SERVER_PORT}/status`, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch { resolve(false); }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(2000, () => { req.destroy(); resolve(false); });
+  });
+}
+
+async function handleChoice() {
+  console.log(`\n${YELLOW}  ⚡ AI 等待你的选择...${RESET}`);
+  const { createInterface } = await import('readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const choice = await new Promise((resolve) => {
+    rl.question(`  ${DIM}输入选项: ${RESET}`, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+  if (choice) {
+    await httpPost(`http://127.0.0.1:${SERVER_PORT}/choose`, JSON.stringify({ value: choice }));
+    console.log(`     ${GREEN}✔ 已发送: ${choice}${RESET}\n`);
+  }
+}
+
 async function waitForReady() {
   const start = Date.now();
   while (Date.now() - start < READY_TIMEOUT) {
-    if (await checkServer()) return;
+    const status = await getStatus();
+    if (status?.state === 'ready') {
+      if (status.choicePending) await handleChoice();
+      return;
+    }
     await sleep(POLL_INTERVAL);
   }
   throw new Error('等待 Claude Code 就绪超时');
+}
+
+async function checkServer() {
+  const status = await getStatus();
+  return status?.state === 'ready';
 }
 
 // ── 环境管理 ──
@@ -406,21 +446,6 @@ async function ensureSession(paths, projectRoot) {
     env: { ...process.env, CC_WORKDIR: projectRoot },
   });
   logStep('session', 'ok', `${sessionName} → ${projectRoot}`);
-}
-
-async function checkServer() {
-  return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${SERVER_PORT}/status`, (res) => {
-      let data = '';
-      res.on('data', (c) => (data += c));
-      res.on('end', () => {
-        try { resolve(JSON.parse(data).state === 'ready'); }
-        catch { resolve(false); }
-      });
-    });
-    req.on('error', () => resolve(false));
-    req.setTimeout(2000, () => { req.destroy(); resolve(false); });
-  });
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
