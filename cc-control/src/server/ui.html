@@ -83,18 +83,14 @@
   </section>
 
   <section class="card">
-    <h2>选择回应 · POST /choose</h2>
-    <div class="hint">当 AI 列出选项(1/2/3, yes/no)时，选择并发送对应值。</div>
+    <h2>决策回应 · POST /respond</h2>
+    <div class="hint">当 AI 等待决策时，输入回应值发送到 tmux。</div>
     <div class="row">
-      <button onclick="choose('1')">1</button>
-      <button onclick="choose('2')">2</button>
-      <button onclick="choose('3')">3</button>
-      <button onclick="choose('yes')">yes</button>
-      <button onclick="choose('no')">no</button>
+      <input type="text" id="response" placeholder="输入回应内容" />
+      <button onclick="respond(document.getElementById('response').value)">发送</button>
     </div>
-    <div class="row">
-      <input type="text" id="choice" placeholder="自定义输入" />
-      <button onclick="choose(document.getElementById('choice').value)">发送</button>
+    <div class="row" id="decisionInfo" style="display:none">
+      <span id="decisionText" style="color:#888"></span>
     </div>
   </section>
 
@@ -154,7 +150,7 @@ async function send() {
 }
 function cmd() { const c = $('cmd').value; if (c.trim()) post('/cmd', { cmd: c }); }
 function quickCmd(c) { $('cmd').value = c; post('/cmd', { cmd: c }); }
-function choose(v) { if (v && v.trim()) post('/choose', { value: v }); }
+function respond(v) { if (v && v.trim()) post('/respond', { value: v }); }
 
 function setPill(state) {
   const p = $('pill');

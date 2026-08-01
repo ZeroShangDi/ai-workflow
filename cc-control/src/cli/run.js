@@ -371,19 +371,37 @@ async function getStatus() {
   });
 }
 
-async function handleChoice() {
-  console.log(`\n${YELLOW}  ⚡ AI 等待你的选择...${RESET}`);
+async function handleDecision(d) {
+  console.log(`\n${YELLOW}  ⚡ AI 需要决策...${RESET}`);
   const { createInterface } = await import('readline');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const choice = await new Promise((resolve) => {
-    rl.question(`  ${DIM}输入选项: ${RESET}`, (answer) => {
+
+  if (d.type === 'choice') {
+    console.log(`  ${CYAN}${d.question}${RESET}`);
+    d.options.forEach((o, i) => console.log(`     ${DIM}${i + 1}.${RESET} ${o}`));
+    const answer = await new Promise((resolve) => {
+      rl.question(`  ${DIM}选择 (1-${d.options.length}): ${RESET}`, (a) => {
+        rl.close();
+        resolve(a.trim());
+      });
+    });
+    const idx = parseInt(answer, 10) - 1;
+    const value = d.options[idx] || answer; // fallback to raw input if not a number
+    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value }));
+    console.log(`     ${GREEN}✔ 已选择: ${value}${RESET}\n`);
+    return;
+  }
+
+  console.log(`  ${CYAN}${d.question}${RESET}`);
+  const answer = await new Promise((resolve) => {
+    rl.question(`  ${DIM}输入: ${RESET}`, (a) => {
       rl.close();
-      resolve(answer.trim());
+      resolve(a.trim());
     });
   });
-  if (choice) {
-    await httpPost(`http://127.0.0.1:${SERVER_PORT}/choose`, JSON.stringify({ value: choice }));
-    console.log(`     ${GREEN}✔ 已发送: ${choice}${RESET}\n`);
+  if (answer) {
+    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value: answer }));
+    console.log(`     ${GREEN}✔ 已发送${RESET}\n`);
   }
 }
 
@@ -392,7 +410,7 @@ async function waitForReady() {
   while (Date.now() - start < READY_TIMEOUT) {
     const status = await getStatus();
     if (status?.state === 'ready') {
-      if (status.choicePending) await handleChoice();
+      if (status.decisionPending) await handleDecision(status.decisionPending);
       return;
     }
     await sleep(POLL_INTERVAL);

@@ -12,15 +12,15 @@ const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 
 // ---- ready/busy state machine, driven by Claude Code hooks ----
 let state = 'ready'; // 'ready' | 'busy'
-let choicePending = false;
+let decisionPending = null; // null | { type: 'choice'|'text', question: string, options?: string[] }
 let waiters = [];
 
-function setChoice() {
-  choicePending = true;
+function setDecision(d) {
+  decisionPending = d;
 }
 
-function clearChoice() {
-  choicePending = false;
+function clearDecision() {
+  decisionPending = null;
 }
 
 function setReady() {
@@ -140,17 +140,33 @@ const server = http.createServer(async (req, res) => {
 
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
-    const out = { ok: true, state, session: tmuxlib.hasSession(), choicePending };
+    const out = { ok: true, state, session: tmuxlib.hasSession(), decisionPending };
     if (url.searchParams.get('snapshot')) {
       try { out.snapshot = tmuxlib.capture(); } catch { out.snapshot = null; }
     }
     return send(res, 200, out);
   }
 
-  // AI 通知：即将列出选项，期待 CLI 做选择
-  if (req.method === 'POST' && pathname === '/choice-pending') {
-    setChoice();
-    return send(res, 200, { ok: true, choicePending: true });
+  // AI 通知：需要人做选择（带选项）
+  if (req.method === 'POST' && pathname === '/choice') {
+    const body = await readJson(req);
+    if (!body || typeof body.question !== 'string') {
+      return send(res, 400, { ok: false, error: 'body must be {question: string, options?: string[]}' });
+    }
+    setDecision({ type: 'choice', question: body.question, options: body.options || [], context: body.context || null });
+    console.log(`[choice] ${body.question}`);
+    return send(res, 200, { ok: true, decisionPending });
+  }
+
+  // AI 通知：需要人自由输入
+  if (req.method === 'POST' && pathname === '/ask') {
+    const body = await readJson(req);
+    if (!body || typeof body.question !== 'string') {
+      return send(res, 400, { ok: false, error: 'body must be {question: string}' });
+    }
+    setDecision({ type: 'text', question: body.question, context: body.context || null });
+    console.log(`[ask] ${body.question}`);
+    return send(res, 200, { ok: true, decisionPending });
   }
 
   if (req.method === 'POST' && pathname === '/send') {
@@ -185,20 +201,21 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.cmd });
   }
 
-  if (req.method === 'POST' && pathname === '/choose') {
+  // CLI 回应决策（统一入口）
+  if (req.method === 'POST' && pathname === '/respond') {
     const body = await readJson(req);
     if (!body || typeof body.value !== 'string' || body.value.length === 0) {
-      clearChoice();
+      clearDecision();
       return send(res, 400, { ok: false, error: 'body must be {value: non-empty string}' });
     }
     if (!tmuxlib.hasSession()) {
-      clearChoice();
+      clearDecision();
       return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
     }
     const ok = await waitReady(READY_TIMEOUT_MS);
     if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
     setBusy();
-    clearChoice();
+    clearDecision();
     await submit(body.value);
     setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
     return send(res, 200, { ok: true, sent: body.value });

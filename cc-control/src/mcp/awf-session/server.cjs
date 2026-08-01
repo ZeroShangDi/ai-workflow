@@ -12,12 +12,13 @@ const SESSION = process.env.CC_SESSION || 'cc';
 
 // ---- helpers ----
 
-function httpPost(path) {
+function httpPost(path, body) {
   return new Promise((resolve) => {
     const url = new URL(path, AWF_BASE);
+    const data = body || '';
     const options = {
       hostname: url.hostname, port: url.port, path: url.pathname,
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
     };
     const req = http.request(options, (res) => {
       let raw = '';
@@ -28,6 +29,7 @@ function httpPost(path) {
     });
     req.on('error', (err) => resolve({ ok: false, error: err.message }));
     req.setTimeout(3000, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.write(data);
     req.end();
   });
 }
@@ -74,8 +76,28 @@ const TOOLS = [
   },
   {
     name: 'awf_await_choice',
-    description: '通知 CLI 当前需要用户选择（如选项列表、yes/no）。调用后 CLI 会轮询到 choicePending 并通过 /choose 发送选择值',
-    inputSchema: { type: 'object', properties: {}, required: [] },
+    description: '通知 CLI 当前需要用户做选择（如选项列表、yes/no）。CLI 会展示问题+选项并等待用户输入',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: '需要用户选择的问题，如"请选择下一步操作"' },
+        options: { type: 'array', items: { type: 'string' }, description: '可选项列表，如 ["继续", "跳过", "中止"]' },
+        context: { type: 'string', description: '可选，补充上下文（如当前任务ID、相关代码等），帮助决策者理解背景' },
+      },
+      required: ['question'],
+    },
+  },
+  {
+    name: 'awf_await_input',
+    description: '通知 CLI 当前需要用户自由输入文本（如补充需求描述）。CLI 会展示问题并等待用户输入',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: '需要用户回答的问题，如"请描述缺少的需求细节"' },
+        context: { type: 'string', description: '可选，补充上下文（如当前任务ID、相关代码等），帮助决策者理解背景' },
+      },
+      required: ['question'],
+    },
   },
 ];
 
@@ -116,8 +138,17 @@ const handlers = {
           return textResult(capturePane());
         }
         case 'awf_await_choice': {
-          logStderr('await_choice → server /choice-pending');
-          const result = await httpPost('/choice-pending');
+          logStderr(`await_choice: ${args.question}`);
+          const result = await httpPost('/choice', JSON.stringify({
+            question: args.question, options: args.options, context: args.context,
+          }));
+          return textResult(result);
+        }
+        case 'awf_await_input': {
+          logStderr(`await_input: ${args.question}`);
+          const result = await httpPost('/ask', JSON.stringify({
+            question: args.question, context: args.context,
+          }));
           return textResult(result);
         }
         default:
