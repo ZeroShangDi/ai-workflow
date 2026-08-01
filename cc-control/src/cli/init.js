@@ -212,7 +212,7 @@ async function initWorkspace(paths, force) {
     // 首次创建 → 从模板全量复制
     try {
       await fs.cp(templateDir, awfDir, { recursive: true });
-      await replaceTimestamp(path.join(awfDir, 'state.json'));
+      await copyStateTemplate(paths, awfDir);
     } catch {
       await fs.mkdir(awfDir, { recursive: true });
       logStep('.awf/', 'warn', '模板缺失，已创建空目录');
@@ -229,6 +229,7 @@ async function initWorkspace(paths, force) {
 
   // --force：只补缺失，已有文件不动
   await mergeMissing(templateDir, awfDir);
+  await copyStateTemplate(paths, awfDir);
   logStep('.awf/', 'ok', '已补全缺失文件');
 }
 
@@ -247,12 +248,19 @@ async function mergeMissing(src, dest) {
     } else {
       if (!destExists) {
         await fs.copyFile(srcPath, destPath);
-        if (e.name === 'state.json') {
-          await replaceTimestamp(destPath);
-        }
       }
     }
   }
+}
+
+async function copyStateTemplate(paths, awfDir) {
+  const src = path.join(paths.projectRoot, 'src', 'mcp', 'awf-state', 'state.template.json');
+  const dest = path.join(awfDir, 'state.json');
+  if (await fs.stat(dest).catch(() => null)) return; // 已有则跳过
+  try {
+    await fs.copyFile(src, dest);
+    await replaceTimestamp(dest);
+  } catch {}
 }
 
 async function replaceTimestamp(filePath) {

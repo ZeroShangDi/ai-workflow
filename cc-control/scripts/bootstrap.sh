@@ -16,10 +16,11 @@ mkdir -p "$WORKDIR/.claude"
 sed "s/__PORT__/$PORT/g" "$ROOT/src/server/hooks/settings.json" > "$WORKDIR/.claude/settings.json"
 
 # Render .mcp.json with 3 MCP servers (state, session, oneshot)
+mkdir -p "$WORKDIR/.claude"
 sed -e "s|__TOOLS__|$ROOT/src/mcp|g" \
     -e "s|__WORKDIR__|$WORKDIR|g" \
     -e "s/__PORT__/$PORT/g" \
-    "$ROOT/src/mcp/awf-state/mcp.json.template" > "$WORKDIR/.mcp.json"
+    "$ROOT/src/mcp/mcp.json.template" > "$WORKDIR/.claude/mcp.json"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session '$SESSION' already exists. Kill it with: tmux kill-session -t $SESSION"

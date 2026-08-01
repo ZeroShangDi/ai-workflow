@@ -102,7 +102,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 | `/w-commit` | Smart commit with conventional commit messages |
 | `/w-finish` | Milestone wrap-up: quality/perf/doc/summary/memory/handoff |
 | `/w-prompt` | Prompt generator for CLI（被 CLI one-shot 调用） |
-| `/w-state` | State management reference（MCP tools 文档） |
+| `/w-state` | State management reference（→ src/mcp/awf-state/） |
 
 ## Skills
 
@@ -115,8 +115,8 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 - **`flow-rule-task`** — Task decomposition rules — how to split work at the right granularity. Applied during PLAN/WBS.
 - **`flow-exec-version`** — Version bumping and changelog management.
 - **`awf-sys-spec-workflow`** — Autonomous workflow specification format.
-- **`awf-sys-spec-task`** — Task schema definition.
-- **`awf-flow-exec-prompt`** — Prompt generator for awf-run phases.
+- **`awf-sys-spec-task`** — Task schema definition（→ src/mcp/awf-state/）
+- **`awf-flow-exec-prompt`** — Prompt generator for awf-run phases（→ src/mcp/awf-state/）
 
 These are invoked automatically by slash commands. Do not invoke them manually unless explicitly requested.
 

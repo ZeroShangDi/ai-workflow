@@ -200,6 +200,17 @@ const TOOLS = [
     },
   },
   {
+    name: 'awf_mode',
+    description: '设置工作流运行模式。可选: idle | plan | run',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['idle', 'plan', 'run'], description: '运行模式' },
+      },
+      required: ['mode'],
+    },
+  },
+  {
     name: 'awf_milestone_create',
     description: '创建新里程碑',
     inputSchema: {
@@ -211,6 +222,17 @@ const TOOLS = [
         tasks: { type: 'array', items: { type: 'string' }, description: '关联的任务 ID 列表' },
       },
       required: ['id', 'desc'],
+    },
+  },
+  {
+    name: 'awf_milestone_delete',
+    description: '删除里程碑',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '要删除的里程碑 ID' },
+      },
+      required: ['id'],
     },
   },
 ];
@@ -358,6 +380,10 @@ const handlers = {
           m.status = args.status;
           break;
         }
+        case 'awf_mode': {
+          s.mode = args.mode;
+          break;
+        }
         case 'awf_milestone_create': {
           if (!s.milestones) s.milestones = [];
           if (s.milestones.find(m => m.id == args.id)) {
@@ -367,6 +393,14 @@ const handlers = {
             id: args.id, desc: args.desc,
             status: args.status || 'active', tasks: args.tasks || [],
           });
+          break;
+        }
+        case 'awf_milestone_delete': {
+          const idx = s.milestones?.findIndex(m => m.id == args.id);
+          if (idx === undefined || idx === -1) {
+            return textResult({ ok: false, error: `milestone ${args.id} not found` });
+          }
+          s.milestones.splice(idx, 1);
           break;
         }
         default:
