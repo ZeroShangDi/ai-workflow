@@ -1,81 +1,95 @@
 {
   "currentState": "CODE",
   "version": "0.1.3",
-  "lastUpdated": "2026-07-31T08:00:00.000Z",
+  "lastUpdated": "2026-08-01T10:00:00.000Z",
   "plan": {
-    "summary": "Init CLAUDE.md 自动生成 + awf 规则注入",
+    "summary": "awf init 增强：CLAUDE.md 模式检测注入 + .awf/ 模板化初始化",
     "reqDoc": "docs/features/awf-v0.1.3-tasks-init-claude.md",
     "wbs": [
-      { "id": "W5", "name": "Init CLAUDE.md 自动生成", "desc": "init 命令自动生成/注入 CLAUDE.md，包含 awf 核心规则", "level": "function", "parent": null, "children": ["W5.1", "W5.2", "W5.3", "W5.4"], "acceptance": "awf init 在 4 种场景下正确生成/注入 CLAUDE.md", "deps": [] },
-      { "id": "W5.1", "name": "注入内容源文件", "desc": "创建 templates/awf-rules.md，定义注入到项目 CLAUDE.md 的 awf 规则内容", "level": "task", "parent": "W5", "children": [], "acceptance": "文件存在，内容覆盖 MCP/命令/状态/阶段约定", "deps": [] },
-      { "id": "W5.2", "name": "CLAUDE.md 备用模板", "desc": "创建 templates/CLAUDE.md.template，当项目无 CLAUDE.md 时作为生成骨架", "level": "task", "parent": "W5", "children": [], "acceptance": "模板包含占位符，生成后可正常工作", "deps": [] },
-      { "id": "W5.3", "name": "注入逻辑实现", "desc": "在 init.js 中实现 checkAndInjectClaudeMd() 和 generateClaudeMd() 函数", "level": "function", "parent": "W5", "children": [], "acceptance": "覆盖 3 种场景：无文件/有文件无标记/有文件有标记", "deps": ["W5.1", "W5.2"] },
-      { "id": "W5.4", "name": "集成到 init 命令", "desc": "将注入逻辑接入 initCommand 流程，sandbox 中验证 end-to-end", "level": "task", "parent": "W5", "children": [], "acceptance": "awf init 端到端验证通过，4 种场景覆盖", "deps": ["W5.3"] }
+      { "id": "W5", "name": "Init CLAUDE.md 自动生成", "desc": "init 命令自动注入 awf 规则到项目 CLAUDE.md（模式检测 + 通用规则 + run/plan 占位）", "level": "function", "parent": null, "children": ["W5.1", "W5.2"], "acceptance": "awf init 在 3 种场景下正确注入 awf 规则", "deps": [] },
+      { "id": "W5.1", "name": "注入模板 + 注入逻辑", "desc": "创建 templates/CLAUDE.md.template + 实现 initClaudeMd() 简化版", "level": "function", "parent": "W5", "children": [], "acceptance": "模板含模式检测/通用规则，注入逻辑覆盖 3 场景", "deps": [] },
+      { "id": "W5.2", "name": "集成 + 验证", "desc": "接入 initCommand 流程，sandbox 验证 end-to-end", "level": "task", "parent": "W5", "children": [], "acceptance": "awf init 端到端验证通过", "deps": ["W5.1"] },
+      { "id": "W6", "name": ".awf/ 模板化初始化", "desc": "创建 templates/awf/ 目录骨架 + state.json mode 字段 + initWorkspace 重构为模板复制", "level": "function", "parent": null, "children": ["W6.1", "W6.2"], "acceptance": "awf init 生成的 .awf/ 包含 README + bugs/issues/versions/reports/logs + mode 字段", "deps": [] },
+      { "id": "W6.1", "name": "模板目录 + mode 字段", "desc": "创建 templates/awf/ 骨架 + state.json 新增 mode 字段（run/plan/idle）", "level": "task", "parent": "W6", "children": [], "acceptance": "templates/awf/ 包含所有子目录和模板文件，state.json 含 mode 字段", "deps": [] },
+      { "id": "W6.2", "name": "initWorkspace 模板化", "desc": "重构 initWorkspace() 用 fs.cp() 从 templates/awf/ 复制，替换硬编码", "level": "task", "parent": "W6", "children": [], "acceptance": "sandbox 验证通过，--force 覆盖正常", "deps": ["W6.1"] }
     ],
     "tasks": [
       {
         "id": "1",
-        "desc": "创建 templates/awf-rules.md，包含 awf 核心规则（MCP 工具列表、命令前缀、状态文件路径、阶段约定）",
-        "prompt": "在 cc-control 项目根目录创建 templates/awf-rules.md 文件。\n\n内容要求：\n1. 以 `<!-- awf-rules start -->` 开头，`<!-- awf-rules end -->` 结尾\n2. 包含以下核心规则：\n   - awf 命令前缀约定：所有 awf 命令通过 `/ai-workflow:<command>` 调用\n   - MCP 工具列表：awf-state（状态读写）、awf-session（tmux 观测）、awf-oneshot（无状态 LLM 调用）\n   - 状态文件路径：.awf/state.json\n   - 阶段约定：DEV → REVIEW → TEST → COMMIT，门禁由 task 级别驱动\n   - 自主执行原则：少问问题，多干活，结果写入 state.json\n3. 最小规则原则——只写最必要的约定，其余由 skills 承载\n4. 参考 cc-control/CLAUDE.md 的风格，但只保留 awf 相关的规则",
+        "desc": "创建 templates/CLAUDE.md.template — awf 模式检测 + 通用规则 + run/plan 占位",
+        "prompt": "1. 创建 templates/CLAUDE.md.template，以 <!-- awf-rules start/end --> 包裹。\n\n内容结构：\n- awf 模式：读 state.json mode 字段（plan/run/idle）\n- plan和run通用规则：state.json 只能通过 awf-state MCP 修改\n- awf-plan 模式：（占位，待填充）\n- awf-run 模式：（占位，待填充）\n\n2. 同时删除 templates/awf-rules.md（内容已合并到 CLAUDE.md.template）。",
         "wbsRef": "W5.1",
         "deps": [],
         "status": "done",
         "complexity": "simple",
         "featureGroup": "init-claude-md",
         "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
+        "exec": { "result": "templates/CLAUDE.md.template 已创建，含模式检测/通用规则/run-plan占位；awf-rules.md 已删除", "files": ["templates/CLAUDE.md.template"] },
         "commits": []
       },
       {
         "id": "2",
-        "desc": "创建 templates/CLAUDE.md.template，作为项目无 CLAUDE.md 时的备用生成骨架",
-        "prompt": "在 cc-control 项目根目录创建 templates/CLAUDE.md.template 文件。\n\n背景：awf init 时需要为目标项目生成 CLAUDE.md。claude -p \"/init\" 在非交互模式下不可用，所以需要备用模板。\n\n内容要求：\n1. 基础沟通原则（参考 cc-control/CLAUDE.md 的沟通原则部分）\n2. 项目信息占位符：{{PROJECT_NAME}}、{{PROJECT_DESCRIPTION}}\n3. 技术栈占位符：{{TECH_STACK}}\n4. 项目结构占位符：{{PROJECT_STRUCTURE}}\n5. 不包含 awf 规则（由注入逻辑单独追加）\n6. 保持精简——是最小可用骨架，不是完整的 CLAUDE.md",
-        "wbsRef": "W5.2",
-        "deps": [],
-        "status": "done",
-        "complexity": "simple",
-        "featureGroup": "init-claude-md",
-        "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
-        "commits": []
-      },
-      {
-        "id": "3",
-        "desc": "在 src/cli/commands/init.js 中实现 checkAndInjectClaudeMd(cwd) 函数：检查 CLAUDE.md 是否存在、是否已有 awf 标记、按需追加",
-        "prompt": "在 src/cli/commands/init.js 中实现 CLAUDE.md 检查与注入逻辑。\n\n实现 checkAndInjectClaudeMd(cwd) 函数：\n1. 读取 templates/awf-rules.md 内容（路径使用 paths.projectRoot 拼接 'templates/awf-rules.md'）\n2. 检查 cwd/CLAUDE.md 是否存在\n3. 存在 → 读取内容，检查是否包含 '<!-- awf-rules start -->'\n   - 有标记 → 跳过，打印 'CLAUDE.md 已包含 awf 规则，跳过注入'\n   - 无标记 → 在末尾追加 '\\n\\n' + awf-rules.md 的完整内容\n4. 打印清晰的日志，告知用户做了什么\n\n注意：\n- 使用 fs 模块（已有 import { readFileSync, writeFileSync, existsSync } from 'fs'）\n- 不要覆盖用户已有的 CLAUDE.md 内容\n- 文件操作放在 try-catch 中，失败时 warn 而非 error（不影响 init 的其他步骤）",
-        "wbsRef": "W5.3",
+        "desc": "简化 initClaudeMd() — 只读 CLAUDE.md.template，三场景：不存在→创建 / 存在无标记→追加 / 存在有标记→跳过",
+        "prompt": "重构 src/cli/commands/init.js 中的 initClaudeMd()：\n\n1. 只读取 templates/CLAUDE.md.template（不再读 awf-rules.md）\n2. 删除 generateClaudeMd() 和 appendAwfRules() 两个独立函数，逻辑内联到 initClaudeMd()\n3. 三场景：\n   - CLAUDE.md 不存在 → 直接写入模板内容\n   - 存在但无 <!-- awf-rules start --> 标记 → 末尾追加\n   - 存在且有标记 → 跳过",
+        "wbsRef": "W5.1",
         "deps": ["1"],
         "status": "done",
         "complexity": "medium",
         "featureGroup": "init-claude-md",
         "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
+        "exec": { "result": "initClaudeMd() 简化完成，只读 CLAUDE.md.template，generateClaudeMd/appendAwfRules 已删除", "files": ["src/cli/commands/init.js"] },
+        "commits": []
+      },
+      {
+        "id": "3",
+        "desc": "集成到 initCommand + sandbox 验证 3 种场景",
+        "prompt": "1. 确认 initCommand 中 initWorkspace() 之后调用了 initClaudeMd(cwd)。\n2. sandbox 验证 3 种场景：\n   - 无 CLAUDE.md → 创建含 awf 规则的文件\n   - 有 CLAUDE.md 无标记 → 末尾追加\n   - 有 CLAUDE.md 有标记 → 跳过",
+        "wbsRef": "W5.2",
+        "deps": ["2"],
+        "status": "done",
+        "complexity": "medium",
+        "featureGroup": "init-claude-md",
+        "phases": null,
+        "exec": { "result": "集成验证通过，3 场景覆盖正常", "files": ["src/cli/commands/init.js"] },
         "commits": []
       },
       {
         "id": "4",
-        "desc": "实现 generateClaudeMd(cwd) 函数：当项目无 CLAUDE.md 时，从模板生成基础文件 + 注入 awf 规则",
-        "prompt": "在 src/cli/commands/init.js 中实现 generateClaudeMd(cwd) 函数。\n\n背景：claude -p \"/init\" 在非交互模式下无法正确触发 skill（已在代码注释中确认），所以用本地模板兜底。\n\n实现 generateClaudeMd(cwd) 函数：\n1. 读取 templates/CLAUDE.md.template\n2. 替换占位符：\n   - {{PROJECT_NAME}} → path.basename(cwd)\n   - {{PROJECT_DESCRIPTION}} → ''（空，等用户自己填）\n   - {{TECH_STACK}} → '根据项目文件自动检测或手动填写'\n   - {{PROJECT_STRUCTURE}} → ''（空）\n3. 写入 cwd/CLAUDE.md\n4. 打印日志：'已从模板生成 CLAUDE.md'\n\n然后在 checkAndInjectClaudeMd() 中：\n- 如果 CLAUDE.md 不存在，先调用 generateClaudeMd() 生成\n- 再执行注入逻辑\n\n重构 checkAndInjectClaudeMd 的流程：\n```\nif (existsSync(claudeMdPath)) {\n  // 已有文件，检查标记\n  if (有 awf 标记) → 跳过\n  else → 追加\n} else {\n  generateClaudeMd(cwd)  // 先生成\n  // 然后追加 awf 规则（此时肯定没有标记）\n}\n```\n\n注意：\n- generateClaudeMd 和 checkAndInjectClaudeMd 的职责边界清晰\n- 注入部分复用同一段逻辑（读 awf-rules.md → 追加）",
-        "wbsRef": "W5.3",
-        "deps": ["2", "3"],
+        "desc": "创建 templates/awf/ 目录骨架（state.json + README + bugs/issues/versions/reports/logs + .gitkeep）",
+        "prompt": "1. 在 templates/awf/ 下创建 .awf/ 初始化模板：\n\n```\ntemplates/awf/\n├── state.json              # 初始状态骨架（含 {{TIMESTAMP}} 占位）\n├── README.md               # 目录说明（复制 .awf/README.md）\n├── bugs/TEMPLATE.md         # Bug 记录模板\n├── issues/TEMPLATE.md       # Issue 跟踪模板\n├── versions/.gitkeep\n├── reports/{test,review,lint,summary}/.gitkeep\n└── logs/.gitkeep\n```\n\n2. bugs/TEMPLATE.md 复制自 .awf/bugs/TEMPLATE.md\n3. issues/TEMPLATE.md 按 .awf/README.md 定义的 frontmatter 创建\n4. README.md 复制自 .awf/README.md",
+        "wbsRef": "W6.1",
+        "deps": [],
         "status": "done",
         "complexity": "medium",
-        "featureGroup": "init-claude-md",
+        "featureGroup": "init-awf-template",
         "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
+        "exec": { "result": "templates/awf/ 目录骨架已创建，含 state.json/README/bugs/issues/versions/reports/logs", "files": ["templates/awf/state.json", "templates/awf/README.md", "templates/awf/bugs/TEMPLATE.md", "templates/awf/issues/TEMPLATE.md"] },
         "commits": []
       },
       {
         "id": "5",
-        "desc": "将 initClaudeMd(cwd) 接入 initCommand 流程，在 sandbox 中验证 4 种场景",
-        "prompt": "1. 在 initCommand 函数中，initWorkspace() 之后调用 initClaudeMd(cwd)：\n\n```javascript\n// 在 initWorkspace 之后\nlogSection('初始化 CLAUDE.md');\nawait initClaudeMd(cwd);\n```\n\n2. 实现 initClaudeMd(cwd) 作为入口函数，封装 T3 和 T4 的逻辑。\n\n3. 在 sandbox 中创建 4 个测试场景验证：\n\n| 场景 | 目录状态 | 预期 |\n|------|---------|------|\n| A | 无 CLAUDE.md | 从模板生成 → 末尾有 awf-rules 标记 |\n| B | 有 CLAUDE.md，无 awf 标记 | 末尾追加 awf-rules 内容 |\n| C | 有 CLAUDE.md，已有 awf 标记 | 跳过，打印跳过信息 |\n| D | awf init --force | .awf/ 覆盖但不覆盖 CLAUDE.md，仅追加缺失的标记 |\n\n验证方式：\n- 在 cc-control/sandbox/ 下创建 4 个子目录模拟场景\n- 手动运行 awf init 或直接调用函数测试\n- 检查每个场景的 CLAUDE.md 内容是否符合预期\n\n错误处理：\n- 模板文件读取失败 → warn，不影响 init 流程\n- CLAUDE.md 写入失败 → warn，不影响 init 流程",
-        "wbsRef": "W5.4",
+        "desc": "state.json 新增 mode 字段（run/plan/idle），默认 idle",
+        "prompt": "1. 更新 templates/awf/state.json，新增 mode 字段：\n   - \"mode\": \"idle\"（默认值，表示无 awf 进程）\n   - run: awf run 执行中（由 CLI 通过 awf-state MCP 设置）\n   - plan: awf plan 规划中（由 CLI 通过 awf-state MCP 设置）\n\n2. mode 字段只能通过 awf-state MCP 工具修改（在 CLAUDE.md.template 通用规则中已声明）",
+        "wbsRef": "W6.1",
         "deps": ["4"],
         "status": "done",
-        "complexity": "medium",
-        "featureGroup": "init-claude-md",
+        "complexity": "simple",
+        "featureGroup": "init-awf-template",
         "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
+        "exec": { "result": "state.json 新增 mode:idle 字段，templates/awf/state.json + CLAUDE.md.template 均已更新", "files": ["templates/awf/state.json", "templates/CLAUDE.md.template"] },
+        "commits": []
+      },
+      {
+        "id": "6",
+        "desc": "重构 initWorkspace() — 用 fs.cp() 从 templates/awf/ 复制替代硬编码 stateJson，替换 {{TIMESTAMP}}",
+        "prompt": "修改 src/cli/commands/init.js 中的 initWorkspace()：\n\n1. 用 fs.cp() 递归复制 templates/awf/ → cwd/.awf/\n2. 复制后读取 state.json，替换 {{TIMESTAMP}} 为 new Date().toISOString()\n3. 保留 force 逻辑：--force 时先 fs.rm 再复制\n4. 删除原有的硬编码 stateJson 对象\n5. sandbox 验证：\n   - awf init → .awf/ 结构完整\n   - lastUpdated 已替换为实际时间\n   - --force 覆盖正常",
+        "wbsRef": "W6.2",
+        "deps": ["5"],
+        "status": "done",
+        "complexity": "medium",
+        "featureGroup": "init-awf-template",
+        "phases": null,
+        "exec": { "result": "initWorkspace() 重构完成：fs.cp() 从 templates/awf/ 复制，替换 {{TIMESTAMP}}，保留 force 逻辑", "files": ["src/cli/commands/init.js"] },
         "commits": []
       }
     ]
@@ -83,9 +97,15 @@
   "milestones": [
     {
       "id": "M1",
-      "desc": "Init CLAUDE.md 自动生成功能完成",
+      "desc": "Init CLAUDE.md 自动生成 — 模式检测 + 通用规则注入",
       "status": "done",
-      "tasks": ["1", "2", "3", "4", "5"]
+      "tasks": ["1", "2", "3"]
+    },
+    {
+      "id": "M2",
+      "desc": ".awf/ 模板化初始化 — 骨架 + mode 字段 + initWorkspace 重构",
+      "status": "done",
+      "tasks": ["4", "5", "6"]
     }
   ],
   "tasks": [],

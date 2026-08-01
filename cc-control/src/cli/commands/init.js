@@ -191,96 +191,94 @@ async function installAllPlugins(paths, extraPlugins) {
 
 async function initWorkspace(paths, force) {
   const awfDir = path.join(process.cwd(), '.awf');
+  const templateDir = path.join(paths.projectRoot, 'templates', 'awf');
   const exists = await fs.stat(awfDir).catch(() => null);
 
-  if (exists && !force) {
-    logStep('.awf/', 'warn', '已存在，使用 --force 覆盖');
+  if (!exists) {
+    // 首次创建 → 从模板全量复制
+    try {
+      await fs.cp(templateDir, awfDir, { recursive: true });
+      await replaceTimestamp(path.join(awfDir, 'state.json'));
+    } catch {
+      await fs.mkdir(awfDir, { recursive: true });
+      logStep('.awf/', 'warn', '模板缺失，已创建空目录');
+      return;
+    }
+    logStep('.awf/', 'ok', '已创建');
     return;
   }
 
-  if (exists) {
-    await fs.rm(awfDir, { recursive: true, force: true });
+  if (!force) {
+    logStep('.awf/', 'warn', '已存在，使用 --force 补全缺失文件');
+    return;
   }
-  await fs.mkdir(awfDir, { recursive: true });
 
-  const stateJson = {
-    currentState: 'IDLE',
-    version: '0.1.0',
-    milestones: [],
-    tasks: [],
-    wbs: null,
-    lastUpdated: new Date().toISOString(),
-  };
-  await fs.writeFile(
-    path.join(awfDir, 'state.json'),
-    JSON.stringify(stateJson, null, 2),
-  );
-  logStep('.awf/', 'ok', '已创建');
+  // --force：只补缺失，已有文件不动
+  await mergeMissing(templateDir, awfDir);
+  logStep('.awf/', 'ok', '已补全缺失文件');
+}
+
+async function mergeMissing(src, dest) {
+  const entries = await fs.readdir(src, { withFileTypes: true });
+  for (const e of entries) {
+    const srcPath = path.join(src, e.name);
+    const destPath = path.join(dest, e.name);
+    const destExists = await fs.stat(destPath).catch(() => null);
+
+    if (e.isDirectory()) {
+      if (!destExists) {
+        await fs.mkdir(destPath, { recursive: true });
+      }
+      await mergeMissing(srcPath, destPath);
+    } else {
+      if (!destExists) {
+        await fs.copyFile(srcPath, destPath);
+        if (e.name === 'state.json') {
+          await replaceTimestamp(destPath);
+        }
+      }
+    }
+  }
+}
+
+async function replaceTimestamp(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    await fs.writeFile(filePath, raw.replace('{{TIMESTAMP}}', new Date().toISOString()));
+  } catch {}
 }
 
 /**
- * 初始化项目 CLAUDE.md — 检查、生成、注入 awf 规则
+ * 初始化项目 CLAUDE.md — 检查、注入 awf 规则
  */
 async function initClaudeMd(projectRoot, cwd) {
-  const awfRulesPath = path.join(projectRoot, 'templates', 'awf-rules.md');
   const templatePath = path.join(projectRoot, 'templates', 'CLAUDE.md.template');
   const claudeMdPath = path.join(cwd, 'CLAUDE.md');
+  const markerStart = '<!-- awf-rules start -->';
 
-  // 读取 awf 注入内容
   let awfRules;
   try {
-    awfRules = await fs.readFile(awfRulesPath, 'utf-8');
+    awfRules = await fs.readFile(templatePath, 'utf-8');
   } catch {
-    logStep('CLAUDE.md', 'warn', 'awf 规则模板不存在，跳过注入');
+    logStep('CLAUDE.md', 'warn', '模板文件不存在，跳过注入');
     return;
   }
 
-  const markerStart = '<!-- awf-rules start -->';
-
-  // 检查 CLAUDE.md 是否存在
   const claudeMdExists = await fs.stat(claudeMdPath).catch(() => null);
 
   if (!claudeMdExists) {
-    // 不存在 → 从模板生成 → 注入
-    await generateClaudeMd(templatePath, claudeMdPath, cwd);
-    await appendAwfRules(claudeMdPath, awfRules);
+    // 不存在 → 直接创建 awf 规则文件
+    await fs.writeFile(claudeMdPath, awfRules);
+    logStep('CLAUDE.md', 'ok', '已创建（含 awf 规则）');
   } else {
     // 存在 → 检查是否已有 awf 标记
     const content = await fs.readFile(claudeMdPath, 'utf-8');
     if (content.includes(markerStart)) {
       logStep('CLAUDE.md', 'skip', '已包含 awf 规则，跳过注入');
     } else {
-      await appendAwfRules(claudeMdPath, awfRules);
+      const separator = content.endsWith('\n') ? '\n' : '\n\n';
+      await fs.writeFile(claudeMdPath, content + separator + awfRules);
+      logStep('CLAUDE.md', 'ok', '已注入 awf 规则');
     }
-  }
-}
-
-async function generateClaudeMd(templatePath, targetPath, cwd) {
-  let template;
-  try {
-    template = await fs.readFile(templatePath, 'utf-8');
-  } catch {
-    logStep('CLAUDE.md', 'warn', '模板文件不存在，跳过生成');
-    return;
-  }
-
-  const content = template
-    .replace(/\{\{PROJECT_NAME\}\}/g, path.basename(cwd))
-    .replace(/\{\{PROJECT_DESCRIPTION\}\}/g, '')
-    .replace(/\{\{TECH_STACK\}\}/g, '根据项目文件自动检测或手动填写')
-    .replace(/\{\{PROJECT_STRUCTURE\}\}/g, '');
-
-  await fs.writeFile(targetPath, content);
-  logStep('CLAUDE.md', 'ok', '已从模板生成');
-}
-
-async function appendAwfRules(claudeMdPath, awfRules) {
-  try {
-    const current = await fs.readFile(claudeMdPath, 'utf-8');
-    const separator = current.endsWith('\n') ? '\n' : '\n\n';
-    await fs.writeFile(claudeMdPath, current + separator + awfRules);
-    logStep('CLAUDE.md', 'ok', '已注入 awf 规则');
-  } catch (err) {
-    logStep('CLAUDE.md', 'warn', `注入失败: ${err.message}`);
   }
 }

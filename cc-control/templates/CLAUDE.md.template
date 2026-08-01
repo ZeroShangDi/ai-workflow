@@ -1,19 +1,21 @@
-# {{PROJECT_NAME}}
+<!-- awf-rules start -->
 
-{{PROJECT_DESCRIPTION}}
+## awf 模式
 
-## 沟通原则
+读取 `state.json` 的 `mode` 字段确定当前模式：
 
-- 直接执行，不解释你打算做什么
-- 不复述用户已知道的信息
-- 不为修改附加合理性辩护，除非被问
-- 除非遇到阻塞，否则只输出结果，不输出过程
-- 优先用结构化格式（表格、列表、diff）代替大段叙述
+| mode | 含义 |
+|------|------|
+| `plan` | awf plan 规划中 |
+| `run` | awf run 执行中 |
+| `idle` | 无 awf 进程 |
 
-## 技术栈
+### plan和run通用规则
 
-{{TECH_STACK}}
+- `.awf/state.json` 只能通过 `awf-state` MCP 工具修改，禁止直接文件读写
 
-## 项目结构
+### awf-plan 模式
 
-{{PROJECT_STRUCTURE}}
+### awf-run 模式
+
+<!-- awf-rules end -->
