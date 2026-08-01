@@ -16,24 +16,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 ```
 cc-control/
-  plugin.json              # Claude Code 插件清单
-  package.json             # npm 包（含 bin + files 双分发）
+  package.json             # npm 包
 
-  bin/awf.js               # CLI 入口（Commander，7 个命令）
+  plugin/                  # Claude Code 插件
+    plugin.json
+    commands/              #   14 个 slash commands
+    skills/                #   10 个 skills
 
-  commands/                # 14 个 slash commands（auto-discovered by Claude Code）
-  skills/                  # 10 个 skills（awf-* 核心 / core 通用）
-  prompts/run/             # 8 个运行时阶段 prompt 模板
-
-  tools/                   # 3 个独立 MCP Server
-    awf-state/             #   状态 CRUD — 直接文件 I/O，零依赖
-    awf-session/           #   tmux 生命周期 — 查询 session 状态 + 抓取 pane
-    awf-oneshot/           #   无状态 LLM 调用 — spawn claude -p
-
-  src/                     # 内部实现
-    cli/commands/          #   CLI 命令逻辑（run, init, plan, etc.）
-    cli/utils/             #   路径解析、状态管理、日志
-    server/                #   HTTP Session Server（/send, /cmd, /hook, /status）
+  src/                     # 应用代码
+    awf.js                 #   CLI 入口（Commander，7 个命令）
+    cli/                   #   CLI 命令实现（init, plan, run...）
+    server/                #   HTTP Session Server
+    mcp/                   #   3 个 MCP Server（state, session, oneshot）
+    prompts/               #   阶段 prompt 模板
+    templates/             #   init 模板
 
   scripts/                 # 开发命令（bootstrap, test, lint, build, eval）
   tests/                   # unit / integration / eval / fixtures
@@ -183,17 +179,17 @@ claude --plugin-dir .     # 临时加载
 
 | 文件 | 角色 |
 |------|------|
-| `bin/awf.js` | CLI 入口，命令路由 |
-| `src/cli/commands/run.js` | `awf run` 主循环 |
-| `src/cli/utils/state.js` | state.json 读写 |
-| `src/cli/utils/paths.js` | 路径解析 |
+| `src/awf.js` | CLI 入口，命令路由 |
+| `src/cli/run.js` | `awf run` 主循环 |
+| `src/cli/state.js` | state.json 读写 |
+| `src/cli/paths.js` | 路径解析 |
 | `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status） |
 | `scripts/bootstrap.sh` | 启动 tmux session + 渲染 settings + MCP 配置 |
-| `tools/awf-state/server.cjs` | 状态 MCP — 14 个 tools，直接文件 I/O |
-| `tools/awf-session/server.cjs` | Session MCP — 2 个 tools |
-| `tools/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
-| `prompts/run/state-machine.md` | 自治执行规则（注入给 AI 的运行时指令） |
-| `skills/awf-sys-spec-workflow/SKILL.md` | 核心状态机规范 |
+| `src/mcp/awf-state/server.cjs` | 状态 MCP — 14 个 tools，直接文件 I/O |
+| `src/mcp/awf-session/server.cjs` | Session MCP — 2 个 tools |
+| `src/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
+| `src/prompts/run/state-machine.md` | 自治执行规则（注入给 AI 的运行时指令） |
+| `plugin/skills/awf-sys-spec-workflow/SKILL.md` | 核心状态机规范 |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
 
 ## 用户配置（`.claude/user/`）

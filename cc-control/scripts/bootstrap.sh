@@ -16,18 +16,18 @@ mkdir -p "$WORKDIR/.claude"
 sed "s/__PORT__/$PORT/g" "$ROOT/src/server/hooks/settings.json" > "$WORKDIR/.claude/settings.json"
 
 # Render .mcp.json with 3 MCP servers (state, session, oneshot)
-sed -e "s|__TOOLS__|$ROOT/tools|g" \
+sed -e "s|__TOOLS__|$ROOT/src/mcp|g" \
     -e "s|__WORKDIR__|$WORKDIR|g" \
     -e "s/__PORT__/$PORT/g" \
-    "$ROOT/tools/awf-state/mcp.json.template" > "$WORKDIR/.mcp.json"
+    "$ROOT/src/mcp/awf-state/mcp.json.template" > "$WORKDIR/.mcp.json"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session '$SESSION' already exists. Kill it with: tmux kill-session -t $SESSION"
   exit 0
 fi
 
-# Plugin dir — flat root IS the plugin（commands/, skills/ 在根目录）
-PLUGIN_DIR="${CC_PLUGIN_DIR:-$ROOT}"
+# Plugin dir
+PLUGIN_DIR="${CC_PLUGIN_DIR:-$ROOT/plugin}"
 
 # bypassPermissions: 免除文件读写、命令执行等权限确认，避免阻塞自动化工作流
 tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \

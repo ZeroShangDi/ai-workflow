@@ -4,18 +4,12 @@
   "description": "AI Workflow Framework — persistent multi-session workflow orchestration for Claude Code, with CLI bootstrap",
   "type": "module",
   "bin": {
-    "awf": "./bin/awf.js"
+    "awf": "./src/awf.js"
   },
   "files": [
-    "bin/",
-    "commands/",
-    "skills/",
-    "prompts/",
-    "tools/",
+    "plugin/",
     "src/",
-    "scripts/",
-    "plugin.json",
-    ".claude-plugin/marketplace.json"
+    "scripts/"
   ],
   "scripts": {
     "test": "bash scripts/test.sh",

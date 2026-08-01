@@ -2,7 +2,7 @@ import { exec } from 'node:child_process';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { getPaths } from '../utils/paths.js';
+import { getPaths } from './paths.js';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -140,30 +140,44 @@ async function loadExtraPlugins(paths) {
 }
 
 async function installAllPlugins(paths, extraPlugins) {
-  const sourceDir = paths.projectRoot;
+  const pluginDir = path.join(paths.projectRoot, 'plugin');
   const installedJson = path.join(paths.claudePlugins, 'installed_plugins.json');
+  const symlinkPath = path.join(paths.claudePlugins, 'ai-workflow');
 
-  // 清理旧版 symlink 残留
-  const oldSymlink = `${paths.claudePlugins}/ai-workflow`;
-  const oldLink = await fs.lstat(oldSymlink).catch(() => null);
-  if (oldLink?.isSymbolicLink()) {
-    await fs.unlink(oldSymlink);
+  // 检查 symlink 是否有效（目标目录含 plugin.json）
+  let symlinkValid = false;
+  try {
+    const target = await fs.readlink(symlinkPath);
+    await fs.stat(path.join(target, 'plugin.json'));
+    symlinkValid = true;
+  } catch {}
+
+  // 清理旧版 symlink（指向项目根目录、不含 plugin.json 的残留）
+  if (!symlinkValid) {
+    await fs.unlink(symlinkPath).catch(() => {});
   }
+
+  // 清理旧的 marketplace 注册（目录变更后可能残留指向根目录的旧注册）
+  try {
+    execSync(`claude plugin marketplace remove "${paths.projectRoot}"`, { stdio: 'pipe' });
+  } catch {}
 
   // 检查插件是否已安装
   const isInstalled = (spec) => {
-    try {
-      const raw = execSync(`cat "${installedJson}"`, { stdio: 'pipe' }).toString();
-      const data = JSON.parse(raw);
-      return !!data.plugins?.[spec];
-    } catch {
-      return false;
-    }
+    return symlinkValid && (() => {
+      try {
+        const raw = execSync(`cat "${installedJson}"`, { stdio: 'pipe' }).toString();
+        const data = JSON.parse(raw);
+        return !!data.plugins?.[spec];
+      } catch {
+        return false;
+      }
+    })();
   };
 
-  // 注册本地 marketplace（幂等）
+  // 注册本地 marketplace（幂等），指向含 plugin.json 的 plugin/ 目录
   try {
-    execSync(`claude plugin marketplace add "${sourceDir}"`, { stdio: 'pipe' });
+    execSync(`claude plugin marketplace add "${pluginDir}"`, { stdio: 'pipe' });
   } catch {}
 
   // 合并默认插件 + 配置文件中的额外插件
@@ -191,7 +205,7 @@ async function installAllPlugins(paths, extraPlugins) {
 
 async function initWorkspace(paths, force) {
   const awfDir = path.join(process.cwd(), '.awf');
-  const templateDir = path.join(paths.projectRoot, 'templates', 'awf');
+  const templateDir = path.join(paths.projectRoot, 'src', 'templates', 'awf');
   const exists = await fs.stat(awfDir).catch(() => null);
 
   if (!exists) {
@@ -252,7 +266,7 @@ async function replaceTimestamp(filePath) {
  * 初始化项目 CLAUDE.md — 检查、注入 awf 规则
  */
 async function initClaudeMd(projectRoot, cwd) {
-  const templatePath = path.join(projectRoot, 'templates', 'CLAUDE.md.template');
+  const templatePath = path.join(projectRoot, 'src', 'templates', 'CLAUDE.md.template');
   const claudeMdPath = path.join(cwd, 'CLAUDE.md');
   const markerStart = '<!-- awf-rules start -->';
 

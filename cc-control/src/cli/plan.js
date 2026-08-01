@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
-import { getPaths, pluginCmd } from '../utils/paths.js';
-import { logger } from '../utils/logger.js';
+import { getPaths, pluginCmd } from './paths.js';
+import { logger } from './logger.js';
 
 /**
  * awf plan — 启动规划会话

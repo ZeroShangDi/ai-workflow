@@ -1,6 +1,7 @@
+import path from 'path';
 import fs from 'fs/promises';
-import { getPaths } from '../utils/paths.js';
-import { logger } from '../utils/logger.js';
+import { getPaths } from './paths.js';
+import { logger } from './logger.js';
 
 /**
  * awf plugin — 独立插件管理
@@ -21,8 +22,9 @@ export async function pluginCommand(action) {
         return;
       }
 
-      await fs.symlink(paths.projectRoot, pluginDir);
-      logger.success(`已安装: ${pluginDir} → ${paths.projectRoot}`);
+      const sourceDir = path.join(paths.projectRoot, 'plugin');
+      await fs.symlink(sourceDir, pluginDir);
+      logger.success(`已安装: ${pluginDir} → ${sourceDir}`);
       break;
     }
 

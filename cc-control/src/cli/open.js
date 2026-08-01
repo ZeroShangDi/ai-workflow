@@ -1,8 +1,8 @@
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
-import { getPaths } from '../utils/paths.js';
-import { logger } from '../utils/logger.js';
+import { getPaths } from './paths.js';
+import { logger } from './logger.js';
 
 const SERVER_PORT = 8787;
 

@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { logger } from '../utils/logger.js';
+import { logger } from './logger.js';
 
 export async function attachCommand() {
   const session = process.env.CC_SESSION || 'cc';

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
-import { initCommand } from '../src/cli/commands/init.js';
-import { planCommand } from '../src/cli/commands/plan.js';
-import { runCommand } from '../src/cli/commands/run.js';
-import { pluginCommand } from '../src/cli/commands/plugin.js';
-import { serverCommand } from '../src/cli/commands/server.js';
-import { openCommand } from '../src/cli/commands/open.js';
-import { attachCommand } from '../src/cli/commands/attach.js';
+import { initCommand } from './cli/init.js';
+import { planCommand } from './cli/plan.js';
+import { runCommand } from './cli/run.js';
+import { pluginCommand } from './cli/plugin.js';
+import { serverCommand } from './cli/server.js';
+import { openCommand } from './cli/open.js';
+import { attachCommand } from './cli/attach.js';
 
 program
   .name('awf')

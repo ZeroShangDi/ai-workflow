@@ -2,8 +2,8 @@ import { spawn, execSync } from 'child_process';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
-import { getPaths, pluginCmd, PLUGIN_NS } from '../utils/paths.js';
-import { loadState, findNextTask } from '../utils/state.js';
+import { getPaths, pluginCmd, PLUGIN_NS } from './paths.js';
+import { loadState, findNextTask } from './state.js';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
