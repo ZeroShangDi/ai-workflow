@@ -1,6 +1,7 @@
 ---
 id: NNN
 title:
+version: {{VERSION}}
 status: open
 severity: medium
 source:
