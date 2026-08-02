@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 import { getPaths, pluginCmd } from './paths.js';
 import { logger } from './logger.js';
+import { promptVersion } from './version-prompt.js';
+import { loadState, saveState } from './state.js';
 
 /**
  * awf plan — 启动规划会话
@@ -9,6 +11,13 @@ import { logger } from './logger.js';
 export async function planCommand(description, options) {
   const { resume } = options;
   const paths = getPaths();
+  const cwd = process.cwd();
+
+  const version = await promptVersion(cwd);
+  const state = loadState(cwd) || {};
+  state.version = version;
+  saveState(cwd, state);
+  logger.info(`版本: ${version}`);
 
   const prompt = resume
     ? `${pluginCmd('w-plan')} --resume 请恢复上次规划会话，继续对齐需求`

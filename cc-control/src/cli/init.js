@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { getPaths } from './paths.js';
+import { promptVersion } from './version-prompt.js';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -73,6 +74,9 @@ export async function initCommand(options) {
 
   console.log(`${CYAN}⚡ AI Workflow 初始化${RESET}\n`);
 
+  // ── 0. 版本确认 ──
+  const version = await promptVersion(process.cwd());
+
   // ── 1. 前置依赖检查 ──
   logSection('检查前置依赖');
   const depResults = checkPrerequisites();
@@ -91,7 +95,7 @@ export async function initCommand(options) {
 
   // ── 3. 初始化项目 ──
   logSection('初始化项目');
-  await initWorkspace(paths, force);
+  await initWorkspace(paths, force, version);
 
   // ── 4. Claude Code 项目初始化 ──
   logSection('初始化 CLAUDE.md');
@@ -203,7 +207,7 @@ async function installAllPlugins(paths, extraPlugins) {
   }
 }
 
-async function initWorkspace(paths, force) {
+async function initWorkspace(paths, force, version) {
   const awfDir = path.join(process.cwd(), '.awf');
   const templateDir = path.join(paths.projectRoot, 'src', 'templates', 'awf');
   const exists = await fs.stat(awfDir).catch(() => null);
@@ -213,6 +217,7 @@ async function initWorkspace(paths, force) {
     try {
       await fs.cp(templateDir, awfDir, { recursive: true });
       await copyStateTemplate(paths, awfDir);
+      await replaceVersion(awfDir, version);
     } catch {
       await fs.mkdir(awfDir, { recursive: true });
       logStep('.awf/', 'warn', '模板缺失，已创建空目录');
@@ -230,6 +235,7 @@ async function initWorkspace(paths, force) {
   // --force：只补缺失，已有文件不动
   await mergeMissing(templateDir, awfDir);
   await copyStateTemplate(paths, awfDir);
+  await replaceVersion(awfDir, version);
   logStep('.awf/', 'ok', '已补全缺失文件');
 }
 
@@ -268,6 +274,30 @@ async function replaceTimestamp(filePath) {
     const raw = await fs.readFile(filePath, 'utf-8');
     await fs.writeFile(filePath, raw.replace('{{TIMESTAMP}}', new Date().toISOString()));
   } catch {}
+}
+
+async function replaceVersion(awfDir, version) {
+  if (!version) return;
+  try {
+    await replaceInDir(awfDir, version);
+  } catch {}
+}
+
+async function replaceInDir(dir, version) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      await replaceInDir(full, version);
+    } else {
+      try {
+        const raw = await fs.readFile(full, 'utf-8');
+        if (raw.includes('{{VERSION}}')) {
+          await fs.writeFile(full, raw.replace(/\{\{VERSION\}\}/g, version));
+        }
+      } catch {}
+    }
+  }
 }
 
 /**
