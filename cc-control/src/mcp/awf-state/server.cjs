@@ -211,6 +211,17 @@ const TOOLS = [
     },
   },
   {
+    name: 'awf_version',
+    description: '更新 state.json 版本号',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        version: { type: 'string', description: '新版本号，如 0.1.4' },
+      },
+      required: ['version'],
+    },
+  },
+  {
     name: 'awf_milestone_create',
     description: '创建新里程碑',
     inputSchema: {
@@ -382,6 +393,10 @@ const handlers = {
         }
         case 'awf_mode': {
           s.mode = args.mode;
+          break;
+        }
+        case 'awf_version': {
+          s.version = args.version;
           break;
         }
         case 'awf_milestone_create': {

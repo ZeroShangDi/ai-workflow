@@ -122,7 +122,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 
 ## MCP Tools（3 个 Server）
 
-### awf-state（14 tools）— 状态 CRUD，直接文件 I/O
+### awf-state（17 tools）— 状态 CRUD，直接文件 I/O
 
 | Tool | 用途 |
 |------|------|
@@ -141,12 +141,14 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 | `awf_milestone_update` | 更新里程碑状态 |
 | `awf_milestone_create` | 创建里程碑 |
 
-### awf-session（2 tools）— tmux 生命周期观测
+### awf-session（3 tools）— tmux 生命周期观测
 
 | Tool | 用途 |
 |------|------|
 | `awf_session_status` | 查询 session ready/busy 状态 |
 | `awf_capture_pane` | 抓取 tmux pane 内容 |
+| `awf_await_choice` | 通知 CLI 需要用户做选择 |
+| `awf_await_input` | 通知 CLI 需要用户自由输入 |
 
 ### awf-oneshot（1 tool）— 无状态 LLM 调用
 

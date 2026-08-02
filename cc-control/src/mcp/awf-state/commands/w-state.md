@@ -99,6 +99,10 @@
 删除里程碑
 - `id` (string, 必填) — 里程碑 ID
 
+### awf_version
+更新 state.json 版本号
+- `version` (string, 必填) — 新版本号，如 `0.1.4`
+
 ### awf_mode
 设置工作流运行模式
 - `mode` (enum, 必填) — `idle` | `plan` | `run`
