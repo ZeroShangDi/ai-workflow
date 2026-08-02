@@ -115,12 +115,51 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // hook callback: flip the state machine
+  // hook callback: life-cycle + AskUserQuestion capture
   if (req.method === 'POST' && pathname === '/hook') {
     const body = (await readJson(req)) || {};
     const event = body.event || url.searchParams.get('event');
+
     if (event === 'UserPromptSubmit') setBusy();
     else if (event === 'Stop' || event === 'SessionStart') setReady();
+
+    // PreToolUse: 检测 AskUserQuestion，在执行前设置 decisionPending（不拦截）
+    if (event === 'PreToolUse' && body.tool_name === 'AskUserQuestion') {
+      const questions = body.tool_input?.questions;
+      if (questions && questions.length > 0) {
+        const q = questions[0];
+        setDecision({
+          type: q.multiSelect ? 'multiSelect' : 'choice',
+          multiSelect: !!q.multiSelect,
+          question: q.question,
+          options: (q.options || []).map(o => o.label),
+          header: q.header || null,
+          source: 'AskUserQuestion',
+        });
+        console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
+      }
+    }
+
+    // PostToolUse: 兜底（如果没拦截成功，原生 UI 回答后更新结果）
+    if (event === 'PostToolUse' && body.tool_name === 'AskUserQuestion') {
+      const prev = decisionPending;
+      const resp = body.tool_response;
+      console.log(`[hook] AskUserQuestion answered, raw: ${JSON.stringify(resp).slice(0,300)}`);
+      if (prev && prev.source === 'AskUserQuestion') {
+        let answer = '';
+        if (typeof resp === 'string') {
+          answer = resp;
+        } else if (resp?.answers && typeof resp.answers === 'object') {
+          answer = Object.values(resp.answers).join(', ');
+        } else if (resp?.answer) {
+          answer = String(resp.answer);
+        } else {
+          answer = JSON.stringify(resp);
+        }
+        setDecision({ ...prev, answer, answered: true });
+      }
+    }
+
     console.log(`[hook] ${event} -> ${state}`);
     return send(res, 200, { ok: true, event: event || null, state });
   }

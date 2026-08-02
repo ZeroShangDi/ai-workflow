@@ -29,6 +29,27 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=PreToolUse\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=PostToolUse\" -H 'content-type: application/json' -d @- >/dev/null 2>&1 || true"
+          }
+        ]
+      }
     ]
   }
 }

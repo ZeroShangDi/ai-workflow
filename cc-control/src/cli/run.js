@@ -4,6 +4,8 @@ import path from 'path';
 import fs from 'fs';
 import { getPaths, pluginCmd, PLUGIN_NS } from './paths.js';
 import { loadState, findNextTask } from './state.js';
+import { autoSelect } from './auto-selector.js';
+import { selectOption, inputCustom, selectMulti } from '../server/tmux-keys.cjs';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -74,6 +76,7 @@ function resolvePhases(task, state, projectRoot) {
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 let useLocal = false;
+const seenAnswers = new Set();
 
 // ── 输出辅助 ──
 
@@ -372,6 +375,32 @@ async function getStatus() {
 }
 
 async function handleDecision(d) {
+  // AskUserQuestion: 原生 UI 正常展示，CLI 通过 autoSelect 算答案 → tmux send-keys 敲入
+  if (d.source === 'AskUserQuestion') {
+    if (d.answered) {
+      if (!seenAnswers.has(d.question)) {
+        console.log(`     ${GREEN}✔ 已选择: ${d.answer}${RESET}`);
+        seenAnswers.add(d.question);
+      }
+      return;
+    }
+    console.log(`\n${YELLOW}  ⚡ AI 提问:${RESET} ${CYAN}${d.question}${RESET}${d.multiSelect ? ` ${DIM}(多选)${RESET}` : ''}`);
+    if (d.options?.length) d.options.forEach((o, i) => console.log(`     ${DIM}${i + 1}.${RESET} ${o}`));
+    const sel = await autoSelect(d);
+    if (sel) {
+      const session = process.env.CC_SESSION || 'cc';
+      if (sel.multiSelect) {
+        await selectMulti(session, sel.selected, (d.options && d.options.length) || 0, sel.customInput || '');
+      } else if (sel.index > 0) {
+        await selectOption(session, sel.index);
+      } else if (sel.customInput) {
+        const optsCount = (d.options && d.options.length) || 0;
+        await inputCustom(session, sel.customInput, optsCount);
+      }
+    }
+    return;
+  }
+
   console.log(`\n${YELLOW}  ⚡ AI 需要决策...${RESET}`);
   const { createInterface } = await import('readline');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -407,10 +436,20 @@ async function handleDecision(d) {
 
 async function waitForReady() {
   const start = Date.now();
+  let lastDecision = null;
   while (Date.now() - start < READY_TIMEOUT) {
     const status = await getStatus();
+    if (status.decisionPending) {
+      // 避免同一问题重复打印，等 PostToolUse 清除
+      const key = JSON.stringify(status.decisionPending);
+      if (key !== lastDecision) {
+        await handleDecision(status.decisionPending);
+        lastDecision = key;
+      }
+      await sleep(POLL_INTERVAL);
+      continue;
+    }
     if (status?.state === 'ready') {
-      if (status.decisionPending) await handleDecision(status.decisionPending);
       return;
     }
     await sleep(POLL_INTERVAL);
