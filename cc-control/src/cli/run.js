@@ -1,8 +1,6 @@
 import { spawn, execSync } from 'child_process';
 import http from 'http';
-import path from 'path';
-import fs from 'fs';
-import { getPaths, pluginCmd, PLUGIN_NS } from './paths.js';
+import { getPaths } from './paths.js';
 import { loadState, findNextTask } from './state.js';
 import { autoSelect } from './auto-selector.js';
 import { selectOption, inputCustom, selectMulti } from '../server/tmux-keys.cjs';
@@ -19,63 +17,8 @@ const SERVER_PORT = 8787;
 const POLL_INTERVAL = 2000;
 const READY_TIMEOUT = 300000;
 
-// ── 阶段链解析 ──
-
-function resolvePhases(task, state, projectRoot) {
-  // 1. 显式覆盖
-  if (task.phases?.length > 0) return [...task.phases];
-
-  // 2. 复杂度默认
-  const complexity = task.complexity || 'medium';
-  let phases;
-  switch (complexity) {
-    case 'simple':
-      phases = ['DEV', 'COMMIT'];
-      break;
-    case 'medium':
-      phases = ['DEV', 'TEST', 'COMMIT'];
-      break;
-    default:
-      phases = ['DEV', 'REVIEW', 'TEST', 'COMMIT'];
-      break;
-  }
-
-  // 3. 功能组：非最后一个任务跳过 TEST
-  if (task.featureGroup) {
-    const group = (state.plan?.tasks || []).filter(
-      (t) => t.featureGroup === task.featureGroup,
-    );
-    const isLast = group.every(
-      (t) => t.id === task.id || t.status === 'done',
-    );
-    if (!isLast) phases = phases.filter((p) => p !== 'TEST');
-  }
-
-  // 4. 无 git 仓库 → 跳过 COMMIT
-  if (!fs.existsSync(path.join(projectRoot, '.git'))) {
-    phases = phases.filter((p) => p !== 'COMMIT');
-  }
-
-  // 5. 功能组最后一个 → 插入 DOCS
-  if (task.featureGroup) {
-    const group = (state.plan?.tasks || []).filter(
-      (t) => t.featureGroup === task.featureGroup,
-    );
-    const isLast = group.every(
-      (t) => t.id === task.id || t.status === 'done',
-    );
-    if (isLast && !phases.includes('DOCS')) {
-      const devIdx = phases.indexOf('DEV');
-      if (devIdx >= 0) phases.splice(devIdx + 1, 0, 'DOCS');
-    }
-  }
-
-  return phases;
-}
-
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-let useLocal = false;
 const seenAnswers = new Set();
 
 // ── 输出辅助 ──
@@ -135,25 +78,13 @@ function logPrompt(prompt) {
   }
 }
 
-function logPhase(phase) {
-  // TODO: token 用量统计 — 当前无法从 tmux session 中提取 API token 消耗
-  const tokenInfo = `${DIM}tokens  —${RESET}`;
-  const phasePad = Math.max(2, 28 - phase.length);
-  console.log(`  ${CYAN}▸ ${phase}${RESET}${' '.repeat(phasePad)}${tokenInfo}`);
-}
-
 function logBanner(text) {
   console.log(`${CYAN}  ── ${text} ──${RESET}`);
 }
 
 // ── 主命令 ──
 
-/**
- * awf run — 自治工作流编排
- */
 export async function runCommand(task, options) {
-  const { auto, local } = options;
-  useLocal = !!local;
   const paths = getPaths();
   const projectRoot = process.cwd();
 
@@ -186,14 +117,13 @@ export async function runCommand(task, options) {
   await ensureServer(paths, projectRoot);
   await ensureSession(paths, projectRoot);
 
-  // dashboard
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
   logStep('dashboard', 'ok', `http://localhost:${SERVER_PORT}`);
 
   console.log('');
 
   try {
-    await runLoop(projectRoot, paths, task);
+    await runLoop(projectRoot);
   } finally {
     doCleanup();
   }
@@ -201,7 +131,7 @@ export async function runCommand(task, options) {
 
 // ── 任务循环 ──
 
-async function runLoop(projectRoot, paths, task) {
+async function runLoop(projectRoot) {
   let currentState = loadState(projectRoot);
   const allTasks = currentState?.plan?.tasks || [];
   const total = allTasks.length;
@@ -209,48 +139,14 @@ async function runLoop(projectRoot, paths, task) {
   while (currentState && currentState.currentState !== 'FINISH') {
     const nextTask = findNextTask(currentState);
 
-    if (!nextTask) {
-      console.log(`${DIM}  所有任务完成，进入 FINISH${RESET}`);
-      await executePhase('FINISH', { task: { id: '-', desc: '收尾', prompt: '' } }, projectRoot, paths);
-      break;
-    }
+    if (!nextTask) break;
 
     const idx = allTasks.findIndex(t => t.id === nextTask.id) + 1;
     logBanner(`任务 ${idx}/${total}: ${nextTask.desc}`);
 
-    const phases = resolvePhases(nextTask, currentState, projectRoot);
-    for (let i = 0; i < phases.length; i++) {
-      const phase = phases[i];
-      await executePhase(phase, { task: nextTask }, projectRoot, paths);
-
-      // complex 任务 DEV 完成后自动 DOCS
-      if (phase === 'DEV') {
-        const updated = loadState(projectRoot);
-        const updatedTask = updated?.plan?.tasks?.find((t) => t.id === nextTask.id);
-        if (
-          (updatedTask?.complexity || 'medium') === 'complex' &&
-          !phases.includes('DOCS')
-        ) {
-          await executePhase('DOCS', { task: nextTask }, projectRoot, paths);
-        }
-      }
-
-      const updated = loadState(projectRoot);
-      if (updated?.currentState === 'DEBUG') {
-        logStep('status', 'warn', '进入 DEBUG');
-        await executePhase('DEBUG', {
-          task: nextTask,
-          fromPhase: phase,
-          error: { description: '上一阶段触发错误' },
-        }, projectRoot, paths);
-        break;
-      }
-    }
-
-    // 阶段链全部完成后标记任务 done
-    const doneMcp = `用 awf_task_status 标记 ${nextTask.id} done。只做这一步。`;
-    await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: doneMcp });
-    await waitForReady();
+    const prompt = nextTask.prompt || nextTask.desc || '';
+    logPrompt(prompt);
+    await executeTask(prompt);
 
     currentState = loadState(projectRoot);
   }
@@ -259,41 +155,9 @@ async function runLoop(projectRoot, paths, task) {
   console.log(`${GREEN}  ✔ 工作流结束${RESET}\n`);
 }
 
-// ── 阶段执行 ──
+// ── 单任务执行 ──
 
-async function executePhase(phase, ctx, projectRoot, paths) {
-  // 1. 获取提示词
-  let prompt = null;
-
-  // DEV：task.prompt 原样，不经过 one-shot
-  if (phase === 'DEV' && ctx.task) {
-    prompt = ctx.task.prompt || ctx.task.desc || '';
-  } else if (!useLocal && ctx.task?.id && ctx.task.id !== '-') {
-    let instruction = `${pluginCmd('w-prompt')} ${phase} ${ctx.task.id}`;
-    if (ctx.fromPhase) instruction += ` --from ${ctx.fromPhase}`;
-    if (ctx.error?.description) instruction += ` --error "${ctx.error.description}"`;
-
-    // 直接 spawn claude -p，不再依赖 HTTP /oneshot 端点
-    const result = await spawnClaudeOneShot(instruction, projectRoot, paths.projectRoot);
-    if (result?.ok && result.text) {
-      prompt = result.text;
-    }
-  }
-
-  // 2. 兜底 / --local
-  if (!prompt) {
-    prompt = buildLocalPrompt(phase, ctx, paths);
-  }
-
-  // 拼阶段命令前缀
-  // 拼阶段命令前缀
-  prompt = withPhaseCmd(phase, prompt);
-
-  // 3. 显示阶段、prompt、token 占位
-  logPhase(phase);
-  logPrompt(prompt);
-
-  // 4. 推入 tmux 执行
+async function executeTask(prompt) {
   await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
 
   const spin = createSpinner('executing...');
@@ -301,37 +165,10 @@ async function executePhase(phase, ctx, projectRoot, paths) {
     await waitForReady();
     spin.stop();
     console.log(`     ${GREEN}✔ done${RESET}`);
-
-    // 5. 阶段完成后补发 MCP 状态更新，不和命令混在一起
-    const mcp = buildMcpFollowUp(phase, ctx);
-    if (mcp) {
-      await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: mcp });
-      await waitForReady();
-    }
   } catch (err) {
     spin.stop();
     logStep('', 'error', `超时: ${err.message}`);
   }
-}
-
-// ── 提示词：本地模板回退 ──
-
-function buildLocalPrompt(phase, ctx, paths) {
-  const file = path.join(paths.prompts, `${phase.toLowerCase()}.md`);
-  if (!fs.existsSync(file)) return `/${phase.toLowerCase()}`;
-
-  let template = fs.readFileSync(file, 'utf-8').trim();
-  const t = ctx.task || {};
-  const body = template
-    .replace(/\{\{task\.id\}\}/g, t.id || '')
-    .replace(/\{\{task\.desc\}\}/g, t.desc || '')
-    .replace(/\{\{task\.prompt\}\}/g, t.prompt || '')
-    .replace(/\{\{task\.wbsRef\}\}/g, t.wbsRef || '')
-    .replace(/\{\{fromPhase\}\}/g, ctx.fromPhase || '')
-    .replace(/\{\{error\.description\}\}/g, ctx.error?.description || '');
-
-  const tag = t.id ? `[awf ${phase} task ${t.id}]` : `[awf ${phase}]`;
-  return `${body}\n${tag} 只做这一步，完成后等待下一步指令。`;
 }
 
 // ── tmux-http 通信 ──
@@ -375,7 +212,6 @@ async function getStatus() {
 }
 
 async function handleDecision(d) {
-  // AskUserQuestion: 原生 UI 正常展示，CLI 通过 autoSelect 算答案 → tmux send-keys 敲入
   if (d.source === 'AskUserQuestion') {
     if (d.answered) {
       if (!seenAnswers.has(d.question)) {
@@ -415,7 +251,7 @@ async function handleDecision(d) {
       });
     });
     const idx = parseInt(answer, 10) - 1;
-    const value = d.options[idx] || answer; // fallback to raw input if not a number
+    const value = d.options[idx] || answer;
     await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value }));
     console.log(`     ${GREEN}✔ 已选择: ${value}${RESET}\n`);
     return;
@@ -440,7 +276,6 @@ async function waitForReady() {
   while (Date.now() - start < READY_TIMEOUT) {
     const status = await getStatus();
     if (status.decisionPending) {
-      // 避免同一问题重复打印，等 PostToolUse 清除
       const key = JSON.stringify(status.decisionPending);
       if (key !== lastDecision) {
         await handleDecision(status.decisionPending);
@@ -506,69 +341,3 @@ async function ensureSession(paths, projectRoot) {
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-// ── 阶段命令前缀 ──
-
-const PHASE_CMD = {
-  DEV: 'w-dev',
-  TEST: 'w-test',
-  COMMIT: 'w-commit',
-  REVIEW: 'w-review',
-  DEBUG: 'w-debug',
-  DOCS: 'w-doc',
-  FINISH: 'w-finish',
-};
-
-function withPhaseCmd(phase, prompt) {
-  const cmd = PHASE_CMD[phase];
-  if (!cmd) return prompt;
-  const prefixed = `/${PLUGIN_NS}:${cmd}`;
-  if (prompt.startsWith(prefixed)) return prompt;
-  return `${prefixed} ${prompt}`;
-}
-
-// ── MCP 状态更新：阶段完成后单独发送，不和命令混在一起 ──
-
-function buildMcpFollowUp(phase, ctx) {
-  const t = ctx.task || {};
-  if (!t.id) return null;
-
-  switch (phase) {
-    case 'DEV':
-      return '用 awf_task_result 写入 exec.result 和 exec.files，awf_task_status 标记 active，awf_phase DEV。只做这一步。';
-    case 'COMMIT':
-      return `用 awf_task_commit 记录提交 hash 和 message，awf_task_status 标记 ${t.id} done，awf_phase COMMIT。只做这一步。`;
-    case 'TEST':
-      return '用 awf_task_result 写入验证结果，awf_phase TEST。通过则继续 COMMIT，有缺陷设 awf_phase DEV。只做这一步。';
-    case 'REVIEW':
-      return '用 awf_task_result 写入审查结果，awf_phase REVIEW。通过继续，不通过设 awf_phase DEV。只做这一步。';
-    case 'DOCS':
-      return '用 awf_task_result 标注文档已同步，awf_phase DOCS。只做这一步。';
-    case 'FINISH':
-      return '用 awf_milestone_update 标记 done，awf_phase FINISH。只做这一步。';
-    default:
-      return null;
-  }
-}
-
-// ── One-shot: 直接 spawn claude -p（不再走 HTTP） ──
-
-function spawnClaudeOneShot(prompt, cwd, pluginDir) {
-  return new Promise((resolve) => {
-    const args = ['-p', prompt];
-    if (pluginDir) args.unshift('--plugin-dir', pluginDir);
-
-    const proc = spawn('claude', args, {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, NO_COLOR: '1' },
-    });
-    let output = '';
-    proc.stdout.on('data', (c) => (output += c.toString()));
-    proc.on('close', (code) => {
-      if (code === 0) resolve({ ok: true, text: output.trim() });
-      else resolve({ ok: false, error: `claude -p exited ${code}`, text: output.trim() || null });
-    });
-    proc.on('error', (err) => resolve({ ok: false, error: err.message }));
-  });
-}
