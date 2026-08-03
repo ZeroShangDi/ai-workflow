@@ -4,61 +4,11 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const tmuxlib = require('./tmux.cjs');
-const { appendLog } = require('../cli/utils/log-writer.cjs');
-const os = require('os');
+const { RunLogger } = require('./run-logger.cjs');
 
-const LOG_PATH = process.env.AWF_LOG_PATH || null;
 const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
-
-// ---- transcript helpers (file-position based, avoids content dedup issues) ----
-let transcriptFile = null;
-let transcriptPos = 0;
-let sessionStartTime = Date.now();
-
-function getTranscriptFile() {
-  const slug = PROJECT_ROOT.replace(/\//g, '-');
-  const dir = path.join(os.homedir(), '.claude', 'projects', slug);
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir)
-    .filter(f => f.endsWith('.jsonl'))
-    .map(f => ({ name: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime);
-  if (files.length === 0) return null;
-  // 只返回 session 启动后创建/更新的文件，避免读到旧 session 的 transcript
-  if (sessionStartTime && files[0].mtime < sessionStartTime) return null;
-  return path.join(dir, files[0].name);
-}
-
-function captureResponses() {
-  if (!LOG_PATH) return;
-  const fp = getTranscriptFile();
-  if (!fp) return;
-  // 新文件或首次调用，重置位置
-  if (fp !== transcriptFile) {
-    transcriptFile = fp;
-    transcriptPos = 0;
-  }
-  const content = fs.readFileSync(fp, 'utf-8');
-  if (content.length <= transcriptPos) return;
-  const newContent = content.slice(transcriptPos);
-  transcriptPos = content.length;
-  const lines = newContent.split('\n');
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (entry.type === 'assistant') {
-        const texts = [];
-        for (const block of (entry.message?.content || [])) {
-          if (block.type === 'text' && block.text) texts.push(block.text);
-        }
-        if (texts.length > 0) {
-          appendLog(LOG_PATH, { type: 'RESPONSE', body: texts.join('') });
-        }
-      }
-    } catch {}
-  }
-}
+const logger = new RunLogger(PROJECT_ROOT);
+if (logger.enabled) console.log(`[server] run log: ${logger.path}`);
 
 const PORT = Number(process.env.CC_PORT || 8787);
 const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
@@ -179,12 +129,10 @@ const server = http.createServer(async (req, res) => {
     else if (event === 'Stop') {
       clearDecision();
       setReady();
-      captureResponses();
+      logger.captureFromTranscript();
     } else if (event === 'SessionStart') {
       setReady();
-      sessionStartTime = Date.now();
-      transcriptFile = null;
-      transcriptPos = 0;
+      logger.resetTranscript();
     }
 
     // PreToolUse: 检测 AskUserQuestion，在执行前设置 decisionPending（不拦截）
@@ -204,7 +152,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // PostToolUse: 兜底（如果没拦截成功，原生 UI 回答后更新结果）+ 记录 CHOICE
+    // PostToolUse: 兜底（如果没拦截成功，原生 UI 回答后更新结果）
     if (event === 'PostToolUse' && body.tool_name === 'AskUserQuestion') {
       const prev = decisionPending;
       const resp = body.tool_response;
@@ -221,15 +169,12 @@ const server = http.createServer(async (req, res) => {
           answer = JSON.stringify(resp);
         }
         setDecision({ ...prev, answer, answered: true });
-        if (LOG_PATH) appendLog(LOG_PATH, { type: 'CHOICE', question: prev.question, answer });
       }
     }
 
     console.log(`[hook] ${event} -> ${state}`);
     return send(res, 200, { ok: true, event: event || null, state });
   }
-
-  // task context for logging
 
   // ---- state.json ----
   if (req.method === 'GET' && pathname === '/awf/state') {
@@ -286,10 +231,10 @@ const server = http.createServer(async (req, res) => {
     const ok = await waitReady(READY_TIMEOUT_MS);
     if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
     // 捕获上一任务的尾部响应，必须在 PROMPT 之前写入
-    captureResponses();
+    logger.captureFromTranscript();
     setBusy();
     // PROMPT 必须在 submit 之前写入日志，否则 Stop hook 的响应可能先写入
-    if (LOG_PATH) appendLog(LOG_PATH, { type: 'PROMPT', body: body.text });
+    logger.logPrompt(body.text);
     await submit(body.text);
     return send(res, 200, { ok: true, sent: body.text });
   }
@@ -328,7 +273,10 @@ const server = http.createServer(async (req, res) => {
       if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
     }
     setBusy();
-    // 不清除 decisionPending，留给 PostToolUse 处理（记录 CHOICE 等）
+    // 记录 CHOICE（所有决策统一走 /respond，不再分散在 CLI）
+    if (decisionPending) {
+      logger.logChoice(decisionPending.question, body.value);
+    }
     await submit(body.value);
     // fallback timer：Stop hook 可能因 curl 超时等原因未触发，兜底恢复 ready
     const fallbackMs = decisionPending ? 300000 : LOCAL_CMD_FALLBACK_MS;

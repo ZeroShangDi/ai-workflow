@@ -3,7 +3,6 @@ import http from 'http';
 import { getPaths } from './paths.js';
 import { loadState, findNextTask } from './state.js';
 import { autoSelect } from './auto-selector.js';
-import { createRunLog, appendLog } from './utils/log-writer.cjs';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -20,7 +19,6 @@ const READY_TIMEOUT = 300000;
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 const seenAnswers = new Set();
-let currentLogPath = null;
 
 // ── 输出辅助 ──
 
@@ -95,10 +93,6 @@ export async function runCommand(task, options) {
     process.exit(1);
   }
 
-  const version = state.version || 'unknown';
-  currentLogPath = createRunLog(projectRoot, version);
-  logStep('log', 'ok', currentLogPath);
-
   // Ctrl-C 清理
   let cleaned = false;
   const doCleanup = () => {
@@ -119,7 +113,7 @@ export async function runCommand(task, options) {
 
   // ── 1. 启动环境 ──
   logSection('启动环境');
-  await ensureServer(paths, projectRoot, currentLogPath);
+  await ensureServer(paths, projectRoot);
   await ensureSession(paths, projectRoot);
 
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
@@ -321,7 +315,6 @@ async function handleDecision(d) {
     const value = d.options[idx] || answer;
     await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value }));
     console.log(`     ${GREEN}✔ 已选择: ${value}${RESET}\n`);
-    appendLog(currentLogPath, { type: 'CHOICE', question: d.question, answer: value });
     return;
   }
 
@@ -335,7 +328,6 @@ async function handleDecision(d) {
   if (answer) {
     await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value: answer }));
     console.log(`     ${GREEN}✔ 已发送${RESET}\n`);
-    appendLog(currentLogPath, { type: 'CHOICE', question: d.question, answer });
   }
 }
 
@@ -368,7 +360,7 @@ async function checkServer() {
 
 // ── 环境管理 ──
 
-async function ensureServer(paths, projectRoot, logPath) {
+async function ensureServer(paths, projectRoot) {
   try { execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   await sleep(300);
 
@@ -376,7 +368,7 @@ async function ensureServer(paths, projectRoot, logPath) {
   const proc = spawn('node', [paths.tmuxServer], {
     stdio: 'ignore', detached: true,
     cwd: paths.projectRoot,
-    env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: projectRoot, AWF_LOG_PATH: logPath || '' },
+    env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: projectRoot },
   });
   proc.unref();
 
