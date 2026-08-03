@@ -282,7 +282,22 @@ const handlers = {
 
       // all other tools: read → mutate → write
       const s = readState();
-      const tasks = s.tasks || [];
+
+      // tasks may live at root ("s.tasks") or under plan ("s.plan.tasks")
+      function getTasks() {
+        if (s.plan && Array.isArray(s.plan.tasks)) return s.plan.tasks;
+        if (Array.isArray(s.tasks)) return s.tasks;
+        return [];
+      }
+      function ensureTasks() {
+        if (s.plan && Array.isArray(s.plan.tasks)) return s.plan.tasks;
+        if (Array.isArray(s.tasks)) return s.tasks;
+        // default: write to plan.tasks
+        if (!s.plan) s.plan = {};
+        if (!s.plan.tasks) s.plan.tasks = [];
+        return s.plan.tasks;
+      }
+      const tasks = getTasks();
       const milestones = s.milestones || [];
 
       switch (name) {
@@ -308,11 +323,11 @@ const handlers = {
           break;
         }
         case 'awf_task_create': {
-          if (!s.tasks) s.tasks = [];
-          if (s.tasks.find(t => t.id == args.id)) {
+          const taskList = ensureTasks();
+          if (taskList.find(t => t.id == args.id)) {
             return textResult({ ok: false, error: `task ${args.id} already exists` });
           }
-          s.tasks.push({
+          taskList.push({
             id: args.id, desc: args.desc, prompt: args.prompt,
             wbsRef: args.wbsRef, deps: args.deps || [], status: 'pending',
             complexity: args.complexity || 'medium',
