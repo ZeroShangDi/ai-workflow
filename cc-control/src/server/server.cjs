@@ -177,7 +177,7 @@ const server = http.createServer(async (req, res) => {
 
     if (event === 'UserPromptSubmit') setBusy();
     else if (event === 'Stop') {
-      if (decisionPending?.answered) clearDecision();
+      clearDecision();
       setReady();
       captureResponses();
     } else if (event === 'SessionStart') {
@@ -330,7 +330,15 @@ const server = http.createServer(async (req, res) => {
     setBusy();
     // 不清除 decisionPending，留给 PostToolUse 处理（记录 CHOICE 等）
     await submit(body.value);
-    // 等待 CC 自然完成，不用 fallback timer
+    // fallback timer：Stop hook 可能因 curl 超时等原因未触发，兜底恢复 ready
+    const fallbackMs = decisionPending ? 300000 : LOCAL_CMD_FALLBACK_MS;
+    const hadDecision = !!decisionPending;
+    setTimeout(() => {
+      if (state === 'busy') {
+        if (hadDecision) clearDecision();
+        setReady();
+      }
+    }, fallbackMs);
     return send(res, 200, { ok: true, sent: body.value });
   }
 

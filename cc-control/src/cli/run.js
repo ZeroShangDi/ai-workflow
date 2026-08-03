@@ -3,7 +3,7 @@ import http from 'http';
 import { getPaths } from './paths.js';
 import { loadState, findNextTask } from './state.js';
 import { autoSelect } from './auto-selector.js';
-import { createRunLog } from './utils/log-writer.cjs';
+import { createRunLog, appendLog } from './utils/log-writer.cjs';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -20,6 +20,7 @@ const READY_TIMEOUT = 300000;
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 const seenAnswers = new Set();
+let currentLogPath = null;
 
 // ── 输出辅助 ──
 
@@ -95,8 +96,8 @@ export async function runCommand(task, options) {
   }
 
   const version = state.version || 'unknown';
-  const logPath = createRunLog(projectRoot, version);
-  logStep('log', 'ok', logPath);
+  currentLogPath = createRunLog(projectRoot, version);
+  logStep('log', 'ok', currentLogPath);
 
   // Ctrl-C 清理
   let cleaned = false;
@@ -118,7 +119,7 @@ export async function runCommand(task, options) {
 
   // ── 1. 启动环境 ──
   logSection('启动环境');
-  await ensureServer(paths, projectRoot, logPath);
+  await ensureServer(paths, projectRoot, currentLogPath);
   await ensureSession(paths, projectRoot);
 
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
@@ -152,7 +153,7 @@ async function runLoop(projectRoot) {
     const prompt = nextTask.prompt || nextTask.desc || '';
     logPrompt(prompt);
 
-    const result = await executeTask(prompt, nextTask.id);
+    const result = await executeTask(prompt, nextTask.id, projectRoot);
 
     // 重新读取 state，检查任务是否已被标记完成
     currentState = loadState(projectRoot);
@@ -184,14 +185,19 @@ async function runLoop(projectRoot) {
 
 // ── 单任务执行 ──
 
-async function executeTask(prompt, taskId) {
-  await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
+async function executeTask(prompt, taskId, projectRoot) {
+  const sendResp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
+  if (!sendResp?.ok) {
+    const errMsg = sendResp?.error || 'unknown';
+    logStep('', 'error', `/send 失败: ${errMsg}`);
+    return 'timeout';
+  }
 
   const spin = createSpinner('executing...');
   try {
     await waitForReady();
     if (taskId) {
-      const taskDone = await waitForTaskDone(taskId);
+      const taskDone = await waitForTaskDone(taskId, projectRoot);
       if (!taskDone) logStep('', 'warn', `任务 ${taskId} 未在 state.json 中标记 done`);
     }
     // 等待 auto-continue 完成（CC 可能在 Stop 后自动调用 MCP tools）
@@ -203,7 +209,7 @@ async function executeTask(prompt, taskId) {
     spin.stop();
     // 超时后回查 state：任务可能已完成但 Stop hook 未触发（如 AI 长时间诊断）
     if (taskId) {
-      const taskDone = await checkTaskDone(taskId);
+      const taskDone = await checkTaskDone(taskId, projectRoot);
       if (taskDone) {
         logStep('', 'warn', `超时但任务 ${taskId} 已完成（Stop hook 未触发）`);
         return 'ok';
@@ -214,17 +220,17 @@ async function executeTask(prompt, taskId) {
   }
 }
 
-async function checkTaskDone(taskId) {
-  const state = loadState(process.cwd());
+async function checkTaskDone(taskId, projectRoot) {
+  const state = loadState(projectRoot);
   const tasks = state?.plan?.tasks || state?.tasks || [];
   const task = tasks.find(t => t.id === taskId);
   return task?.status === 'done';
 }
 
-async function waitForTaskDone(taskId) {
+async function waitForTaskDone(taskId, projectRoot) {
   const start = Date.now();
   while (Date.now() - start < 60000) {
-    const state = loadState(process.cwd());
+    const state = loadState(projectRoot);
     const tasks = state?.plan?.tasks || state?.tasks || [];
     const task = tasks.find(t => t.id === taskId);
     if (task?.status === 'done') return true;

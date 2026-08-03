@@ -61,6 +61,6 @@ export function findNextTask(state) {
  * 检查里程碑是否全部完成
  */
 export function isMilestoneDone(state) {
-  const tasks = state?.plan?.tasks || [];
+  const tasks = state?.plan?.tasks || state?.tasks || [];
   return tasks.length > 0 && tasks.every((t) => t.status === 'done');
 }
