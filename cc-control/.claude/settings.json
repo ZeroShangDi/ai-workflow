@@ -1,42 +1,55 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(pnpm dev)",
-      "Bash(pnpm dev-firefox)",
-      "Bash(pnpm build)",
-      "Bash(pnpm lint)",
-      "Bash(pnpm typecheck)",
-      "Bash(pnpm test*)",
-      "Bash(pnpm test:e2e)",
-      "Bash(git status*)",
-      "Bash(git diff*)",
-      "Bash(git log*)",
-      "Bash(git branch*)",
-      "Bash(git show*)",
-      "Bash(git stash*)",
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git checkout *)",
-      "Bash(git switch *)",
-      "Bash(git merge *)",
-      "Bash(git rebase *)",
-      "Bash(git reset *)",
-      "Bash(git restore *)",
-      "Bash(git cherry-pick *)",
-      "Bash(git tag *)",
-      "Bash(find *)",
-      "Bash(ls *)",
-      "Bash(cat *)",
-      "Bash(grep *)",
-      "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(wc *)",
-      "Write(.claude/*)",
-      "Edit(.claude/*)"
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST http://127.0.0.1:8787/hook -H 'content-type: application/json' -d '{\"event\":\"SessionStart\"}' >/dev/null 2>&1 || true"
+          }
+        ]
+      }
     ],
-    "deny": [
-      "Bash(git push*)",
-      "Bash(git push)"
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST http://127.0.0.1:8787/hook -H 'content-type: application/json' -d '{\"event\":\"UserPromptSubmit\"}' >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST \"http://127.0.0.1:8787/hook?event=Stop\" -H 'content-type: application/json' -d @- >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:8787/hook?event=PreToolUse\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST \"http://127.0.0.1:8787/hook?event=PostToolUse\" -H 'content-type: application/json' -d @- >/dev/null 2>&1 || true"
+          }
+        ]
+      }
     ]
   }
 }

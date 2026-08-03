@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 -X POST http://127.0.0.1:__PORT__/hook -H 'content-type: application/json' -d '{\"event\":\"Stop\"}' >/dev/null 2>&1 || true"
+            "command": "curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=Stop\" -H 'content-type: application/json' -d @- >/dev/null 2>&1 || true"
           }
         ]
       }

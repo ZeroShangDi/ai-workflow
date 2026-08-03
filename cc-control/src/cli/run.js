@@ -3,7 +3,7 @@ import http from 'http';
 import { getPaths } from './paths.js';
 import { loadState, findNextTask } from './state.js';
 import { autoSelect } from './auto-selector.js';
-import { selectOption, inputCustom, selectMulti } from '../server/tmux-keys.cjs';
+import { createRunLog } from './utils/log-writer.cjs';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -94,6 +94,10 @@ export async function runCommand(task, options) {
     process.exit(1);
   }
 
+  const version = state.version || 'unknown';
+  const logPath = createRunLog(projectRoot, version);
+  logStep('log', 'ok', logPath);
+
   // Ctrl-C 清理
   let cleaned = false;
   const doCleanup = () => {
@@ -114,7 +118,7 @@ export async function runCommand(task, options) {
 
   // ── 1. 启动环境 ──
   logSection('启动环境');
-  await ensureServer(paths, projectRoot);
+  await ensureServer(paths, projectRoot, logPath);
   await ensureSession(paths, projectRoot);
 
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
@@ -133,7 +137,7 @@ export async function runCommand(task, options) {
 
 async function runLoop(projectRoot) {
   let currentState = loadState(projectRoot);
-  const allTasks = currentState?.plan?.tasks || [];
+  const allTasks = currentState?.plan?.tasks || currentState?.tasks || [];
   const total = allTasks.length;
 
   while (currentState && currentState.currentState !== 'FINISH') {
@@ -146,7 +150,8 @@ async function runLoop(projectRoot) {
 
     const prompt = nextTask.prompt || nextTask.desc || '';
     logPrompt(prompt);
-    await executeTask(prompt);
+
+    await executeTask(prompt, nextTask.id);
 
     currentState = loadState(projectRoot);
   }
@@ -157,11 +162,18 @@ async function runLoop(projectRoot) {
 
 // ── 单任务执行 ──
 
-async function executeTask(prompt) {
+async function executeTask(prompt, taskId) {
   await httpPost(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
 
   const spin = createSpinner('executing...');
   try {
+    await waitForReady();
+    if (taskId) {
+      const taskDone = await waitForTaskDone(taskId);
+      if (!taskDone) logStep('', 'warn', `任务 ${taskId} 未在 state.json 中标记 done`);
+    }
+    // 等待 auto-continue 完成（CC 可能在 Stop 后自动调用 MCP tools）
+    // /send 端点会在发送下个 prompt 前执行 captureResponses，保证日志顺序
     await waitForReady();
     spin.stop();
     console.log(`     ${GREEN}✔ done${RESET}`);
@@ -169,6 +181,18 @@ async function executeTask(prompt) {
     spin.stop();
     logStep('', 'error', `超时: ${err.message}`);
   }
+}
+
+async function waitForTaskDone(taskId) {
+  const start = Date.now();
+  while (Date.now() - start < 60000) {
+    const state = loadState(process.cwd());
+    const tasks = state?.plan?.tasks || state?.tasks || [];
+    const task = tasks.find(t => t.id === taskId);
+    if (task?.status === 'done') return true;
+    await sleep(POLL_INTERVAL);
+  }
+  return false;
 }
 
 // ── tmux-http 通信 ──
@@ -224,15 +248,14 @@ async function handleDecision(d) {
     if (d.options?.length) d.options.forEach((o, i) => console.log(`     ${DIM}${i + 1}.${RESET} ${o}`));
     const sel = await autoSelect(d);
     if (sel) {
-      const session = process.env.CC_SESSION || 'cc';
       if (sel.multiSelect) {
-        await selectMulti(session, sel.selected, (d.options && d.options.length) || 0, sel.customInput || '');
+        await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, { value: sel.selected.join(',') });
       } else if (sel.index > 0) {
-        await selectOption(session, sel.index);
+        await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, { value: String(sel.index) });
       } else if (sel.customInput) {
-        const optsCount = (d.options && d.options.length) || 0;
-        await inputCustom(session, sel.customInput, optsCount);
+        await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, { value: sel.customInput });
       }
+
     }
     return;
   }
@@ -254,6 +277,7 @@ async function handleDecision(d) {
     const value = d.options[idx] || answer;
     await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value }));
     console.log(`     ${GREEN}✔ 已选择: ${value}${RESET}\n`);
+    appendLog(currentLogPath, { type: 'CHOICE', question: d.question, answer: value });
     return;
   }
 
@@ -267,6 +291,7 @@ async function handleDecision(d) {
   if (answer) {
     await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value: answer }));
     console.log(`     ${GREEN}✔ 已发送${RESET}\n`);
+    appendLog(currentLogPath, { type: 'CHOICE', question: d.question, answer });
   }
 }
 
@@ -299,17 +324,15 @@ async function checkServer() {
 
 // ── 环境管理 ──
 
-async function ensureServer(paths, projectRoot) {
-  if (await checkServer()) {
-    logStep('tmux-http', 'skip', '已运行');
-    return;
-  }
+async function ensureServer(paths, projectRoot, logPath) {
+  try { execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+  await sleep(300);
 
   const spin = createSpinner('starting tmux-http ...');
   const proc = spawn('node', [paths.tmuxServer], {
     stdio: 'ignore', detached: true,
     cwd: paths.projectRoot,
-    env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: projectRoot },
+    env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: projectRoot, AWF_LOG_PATH: logPath || '' },
   });
   proc.unref();
 

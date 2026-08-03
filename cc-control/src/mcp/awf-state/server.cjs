@@ -282,7 +282,7 @@ const handlers = {
 
       // all other tools: read → mutate → write
       const s = readState();
-      const tasks = s.plan?.tasks || [];
+      const tasks = s.tasks || [];
       const milestones = s.milestones || [];
 
       switch (name) {
@@ -308,12 +308,11 @@ const handlers = {
           break;
         }
         case 'awf_task_create': {
-          if (!s.plan) s.plan = {};
-          if (!s.plan.tasks) s.plan.tasks = [];
-          if (s.plan.tasks.find(t => t.id == args.id)) {
+          if (!s.tasks) s.tasks = [];
+          if (s.tasks.find(t => t.id == args.id)) {
             return textResult({ ok: false, error: `task ${args.id} already exists` });
           }
-          s.plan.tasks.push({
+          s.tasks.push({
             id: args.id, desc: args.desc, prompt: args.prompt,
             wbsRef: args.wbsRef, deps: args.deps || [], status: 'pending',
             complexity: args.complexity || 'medium',
@@ -335,11 +334,11 @@ const handlers = {
           break;
         }
         case 'awf_task_delete': {
-          const idx = s.plan?.tasks?.findIndex(t => t.id == args.id);
-          if (idx === undefined || idx === -1) {
+          const idx = tasks.findIndex(t => t.id == args.id);
+          if (idx === -1) {
             return textResult({ ok: false, error: `task ${args.id} not found` });
           }
-          s.plan.tasks.splice(idx, 1);
+          tasks.splice(idx, 1);
           break;
         }
         case 'awf_plan_configure': {

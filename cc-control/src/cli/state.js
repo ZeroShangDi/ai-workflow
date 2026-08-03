@@ -46,7 +46,7 @@ export function getNextTask(state) {
 }
 
 export function findNextTask(state) {
-  const tasks = state?.plan?.tasks || [];
+  const tasks = state?.plan?.tasks || state?.tasks || [];
   return tasks.find((t) => {
     if (t.status !== 'pending') return false;
     if (!t.deps || t.deps.length === 0) return true;
