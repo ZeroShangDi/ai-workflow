@@ -139,6 +139,7 @@ async function runLoop(projectRoot) {
   let currentState = loadState(projectRoot);
   const allTasks = currentState?.plan?.tasks || currentState?.tasks || [];
   const total = allTasks.length;
+  let consecutiveTimeouts = 0;
 
   while (currentState && currentState.currentState !== 'FINISH') {
     const nextTask = findNextTask(currentState);
@@ -151,9 +152,30 @@ async function runLoop(projectRoot) {
     const prompt = nextTask.prompt || nextTask.desc || '';
     logPrompt(prompt);
 
-    await executeTask(prompt, nextTask.id);
+    const result = await executeTask(prompt, nextTask.id);
 
+    // 重新读取 state，检查任务是否已被标记完成
     currentState = loadState(projectRoot);
+
+    if (result === 'timeout') {
+      consecutiveTimeouts++;
+      // 检查重读后的 state 中该任务是否已完成
+      const taskStillPending = findNextTask(currentState);
+      if (taskStillPending && taskStillPending.id === nextTask.id) {
+        logStep('', 'warn', `任务 ${nextTask.id} 仍为 pending，即将重试`);
+        if (consecutiveTimeouts >= 2) {
+          logStep('', 'error', `连续 ${consecutiveTimeouts} 次超时，跳过任务 ${nextTask.id}（需人工介入）`);
+          // 标记为 blocked 避免死循环
+          consecutiveTimeouts = 0;
+          continue;
+        }
+      } else {
+        // 任务已完成（可能是回查发现 done，或 Stop hook 延迟触发）
+        consecutiveTimeouts = 0;
+      }
+    } else {
+      consecutiveTimeouts = 0;
+    }
   }
 
   console.log('');
@@ -173,14 +195,30 @@ async function executeTask(prompt, taskId) {
       if (!taskDone) logStep('', 'warn', `任务 ${taskId} 未在 state.json 中标记 done`);
     }
     // 等待 auto-continue 完成（CC 可能在 Stop 后自动调用 MCP tools）
-    // /send 端点会在发送下个 prompt 前执行 captureResponses，保证日志顺序
     await waitForReady();
     spin.stop();
     console.log(`     ${GREEN}✔ done${RESET}`);
+    return 'ok';
   } catch (err) {
     spin.stop();
+    // 超时后回查 state：任务可能已完成但 Stop hook 未触发（如 AI 长时间诊断）
+    if (taskId) {
+      const taskDone = await checkTaskDone(taskId);
+      if (taskDone) {
+        logStep('', 'warn', `超时但任务 ${taskId} 已完成（Stop hook 未触发）`);
+        return 'ok';
+      }
+    }
     logStep('', 'error', `超时: ${err.message}`);
+    return 'timeout';
   }
+}
+
+async function checkTaskDone(taskId) {
+  const state = loadState(process.cwd());
+  const tasks = state?.plan?.tasks || state?.tasks || [];
+  const task = tasks.find(t => t.id === taskId);
+  return task?.status === 'done';
 }
 
 async function waitForTaskDone(taskId) {
