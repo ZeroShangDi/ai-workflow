@@ -190,12 +190,26 @@ async function executeTask(prompt, taskId, projectRoot) {
   const spin = createSpinner('executing...');
   try {
     await waitForReady();
-    if (taskId) {
-      const taskDone = await waitForTaskDone(taskId, projectRoot);
-      if (!taskDone) logStep('', 'warn', `任务 ${taskId} 未在 state.json 中标记 done`);
-    }
     // 等待 auto-continue 完成（CC 可能在 Stop 后自动调用 MCP tools）
     await waitForReady();
+
+    // 收尾：补发状态更新 prompt，确保任务被标记 done
+    if (taskId) {
+      const taskDone = await checkTaskDone(taskId, projectRoot);
+      if (!taskDone) {
+        logStep('', 'warn', `任务 ${taskId} 未标记 done，补发收尾 prompt`);
+        const wrapup = `用 awf_task_status 标记 ${taskId} done。用 awf_task_result 记录 ${taskId} 的执行结果。只做这两步。`;
+        await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: wrapup });
+        await waitForReady();
+        const stillDone = await checkTaskDone(taskId, projectRoot);
+        if (stillDone) {
+          logStep('', 'ok', `收尾 prompt 已生效`);
+        } else {
+          logStep('', 'warn', `收尾 prompt 未生效，任务 ${taskId} 仍为 pending`);
+        }
+      }
+    }
+
     spin.stop();
     console.log(`     ${GREEN}✔ done${RESET}`);
     return 'ok';
@@ -219,18 +233,6 @@ async function checkTaskDone(taskId, projectRoot) {
   const tasks = state?.plan?.tasks || state?.tasks || [];
   const task = tasks.find(t => t.id === taskId);
   return task?.status === 'done';
-}
-
-async function waitForTaskDone(taskId, projectRoot) {
-  const start = Date.now();
-  while (Date.now() - start < 60000) {
-    const state = loadState(projectRoot);
-    const tasks = state?.plan?.tasks || state?.tasks || [];
-    const task = tasks.find(t => t.id === taskId);
-    if (task?.status === 'done') return true;
-    await sleep(POLL_INTERVAL);
-  }
-  return false;
 }
 
 // ── tmux-http 通信 ──
