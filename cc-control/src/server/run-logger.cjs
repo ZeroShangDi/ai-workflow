@@ -27,7 +27,8 @@ class RunLogger {
     const dir = path.join(root, '.awf', 'logs');
     fs.mkdirSync(dir, { recursive: true });
 
-    this._logPath = path.join(dir, `${version}.log`);
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    this._logPath = path.join(dir, `${version}-${ts}.log`);
 
     const header = [
       '=== AWF Run Log ===\n',

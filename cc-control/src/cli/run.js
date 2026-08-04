@@ -3,6 +3,7 @@ import http from 'http';
 import { getPaths } from './paths.js';
 import { loadState, findNextTask } from './state.js';
 import { autoSelect } from './auto-selector.js';
+import { backupState } from './backup.js';
 
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
@@ -172,6 +173,8 @@ async function runLoop(projectRoot) {
       consecutiveTimeouts = 0;
     }
   }
+
+  backupState(projectRoot);
 
   console.log('');
   console.log(`${GREEN}  ✔ 工作流结束${RESET}\n`);

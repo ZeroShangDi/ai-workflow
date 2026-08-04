@@ -50,7 +50,7 @@ describe('RunLogger', () => {
     const logger = new RunLogger(tmpDir);
 
     expect(logger.enabled).toBe(true);
-    expect(logger.path).toContain('.awf/logs/0.1.0.log');
+    expect(logger.path).toMatch(/\.awf\/logs\/0\.1\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$/);
 
     // 日志目录已创建
     expect(fs.existsSync(path.join(awfDir, 'logs'))).toBe(true);
@@ -229,7 +229,7 @@ describe('RunLogger', () => {
 
     const logger = new RunLogger(tmpDir);
 
-    expect(logger.path).toContain('1.0.0.log');
+    expect(logger.path).toMatch(/1\.0\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$/);
     const content = fs.readFileSync(logger.path, 'utf-8');
     expect(content).toContain('version: 1.0.0');
   });

@@ -169,7 +169,10 @@ describe('E2E 冒烟测试 — awf run 完整链路', () => {
     expect(state.currentState).toBe('FINISH');
 
     // 7. Run Logger 输出验证
-    const log = fs.readFileSync(path.join(TMP, '.awf', 'logs', '0.1.0.log'), 'utf-8');
+    const logsDir = path.join(TMP, '.awf', 'logs');
+    const logFiles = fs.readdirSync(logsDir).filter(f => f.endsWith('.log'));
+    expect(logFiles).toHaveLength(1);
+    const log = fs.readFileSync(path.join(logsDir, logFiles[0]), 'utf-8');
     expect(log).toContain('=== AWF Run Log ===');
     expect(log).toContain('version: 0.1.0');
     expect(log).toContain('提示词');

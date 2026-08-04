@@ -17,6 +17,10 @@ vi.mock('../../src/cli/auto-selector.js', () => ({
   autoSelect: vi.fn(() => Promise.resolve({ index: 1 })),
 }));
 
+vi.mock('../../src/cli/backup.js', () => ({
+  backupState: vi.fn(),
+}));
+
 vi.mock('../../src/cli/paths.js', () => ({
   getPaths: vi.fn(() => ({
     projectRoot: '/tmp/mock-project',
