@@ -1,0 +1,20 @@
+{
+  "mode": "run",
+  "version": "0.1.0",
+  "currentState": "IDLE",
+  "lastUpdated": "2026-01-01T00:00:00.000Z",
+  "plan": {
+    "summary": "Minimal test plan",
+    "tasks": [
+      {
+        "id": "T1",
+        "desc": "Test task 1",
+        "prompt": "Do something simple",
+        "status": "pending",
+        "complexity": "simple",
+        "deps": []
+      }
+    ]
+  },
+  "milestones": []
+}

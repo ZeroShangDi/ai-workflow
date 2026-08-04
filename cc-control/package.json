@@ -12,7 +12,7 @@
     "scripts/"
   ],
   "scripts": {
-    "test": "bash scripts/test.sh",
+    "test": "vitest run",
     "lint": "bash scripts/lint.sh",
     "build": "bash scripts/build.sh",
     "eval": "bash scripts/eval.sh"
@@ -32,5 +32,8 @@
     "autonomous",
     "cli"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
 }
