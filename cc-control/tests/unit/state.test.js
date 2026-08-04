@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { loadState, saveState, findNextTask, isMilestoneDone } from '../../src/cli/state.js';
+import { loadState, saveState, findNextTask, getCurrentPhase, isMilestoneDone } from '../../src/cli/state.js';
 
 describe('state.js — CLI', () => {
   let tmpDir;
@@ -40,6 +40,30 @@ describe('state.js — CLI', () => {
 
       const result = loadState(tmpDir);
       expect(result).toBeNull();
+    });
+  });
+
+  // ── getCurrentPhase ──
+
+  describe('getCurrentPhase', () => {
+    it('TC: 正常读取 currentState', () => {
+      const awfDir = path.join(tmpDir, '.awf');
+      fs.mkdirSync(awfDir);
+      fs.writeFileSync(path.join(awfDir, 'state.json'), JSON.stringify({ currentState: 'CODE' }));
+
+      expect(getCurrentPhase(tmpDir)).toBe('CODE');
+    });
+
+    it('TC: state 不存在返回 null', () => {
+      expect(getCurrentPhase(tmpDir)).toBeNull();
+    });
+
+    it('TC: state 无 currentState 字段返回 null', () => {
+      const awfDir = path.join(tmpDir, '.awf');
+      fs.mkdirSync(awfDir);
+      fs.writeFileSync(path.join(awfDir, 'state.json'), JSON.stringify({ mode: 'idle' }));
+
+      expect(getCurrentPhase(tmpDir)).toBeNull();
     });
   });
 

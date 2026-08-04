@@ -32,6 +32,7 @@ vi.mock('../../src/cli/paths.js', () => ({
 const httpState = vi.hoisted(() => ({
   statusResponse: JSON.stringify({ state: 'ready' }),
   sendResponse: JSON.stringify({ ok: true }),
+  statusSequence: null, // 按序返回 /status 响应，供「启动后变 busy」场景
 }));
 
 vi.mock('node:http', async () => {
@@ -47,7 +48,12 @@ vi.mock('node:http', async () => {
       setImmediate(() => {
         const res = new EE();
         try { cb(res); } catch (e) { /* ok */ }
-        setImmediate(() => { res.emit('data', httpState.statusResponse); res.emit('end'); });
+        setImmediate(() => {
+          const body = (httpState.statusSequence && httpState.statusSequence.length)
+            ? httpState.statusSequence.shift()
+            : httpState.statusResponse;
+          res.emit('data', body); res.emit('end');
+        });
       });
     } else {
       setImmediate(() => {
@@ -97,6 +103,7 @@ describe('runCommand', () => {
 
     httpState.statusResponse = JSON.stringify({ state: 'ready' });
     httpState.sendResponse = JSON.stringify({ ok: true });
+    httpState.statusSequence = null;
 
     mockExecSync.mockImplementation(() => Buffer.from(''));
     mockSpawn.mockImplementation(() => {
@@ -111,6 +118,7 @@ describe('runCommand', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers(); // 防止断言失败时 fake timers 泄漏到后续测试
   });
 
   // ── TC1 ──
@@ -191,7 +199,7 @@ describe('runCommand', () => {
 
   // ── TC12 ──
 
-  it('TC12: /send 返回非 ok → timeout', async () => {
+  it('TC12: /send 非 ok → timeout → 任务仍 pending 即将重试', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
@@ -199,10 +207,8 @@ describe('runCommand', () => {
     httpState.sendResponse = JSON.stringify({ ok: false, error: 'session busy' });
 
     const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValue(stateWith({ plan: { tasks: tasksDone(tasks) }, currentState: 'FINISH' }));
+    // 始终 pending：超时后回查仍 pending → 触发「即将重试」warn
+    mockLoadState.mockReturnValue(stateWith({ plan: { tasks } }));
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValueOnce(tasks[0])
@@ -212,6 +218,9 @@ describe('runCommand', () => {
     await vi.advanceTimersByTimeAsync(3000);
     await promise;
     vi.useRealTimers();
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('/send 失败: session busy'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，即将重试'));
   });
 
   // ── TC3 ──
@@ -242,26 +251,32 @@ describe('runCommand', () => {
 
   // ── TC17 ──
 
-  it('TC17: 超时后回查 state 发现 done → 继续', async () => {
+  it('TC17: waitForReady 超时后回查 state 发现 done → 继续', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
 
-    httpState.sendResponse = JSON.stringify({ ok: false, error: 'timeout' });
+    // /send 成功，但 CC 一直 busy → waitForReady 超时(300s) → 回查任务 done → 不报错继续
+    httpState.sendResponse = JSON.stringify({ ok: true });
+    httpState.statusSequence = [JSON.stringify({ state: 'ready' })]; // ensureServer 启动检测
+    httpState.statusResponse = JSON.stringify({ state: 'busy' });    // waitForReady 永不 ready
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'done', prompt: 'p' }];
+    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
+    const doneTasks = tasksDone(tasks);
     mockLoadState
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValue(stateWith({ plan: { tasks }, currentState: 'FINISH' }));
+      .mockReturnValueOnce(stateWith({ plan: { tasks } }))       // runCommand 初始
+      .mockReturnValueOnce(stateWith({ plan: { tasks } }))       // runLoop 初始
+      .mockReturnValue(stateWith({ plan: { tasks: doneTasks } })); // checkTaskDone 回查 → done
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValue(null);
 
     const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(310000); // 超过 READY_TIMEOUT(300s)
     await promise;
     vi.useRealTimers();
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('超时但任务 T1 已完成'));
   });
 
   // ── TC16 ──
@@ -274,12 +289,10 @@ describe('runCommand', () => {
     httpState.sendResponse = JSON.stringify({ ok: false, error: 'busy' });
 
     const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValue(stateWith({ plan: { tasks: tasksDone(tasks) }, currentState: 'FINISH' }));
+    // 始终 pending：2 次超时后触发「跳过任务」error
+    mockLoadState.mockReturnValue(stateWith({ plan: { tasks } }));
     mockFindNextTask
+      .mockReturnValueOnce(tasks[0])
       .mockReturnValueOnce(tasks[0])
       .mockReturnValueOnce(tasks[0])
       .mockReturnValueOnce(tasks[0])
@@ -289,5 +302,8 @@ describe('runCommand', () => {
     await vi.advanceTimersByTimeAsync(5000);
     await promise;
     vi.useRealTimers();
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，即将重试'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('连续 2 次超时，跳过任务 T1'));
   });
 });

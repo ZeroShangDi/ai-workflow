@@ -15,8 +15,30 @@ describe('RunLogger', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks(); // 恢复 os.homedir / fs.appendFileSync 等 spy
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  // ── transcript 测试辅助 ──
+
+  function makeLogger() {
+    const awfDir = path.join(tmpDir, '.awf');
+    fs.mkdirSync(awfDir, { recursive: true });
+    fs.writeFileSync(path.join(awfDir, 'state.json'), JSON.stringify({ version: '0.1.0' }));
+    const fakeHome = path.join(tmpDir, 'fake-home');
+    vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+    return new RunLogger(tmpDir);
+  }
+
+  function transcriptPath() {
+    const slug = tmpDir.replace(/\//g, '-');
+    return path.join(tmpDir, 'fake-home', '.claude', 'projects', slug, 'session.jsonl');
+  }
+
+  function assistantLine(texts) {
+    const content = (Array.isArray(texts) ? texts : [texts]).map((t) => ({ type: 'text', text: t }));
+    return JSON.stringify({ type: 'assistant', message: { content } });
+  }
 
   // ── TC1: 正常初始化 ──
 
@@ -160,24 +182,24 @@ describe('RunLogger', () => {
 
   // ── TC11: _append 异常不抛出 ──
 
-  it('TC11: _append 异常不抛出', () => {
+  it('TC11: _append 异常不抛出（错误被 console.error 捕获）', () => {
     const awfDir = path.join(tmpDir, '.awf');
     fs.mkdirSync(awfDir);
     fs.writeFileSync(path.join(awfDir, 'state.json'), JSON.stringify({ version: '0.1.0' }));
 
     const logger = new RunLogger(tmpDir);
 
-    // Make parent directory read-only to cause write failure
-    const logDir = path.join(awfDir, 'logs');
-    fs.chmodSync(logDir, 0o444); // read-only
+    // 强制 appendFileSync 抛错，验证 _append 的 catch 分支真正执行
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const appendSpy = vi.spyOn(fs, 'appendFileSync').mockImplementation(() => {
+      throw new Error('EACCES: permission denied');
+    });
 
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    // Should not throw
     expect(() => logger.logPrompt('test')).not.toThrow();
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('[run-logger] write error'));
 
-    spy.mockRestore();
-    fs.chmodSync(logDir, 0o755); // restore for cleanup
+    appendSpy.mockRestore();
+    errSpy.mockRestore();
   });
 
   // ── TC17: 日志头格式验证 ──
@@ -210,5 +232,76 @@ describe('RunLogger', () => {
     expect(logger.path).toContain('1.0.0.log');
     const content = fs.readFileSync(logger.path, 'utf-8');
     expect(content).toContain('version: 1.0.0');
+  });
+
+  // ── transcript 捕获（TC12–TC16, TC19–TC20）──
+
+  it('TC12: 增量捕获 — 只追加新内容，不重复', () => {
+    const logger = makeLogger();
+    fs.mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+    fs.writeFileSync(transcriptPath(), assistantLine('hello') + '\n');
+    logger.captureFromTranscript();
+    const after1 = fs.readFileSync(logger.path, 'utf-8');
+    expect(after1).toContain('回答');
+    expect(after1).toContain('hello');
+
+    fs.appendFileSync(transcriptPath(), assistantLine('world') + '\n');
+    logger.captureFromTranscript();
+    const after2 = fs.readFileSync(logger.path, 'utf-8');
+    expect(after2).toContain('world');
+    expect(after2.match(/hello/g)).toHaveLength(1); // hello 只记录一次
+  });
+
+  it('TC13: 无新内容 → 跳过', () => {
+    const logger = makeLogger();
+    fs.mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+    fs.writeFileSync(transcriptPath(), assistantLine('hello') + '\n');
+    logger.captureFromTranscript();
+    const before = fs.readFileSync(logger.path, 'utf-8');
+    logger.captureFromTranscript(); // 无新内容
+    expect(fs.readFileSync(logger.path, 'utf-8')).toBe(before);
+  });
+
+  it('TC14: transcript 文件不存在 → 不抛', () => {
+    const logger = makeLogger();
+    expect(() => logger.captureFromTranscript()).not.toThrow();
+  });
+
+  it('TC15: 非 assistant 行跳过', () => {
+    const logger = makeLogger();
+    fs.mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+    const userLine = JSON.stringify({ type: 'user', message: { content: [{ type: 'text', text: 'USER TEXT' }] } });
+    fs.writeFileSync(transcriptPath(), userLine + '\n');
+    logger.captureFromTranscript();
+    expect(fs.readFileSync(logger.path, 'utf-8')).not.toContain('USER TEXT');
+  });
+
+  it('TC16: 多 text block 拼接', () => {
+    const logger = makeLogger();
+    fs.mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+    fs.writeFileSync(transcriptPath(), assistantLine(['a', 'b']) + '\n');
+    logger.captureFromTranscript();
+    expect(fs.readFileSync(logger.path, 'utf-8')).toContain('ab');
+  });
+
+  it('TC19: slug 路径解析 — transcript 文件在 slug 目录中被找到', () => {
+    const logger = makeLogger();
+    fs.mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+    fs.writeFileSync(transcriptPath(), assistantLine('slug-ok') + '\n');
+    logger.captureFromTranscript();
+    expect(fs.readFileSync(logger.path, 'utf-8')).toContain('slug-ok');
+  });
+
+  it('TC20: sessionStartTime 过滤 — 早于会话开始的文件被跳过', () => {
+    const logger = makeLogger();
+    fs.mkdirSync(path.dirname(transcriptPath()), { recursive: true });
+    fs.writeFileSync(transcriptPath(), assistantLine('stale') + '\n');
+    // 明确把文件 mtime 设为过去时间，避免与 sessionStartTime 同一毫秒导致的竞争
+    const past = new Date(Date.now() - 60000);
+    fs.utimesSync(transcriptPath(), past, past);
+    // resetTranscript 将会话开始时间设为「现在」，晚于文件 mtime → 过滤
+    logger.resetTranscript();
+    logger.captureFromTranscript();
+    expect(fs.readFileSync(logger.path, 'utf-8')).not.toContain('stale');
   });
 });

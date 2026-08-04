@@ -20,8 +20,8 @@
 | 8 | CLAUDE.md 存在且已有 awf 标记 — 跳过 | CLAUDE.md 注入 |
 | 9 | 模板目录不存在 — fallback 创建空 .awf/ | 错误处理 |
 | 10 | 插件安装失败 — 报错但不阻断 | 错误处理 |
-| 11 | .awf-plugins.json 不存在 — 使用空列表 | 边界条件 |
-| 12 | .awf-plugins.json 格式非法 — 使用空列表 | 边界条件 |
+| 11 | .plugins.json 不存在 — 使用空列表 | 边界条件 |
+| 12 | .plugins.json 格式非法 — 使用空列表 | 边界条件 |
 | 13 | 已有有效 symlink — 跳过安装 | 插件 |
 | 14 | 已有无效 symlink — 清理后重新安装 | 插件 |
 | 15 | version 为空 — 不执行版本替换 | 边界条件 |
@@ -170,9 +170,9 @@
 
 ---
 
-### TC11: .awf-plugins.json 不存在 — 使用空列表
+### TC11: .plugins.json 不存在 — 使用空列表
 
-**前置条件**：项目目录无 `.awf-plugins.json`
+**前置条件**：项目目录无 `.plugins.json`
 
 **执行**：`loadExtraPlugins(paths)`
 
@@ -183,9 +183,9 @@
 
 ---
 
-### TC12: .awf-plugins.json 格式非法 — 使用空列表
+### TC12: .plugins.json 格式非法 — 使用空列表
 
-**前置条件**：`.awf-plugins.json` 存在但内容为非法 JSON（如 `{invalid`）
+**前置条件**：`.plugins.json` 存在但内容为非法 JSON（如 `{invalid`）
 
 **执行**：`loadExtraPlugins(paths)`
 

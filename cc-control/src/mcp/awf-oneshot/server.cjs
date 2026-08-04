@@ -3,7 +3,9 @@
 // AWF OneShot MCP Server — stateless LLM calls via `claude -p`.
 // Zero external dependency, stdio transport.
 
-const { spawn } = require('child_process');
+// 测试注入点：vitest 无法 mock 被原生 require 的 CJS 依赖，提供显式注入钩子。
+// 生产环境不设置 global.__CC_SPAWN__，回落到 child_process。
+const _spawn = global.__CC_SPAWN__ || require('child_process').spawn;
 
 function textResult(obj) {
   return { content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] };
@@ -30,7 +32,7 @@ const TOOLS = [
 
 function spawnClaude(prompt, cwd) {
   return new Promise((resolve) => {
-    const proc = spawn('claude', ['-p', prompt], {
+    const proc = _spawn('claude', ['-p', prompt], {
       cwd: cwd || process.cwd(),
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NO_COLOR: '1' },
@@ -75,6 +77,10 @@ const handlers = {
     try {
       switch (name) {
         case 'awf_oneshot': {
+          // 显式校验 prompt，避免 undefined.slice 崩溃
+          if (!args || typeof args.prompt !== 'string' || !args.prompt.length) {
+            return textResult({ ok: false, error: 'prompt is required' });
+          }
           logStderr(`oneshot: ${args.prompt.slice(0, 80)}...`);
           const result = await spawnClaude(args.prompt, args.cwd);
           return textResult(result);
@@ -134,3 +140,6 @@ async function handleMessage(msg) {
 }
 
 logStderr('started');
+
+// 测试可访问：直接调用 handlers / spawnClaude / handleMessage
+module.exports = { handlers, spawnClaude, handleMessage, TOOLS, textResult };

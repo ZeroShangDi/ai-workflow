@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { autoSelect } from '../../src/cli/auto-selector.js';
+import { autoSelect, DEFAULT_TIMEOUT_MS } from '../../src/cli/auto-selector.js';
 
 describe('auto-selector', () => {
   beforeEach(() => {
@@ -8,6 +8,7 @@ describe('auto-selector', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers(); // 防止断言失败时 fake timers 泄漏到后续测试
   });
 
   // ── TC1: 单选 ──
@@ -73,6 +74,8 @@ describe('auto-selector', () => {
   // ── TC4: 超时时间恒为 5s ──
 
   it('TC4: 超时时间恒为 5s', async () => {
+    expect(DEFAULT_TIMEOUT_MS).toBe(5000);
+
     vi.useFakeTimers();
 
     const decision = { multiSelect: false, options: ['X'] };

@@ -8,7 +8,7 @@
 
 1. **版本确认** — 调用 `promptVersion()` 让用户交互式选择/输入版本号
 2. **前置依赖检查** — 检查 `tmux` 和 `claude` 是否可执行
-3. **插件安装** — 安装 `ai-workflow` 自身插件 + `.awf-plugins.json` 中声明的额外插件
+3. **插件安装** — 安装 `ai-workflow` 自身插件 + `.plugins.json` 中声明的额外插件
 4. **工作区初始化** — 从模板创建 `.awf/` 目录结构，注入版本号
 5. **CLAUDE.md 注入** — 检查项目 CLAUDE.md，注入 awf 运行时规则
 
@@ -22,7 +22,7 @@
 |------|------|------|------|
 | `--force` | CLI flag | `options.force` | 当 `.awf/` 已存在时，补全缺失文件而非跳过 |
 | `--version` / 交互输入 | string | version-prompt | 通过 @inquirer/prompts 选择或手动输入 |
-| `.awf-plugins.json` | 文件 | 项目根目录 | 可选，声明额外需要安装的插件列表 |
+| `.plugins.json` | 文件 | 项目根目录 | 可选，声明额外需要安装的插件列表 |
 | `process.cwd()` | 路径 | 系统 | 目标项目目录 |
 
 ### 输出
@@ -64,7 +64,7 @@
 | 函数 | 说明 |
 |------|------|
 | `checkPrerequisites()` | 检查 tmux/claude 可执行性，返回结果数组 |
-| `loadExtraPlugins(paths)` | 读取 `.awf-plugins.json`，返回额外插件列表 |
+| `loadExtraPlugins(paths)` | 读取 `.plugins.json`，返回额外插件列表 |
 | `installAllPlugins(paths, extraPlugins)` | 注册 marketplace + 逐个安装插件 |
 | `initWorkspace(paths, force, version)` | 创建/补全 `.awf/` 目录 |
 | `initClaudeMd(projectRoot, cwd)` | 检查并注入 awf 规则到 CLAUDE.md |

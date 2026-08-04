@@ -1,6 +1,8 @@
 'use strict';
 
-const { execFileSync } = require('child_process');
+// 测试注入点：vitest 无法 mock 被原生 require 的 CJS 依赖，提供显式注入钩子。
+// 生产环境不设置 global.__CC_EXEC_FILE_SYNC__，回落到 child_process。
+const execFileSync = global.__CC_EXEC_FILE_SYNC__ || require('child_process').execFileSync;
 
 const SESSION = process.env.CC_SESSION || 'cc';
 

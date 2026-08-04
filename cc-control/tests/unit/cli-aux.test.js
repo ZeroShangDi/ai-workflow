@@ -31,19 +31,22 @@ vi.mock('../../src/cli/paths.js', () => ({
 }));
 
 // ── http mock for server check ──
-const httpCheckState = vi.hoisted(() => ({ ok: true }));
+const httpCheckState = vi.hoisted(() => ({ ok: true, timeout: false }));
 
 vi.mock('node:http', async () => {
   const { EventEmitter: EE } = await import('node:events');
   const fake = {
     get(url, cb) {
       const req = new EE();
-      req.setTimeout = vi.fn();
+      let timeoutCb;
+      req.setTimeout = (ms, fn) => { timeoutCb = fn; };
       req.destroy = vi.fn();
       // Use queueMicrotask — works with both real and fake timers
       queueMicrotask(() => {
         if (httpCheckState.ok) {
           cb({ statusCode: 200 });
+        } else if (httpCheckState.timeout) {
+          timeoutCb?.(); // 触发 req.setTimeout 回调 → check() resolve(false)
         } else {
           req.emit('error', new Error('ECONNREFUSED'));
         }
@@ -81,6 +84,7 @@ describe('cli-aux', () => {
     });
     Object.values(mockFs).forEach((f) => f.mockReset());
     httpCheckState.ok = true;
+    httpCheckState.timeout = false;
   });
 
   afterEach(() => {
@@ -244,10 +248,17 @@ describe('cli-aux', () => {
       expect(mockLogger.info).toHaveBeenCalledWith('tmux-http 未运行');
     });
 
-    it('TC14: check() — 200 → true', async () => {
+    it('TC14: status — 200 → 运行中', async () => {
       httpCheckState.ok = true;
       await serverCommand('status');
-      expect(mockLogger.success).toHaveBeenCalled();
+      expect(mockLogger.success).toHaveBeenCalledWith('tmux-http 运行中: http://localhost:8787');
+    });
+
+    it('TC14b: check() 超时 → 未运行（2s timeout 回调）', async () => {
+      httpCheckState.ok = false;
+      httpCheckState.timeout = true;
+      await serverCommand('status');
+      expect(mockLogger.info).toHaveBeenCalledWith('tmux-http 未运行');
     });
 
     it('TC15: 无效 action → 报错退出', async () => {
@@ -301,6 +312,27 @@ describe('cli-aux', () => {
       mockFs.readFile.mockRejectedValue(new Error('ENOENT'));
 
       await expect(openCommand('tree')).rejects.toThrow('ENOENT');
+    });
+
+    it('TC21: openBrowser 平台选择 + spawn 参数', async () => {
+      const original = process.platform;
+      const cases = [
+        ['darwin', 'open'],
+        ['win32', 'start'],
+        ['linux', 'xdg-open'],
+      ];
+      for (const [plat, cmd] of cases) {
+        Object.defineProperty(process, 'platform', { value: plat, configurable: true });
+        await openCommand('dashboard');
+        const call = mockSpawn.mock.calls.at(-1);
+        expect(call[0]).toBe(cmd);
+        expect(call[1]).toEqual(['http://localhost:8787']);
+        expect(call[2]).toEqual({ stdio: 'ignore', detached: true });
+        // spawn 返回的 proc 调用了 unref
+        const proc = mockSpawn.mock.results.at(-1).value;
+        expect(proc.unref).toHaveBeenCalled();
+      }
+      Object.defineProperty(process, 'platform', { value: original, configurable: true });
     });
 
     it('TC22: 无效 target → 报错退出', async () => {

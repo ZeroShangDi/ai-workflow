@@ -2,7 +2,7 @@
   "mode": "run",
   "currentState": "CODE",
   "version": "0.1.3",
-  "lastUpdated": "2026-08-04T00:00:00.000Z",
+  "lastUpdated": "2026-08-04T09:39:56.795Z",
   "plan": {
     "summary": "测试体系建设：13 个能力模块的单元/集成/E2E 测试 + 能力测评方案设计",
     "reqDoc": "docs/features/testing-infrastructure.md",
@@ -399,12 +399,13 @@
           "T1",
           "T6"
         ],
-        "status": "blocked",
+        "status": "done",
         "complexity": "complex",
         "exec": {
-          "result": "CLI 侧已实现（tests/unit/state.test.js，覆盖 loadState/saveState/findNextTask/isMilestoneDone）；MCP 侧 JSON-RPC 集成测试（tests/integration/awf-state.test.js）未实现，见 Issue 001",
+          "result": "实现 State 管理模块 vitest 测试：CLI 侧 tests/unit/state.test.js（loadState/saveState/findNextTask/getCurrentPhase/isMilestoneDone，临时目录 fixtures），MCP 侧 tests/integration/awf-state.test.js（spawn server.cjs 子进程，17 个 tools + 协议握手通过 JSON-RPC over stdio 全覆盖）。35 个用例全部通过。",
           "files": [
-            "tests/unit/state.test.js"
+            "tests/unit/state.test.js",
+            "tests/integration/awf-state.test.js"
           ]
         }
       },
@@ -435,12 +436,15 @@
           "T1",
           "T8"
         ],
-        "status": "blocked",
+        "status": "done",
         "complexity": "medium",
         "exec": {
-          "result": "auto-selector 已实现（tests/unit/auto-selector.test.js，单选/多选/空 options/超时）；server decision 完整链路集成测试（tests/integration/decision.test.js）未实现，见 Issue 001",
+          "result": "自动决策模块测试完成。auto-selector 4 个 TC（单选/多选/空 options/超时，TC4 断言 DEFAULT_TIMEOUT_MS=5000）；server decision 集成测试 28 个 TC 覆盖 T8 文档 TC5-TC31：状态机 6 个（setDecision/clearDecision/setReady/waitReady/setBusy）、/hook 7 个（5 种事件 + PostToolUse 3 种 response 格式）、/choice /ask /respond 8 个（含「有 decision 跳过 waitReady 避免死锁」「无 decision 正常 waitReady」关键逻辑 + busy 无 decision→409）、完整链路 3 个、边界 fallback timer 3 个。为可测试性改造 server.cjs：导出状态机函数与 start/stop，listen 用 require.main 门控，tmuxlib/run-logger 提供 global.__CC_TMUX__/__CC_RUNLOGGER__ 注入钩子（vitest 无法 mock 原生 require 的 CJS 依赖），fallback 时长 env 可配。mock tmuxlib 通过真实 HTTP 请求测试 server 路由。32 个用例全部通过（npm test 169/169，npm run build 通过）。",
           "files": [
-            "tests/unit/auto-selector.test.js"
+            "tests/unit/auto-selector.test.js",
+            "tests/integration/decision.test.js",
+            "src/server/server.cjs",
+            "src/cli/auto-selector.js"
           ]
         }
       },
@@ -453,11 +457,14 @@
           "T1",
           "T9"
         ],
-        "status": "blocked",
+        "status": "done",
         "complexity": "complex",
         "exec": {
-          "result": "blocked：server 集成测试需要真实 HTTP server 环境，见 Issue 001",
-          "files": []
+          "result": "实时面板模块测试完成（tests/integration/server.test.js，37 个测试对应 T9 文档 37 个 TC 全部通过）。覆盖：路由 20 个（GET /、/ui、/awf/state、/status、POST /send、/cmd、/respond、/choice、/ask、未知路由 404，含 400/503/409 异常）、状态机 7 个（ready→busy→ready 往返、waitReady 三种路径）、/hook 事件 5 个、dashboard.html 5 个（DOM 元素/PHASES/canon/refresh 静态分析）。沿用 T21 注入钩子 mock tmuxlib+run-logger 通过真实 HTTP 测试；server.cjs 新增 CC_HTML_DIR 请求时读取 seam 控制 dashboard/ui 文件存在性（生产默认 __dirname 不变）；临时目录控制 /awf/state 200/404。CC_READY_TIMEOUT_MS/CC_ENTER_DELAY_MS/CC_LOCAL_CMD_MS 加速超时与 fallback 路径。全量 npm test 206/206 通过，npm run build 通过。",
+          "files": [
+            "tests/integration/server.test.js",
+            "src/server/server.cjs"
+          ]
         }
       },
       {
@@ -469,11 +476,16 @@
           "T1",
           "T10"
         ],
-        "status": "blocked",
+        "status": "done",
         "complexity": "complex",
         "exec": {
-          "result": "blocked：tmux 命令需要真实 tmux session 环境，见 Issue 001",
-          "files": []
+          "result": "tmux & Session 管理模块测试完成（23 个测试对应 T10 文档全部 TC 通过）。tests/unit/tmux.test.js 8 个（hasSession 真/假、sendText/sendEnter/capture 命令参数精确拼装、异常传播、SESSION 默认 cc、CC_SESSION 覆盖）。tests/integration/awf-session.test.js 15 个（TC9-23）：4 个 MCP tools 正常路径（session_status 含 pane 500 截取、capture_pane 不经 HTTP、await_choice/input 路由到 /choice /ask）、args 引用 bug 验证、httpGet/httpPost 可达/ECONNREFUSED/超时/正常、capturePane 异常不抛、未知 tool、JSON-RPC initialize/tools-list/未知 method。修复了 awf-session tools/call 的 args 引用 bug（只解构 name 未解构 arguments → awf_await_choice/input 抛 ReferenceError），按 T10 文档方案改为 { name, arguments: args }。沿用 CJS 注入钩子模式（tmux.cjs 加 __CC_EXEC_FILE_SYNC__、awf-session 加 __CC_EXEC_SYNC__ + AWF_BASE 请求时读取 + CC_HTTP_TIMEOUT_MS 可配 + 导出 handlers）。全量 npm test 229/229 通过，npm run build 通过。",
+          "files": [
+            "tests/unit/tmux.test.js",
+            "tests/integration/awf-session.test.js",
+            "src/server/tmux.cjs",
+            "src/mcp/awf-session/server.cjs"
+          ]
         }
       },
       {
@@ -521,11 +533,14 @@
           "T1",
           "T13"
         ],
-        "status": "blocked",
+        "status": "done",
         "complexity": "medium",
         "exec": {
-          "result": "blocked：oneshot MCP 需要真实 claude -p 子进程环境，见 Issue 001",
-          "files": []
+          "result": "单次会话调用模块测试完成（tests/integration/awf-oneshot.test.js，11 个测试对应 T13 文档全部 TC 通过）。MCP 协议 2 个（initialize 握手、tools/list 返回 1 个 awf_oneshot tool 且 required=['prompt']）；awf_oneshot 执行 5 个（正常 ok+stdout trim、cwd 参数默认 process.cwd()、非零退出码 ok=false、ENOENT error 事件、timeout=300000 + SIGTERM close）；边界 4 个（空 prompt 校验失败、NO_COLOR=1 + env 继承、未知 tool、spawn 参数验证 cmd/args/stdio/timeout/env）。mock spawn 返回可控 EventEmitter（stdout/close/error 经 setImmediate 触发）。沿用 CJS 注入钩子：awf-oneshot 加 __CC_SPAWN__ seam + 导出 handlers/spawnClaude/handleMessage；另补空 prompt 显式校验（此前 args.prompt.slice 在 undefined 上崩溃）。该 server 本身已含 args 正确解构。全量 npm test 240/240 通过，npm run build 通过。",
+          "files": [
+            "tests/integration/awf-oneshot.test.js",
+            "src/mcp/awf-oneshot/server.cjs"
+          ]
         }
       },
       {
@@ -537,29 +552,52 @@
           "T1",
           "T14"
         ],
-        "status": "blocked",
+        "status": "done",
         "complexity": "medium",
         "exec": {
-          "result": "blocked：bootstrap 需要真实 tmux/claude 环境，见 Issue 001",
-          "files": []
+          "result": "Bootstrap 模块集成测试完成（tests/integration/bootstrap.test.js，14 个测试对应 T14 文档全部 TC 通过）。环境检查 2 个（tmux/claude 缺失 exit 1 + 渲染未执行）；配置渲染 4 个（settings.json __PORT__、.mcp.json __TOOLS__/__WORKDIR__ 替换、JSON 合法 3 server、原模板不变）；Session 管理 4 个（不存在创建含 new-session 全参数 + claude bypassPermissions、已存在 exit 0 不创建、CC_SESSION 自定义、new-session 参数验证）；边界 4 个（WORKDIR 不存在 mkdir -p、CC_PORT 自定义端口、trust prompt sleep 3 + send-keys Enter、特殊字符路径验证 sed | 分隔符与引号保护）。实现：真实 bash 执行 bootstrap.sh + PATH 注入 tmux/claude/sleep stub 记录调用参数（has-session 退出码由 STUB_HAS_SESSION 控制），sleep stub 消除尾部 3s 等待，CC_WORKDIR 指向隔离临时目录，渲染用真实模板。无源码改动。全量 npm test 254/254 通过，npm run build 通过。",
+          "files": [
+            "tests/integration/bootstrap.test.js"
+          ]
         }
       },
       {
         "id": "T28",
         "desc": "测试质量审查：检查所有测试用例的完整性和正确性",
-        "prompt": "对 T15-T27 产出的所有测试代码进行质量审查。\n\n审查标准：\n1. 每个测试文件是否覆盖了对应测试用例文档中的所有场景\n2. 测试断言是否充分（不仅测 happy path，也测边界和错误路径）\n3. mock 使用是否合理，不会导致假阳性\n4. 测试命名是否清晰（describe/it 描述准确）\n5. 是否存在 flaky 测试（依赖时序/随机值）\n6. 测试文件组织结构是否合理\n\n产出审查报告，列出发现的问题和修复建议。\n对严重问题直接修复。\n\n注意：T19/T21/T22/T23/T26/T27 为 blocked（集成测试未实现，见 Issue 001），本次审查范围限定为已完成的单元测试（T15-T18/T20/T24/T25）。",
+        "prompt": "对 T15-T27 产出的所有测试代码进行质量审查。\n\n审查标准：\n1. 每个测试文件是否覆盖了对应测试用例文档中的所有场景\n2. 测试断言是否充分（不仅测 happy path，也测边界和错误路径）\n3. mock 使用是否合理，不会导致假阳性\n4. 测试命名是否清晰（describe/it 描述准确）\n5. 是否存在 flaky 测试（依赖时序/随机值）\n6. 测试文件组织结构是否合理\n\n产出审查报告，列出发现的问题和修复建议。\n对严重问题直接修复。",
         "wbsRef": "W6",
         "deps": [
           "T15",
           "T16",
           "T17",
           "T18",
+          "T19",
           "T20",
+          "T21",
+          "T22",
+          "T23",
           "T24",
-          "T25"
+          "T25",
+          "T26",
+          "T27"
         ],
-        "status": "pending",
-        "complexity": "medium"
+        "status": "done",
+        "complexity": "medium",
+        "exec": {
+          "result": "T15-T27 全部测试代码质量审查完成。4 组并行评审 + 3 轮全量复跑无间歇失败，产出审查报告并直接修复严重问题。已修复 HIGH：run.test.js 3 个零断言假阳性测试（TC12/16/17 重写加真实断言，TC17 重写为 send 成功+waitForReady 超时回查 done 分支）、run-logger TC11 假阳性（改 spy fs.appendFileSync 强制抛错+断言 console.error）、run-logger 新增 7 个 transcript 捕获测试（增量/无新/缺失/非 assistant/多 block/slug/sessionStartTime）、server.cjs 跟踪清除 fallback 定时器消除跨测试泄漏。已修复 MEDIUM：init.test.js 补 TC1/TC4/TC12/TC16 断言、cli-aux.test.js 新增 TC14b（check 超时）和 TC21（openBrowser 三平台）、version-prompt/auto-selector/run 加 afterEach useRealTimers、awf-state request 加 5s 超时+afterAll guard、decision/server afterAll 清理环境变量。全量 263/263 通过，build 通过。遗留（建议后续任务）：run.test.js 21/29 doc TC 缺口（需导出 run.js 内部函数）、hooks.test.js doc↔文件映射漂移、version-prompt TC15 固化 semver bug、helper 抽取 mcp.js。",
+          "files": [
+            "tests/unit/run.test.js",
+            "tests/unit/run-logger.test.js",
+            "tests/unit/init.test.js",
+            "tests/unit/cli-aux.test.js",
+            "tests/unit/version-prompt.test.js",
+            "tests/unit/auto-selector.test.js",
+            "tests/integration/awf-state.test.js",
+            "tests/integration/decision.test.js",
+            "tests/integration/server.test.js",
+            "src/server/server.cjs"
+          ]
+        }
       },
       {
         "id": "T29",
@@ -569,8 +607,16 @@
         "deps": [
           "T28"
         ],
-        "status": "pending",
-        "complexity": "medium"
+        "status": "done",
+        "complexity": "medium",
+        "exec": {
+          "result": "全量测试运行完成：17 个测试文件 263/263 全部通过，0 失败 0 跳过（~1.2s）。无失败用例，无需修复测试或记录源码 bug（docs/bugs/ 无新增）。首次建立覆盖率基线：安装 @vitest/coverage-v8，vitest.config.js 配置 coverage（v8 provider，include src/**/*.{js,cjs}），package.json 新增 test:coverage 脚本。覆盖率：Statements 72.34% (976/1349)、Branches 59.67% (398/667)、Functions 76.21% (173/227)、Lines 75.56% (903/1195)。高覆盖：server/server.cjs 94.7%、run-logger 96.7%、tmux.cjs 100%、init.js 97.3%、state.js 96.4%。低覆盖：run.js 69.7%（内部函数未覆盖，对应 T28 的 21/29 TC 缺口）、awf-state MCP 0%（子进程 spawn 测试覆盖率不在父进程捕获，预期）、paths.js 0%（测试均 mock 真实逻辑未覆盖）、tmux-keys.cjs 0%（未测模块）。建议后续补测 paths.js、tmux-keys.cjs、run.js 内部函数。",
+          "files": [
+            "package.json",
+            "vitest.config.js",
+            "package-lock.json"
+          ]
+        }
       },
       {
         "id": "T30",
@@ -581,8 +627,14 @@
           "T1",
           "T29"
         ],
-        "status": "pending",
-        "complexity": "complex"
+        "status": "done",
+        "complexity": "complex",
+        "exec": {
+          "result": "E2E 冒烟测试完成（tests/integration/e2e-smoke.test.js，1 个完整链路用例通过）。覆盖任务 8 步：fixtures 最小 state.json → 真实 server.cjs（随机端口）→ SessionStart hook ready → /send 任务 prompt（mock tmux sendText+sendEnter，server 转 busy）→ 真实 awf-state MCP 子进程模拟 AI 更新（awf_task_status done + awf_task_result + awf_phase FINISH）→ Stop hook ready → 读回 state.json 验证 task done + exec.result + currentState=FINISH → 验证真实 RunLogger 输出 .awf/logs/0.1.0.log（日志头 + 提示词 + prompt 文本）。设计要点：只 mock tmux（__CC_TMUX__ 注入），用真实 RunLogger（不注入 __CC_RUNLOGGER__）使日志输出为真实链路产物；用真实 awf-state MCP 子进程走完整 JSON-RPC 协议。全量 npm test 264/264 通过（18 文件），build 通过。",
+          "files": [
+            "tests/integration/e2e-smoke.test.js"
+          ]
+        }
       },
       {
         "id": "T31",

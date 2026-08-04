@@ -121,6 +121,16 @@ describe('initCommand', () => {
     const raw = await fs.readFile(path.join(awf, 'state.json'), 'utf-8');
     expect(raw).toContain('0.1.0');
     expect(raw).not.toContain('{{VERSION}}');
+    // {{TIMESTAMP}} 被替换为 ISO 时间戳
+    expect(raw).not.toContain('{{TIMESTAMP}}');
+    expect(raw).toMatch(/"lastUpdated": "20\d\d-\d\d-\d\dT/);
+
+    // 默认插件安装执行
+    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install ai-workflow@ai-workflow-dev'));
+    expect(instCalls.length).toBeGreaterThan(0);
+
+    // 完成提示输出
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('✔ 初始化完成'));
 
     const md = await fs.readFile(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
     expect(md).toContain('<!-- awf-rules start -->');
@@ -156,6 +166,10 @@ describe('initCommand', () => {
     withoutTmux();
     await initCommand({ force: false });
     expect(process.exit).not.toHaveBeenCalledWith(1);
+    // warn 提示输出
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('未安装 — brew install tmux'));
+    // 后续步骤继续执行（.awf 仍被创建）
+    expect((await fs.stat(path.join(tmpDir, '.awf'))).isDirectory()).toBe(true);
   });
 
   it('TC5: claude 未安装 — error 阻断', async () => {
@@ -230,15 +244,18 @@ describe('initCommand', () => {
     expect(process.exit).not.toHaveBeenCalledWith(1);
   });
 
-  it('TC12: .awf-plugins.json 不存在 → 空列表', async () => {
+  it('TC12: .plugins.json 不存在 → 空列表（仅安装默认插件）', async () => {
     withDeps();
     await initCommand({ force: false });
     expect((await fs.stat(path.join(tmpDir, '.awf'))).isDirectory()).toBe(true);
+    // 默认插件被安装，且没有额外插件
+    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install ai-workflow@ai-workflow-dev'));
+    expect(instCalls).toHaveLength(1);
   });
 
-  it('TC13: .awf-plugins.json 非法 JSON → 空列表', async () => {
+  it('TC13: .plugins.json 非法 JSON → 空列表', async () => {
     withDeps();
-    await fs.writeFile(path.join(tmpDir, '.awf-plugins.json'), '!!!broken');
+    await fs.writeFile(path.join(tmpDir, '.plugins.json'), '!!!broken');
     await initCommand({ force: false });
     expect(process.exit).not.toHaveBeenCalledWith(1);
   });
@@ -289,6 +306,12 @@ describe('initCommand', () => {
     withDeps();
     await initCommand({ force: false });
 
+    // symlink 被清理
     expect(await fs.stat(path.join(pluginsDir, 'ai-workflow')).catch(() => null)).toBeNull();
+    // marketplace 重新注册 + 插件重装
+    const addCalls = mockExecSync.mock.calls.filter(([c]) => c && c.includes('claude plugin marketplace add'));
+    expect(addCalls).toHaveLength(1);
+    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install ai-workflow@ai-workflow-dev'));
+    expect(instCalls).toHaveLength(1);
   });
 });

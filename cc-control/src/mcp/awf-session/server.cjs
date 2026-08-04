@@ -6,15 +6,19 @@
 
 const http = require('http');
 
-const AWF_BASE = process.env.AWF_BASE || 'http://127.0.0.1:8787';
-const { execSync } = require('child_process');
+// 测试注入点：vitest 无法 mock 被原生 require 的 CJS 依赖，提供显式注入钩子。
+// 生产环境不设置 global.__CC_EXEC_SYNC__，回落到 child_process。
+const _execSync = global.__CC_EXEC_SYNC__ || require('child_process').execSync;
 const SESSION = process.env.CC_SESSION || 'cc';
+const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
+// 请求时读取 AWF_BASE，测试可随时切换 mock server
+const baseUrl = () => process.env.AWF_BASE || 'http://127.0.0.1:8787';
 
 // ---- helpers ----
 
 function httpPost(path, body) {
   return new Promise((resolve) => {
-    const url = new URL(path, AWF_BASE);
+    const url = new URL(path, baseUrl());
     const data = body || '';
     const options = {
       hostname: url.hostname, port: url.port, path: url.pathname,
@@ -28,7 +32,7 @@ function httpPost(path, body) {
       });
     });
     req.on('error', (err) => resolve({ ok: false, error: err.message }));
-    req.setTimeout(3000, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.setTimeout(HTTP_TIMEOUT_MS, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
     req.write(data);
     req.end();
   });
@@ -36,7 +40,7 @@ function httpPost(path, body) {
 
 function httpGet(path) {
   return new Promise((resolve) => {
-    const url = new URL(path, AWF_BASE);
+    const url = new URL(path, baseUrl());
     const req = http.get({ hostname: url.hostname, port: url.port, path: url.pathname }, (res) => {
       let raw = '';
       res.on('data', (c) => (raw += c));
@@ -45,13 +49,13 @@ function httpGet(path) {
       });
     });
     req.on('error', (err) => resolve({ ok: false, error: err.message }));
-    req.setTimeout(3000, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.setTimeout(HTTP_TIMEOUT_MS, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
   });
 }
 
 function capturePane() {
   try {
-    return execSync(`tmux capture-pane -t "${SESSION}" -p`, { encoding: 'utf-8', timeout: 3000 });
+    return _execSync(`tmux capture-pane -t "${SESSION}" -p`, { encoding: 'utf-8', timeout: HTTP_TIMEOUT_MS });
   } catch (e) {
     return `(capture failed: ${e.message})`;
   }
@@ -125,7 +129,8 @@ const handlers = {
   },
 
   async 'tools/call'(params) {
-    const { name } = params || {};
+    // 修复 args 引用 bug：此前只解构 name，args 未定义导致 awf_await_choice/input 抛 ReferenceError
+    const { name, arguments: args } = params || {};
 
     try {
       switch (name) {
@@ -206,3 +211,6 @@ async function handleMessage(msg) {
 }
 
 logStderr('started');
+
+// 测试可访问：直接调用 handlers / httpGet / httpPost / capturePane / handleMessage
+module.exports = { handlers, httpGet, httpPost, capturePane, textResult, send, handleMessage, TOOLS, baseUrl };

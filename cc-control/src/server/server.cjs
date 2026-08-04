@@ -3,8 +3,10 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const tmuxlib = require('./tmux.cjs');
-const { RunLogger } = require('./run-logger.cjs');
+// 测试注入点：vitest 无法 mock 被原生 require 加载的 CJS 依赖，提供显式注入钩子。
+// 生产环境不设置 global.__CC_TMUX__/__CC_RUNLOGGER__，回落到真实模块。
+const tmuxlib = global.__CC_TMUX__ || require('./tmux.cjs');
+const { RunLogger } = global.__CC_RUNLOGGER__ || require('./run-logger.cjs');
 
 const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
 const logger = new RunLogger(PROJECT_ROOT);
@@ -14,11 +16,15 @@ const PORT = Number(process.env.CC_PORT || 8787);
 const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
 const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
+const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);
+// dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
+const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
 
 // ---- ready/busy state machine, driven by Claude Code hooks ----
 let state = 'ready'; // 'ready' | 'busy'
 let decisionPending = null; // null | { type: 'choice'|'text', question: string, options?: string[] }
 let waiters = [];
+let fallbackTimer = null; // /cmd /respond 的兜底恢复定时器（测试中需可清除）
 
 function setDecision(d) {
   decisionPending = d;
@@ -96,12 +102,12 @@ const server = http.createServer(async (req, res) => {
   // dashboard (default) + control panel
   if (req.method === 'GET' && pathname === '/') {
     try {
-      const html = fs.readFileSync(__dirname + '/dashboard.html');
+      const html = fs.readFileSync(htmlDir() + '/dashboard.html');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(html);
     } catch {
       try {
-        const html = fs.readFileSync(__dirname + '/ui.html');
+        const html = fs.readFileSync(htmlDir() + '/ui.html');
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         return res.end(html);
       } catch {
@@ -112,7 +118,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && pathname === '/ui') {
     try {
-      const html = fs.readFileSync(__dirname + '/ui.html');
+      const html = fs.readFileSync(htmlDir() + '/ui.html');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(html);
     } catch {
@@ -252,7 +258,8 @@ const server = http.createServer(async (req, res) => {
     setBusy();
     await submit(body.cmd);
     // Local commands (e.g. /clear) may not emit a Stop hook; recover after a fallback.
-    setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    fallbackTimer = setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
     return send(res, 200, { ok: true, sent: body.cmd });
   }
 
@@ -279,9 +286,10 @@ const server = http.createServer(async (req, res) => {
     }
     await submit(body.value);
     // fallback timer：Stop hook 可能因 curl 超时等原因未触发，兜底恢复 ready
-    const fallbackMs = decisionPending ? 300000 : LOCAL_CMD_FALLBACK_MS;
+    const fallbackMs = decisionPending ? DECISION_FALLBACK_MS : LOCAL_CMD_FALLBACK_MS;
     const hadDecision = !!decisionPending;
-    setTimeout(() => {
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    fallbackTimer = setTimeout(() => {
       if (state === 'busy') {
         if (hadDecision) clearDecision();
         setReady();
@@ -293,6 +301,47 @@ const server = http.createServer(async (req, res) => {
   return send(res, 404, { ok: false, error: 'not found' });
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
-});
+// ---- lifecycle: CLI 以子进程方式运行；测试中可显式 start/stop ----
+function start(port = PORT) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      server.removeListener('error', reject);
+      const addr = server.address();
+      resolve({ port: addr.port, url: `http://127.0.0.1:${addr.port}` });
+    });
+  });
+}
+
+function stop() {
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+    if (server.closeAllConnections) server.closeAllConnections();
+  });
+}
+
+// ---- test helpers ----
+function _getState() {
+  return { state, decisionPending, waiters: [...waiters] };
+}
+
+function _resetForTest() {
+  if (fallbackTimer) {
+    clearTimeout(fallbackTimer);
+    fallbackTimer = null;
+  }
+  state = 'ready';
+  decisionPending = null;
+  waiters = [];
+}
+
+module.exports = {
+  server, start, stop, _getState, _resetForTest,
+  setDecision, clearDecision, setReady, setBusy, waitReady,
+};
+
+if (require.main === module) {
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
+  });
+}

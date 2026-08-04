@@ -133,7 +133,7 @@ function checkPrerequisites() {
 }
 
 async function loadExtraPlugins(paths) {
-  const configPath = path.join(paths.projectRoot, '.awf-plugins.json');
+  const configPath = path.join(paths.projectRoot, '.plugins.json');
   try {
     const raw = await fs.readFile(configPath, 'utf-8');
     const config = JSON.parse(raw);

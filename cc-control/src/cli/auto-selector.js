@@ -4,7 +4,7 @@
  * 当前策略：等 5 秒后单选/多选均默认选第一项。
  */
 
-const DEFAULT_TIMEOUT_MS = 5000;
+export const DEFAULT_TIMEOUT_MS = 5000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

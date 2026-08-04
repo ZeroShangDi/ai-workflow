@@ -30,6 +30,7 @@ describe('version-prompt', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers(); // 防止 TC10/11 中途失败时 fake timers 泄漏
   });
 
   // ── version reading ──

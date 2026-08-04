@@ -15,7 +15,8 @@
     "test": "vitest run",
     "lint": "bash scripts/lint.sh",
     "build": "bash scripts/build.sh",
-    "eval": "bash scripts/eval.sh"
+    "eval": "bash scripts/eval.sh",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
@@ -34,6 +35,7 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
     "vitest": "^4.1.10"
   }
 }
