@@ -1,93 +1,644 @@
 {
+  "mode": "run",
   "currentState": "CODE",
   "version": "0.1.3",
-  "lastUpdated": "2026-07-31T08:00:00.000Z",
+  "lastUpdated": "2026-08-04T00:00:00.000Z",
   "plan": {
-    "summary": "Init CLAUDE.md 自动生成 + awf 规则注入",
-    "reqDoc": "docs/features/awf-v0.1.3-tasks-init-claude.md",
+    "summary": "测试体系建设：13 个能力模块的单元/集成/E2E 测试 + 能力测评方案设计",
+    "reqDoc": "docs/features/testing-infrastructure.md",
+    "inScope": [
+      "vitest 测试基础设施搭建",
+      "13 个模块的单元+集成测试",
+      "E2E 烟雾测试",
+      "能力测评方案设计文档"
+    ],
+    "outOfScope": [
+      "CI 管道接入",
+      "能力测评代码实现",
+      "Prompts/Templates 等纯内容文件测试"
+    ],
+    "acceptanceCriteria": [
+      "vitest 配置完成 npm test 可运行",
+      "13 个模块均有测试用例覆盖核心路径和边界条件",
+      "E2E 可验证 awf run 完整链路",
+      "所有测试通过",
+      "能力测评方案文档产出"
+    ],
     "wbs": [
-      { "id": "W5", "name": "Init CLAUDE.md 自动生成", "desc": "init 命令自动生成/注入 CLAUDE.md，包含 awf 核心规则", "level": "function", "parent": null, "children": ["W5.1", "W5.2", "W5.3", "W5.4"], "acceptance": "awf init 在 4 种场景下正确生成/注入 CLAUDE.md", "deps": [] },
-      { "id": "W5.1", "name": "注入内容源文件", "desc": "创建 templates/awf-rules.md，定义注入到项目 CLAUDE.md 的 awf 规则内容", "level": "task", "parent": "W5", "children": [], "acceptance": "文件存在，内容覆盖 MCP/命令/状态/阶段约定", "deps": [] },
-      { "id": "W5.2", "name": "CLAUDE.md 备用模板", "desc": "创建 templates/CLAUDE.md.template，当项目无 CLAUDE.md 时作为生成骨架", "level": "task", "parent": "W5", "children": [], "acceptance": "模板包含占位符，生成后可正常工作", "deps": [] },
-      { "id": "W5.3", "name": "注入逻辑实现", "desc": "在 init.js 中实现 checkAndInjectClaudeMd() 和 generateClaudeMd() 函数", "level": "function", "parent": "W5", "children": [], "acceptance": "覆盖 3 种场景：无文件/有文件无标记/有文件有标记", "deps": ["W5.1", "W5.2"] },
-      { "id": "W5.4", "name": "集成到 init 命令", "desc": "将注入逻辑接入 initCommand 流程，sandbox 中验证 end-to-end", "level": "task", "parent": "W5", "children": [], "acceptance": "awf init 端到端验证通过，4 种场景覆盖", "deps": ["W5.3"] }
+      {
+        "id": "W1",
+        "name": "测试基础设施",
+        "desc": "vitest 配置 + fixtures 工厂 + mock 工具库",
+        "acceptance": "npm test 命令可用，fixtures 和 mocks 可被其他模块引用",
+        "deps": []
+      },
+      {
+        "id": "W2",
+        "name": "CLI 命令测试",
+        "desc": "awf init / plan / run / 辅助命令 4 个模块的文档生成和测试实现",
+        "acceptance": "4 个 CLI 命令模块核心路径和边界条件均有测试覆盖",
+        "deps": [
+          "W1"
+        ]
+      },
+      {
+        "id": "W3",
+        "name": "核心能力测试",
+        "desc": "State 管理 / 版本选择 / 自动决策 3 个模块的文档生成和测试实现",
+        "acceptance": "3 个核心能力模块核心路径和边界条件均有测试覆盖",
+        "deps": [
+          "W1"
+        ]
+      },
+      {
+        "id": "W4",
+        "name": "Server 能力测试",
+        "desc": "实时面板 / tmux&Session / CC Hooks / Run Logger 4 个模块的文档生成和测试实现",
+        "acceptance": "4 个 server 模块核心路径和边界条件均有测试覆盖",
+        "deps": [
+          "W1"
+        ]
+      },
+      {
+        "id": "W5",
+        "name": "独立服务测试",
+        "desc": "单次会话调用 / Bootstrap 2 个模块的文档生成和测试实现",
+        "acceptance": "2 个独立服务核心路径和边界条件均有测试覆盖",
+        "deps": [
+          "W1"
+        ]
+      },
+      {
+        "id": "W6",
+        "name": "测试验证与收尾",
+        "desc": "测试质量审查 + 全量运行修复 + E2E 烟雾测试",
+        "acceptance": "所有测试通过，E2E 验证 awf run 完整链路",
+        "deps": [
+          "W2",
+          "W3",
+          "W4",
+          "W5"
+        ]
+      },
+      {
+        "id": "W7",
+        "name": "能力测评方案",
+        "desc": "测评指标体系设计 + 对比实验方案文档",
+        "acceptance": "产出完整的测评方案设计文档",
+        "deps": []
+      }
     ],
     "tasks": [
       {
-        "id": "1",
-        "desc": "创建 templates/awf-rules.md，包含 awf 核心规则（MCP 工具列表、命令前缀、状态文件路径、阶段约定）",
-        "prompt": "在 cc-control 项目根目录创建 templates/awf-rules.md 文件。\n\n内容要求：\n1. 以 `<!-- awf-rules start -->` 开头，`<!-- awf-rules end -->` 结尾\n2. 包含以下核心规则：\n   - awf 命令前缀约定：所有 awf 命令通过 `/ai-workflow:<command>` 调用\n   - MCP 工具列表：awf-state（状态读写）、awf-session（tmux 观测）、awf-oneshot（无状态 LLM 调用）\n   - 状态文件路径：.awf/state.json\n   - 阶段约定：DEV → REVIEW → TEST → COMMIT，门禁由 task 级别驱动\n   - 自主执行原则：少问问题，多干活，结果写入 state.json\n3. 最小规则原则——只写最必要的约定，其余由 skills 承载\n4. 参考 cc-control/CLAUDE.md 的风格，但只保留 awf 相关的规则",
-        "wbsRef": "W5.1",
+        "id": "T1",
+        "desc": "搭建 vitest 测试基础设施（vitest.config + fixtures 工厂 + mock 工具库）",
+        "prompt": "在 cc-control 项目中搭建 vitest 测试基础设施。\n\n1. 安装 vitest 为 devDependency\n2. 创建 vitest.config.js，配置：\n   - test.include: ['tests/**/*.test.js']\n   - test.exclude: ['node_modules', 'sandbox']\n   - 支持 ESM（package.json type: module）和 CJS 混合\n3. 创建 tests/unit/ 和 tests/integration/ 目录\n4. 创建 tests/fixtures/ 目录，提供：\n   - 最小合法 state.json fixture\n   - state.json 工厂函数（可自定义 tasks、milestones、phase）\n5. 创建 tests/helpers/ 目录，提供 mock 工具：\n   - mock child_process（spawn、execSync）\n   - mock tmux（sendText、sendEnter、capture、hasSession）\n   - mock HTTP server（/status、/send、/hook 等端点）\n6. 更新 package.json scripts.test 为 \"vitest run\"\n7. 写一个简单的示例测试确保 vitest 可正常运行",
+        "wbsRef": "W1",
+        "deps": [],
+        "status": "done",
+        "complexity": "complex",
+        "exec": {
+          "result": "vitest 基础设施完成：vitest.config.js + fixtures 工厂 + mock 工具库 + 示例测试，npm test 可运行（116 tests 通过）",
+          "files": [
+            "vitest.config.js",
+            "tests/fixtures/state-factory.js",
+            "tests/fixtures/minimal-state.json",
+            "tests/helpers/mock-child-process.js",
+            "tests/helpers/mock-server.js",
+            "tests/helpers/mock-tmux.js",
+            "tests/unit/fixtures.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T2",
+        "desc": "生成 awf init 模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 awf init 模块（src/cli/init.js）生成需求文档和测试用例文档。\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 功能描述：项目初始化、.awf/ 目录创建、插件安装、CLAUDE.md 注入\n- 输入输出：命令参数、文件系统操作\n- 依赖：paths.js、version-prompt.js\n\n测试用例文档需覆盖：\n- 正常流程：首次 init、重复 init\n- CLAUDE.md 注入：无文件/有文件无标记/有文件有标记/--force\n- 错误处理：权限不足、模板缺失\n- 边界条件：空项目名、特殊字符路径",
+        "wbsRef": "W2",
         "deps": [],
         "status": "done",
         "complexity": "simple",
-        "featureGroup": "init-claude-md",
-        "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
-        "commits": []
+        "exec": {
+          "result": "需求文档和测试用例文档已生成至 docs/features/init.md 和 docs/features/init.test.md，覆盖 5 步初始化流程、15 个测试场景。",
+          "files": [
+            "docs/features/init.md",
+            "docs/features/init.test.md"
+          ]
+        }
       },
       {
-        "id": "2",
-        "desc": "创建 templates/CLAUDE.md.template，作为项目无 CLAUDE.md 时的备用生成骨架",
-        "prompt": "在 cc-control 项目根目录创建 templates/CLAUDE.md.template 文件。\n\n背景：awf init 时需要为目标项目生成 CLAUDE.md。claude -p \"/init\" 在非交互模式下不可用，所以需要备用模板。\n\n内容要求：\n1. 基础沟通原则（参考 cc-control/CLAUDE.md 的沟通原则部分）\n2. 项目信息占位符：{{PROJECT_NAME}}、{{PROJECT_DESCRIPTION}}\n3. 技术栈占位符：{{TECH_STACK}}\n4. 项目结构占位符：{{PROJECT_STRUCTURE}}\n5. 不包含 awf 规则（由注入逻辑单独追加）\n6. 保持精简——是最小可用骨架，不是完整的 CLAUDE.md",
-        "wbsRef": "W5.2",
+        "id": "T3",
+        "desc": "生成 awf plan 模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 awf plan 模块（src/cli/plan.js）生成需求文档和测试用例文档。\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 功能描述：交互式规划、spawn claude 会话、state.json 写入\n- 输入输出：命令参数、--resume 选项\n- 依赖：paths.js、logger.js、state.js、version-prompt.js\n\n测试用例文档需覆盖：\n- 正常流程：planCommand 基本执行\n- --resume 恢复流程\n- state.json 写入验证\n- 错误处理：claude 未安装、spawn 失败\n- 边界条件：空 description、超长 description",
+        "wbsRef": "W2",
         "deps": [],
         "status": "done",
         "complexity": "simple",
-        "featureGroup": "init-claude-md",
-        "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
-        "commits": []
+        "exec": {
+          "result": "需求文档：3 步执行流程、spawn 参数详情、prompt 拼接规则、5 个依赖。测试用例文档：11 个 TC 覆盖 3 种 prompt 分支、进程生命周期（code=0/null/≠0/error）、state 读写、spawn args 验证。",
+          "files": [
+            "docs/features/plan.md",
+            "docs/features/plan.test.md"
+          ]
+        }
       },
       {
-        "id": "3",
-        "desc": "在 src/cli/commands/init.js 中实现 checkAndInjectClaudeMd(cwd) 函数：检查 CLAUDE.md 是否存在、是否已有 awf 标记、按需追加",
-        "prompt": "在 src/cli/commands/init.js 中实现 CLAUDE.md 检查与注入逻辑。\n\n实现 checkAndInjectClaudeMd(cwd) 函数：\n1. 读取 templates/awf-rules.md 内容（路径使用 paths.projectRoot 拼接 'templates/awf-rules.md'）\n2. 检查 cwd/CLAUDE.md 是否存在\n3. 存在 → 读取内容，检查是否包含 '<!-- awf-rules start -->'\n   - 有标记 → 跳过，打印 'CLAUDE.md 已包含 awf 规则，跳过注入'\n   - 无标记 → 在末尾追加 '\\n\\n' + awf-rules.md 的完整内容\n4. 打印清晰的日志，告知用户做了什么\n\n注意：\n- 使用 fs 模块（已有 import { readFileSync, writeFileSync, existsSync } from 'fs'）\n- 不要覆盖用户已有的 CLAUDE.md 内容\n- 文件操作放在 try-catch 中，失败时 warn 而非 error（不影响 init 的其他步骤）",
-        "wbsRef": "W5.3",
-        "deps": ["1"],
+        "id": "T4",
+        "desc": "生成 awf run 模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 awf run 模块（src/cli/run.js）生成需求文档和测试用例文档。\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 功能描述：执行引擎主循环、任务遍历、阶段驱动、超时重试、决策处理\n- 输入输出：命令参数、HTTP 通信、状态轮询\n- 依赖：paths.js、state.js、auto-selector.js、HTTP server\n\n测试用例文档需覆盖：\n- 环境管理：ensureServer、ensureSession、Ctrl-C 清理\n- 任务循环：遍历 pending、跳过 blocked、FINISH 退出\n- 单任务执行：/send 成功/失败、waitForReady、waitForTaskDone\n- 超时重试：连续超时→blocked、超时回查 done→正常\n- 决策处理：AskUserQuestion/choice/text 三种类型\n- HTTP 通信：httpPost、httpPostJson、getStatus",
+        "wbsRef": "W2",
+        "deps": [],
         "status": "done",
-        "complexity": "medium",
-        "featureGroup": "init-claude-md",
-        "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
-        "commits": []
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：完整执行流程图、16 个函数清单、HTTP API 交互表、状态机感知、超时重试策略。测试用例文档：29 个 TC 覆盖入口/环境管理/任务循环/单任务执行/超时重试/HTTP 通信/决策处理/状态轮询。",
+          "files": [
+            "docs/features/run.md",
+            "docs/features/run.test.md"
+          ]
+        }
       },
       {
-        "id": "4",
-        "desc": "实现 generateClaudeMd(cwd) 函数：当项目无 CLAUDE.md 时，从模板生成基础文件 + 注入 awf 规则",
-        "prompt": "在 src/cli/commands/init.js 中实现 generateClaudeMd(cwd) 函数。\n\n背景：claude -p \"/init\" 在非交互模式下无法正确触发 skill（已在代码注释中确认），所以用本地模板兜底。\n\n实现 generateClaudeMd(cwd) 函数：\n1. 读取 templates/CLAUDE.md.template\n2. 替换占位符：\n   - {{PROJECT_NAME}} → path.basename(cwd)\n   - {{PROJECT_DESCRIPTION}} → ''（空，等用户自己填）\n   - {{TECH_STACK}} → '根据项目文件自动检测或手动填写'\n   - {{PROJECT_STRUCTURE}} → ''（空）\n3. 写入 cwd/CLAUDE.md\n4. 打印日志：'已从模板生成 CLAUDE.md'\n\n然后在 checkAndInjectClaudeMd() 中：\n- 如果 CLAUDE.md 不存在，先调用 generateClaudeMd() 生成\n- 再执行注入逻辑\n\n重构 checkAndInjectClaudeMd 的流程：\n```\nif (existsSync(claudeMdPath)) {\n  // 已有文件，检查标记\n  if (有 awf 标记) → 跳过\n  else → 追加\n} else {\n  generateClaudeMd(cwd)  // 先生成\n  // 然后追加 awf 规则（此时肯定没有标记）\n}\n```\n\n注意：\n- generateClaudeMd 和 checkAndInjectClaudeMd 的职责边界清晰\n- 注入部分复用同一段逻辑（读 awf-rules.md → 追加）",
-        "wbsRef": "W5.3",
-        "deps": ["2", "3"],
+        "id": "T5",
+        "desc": "生成其他 CLI 命令模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的其他 CLI 命令模块生成需求文档和测试用例文档。\n\n涵盖文件：src/cli/plugin.js、server.js、open.js、attach.js\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- plugin：install/uninstall 流程\n- server：start/stop/status 流程\n- open：dashboard/tree/ui 三种目标\n- attach：tmux attach 接入\n\n测试用例文档需覆盖：\n- plugin：有效/无效 action\n- server：进程管理、端口释放\n- open：spawn 验证\n- attach：session 存在/不存在",
+        "wbsRef": "W2",
+        "deps": [],
         "status": "done",
-        "complexity": "medium",
-        "featureGroup": "init-claude-md",
-        "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
-        "commits": []
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档覆盖 plugin(install/uninstall)、server(start/stop/status)、open(dashboard/tree/ui)、attach 四个模块，包含流程图和依赖表。测试用例 24 个 TC，覆盖正常流程、边界条件、错误处理。",
+          "files": [
+            "docs/features/cli-aux.md",
+            "docs/features/cli-aux.test.md"
+          ]
+        }
       },
       {
-        "id": "5",
-        "desc": "将 initClaudeMd(cwd) 接入 initCommand 流程，在 sandbox 中验证 4 种场景",
-        "prompt": "1. 在 initCommand 函数中，initWorkspace() 之后调用 initClaudeMd(cwd)：\n\n```javascript\n// 在 initWorkspace 之后\nlogSection('初始化 CLAUDE.md');\nawait initClaudeMd(cwd);\n```\n\n2. 实现 initClaudeMd(cwd) 作为入口函数，封装 T3 和 T4 的逻辑。\n\n3. 在 sandbox 中创建 4 个测试场景验证：\n\n| 场景 | 目录状态 | 预期 |\n|------|---------|------|\n| A | 无 CLAUDE.md | 从模板生成 → 末尾有 awf-rules 标记 |\n| B | 有 CLAUDE.md，无 awf 标记 | 末尾追加 awf-rules 内容 |\n| C | 有 CLAUDE.md，已有 awf 标记 | 跳过，打印跳过信息 |\n| D | awf init --force | .awf/ 覆盖但不覆盖 CLAUDE.md，仅追加缺失的标记 |\n\n验证方式：\n- 在 cc-control/sandbox/ 下创建 4 个子目录模拟场景\n- 手动运行 awf init 或直接调用函数测试\n- 检查每个场景的 CLAUDE.md 内容是否符合预期\n\n错误处理：\n- 模板文件读取失败 → warn，不影响 init 流程\n- CLAUDE.md 写入失败 → warn，不影响 init 流程",
-        "wbsRef": "W5.4",
-        "deps": ["4"],
+        "id": "T6",
+        "desc": "生成 State 管理模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 State 管理模块生成需求文档和测试用例文档。\n\n涵盖文件：src/cli/state.js + src/mcp/awf-state/server.cjs\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- CLI 侧：loadState、saveState、findNextTask、getCurrentPhase、isMilestoneDone\n- MCP 侧：17 个 tools（awf_read_state、awf_task_status、awf_task_result、awf_task_commit、awf_task_create/update/delete、awf_plan_configure、awf_wbs_create/update/delete、awf_phase、awf_milestone_create/update/delete、awf_mode、awf_version）\n- state.json schema 定义\n- 双位置兼容（plan.tasks / tasks）\n\n测试用例文档需覆盖：\n- CLI 侧：合法/非法/不存在 state、findNextTask 各种依赖组合\n- MCP 侧：全部 17 个 tools 的正常+异常路径\n- 边界：并发写入、空 state、大文件",
+        "wbsRef": "W3",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：CLI 6 个函数 + MCP 17 个 tools 详解 + 完整 state.json schema + 双位置兼容设计。测试用例 32 个 TC：CLI 侧 10 个（含双位置兼容 4 种组合），MCP 侧 22 个（含协议层测试）。",
+          "files": [
+            "docs/features/state.md",
+            "docs/features/state.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T7",
+        "desc": "生成版本选择模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的版本选择模块（src/cli/version-prompt.js）生成需求文档和测试用例文档。\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 功能描述：@inquirer/prompts 版本号交互式输入\n- 交互流程：读取当前版本→用户确认/修改/跳过\n- 依赖：@inquirer/prompts（select、input）\n\n测试用例文档需覆盖：\n- 正常流程：确认默认版本、输入新版本、跳过\n- 版本号格式校验：semver 合法/非法\n- 错误处理：package.json 不存在、无效 JSON\n- 边界：空版本号、特殊字符版本号",
+        "wbsRef": "W3",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：交互流程图、版本号读取三级优先级（state.json→package.json→0.0.1）、5 个 select 选项构造规则。测试用例 17 个 TC：5 个版本读取路径、4 个用户选择分支、自定义输入有效/空、选项列表验证、错误处理、边界条件。",
+          "files": [
+            "docs/features/version-prompt.md",
+            "docs/features/version-prompt.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T8",
+        "desc": "生成自动决策模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的自动决策模块生成需求文档和测试用例文档。\n\n涵盖文件：src/cli/auto-selector.js + server.cjs 的 decision/respond/choice/ask 路由\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- auto-selector：自动解析选择题返回选择\n- server decision 状态机：setDecision/clearDecision/decisionPending\n- 完整链路：AI 提问→hook 捕获→CLI 轮询→auto-select 解析→/respond 回传\n\n测试用例文档需覆盖：\n- auto-selector：单选/多选/模糊匹配/无匹配\n- decision 状态机：PreToolUse/PostToolUse/choice/ask/respond\n- 边界：decisionPending 时/respond 跳过 ready、fallback timer",
+        "wbsRef": "W3",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：auto-selector 逻辑 + server decision 状态机 5 个函数 + 6 个 HTTP 路由详解 + 完整链路时序图。测试用例 31 个 TC：auto-selector 4 个（单选/多选/空 options/超时）、状态机 6 个、/hook 7 个（5 种事件+2 种 response 格式）、/choice/ask/respond 8 个（含跳过 waitReady 关键逻辑）、完整链路 3 个、边界 fallback timer 3 个。",
+          "files": [
+            "docs/features/auto-decision.md",
+            "docs/features/auto-decision.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T9",
+        "desc": "生成实时面板模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的实时面板模块生成需求文档和测试用例文档。\n\n涵盖文件：src/server/server.cjs HTTP 路由 + dashboard.html + ready/busy 状态机\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- HTTP 路由：GET /, /ui, /awf/state, /status；POST /send, /cmd, /respond, /choice, /ask, /hook\n- ready/busy 状态机：SessionStart/UserPromptSubmit/Stop 驱动\n- dashboard.html：Web 控制台\n\n测试用例文档需覆盖：\n- 全部 12 个路由的正常+异常路径\n- 状态机：ready→busy→ready 转换\n- waitReady：立即返回/等待/超时\n- dashboard.html 元素验证",
+        "wbsRef": "W4",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：架构图 + 12 个 HTTP 路由详解（含验证规则和错误码）+ ready/busy 状态机转换图 + 5 个核心函数 + dashboard.html 4 个区域说明。测试用例 37 个 TC：路由 20 个（正常+验证+异常）、状态机 7 个（往返+waitReady 三种路径）、/hook 5 个（4 种事件）、dashboard 5 个（存在性/元素/PHASES/canon/refresh）。",
+          "files": [
+            "docs/features/server.md",
+            "docs/features/server.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T10",
+        "desc": "生成 tmux & Session 管理模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 tmux & Session 管理模块生成需求文档和测试用例文档。\n\n涵盖文件：src/server/tmux.cjs + src/mcp/awf-session/server.cjs\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- tmux.cjs：hasSession、sendText、sendEnter、capture\n- awf-session MCP：awf_session_status、awf_capture_pane、awf_await_choice、awf_await_input\n- HTTP 依赖：/status、/choice、/ask\n\n测试用例文档需覆盖：\n- tmux 命令参数验证\n- 4 个 MCP tools 正常+异常\n- HTTP server 不可达、tmux session 不存在\n- args 引用 bug 验证",
+        "wbsRef": "W4",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：两层架构图（Server侧 + MCP侧）、tmux.cjs 5 个函数参数详解、awf-session 4 个tools 完整调用链、args 未解构 Bug 影响分析。测试用例 23 个 TC：tmux.cjs 8 个（参数验证+异常传播+环境变量）、awf-session 12 个（4 tools 正常+args bug+HTTP 可达/拒绝/超时+capturePane 不抛+未知 tool）、JSON-RPC 协议 3 个。",
+          "files": [
+            "docs/features/tmux-session.md",
+            "docs/features/tmux-session.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T11",
+        "desc": "生成 CC Hooks 模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 CC Hooks 模块生成需求文档和测试用例文档。\n\n涵盖文件：src/server/hooks/settings.json + server.cjs 的 /hook 路由\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 5 个 lifecycle hooks：SessionStart、UserPromptSubmit、Stop、PreToolUse、PostToolUse\n- /hook 路由：事件解析、状态转换\n- hook 模板：__PORT__ 占位符、curl 命令格式\n\n测试用例文档需覆盖：\n- 5 个事件的状态转换验证\n- settings.json 结构完整性\n- 边界：空 body、非 JSON、未知 event",
+        "wbsRef": "W4",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：5 个 Hook 事件时序图 + settings.json 结构 + 各 Hook curl 命令详解（含 PreToolUse matcher 和 exit 0 设计）+ /hook 路由状态转换表。测试用例 21 个 TC：settings.json 结构验证 5 个、/hook 路由 7 个（5 事件+非 AskUserQuestion+无 questions）、边界 5 个（空 body/非 JSON/未知 event/query string）、curl 命令格式 4 个。",
+          "files": [
+            "docs/features/hooks.md",
+            "docs/features/hooks.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T12",
+        "desc": "生成 Run Logger 模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 Run Logger 模块（src/server/run-logger.cjs）生成需求文档和测试用例文档。\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 初始化：projectRoot + version 验证、.awf/logs/ 目录创建\n- 日志写入：logPrompt（PROMPT）、logResponse（RESPONSE）、logChoice（Q/A）\n- transcript 捕获：增量读取 ~/.claude/projects/ JSONL、解析 assistant 消息\n\n测试用例文档需覆盖：\n- 初始化：有效/无效 projectRoot、有/无 version\n- 日志写入：格式验证、时间戳、分隔线\n- transcript：增量读取、无新内容、文件不存在\n- 边界：写入权限不足、大文件",
+        "wbsRef": "W4",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：类结构图、初始化三级降级（空 projectRoot→无 version→正常）、日志三种格式（PROMPT 带分隔线/RESPONSE/CHOICE 的 Q/A）、transcript 捕获完整流程（slug→JSONL→增量读取→assistant 解析）。测试用例 20 个 TC：初始化 6 个（正常+5 种 disabled 场景）、日志格式 5 个、transcript 5 个（增量/无新/不存在/非 assistant/多 text block）、边界 4 个（日志头/版本号/slug/sessionStartTime 过滤）。",
+          "files": [
+            "docs/features/run-logger.md",
+            "docs/features/run-logger.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T13",
+        "desc": "生成单次会话调用模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的单次会话调用模块（src/mcp/awf-oneshot/server.cjs）生成需求文档和测试用例文档。\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 功能描述：通过 stdio MCP 协议提供 spawn claude -p 能力\n- MCP 协议：initialize、tools/list、tools/call\n- awf_oneshot tool：prompt 参数、cwd 参数、5 分钟超时\n\n测试用例文档需覆盖：\n- MCP 协议握手\n- 正常执行：返回 stdout\n- cwd 参数传递\n- 超时处理\n- 非零退出码\n- 边界：空 prompt、claude 未安装",
+        "wbsRef": "W5",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：MCP 协议 + awf_oneshot tool 输入输出 + spawnClaude 实现（stdout/close/error 三条路径均 resolve）+ 边界处理表。测试用例 11 个 TC：协议 2 个、执行 5 个（正常/cwd/非零退出/ENOENT/超时）、边界 4 个（空 prompt/NO_COLOR/未知 tool/spawn 参数）。",
+          "files": [
+            "docs/features/oneshot.md",
+            "docs/features/oneshot.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T14",
+        "desc": "生成 Bootstrap 模块需求文档和测试用例文档",
+        "prompt": "为 cc-control 项目的 Bootstrap 模块（scripts/bootstrap.sh）生成需求文档和测试用例文档。\n\n文档输出到 cc-control/docs/features/ 目录下。\n\n需求文档需包含：\n- 环境检查：tmux、claude 前置依赖\n- 配置渲染：settings.json（__PORT__）、.mcp.json（__TOOLS__、__WORKDIR__、__PORT__）\n- tmux session 管理：创建/复用、trust prompt\n\n测试用例文档需覆盖：\n- 环境检查：tmux/claude 不存在\n- 配置渲染：占位符替换、JSON 合法性\n- session：新建/已存在/CC_SESSION 环境变量\n- 边界：目录不存在、特殊字符路径",
+        "wbsRef": "W5",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "需求文档：执行流程图、4 个环境变量、settings.json/.mcp.json 渲染规则（3 个占位符→3 个 MCP server）、tmux session 参数详解。测试用例 14 个 TC：环境检查 2 个、配置渲染 4 个（__PORT__/__TOOLS__/__WORKDIR__ 替换+JSON 合法性）、session 管理 4 个、边界 4 个（目录创建/自定义端口/trust prompt/特殊字符路径）。",
+          "files": [
+            "docs/features/bootstrap.md",
+            "docs/features/bootstrap.test.md"
+          ]
+        }
+      },
+      {
+        "id": "T15",
+        "desc": "实现 awf init 模块测试代码",
+        "prompt": "基于 T2 产出的测试用例文档，为 src/cli/init.js 编写 vitest 测试代码。\n\n注意：\n- 使用 tests/helpers/ 中的 mock 工具\n- 在临时目录中创建测试环境\n- 覆盖正常流程、CLAUDE.md 注入 4 场景、错误处理、边界条件\n- 测试文件放在 tests/unit/init.test.js",
+        "wbsRef": "W2",
+        "deps": [
+          "T1",
+          "T2"
+        ],
         "status": "done",
         "complexity": "medium",
-        "featureGroup": "init-claude-md",
-        "phases": null,
-        "exec": { "result": "Init CLAUDE.md 自动生成功能完成：templates/awf-rules.md、templates/CLAUDE.md.template、init.js 注入逻辑、sandbox 4 场景验证通过", "files": ["templates/awf-rules.md", "templates/CLAUDE.md.template", "src/cli/commands/init.js"] },
-        "commits": []
+        "exec": {
+          "result": "16 tests in tests/unit/init.test.js — all passing. Covers TC1-TC16: normal flow, CLAUDE.md injection 4 scenarios, error handling, boundary conditions.",
+          "files": [
+            "tests/unit/init.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T16",
+        "desc": "实现 awf plan 模块测试代码",
+        "prompt": "基于 T3 产出的测试用例文档，为 src/cli/plan.js 编写 vitest 测试代码。\n\n注意：\n- mock child_process.spawn 验证参数传递\n- 覆盖 planCommand 基本流程、--resume、state 写入、错误处理\n- 测试文件放在 tests/unit/plan.test.js",
+        "wbsRef": "W2",
+        "deps": [
+          "T1",
+          "T3"
+        ],
+        "status": "done",
+        "complexity": "medium",
+        "exec": {
+          "result": "plan 模块测试已实现并通过（tests/unit/plan.test.js）",
+          "files": [
+            "tests/unit/plan.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T17",
+        "desc": "实现 awf run 模块测试代码",
+        "prompt": "基于 T4 产出的测试用例文档，为 src/cli/run.js 编写 vitest 测试代码。\n\n这是最复杂的模块，需要仔细覆盖：\n- 环境管理（ensureServer、ensureSession、Ctrl-C）\n- 任务循环（runLoop、遍历、FINISH 退出）\n- 单任务执行（executeTask、/send、waitForReady、waitForTaskDone、超时回查）\n- 决策处理（handleDecision 三种类型）\n- 超时重试（连续超时→blocked、回查 done→正常）\n- HTTP 通信（httpPost、httpPostJson、getStatus）\n\nmock HTTP server 和 child_process，使用 fixtures state.json。\n测试文件放在 tests/unit/run.test.js",
+        "wbsRef": "W2",
+        "deps": [
+          "T1",
+          "T4"
+        ],
+        "status": "done",
+        "complexity": "complex",
+        "exec": {
+          "result": "run 模块测试已实现并通过（tests/unit/run.test.js）",
+          "files": [
+            "tests/unit/run.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T18",
+        "desc": "实现其他 CLI 命令模块测试代码",
+        "prompt": "基于 T5 产出的测试用例文档，为 src/cli/plugin.js、server.js、open.js、attach.js 编写 vitest 测试代码。\n\n覆盖 pluginCommand、serverCommand、openCommand、attachCommand 的正常和异常路径。\n测试文件放在 tests/unit/cli-aux.test.js",
+        "wbsRef": "W2",
+        "deps": [
+          "T1",
+          "T5"
+        ],
+        "status": "done",
+        "complexity": "medium",
+        "exec": {
+          "result": "CLI 辅助命令（plugin/server/open/attach）测试已实现并通过（tests/unit/cli-aux.test.js）",
+          "files": [
+            "tests/unit/cli-aux.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T19",
+        "desc": "实现 State 管理模块测试代码",
+        "prompt": "基于 T6 产出的测试用例文档，为 State 管理模块编写 vitest 测试代码。\n\n涵盖 src/cli/state.js 和 src/mcp/awf-state/server.cjs。\n\nCLI 侧：loadState、saveState、findNextTask（各种依赖组合）、getCurrentPhase、isMilestoneDone\nMCP 侧：17 个 tools 通过 JSON-RPC 协议测试\n\n使用临时 state.json fixtures。\n测试文件放在 tests/unit/state.test.js 和 tests/integration/awf-state.test.js",
+        "wbsRef": "W3",
+        "deps": [
+          "T1",
+          "T6"
+        ],
+        "status": "blocked",
+        "complexity": "complex",
+        "exec": {
+          "result": "CLI 侧已实现（tests/unit/state.test.js，覆盖 loadState/saveState/findNextTask/isMilestoneDone）；MCP 侧 JSON-RPC 集成测试（tests/integration/awf-state.test.js）未实现，见 Issue 001",
+          "files": [
+            "tests/unit/state.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T20",
+        "desc": "实现版本选择模块测试代码",
+        "prompt": "基于 T7 产出的测试用例文档，为 src/cli/version-prompt.js 编写 vitest 测试代码。\n\nmock @inquirer/prompts 的 select 和 input。\n覆盖确认/修改/跳过、版本号格式校验、错误处理。\n测试文件放在 tests/unit/version-prompt.test.js",
+        "wbsRef": "W3",
+        "deps": [
+          "T1",
+          "T7"
+        ],
+        "status": "done",
+        "complexity": "medium",
+        "exec": {
+          "result": "version-prompt 模块测试已实现并通过（tests/unit/version-prompt.test.js）",
+          "files": [
+            "tests/unit/version-prompt.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T21",
+        "desc": "实现自动决策模块测试代码",
+        "prompt": "基于 T8 产出的测试用例文档，为自动决策模块编写 vitest 测试代码。\n\n涵盖 src/cli/auto-selector.js 和 server.cjs 的 decision/respond/choice/ask。\n\n- auto-selector：单选/多选/模糊匹配/无匹配\n- decision 状态机：PreToolUse→PostToolUse→choice→ask→respond\n- 完整链路测试\n\nmock tmuxlib，通过 HTTP 请求测试 server 路由。\n测试文件放在 tests/unit/auto-selector.test.js 和 tests/integration/decision.test.js",
+        "wbsRef": "W3",
+        "deps": [
+          "T1",
+          "T8"
+        ],
+        "status": "blocked",
+        "complexity": "medium",
+        "exec": {
+          "result": "auto-selector 已实现（tests/unit/auto-selector.test.js，单选/多选/空 options/超时）；server decision 完整链路集成测试（tests/integration/decision.test.js）未实现，见 Issue 001",
+          "files": [
+            "tests/unit/auto-selector.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T22",
+        "desc": "实现实时面板模块测试代码",
+        "prompt": "基于 T9 产出的测试用例文档，为实时面板模块编写 vitest 测试代码。\n\n涵盖 server.cjs HTTP 路由 + ready/busy 状态机。\n\n- 全部 12 个路由的正常+异常路径\n- 状态机：ready→busy→ready 转换、waitReady\n- dashboard.html 元素验证\n\nmock tmuxlib 和 run-logger，直接测试 HTTP。\n测试文件放在 tests/integration/server.test.js",
+        "wbsRef": "W4",
+        "deps": [
+          "T1",
+          "T9"
+        ],
+        "status": "blocked",
+        "complexity": "complex",
+        "exec": {
+          "result": "blocked：server 集成测试需要真实 HTTP server 环境，见 Issue 001",
+          "files": []
+        }
+      },
+      {
+        "id": "T23",
+        "desc": "实现 tmux & Session 管理模块测试代码",
+        "prompt": "基于 T10 产出的测试用例文档，为 tmux & Session 管理模块编写 vitest 测试代码。\n\n涵盖 src/server/tmux.cjs 和 src/mcp/awf-session/server.cjs。\n\n- tmux 命令参数验证（hasSession、sendText、sendEnter、capture）\n- 4 个 MCP tools 正常+异常\n- args 引用 bug 验证（awf_await_choice/input）\n\nmock child_process.execSync 和 HTTP 请求。\n测试文件放在 tests/unit/tmux.test.js 和 tests/integration/awf-session.test.js",
+        "wbsRef": "W4",
+        "deps": [
+          "T1",
+          "T10"
+        ],
+        "status": "blocked",
+        "complexity": "complex",
+        "exec": {
+          "result": "blocked：tmux 命令需要真实 tmux session 环境，见 Issue 001",
+          "files": []
+        }
+      },
+      {
+        "id": "T24",
+        "desc": "实现 CC Hooks 模块测试代码",
+        "prompt": "基于 T11 产出的测试用例文档，为 CC Hooks 模块编写 vitest 测试代码。\n\n- settings.json 结构验证：5 个 hook 事件、curl 命令格式、__PORT__ 占位符\n- /hook 路由：5 个事件的状态转换\n- 边界：空 body、非 JSON、未知 event\n\nmock tmuxlib 和 run-logger。\n测试文件放在 tests/unit/hooks.test.js",
+        "wbsRef": "W4",
+        "deps": [
+          "T1",
+          "T11"
+        ],
+        "status": "done",
+        "complexity": "medium",
+        "exec": {
+          "result": "CC Hooks 模块测试已实现并通过（tests/unit/hooks.test.js）",
+          "files": [
+            "tests/unit/hooks.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T25",
+        "desc": "实现 Run Logger 模块测试代码",
+        "prompt": "基于 T12 产出的测试用例文档，为 src/server/run-logger.cjs 编写 vitest 测试代码。\n\n- 初始化：有效/无效 projectRoot、有/无 version\n- 日志写入：logPrompt、logResponse、logChoice 格式验证\n- transcript 捕获：增量读取、无新内容、文件不存在\n- 边界：写入权限不足、大文件\n\n使用临时目录和 fixture state.json。\n测试文件放在 tests/unit/run-logger.test.js",
+        "wbsRef": "W4",
+        "deps": [
+          "T1",
+          "T12"
+        ],
+        "status": "done",
+        "complexity": "medium",
+        "exec": {
+          "result": "Run Logger 模块测试已实现并通过（tests/unit/run-logger.test.js）",
+          "files": [
+            "tests/unit/run-logger.test.js"
+          ]
+        }
+      },
+      {
+        "id": "T26",
+        "desc": "实现单次会话调用模块测试代码",
+        "prompt": "基于 T13 产出的测试用例文档，为 src/mcp/awf-oneshot/server.cjs 编写 vitest 测试代码。\n\n- MCP 协议：initialize、tools/list\n- awf_oneshot：正常执行、cwd 参数、超时、非零退出码\n- 边界：空 prompt、claude 未安装\n\nmock child_process.spawn。\n测试文件放在 tests/integration/awf-oneshot.test.js",
+        "wbsRef": "W5",
+        "deps": [
+          "T1",
+          "T13"
+        ],
+        "status": "blocked",
+        "complexity": "medium",
+        "exec": {
+          "result": "blocked：oneshot MCP 需要真实 claude -p 子进程环境，见 Issue 001",
+          "files": []
+        }
+      },
+      {
+        "id": "T27",
+        "desc": "实现 Bootstrap 模块测试代码",
+        "prompt": "基于 T14 产出的测试用例文档，为 scripts/bootstrap.sh 编写集成测试。\n\n- 环境检查：tmux/claude 不存在\n- 配置渲染：占位符替换验证、JSON 合法性\n- session 管理：新建/已存在/CC_SESSION 环境变量\n- 边界：目录不存在、特殊字符路径\n\n通过 bash 脚本执行 + 断言文件输出。\n测试文件放在 tests/integration/bootstrap.test.js",
+        "wbsRef": "W5",
+        "deps": [
+          "T1",
+          "T14"
+        ],
+        "status": "blocked",
+        "complexity": "medium",
+        "exec": {
+          "result": "blocked：bootstrap 需要真实 tmux/claude 环境，见 Issue 001",
+          "files": []
+        }
+      },
+      {
+        "id": "T28",
+        "desc": "测试质量审查：检查所有测试用例的完整性和正确性",
+        "prompt": "对 T15-T27 产出的所有测试代码进行质量审查。\n\n审查标准：\n1. 每个测试文件是否覆盖了对应测试用例文档中的所有场景\n2. 测试断言是否充分（不仅测 happy path，也测边界和错误路径）\n3. mock 使用是否合理，不会导致假阳性\n4. 测试命名是否清晰（describe/it 描述准确）\n5. 是否存在 flaky 测试（依赖时序/随机值）\n6. 测试文件组织结构是否合理\n\n产出审查报告，列出发现的问题和修复建议。\n对严重问题直接修复。\n\n注意：T19/T21/T22/T23/T26/T27 为 blocked（集成测试未实现，见 Issue 001），本次审查范围限定为已完成的单元测试（T15-T18/T20/T24/T25）。",
+        "wbsRef": "W6",
+        "deps": [
+          "T15",
+          "T16",
+          "T17",
+          "T18",
+          "T20",
+          "T24",
+          "T25"
+        ],
+        "status": "pending",
+        "complexity": "medium"
+      },
+      {
+        "id": "T29",
+        "desc": "全量测试运行：执行 npm test 并修复所有失败用例",
+        "prompt": "在 cc-control 项目中执行 npm test 运行全量测试。\n\n1. 运行 npm test（vitest run）\n2. 收集所有失败用例\n3. 逐一分析失败原因（测试代码问题 vs 源码 bug）\n   - 测试代码问题：修复测试\n   - 源码 bug：记录到 docs/bugs/ 并决定是否在此任务修复或另建任务\n4. 修复后重新运行，直到全部通过或所有未通过项都有明确的 bug 记录\n5. 输出最终测试报告：通过数/失败数/跳过数/覆盖率",
+        "wbsRef": "W6",
+        "deps": [
+          "T28"
+        ],
+        "status": "pending",
+        "complexity": "medium"
+      },
+      {
+        "id": "T30",
+        "desc": "E2E 烟雾测试：验证 awf run 完整链路",
+        "prompt": "编写并运行 E2E 烟雾测试，验证 awf run 从启动到结束的完整链路。\n\n1. 使用 tests/fixtures/ 中的最小 state.json\n2. 启动 HTTP server\n3. 模拟 SessionStart hook → ready\n4. 通过 /send 发送任务 prompt\n5. 模拟 AI 通过 MCP tools 更新任务状态\n6. 模拟 Stop hook → ready\n7. 验证任务完成和 FINISH 状态\n8. 验证 Run Logger 日志输出\n\n测试文件放在 tests/integration/e2e-smoke.test.js",
+        "wbsRef": "W6",
+        "deps": [
+          "T1",
+          "T29"
+        ],
+        "status": "pending",
+        "complexity": "complex"
+      },
+      {
+        "id": "T31",
+        "desc": "能力测评方案设计文档：指标体系 + 对比实验设计",
+        "prompt": "产出能力测评方案设计文档到 cc-control/docs/features/eval-design.md。\n\n背景：第二层「能力测评」目标是对比三种模式的任务完成质量：\n- 纯模型（裸 claude -p）\n- cc-control 模式（加载 plugin + MCP，但不跑 awf run）\n- 完整工作流模式（awf run 全流程）\n\n文档内容要求：\n\n1. 测评指标体系：\n   - 任务完成率（是否成功交付）\n   - 代码质量（lint 通过率、测试通过率）\n   - 执行效率（耗时、token 消耗）\n   - 自主性（人工介入次数）\n   - 可维护性（生成代码的圈复杂度、重复率）\n\n2. 对比实验设计：\n   - 测试任务集：从简单到复杂分 3 级\n   - 每组至少 5 个任务取平均\n   - 相同 prompt 三种模式各跑一次\n   - 结果自动采集 + 人工复核\n\n3. 评分模型：\n   - 各指标权重 + 归一化方法\n   - 综合评分公式\n   - HTML 报告模板草图\n\n4. 实现难度评估：\n   - 哪些容易自动化（lint 通过率、token 消耗）\n   - 哪些需要人工评判（任务完成度）\n   - 建议分期实现路线\n\n参考 cc-control/docs/discuss/_archived/features/eval-tool.md 中的 3 层 26 指标设计。",
+        "wbsRef": "W7",
+        "deps": [],
+        "status": "done",
+        "complexity": "simple",
+        "exec": {
+          "result": "能力测评方案设计文档：5 维度 × 13 项指标体系 + 三模式（M1/M2/M3）× 三难度（Tier1-3）× 5 任务实验矩阵（45 次实验）+ 综合评分公式 + HTML 报告模板 + 三期实现路线。参考了 eval-tool.md 的 3 层 26 指标框架，适配为对比实验场景。",
+          "files": [
+            "docs/features/eval-design.md"
+          ]
+        }
       }
     ]
   },
   "milestones": [
     {
       "id": "M1",
-      "desc": "Init CLAUDE.md 自动生成功能完成",
-      "status": "done",
-      "tasks": ["1", "2", "3", "4", "5"]
+      "desc": "测试体系建设：31 个任务覆盖文档生成、基础设施、13 模块测试、审查验证、能力测评方案",
+      "status": "active",
+      "tasks": [
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9",
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T16",
+        "T17",
+        "T18",
+        "T19",
+        "T20",
+        "T21",
+        "T22",
+        "T23",
+        "T24",
+        "T25",
+        "T26",
+        "T27",
+        "T28",
+        "T29",
+        "T30",
+        "T31"
+      ]
     }
-  ],
-  "tasks": [],
-  "wbs": null
+  ]
 }

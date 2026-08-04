@@ -1,4 +1,4 @@
-# .awf
+# .awf (v0.0.1)
 
 ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、报告产出、运行日志。
 
