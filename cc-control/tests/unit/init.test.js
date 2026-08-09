@@ -10,13 +10,13 @@ const { mockPromptVersion } = vi.hoisted(() => ({
   mockPromptVersion: vi.fn(() => Promise.resolve('0.1.0')),
 }));
 
-vi.mock('../../src/cli/version-prompt.js', () => ({
+vi.mock('../../src/lib/version.js', () => ({
   promptVersion: mockPromptVersion,
 }));
 
 const FAKE_ROOT = '/tmp/awf-test-cc-control';
 
-vi.mock('../../src/cli/paths.js', () => ({
+vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({
     projectRoot: FAKE_ROOT,
     claudePlugins: `${FAKE_ROOT}/fake-claude-plugins`,

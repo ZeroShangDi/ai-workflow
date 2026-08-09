@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs/promises';
-import { getPaths } from './paths.js';
-import { logger } from './logger.js';
+import { getPaths } from '../lib/paths.js';
+import { logger } from '../lib/ui/log.js';
 
 /**
  * awf plugin — 独立插件管理

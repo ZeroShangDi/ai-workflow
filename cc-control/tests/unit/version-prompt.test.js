@@ -16,7 +16,7 @@ vi.mock('node:fs/promises', () => {
   return { ...fs, default: fs };
 });
 
-import { promptVersion } from '../../src/cli/version-prompt.js';
+import { promptVersion } from '../../src/lib/version.js';
 
 describe('version-prompt', () => {
   const cwd = '/tmp/mock-cwd';

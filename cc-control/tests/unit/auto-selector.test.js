@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { autoSelect, DEFAULT_TIMEOUT_MS } from '../../src/cli/auto-selector.js';
+import { autoSelect, DEFAULT_TIMEOUT_MS } from '../../src/lib/session/client.js';
 
 describe('auto-selector', () => {
   beforeEach(() => {

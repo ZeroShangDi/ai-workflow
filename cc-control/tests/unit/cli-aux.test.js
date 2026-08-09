@@ -16,9 +16,9 @@ const { mockLogger, mockFs } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../../src/cli/logger.js', () => ({ logger: mockLogger }));
+vi.mock('../../src/lib/ui/log.js', () => ({ logger: mockLogger }));
 vi.mock('node:fs/promises', () => ({ ...mockFs, default: mockFs }));
-vi.mock('../../src/cli/paths.js', () => ({
+vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({
     projectRoot: '/tmp/mock-project',
     claudePlugins: '/tmp/mock-claude-plugins',
@@ -41,12 +41,14 @@ vi.mock('node:http', async () => {
       let timeoutCb;
       req.setTimeout = (ms, fn) => { timeoutCb = fn; };
       req.destroy = vi.fn();
-      // Use queueMicrotask — works with both real and fake timers
       queueMicrotask(() => {
         if (httpCheckState.ok) {
-          cb({ statusCode: 200 });
+          const res = new EE();
+          res.statusCode = 200;
+          cb(res);
+          queueMicrotask(() => { res.emit('data', JSON.stringify({ state: 'ready' })); res.emit('end'); });
         } else if (httpCheckState.timeout) {
-          timeoutCb?.(); // 触发 req.setTimeout 回调 → check() resolve(false)
+          timeoutCb?.();
         } else {
           req.emit('error', new Error('ECONNREFUSED'));
         }

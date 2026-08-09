@@ -1,21 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mockSpawn } from '../helpers/mock-child-process.js';
 
-const { mockLogger, mockPromptVersion, mockLoadState, mockSaveState } = vi.hoisted(() => ({
+const { mockLogger, mockPromptVersion, mockSetupVersion, mockLoadState, mockSaveState } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn() },
   mockPromptVersion: vi.fn(() => Promise.resolve('0.1.0')),
+  mockSetupVersion: vi.fn((cwd) => {
+    const state = mockLoadState(cwd) || {};
+    state.version = '0.1.0';
+    mockSaveState(cwd, state);
+    return Promise.resolve('0.1.0');
+  }),
   mockLoadState: vi.fn(() => ({ mode: 'idle' })),
   mockSaveState: vi.fn(),
 }));
 
-vi.mock('../../src/cli/logger.js', () => ({ logger: mockLogger }));
-vi.mock('../../src/cli/version-prompt.js', () => ({ promptVersion: mockPromptVersion }));
-vi.mock('../../src/cli/state.js', () => ({
+vi.mock('../../src/lib/ui/log.js', () => ({ logger: mockLogger }));
+vi.mock('../../src/lib/version.js', () => ({
+  promptVersion: mockPromptVersion,
+  setupVersion: mockSetupVersion,
+}));
+vi.mock('../../src/lib/state.js', () => ({
   loadState: mockLoadState,
   saveState: mockSaveState,
 }));
-
-vi.mock('../../src/cli/paths.js', () => ({
+vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({
     projectRoot: '/tmp/mock-project',
     claudePlugins: '/tmp/mock-plugins',
@@ -88,8 +96,7 @@ describe('planCommand', () => {
     await resolveClose(0);
     await promise;
 
-    expect(mockPromptVersion).toHaveBeenCalled();
-    expect(mockLoadState).toHaveBeenCalled();
+    expect(mockSetupVersion).toHaveBeenCalled();
     expect(mockSaveState).toHaveBeenCalled();
     const savedState = mockSaveState.mock.calls[0][1];
     expect(savedState.version).toBe('0.1.0');
@@ -215,7 +222,7 @@ describe('planCommand', () => {
     const [cmd, args, opts] = mockSpawn.mock.calls[0];
     expect(cmd).toBe('claude');
     expect(args).toContain('--settings');
-    expect(args).toContain('/tmp/mock-settings.json');
+    expect(args).toContain('/tmp/mock-cwd/.claude/settings.json');
     expect(args).toContain('--dangerously-skip-permissions');
     expect(opts.stdio).toBe('inherit');
     expect(opts.cwd).toBe('/tmp/mock-cwd');

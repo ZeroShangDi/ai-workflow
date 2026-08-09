@@ -1,6 +1,26 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { select, input } from '@inquirer/prompts';
+import { loadState, saveState } from './state.js';
+
+/**
+ * 交互式选择/确认版本号，写入 state.json
+ *
+ * 依次尝试从 state.json、package.json 读取当前版本，
+ * 提供 +patch / +minor / +major / 自定义 选项。
+ *
+ * @param {string} cwd - 项目根目录
+ * @returns {Promise<string>} 选定的版本号
+ */
+export async function setupVersion(cwd) {
+  const version = await promptVersion(cwd);
+  const state = loadState(cwd) || {};
+  state.version = version;
+  saveState(cwd, state);
+  return version;
+}
+
+// ── 交互式版本选择 ──
 
 export async function promptVersion(cwd) {
   let current = '0.0.1';
@@ -33,16 +53,13 @@ export async function promptVersion(cwd) {
   });
 
   if (answer === '__custom__') {
-    // 避免 select 残留的 stdin 事件干扰 input
     await new Promise((r) => setTimeout(r, 50));
     const custom = await input({
       message: '输入版本号',
       default: current,
       prefill: 'editable',
     });
-    const trimmed = custom.trim();
-    if (trimmed) return trimmed;
-    return current;
+    return custom.trim() || current;
   }
 
   return answer;

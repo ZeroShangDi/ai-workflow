@@ -7,21 +7,23 @@ const { mockFindNextTask, mockLoadState } = vi.hoisted(() => ({
   mockLoadState: vi.fn(() => null),
 }));
 
-vi.mock('../../src/cli/state.js', () => ({
+vi.mock('../../src/lib/state.js', () => ({
   loadState: mockLoadState,
   findNextTask: mockFindNextTask,
+  backupState: vi.fn(),
   saveState: vi.fn(),
 }));
 
-vi.mock('../../src/cli/auto-selector.js', () => ({
-  autoSelect: vi.fn(() => Promise.resolve({ index: 1 })),
-}));
+vi.mock('../../src/lib/session/client.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    autoSelect: vi.fn(() => Promise.resolve({ index: 1 })),
+    sleep: vi.fn(() => Promise.resolve()),
+  };
+});
 
-vi.mock('../../src/cli/backup.js', () => ({
-  backupState: vi.fn(),
-}));
-
-vi.mock('../../src/cli/paths.js', () => ({
+vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({
     projectRoot: '/tmp/mock-project',
     claudePlugins: '/tmp/mock-plugins',

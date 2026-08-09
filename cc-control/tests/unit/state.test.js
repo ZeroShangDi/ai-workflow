@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { loadState, saveState, findNextTask, getCurrentPhase, isMilestoneDone } from '../../src/cli/state.js';
+import { loadState, saveState, findNextTask, getCurrentPhase, isMilestoneDone } from '../../src/lib/state.js';
 
 describe('state.js — CLI', () => {
   let tmpDir;

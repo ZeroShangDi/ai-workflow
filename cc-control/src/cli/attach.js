@@ -1,6 +1,9 @@
 import { execSync } from 'child_process';
-import { logger } from './logger.js';
+import { logger } from '../lib/ui/log.js';
 
+/**
+ * awf attach — 接入正在运行的 tmux session，观看/操作 AI 对话
+ */
 export async function attachCommand() {
   const session = process.env.CC_SESSION || 'cc';
   try {

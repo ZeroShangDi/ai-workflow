@@ -1,20 +1,15 @@
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
-import { getPaths } from './paths.js';
-import { logger } from './logger.js';
-
-const SERVER_PORT = 8787;
+import { logger } from '../lib/ui/log.js';
+import { SERVER_PORT } from '../lib/session/client.js';
 
 /**
- * awf open — 打开可视化页面
+ * awf open — 打开可视化页面（dashboard / tree / ui）
  */
 export async function openCommand(target) {
-  const paths = getPaths();
-
   switch (target) {
     case 'tree': {
-      // 读取 awf-state.json 的 WBS，渲染 w-tree 模板
       const statePath = path.join(process.cwd(), '.awf', 'state.json');
       const state = JSON.parse(await fs.readFile(statePath, 'utf-8'));
 
@@ -26,16 +21,16 @@ export async function openCommand(target) {
       const html = renderTree(state);
       const outPath = path.join(process.cwd(), '.awf', 'w-tree.html');
       await fs.writeFile(outPath, html);
-      await openBrowser(outPath);
+      openBrowser(outPath);
       logger.success(`任务树已打开: ${outPath}`);
       break;
     }
 
     case 'ui':
     case 'dashboard': {
-      const url = `http://localhost:${SERVER_PORT || 8787}`;
+      const url = `http://localhost:${SERVER_PORT}`;
       logger.info(`打开 dashboard: ${url}`);
-      await openBrowser(url);
+      openBrowser(url);
       break;
     }
 
@@ -45,9 +40,17 @@ export async function openCommand(target) {
   }
 }
 
+/** 跨平台打开浏览器 */
+function openBrowser(target) {
+  const cmd = process.platform === 'darwin' ? 'open'
+    : process.platform === 'win32' ? 'start'
+    : 'xdg-open';
+  spawn(cmd, [target], { stdio: 'ignore', detached: true }).unref();
+}
+
+/** 将 state.wbs 渲染为 w-tree.html */
 function renderTree(state) {
-  // 加载模板并替换数据
-  const template = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -86,10 +89,4 @@ render(data.children || data, document.getElementById('tree'));
 </script>
 </body>
 </html>`;
-  return template;
-}
-
-async function openBrowser(target) {
-  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  spawn(cmd, [target], { stdio: 'ignore', detached: true }).unref();
 }
