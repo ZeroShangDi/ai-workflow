@@ -1,0 +1,10 @@
+{
+  "extraSkillsDir": [
+    "<pkg>/profiles/plugin-code/skills/",
+    "<pkg>/plugin/skills/"
+  ],
+  "extraCommandsDir": [
+    "<pkg>/profiles/plugin-code/commands/",
+    "<pkg>/plugin/commands/"
+  ]
+}
