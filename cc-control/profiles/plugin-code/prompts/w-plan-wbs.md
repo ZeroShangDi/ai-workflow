@@ -1,4 +1,4 @@
-# plan-wbs 提示词
+# w-plan-wbs 提示词
 
 由 CLI 在 plan 阶段 WBS 步骤调用 `claude -p` 时使用。
 
@@ -20,6 +20,6 @@ plan 流程第 3 步：需求已规范化，开始生成 WBS 空间树。
 
 ## 约束
 
-- 按 code-plan-wbs 技能定义的方法论拆解
+- 按 awf-plan-wbs 技能定义的方法论拆解
 - 任务粒度：Claude Code 一次可解决的范围（1-5 文件，50-300 行）
 - 不拆到最后一级，复杂度适可而止

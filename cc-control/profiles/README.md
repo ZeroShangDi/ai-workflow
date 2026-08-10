@@ -40,12 +40,10 @@ profiles/
 ```json
 {
   "extraSkillsDir": [
-    "<pkg>/profiles/software-dev/skills/",
-    "<pkg>/plugin/skills/"
+    "<pkg>/profiles/software-dev/skills/"
   ],
   "extraCommandsDir": [
-    "<pkg>/profiles/software-dev/commands/",
-    "<pkg>/plugin/commands/"
+    "<pkg>/profiles/software-dev/commands/"
   ]
 }
 ```

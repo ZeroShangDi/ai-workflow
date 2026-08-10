@@ -1,4 +1,4 @@
-# plan-tasks 提示词
+# w-plan-tasks 提示词
 
 由 CLI 在 plan 阶段任务列表步骤调用 `claude -p` 时使用。
 

@@ -11,16 +11,18 @@ description: >
 
 ```json
 {
-  "id": "1",
+  "id": "T2-001",
   "desc": "实现登录表单",
   "prompt": "在 src/components/LoginForm.vue 中创建登录表单...",
-  "wbsRef": "1.1",
+  "wbsRef": "W2-001",
   "deps": [],
   "status": "pending",
   "exec": { "result": null, "files": [] },
   "commits": []
 }
 ```
+
+id 遵循编号规范 `{前缀}{级别}-{序号}`（见 w-plan 的编号规范章节）：`W`=WBS 节点、`T`=任务，级别=树深度（顶层模块=1），序号=同级内 3 位补零递增。任务 `T{级别}-{序号}` 与对应 WBS 节点 `W{级别}-{序号}` 序号对齐，`wbsRef` 指向同级别的 WBS 节点 id。
 
 ## 字段规范
 

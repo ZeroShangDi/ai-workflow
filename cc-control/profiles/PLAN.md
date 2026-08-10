@@ -17,7 +17,7 @@
 - w-ui-code 按照原型稿实现静态页面流程
 - w-doc 文档管理方法论
 - w-dev 开发流程
-- w-dev-reset 一次性命令，经历三轮开发仍旧不符合要求时选择重开。
+- awf-run-reset 反复失败时的重开（回撤 + 复盘 + 重新探索实现，由 AI 判断调用）
 - w-review 审查流程
 - w-test 测试流程
 - w-commit 提交流程

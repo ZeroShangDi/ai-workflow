@@ -151,8 +151,8 @@ State written to `.claude/awf-state.json` on every state transition, task comple
   "canCommit": false,
   "plan": {
     "reqDoc": "docs/<feature>.md",
-    "wbs": [{ "id": "1", "deliverable": "...", "acceptance": "...", "deps": [] }],
-    "tasks": [{ "id": "1", "desc": "...", "wbsRef": "1.1", "deps": [], "parallel": false, "status": "done" }]
+    "wbs": [{ "id": "W1-001", "deliverable": "...", "acceptance": "...", "deps": [] }],
+    "tasks": [{ "id": "T1-001", "desc": "...", "wbsRef": "W1-001", "deps": [], "parallel": false, "status": "done" }]
   },
   "milestones": [{ "id": 1, "desc": "...", "status": "active" }],
   "lastUpdated": "2026-06-29T10:00:00Z"

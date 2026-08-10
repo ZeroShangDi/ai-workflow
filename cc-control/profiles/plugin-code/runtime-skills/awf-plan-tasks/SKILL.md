@@ -3,7 +3,7 @@ name: awf-plan-tasks
 description: >
   生成任务列表 — 将 WBS 叶子节点转为可执行任务，插入门禁任务。
   触发条件：w-plan 第三步"逐级产出"中的任务列表生成步骤。
-  引用方：w-plan, prompts/plan-tasks
+  引用方：w-plan, prompts/w-plan-tasks
 ---
 
 # 任务列表生成
@@ -14,15 +14,17 @@ description: >
 
 ```json
 {
-  "id": "task-001",
+  "id": "T2-001",
   "title": "任务名称",
-  "wbsRef": "wbs-005",
+  "wbsRef": "W2-001",
   "status": "pending",
-  "dependencies": ["task-000"],
+  "deps": ["T1-001"],
   "acceptance": "可验证的完成条件",
   "prompt": "执行提示词（由 awf-plan-prompt 生成）"
 }
 ```
+
+id 遵循编号规范 `{前缀}{级别}-{序号}`（见 w-plan 的编号规范章节）：`T`=任务，级别=树深度，序号=同级内 3 位补零递增。`wbsRef` 指向同级别的 WBS 节点（`W{级别}-{序号}`），任务与 WBS 节点序号对齐便于溯源。
 
 ## 门禁任务
 

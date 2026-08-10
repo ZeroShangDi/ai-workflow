@@ -1,4 +1,4 @@
-# plan-check 提示词
+# w-plan-check 提示词
 
 由 CLI 在 plan 阶段门禁检查步骤调用 `claude -p` 时使用。
 
