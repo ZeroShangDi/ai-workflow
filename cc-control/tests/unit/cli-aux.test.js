@@ -1,22 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { mockExecSync, mockSpawn } from '../helpers/mock-child-process.js';
+import { mockExecSync, mockExec, mockSpawn } from '../helpers/mock-child-process.js';
 
-const { mockLogger, mockFs } = vi.hoisted(() => ({
+const { mockLogger, mockLogStep, mockFs } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  mockLogStep: vi.fn(),
   mockFs: {
     mkdir: vi.fn(),
     stat: vi.fn(),
     lstat: vi.fn(),
     symlink: vi.fn(),
     unlink: vi.fn(),
+    readlink: vi.fn(),
     rm: vi.fn(),
     readFile: vi.fn(),
     writeFile: vi.fn(),
   },
 }));
 
-vi.mock('../../src/lib/ui/log.js', () => ({ logger: mockLogger }));
+vi.mock('../../src/lib/ui/log.js', () => ({ logger: mockLogger, logStep: mockLogStep }));
 vi.mock('node:fs/promises', () => ({ ...mockFs, default: mockFs }));
 vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({
@@ -76,8 +78,11 @@ describe('cli-aux', () => {
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
     resetLogger();
+    mockLogStep.mockReset();
     mockExecSync.mockReset();
     mockExecSync.mockImplementation(() => Buffer.from(''));
+    mockExec.mockReset();
+    mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
     mockSpawn.mockReset();
     mockSpawn.mockImplementation(() => {
       const p = new EventEmitter();
@@ -96,54 +101,76 @@ describe('cli-aux', () => {
   // ═══════════════════ plugin ═══════════════════
 
   describe('pluginCommand', () => {
-    it('TC1: install — 正常创建 symlink', async () => {
-      mockFs.mkdir.mockResolvedValue();
-      mockFs.stat.mockRejectedValue(new Error('ENOENT'));
-      mockFs.symlink.mockResolvedValue();
-
-      await pluginCommand('install');
-
-      expect(mockFs.mkdir).toHaveBeenCalledWith('/tmp/mock-claude-plugins', { recursive: true });
-      expect(mockFs.symlink).toHaveBeenCalledWith('/tmp/mock-project/plugin', '/tmp/mock-claude-plugins/ai-workflow');
-      expect(mockLogger.success).toHaveBeenCalled();
+    const PROFILE_PLUGINS = JSON.stringify({
+      plugins: ['superpowers@claude-plugins-official', 'figma@claude-plugins-official', 'ai-workflow@ai-workflow-dev'],
     });
 
-    it('TC2: install — 已存在则跳过', async () => {
-      mockFs.mkdir.mockResolvedValue();
-      mockFs.stat.mockResolvedValue({}); // exists
-
-      await pluginCommand('install');
-
-      expect(mockFs.symlink).not.toHaveBeenCalled();
-      expect(mockLogger.info).toHaveBeenCalledWith('插件已安装，跳过');
-    });
-
-    it('TC3: uninstall — 正常移除 symlink', async () => {
-      mockFs.lstat.mockResolvedValue({ isSymbolicLink: () => true });
+    it('TC1: install — 全局正常安装（从 settings.json.plugins 读取）', async () => {
+      mockFs.readlink.mockRejectedValue(new Error('ENOENT')); // 无旧 symlink
       mockFs.unlink.mockResolvedValue();
+      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
+      mockExecSync.mockImplementation((cmd) => (cmd.includes('cat') ? Buffer.from('{"plugins":{}}') : Buffer.from('')));
 
-      await pluginCommand('uninstall');
+      await pluginCommand('install', { scope: 'global' });
 
-      expect(mockFs.unlink).toHaveBeenCalledWith('/tmp/mock-claude-plugins/ai-workflow');
-      expect(mockLogger.success).toHaveBeenCalledWith('已卸载');
+      expect(mockExec).toHaveBeenCalledWith(
+        'claude plugin install ai-workflow@ai-workflow-dev',
+        expect.any(Object),
+        expect.any(Function),
+      );
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'ok', '已安装');
     });
 
-    it('TC4: uninstall — 目标为目录则递归删除', async () => {
-      mockFs.lstat.mockResolvedValue({ isSymbolicLink: () => false });
-      mockFs.rm.mockResolvedValue();
+    it('TC2: install — 已用户级安装则跳过', async () => {
+      mockFs.readlink.mockRejectedValue(new Error('ENOENT'));
+      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
+      mockExecSync.mockImplementation((cmd) => {
+        if (cmd.includes('cat')) return Buffer.from(JSON.stringify({ plugins: {
+          'superpowers@claude-plugins-official': [{ scope: 'user' }],
+          'figma@claude-plugins-official': [{ scope: 'user' }],
+          'ai-workflow@ai-workflow-dev': [{ scope: 'user' }],
+        } }));
+        return Buffer.from('');
+      });
 
-      await pluginCommand('uninstall');
+      await pluginCommand('install', { scope: 'global' });
 
-      expect(mockFs.rm).toHaveBeenCalledWith('/tmp/mock-claude-plugins/ai-workflow', { recursive: true });
+      expect(mockExec).not.toHaveBeenCalled();
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'skip', '已安装');
     });
 
-    it('TC5: uninstall — 不存在则跳过', async () => {
-      mockFs.lstat.mockRejectedValue(new Error('ENOENT'));
+    it('TC3: uninstall — 全局正常卸载', async () => {
+      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
 
-      await pluginCommand('uninstall');
+      await pluginCommand('uninstall', { scope: 'global' });
 
-      expect(mockLogger.info).toHaveBeenCalledWith('插件未安装');
-      expect(mockFs.unlink).not.toHaveBeenCalled();
+      expect(mockExec).toHaveBeenCalledWith(
+        'claude plugin uninstall ai-workflow@ai-workflow-dev',
+        expect.any(Object),
+        expect.any(Function),
+      );
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'ok', '已卸载');
+    });
+
+    it('TC4: install — exec 失败报错不阻断', async () => {
+      mockFs.readlink.mockRejectedValue(new Error('ENOENT'));
+      mockFs.unlink.mockResolvedValue();
+      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
+      mockExecSync.mockImplementation((cmd) => (cmd.includes('cat') ? Buffer.from('{"plugins":{}}') : Buffer.from('')));
+      mockExec.mockImplementation((_c, _o, cb) => cb(new Error('boom')));
+
+      await pluginCommand('install', { scope: 'global' });
+
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'error', expect.stringContaining('安装失败'));
+    });
+
+    it('TC5: uninstall — exec 失败报错不阻断', async () => {
+      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
+      mockExec.mockImplementation((_c, _o, cb) => cb(new Error('boom')));
+
+      await pluginCommand('uninstall', { scope: 'global' });
+
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'error', expect.stringContaining('卸载失败'));
     });
 
     it('TC6: 无效 action → 报错退出', async () => {

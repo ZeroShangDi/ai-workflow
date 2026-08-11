@@ -1,0 +1,17 @@
+{
+  "name": "ai-workflow",
+  "description": "AI Workflow 编程模式插件 — 15 命令 + 30 技能 + 3 MCP + 5 hooks（项目级按地址引用）",
+  "version": "2.0.0",
+  "author": {
+    "name": "v-shangjunhao"
+  },
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "w-plan",
+    "w-dev",
+    "w-review",
+    "autonomous"
+  ],
+  "hooks": "./hooks/hooks.json"
+}

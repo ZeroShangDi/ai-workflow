@@ -17,7 +17,7 @@ skills/      → 技能、技巧、执行细节      → 定执行（HOW）
 ## 目录结构
 
 ```
-profiles/
+plugin/
 ├── shared/                     # 跨领域引擎代码
 │   ├── plan-executor.js.stub   # Plan 主引擎
 │   ├── step-runner.js.stub     # 通用步骤执行器
@@ -40,10 +40,10 @@ profiles/
 ```json
 {
   "extraSkillsDir": [
-    "<pkg>/profiles/software-dev/skills/"
+    "<pkg>/plugin/software-dev/skills/"
   ],
   "extraCommandsDir": [
-    "<pkg>/profiles/software-dev/commands/"
+    "<pkg>/plugin/software-dev/commands/"
   ]
 }
 ```

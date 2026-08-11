@@ -40,7 +40,8 @@ program
 
 program
   .command('plugin <action>')
-  .description('插件管理：install / uninstall')
+  .description('插件管理：install / uninstall（--scope 选本地或全局）')
+  .option('-s, --scope <scope>', '安装范围：local（本地，默认）| global（全局符号链接）', 'local')
   .action(pluginCommand);
 
 program

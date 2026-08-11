@@ -1,28 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mockSpawn } from '../helpers/mock-child-process.js';
 
-const { mockLogger, mockPromptVersion, mockSetupVersion, mockLoadState, mockSaveState } = vi.hoisted(() => ({
+const { mockLogger } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  mockPromptVersion: vi.fn(() => Promise.resolve('0.1.0')),
-  mockSetupVersion: vi.fn((cwd) => {
-    const state = mockLoadState(cwd) || {};
-    state.version = '0.1.0';
-    mockSaveState(cwd, state);
-    return Promise.resolve('0.1.0');
-  }),
-  mockLoadState: vi.fn(() => ({ mode: 'idle' })),
-  mockSaveState: vi.fn(),
 }));
 
+// 版本号写入（setupVersion / saveState）在 src/cli/plan.js 暂时禁用，相关 mock 与用例一并移除。
+// 重新启用版本处理时，需补回 version.js / state.js 的 vi.mock 及对应测试。
+
 vi.mock('../../src/lib/ui/log.js', () => ({ logger: mockLogger }));
-vi.mock('../../src/lib/version.js', () => ({
-  promptVersion: mockPromptVersion,
-  setupVersion: mockSetupVersion,
-}));
-vi.mock('../../src/lib/state.js', () => ({
-  loadState: mockLoadState,
-  saveState: mockSaveState,
-}));
 vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({
     projectRoot: '/tmp/mock-project',
@@ -55,13 +41,9 @@ describe('planCommand', () => {
     listeners = mockProc.listeners;
     mockSpawn.mockReturnValue(mockProc.proc);
 
-    mockPromptVersion.mockResolvedValue('0.1.0');
-    mockLoadState.mockReturnValue({ mode: 'idle' });
-    mockSaveState.mockImplementation(() => {});
     mockLogger.info.mockReset();
     mockLogger.success.mockReset();
     mockSpawn.mockClear();
-    mockSaveState.mockClear();
   });
 
   afterEach(() => {
@@ -96,11 +78,7 @@ describe('planCommand', () => {
     await resolveClose(0);
     await promise;
 
-    expect(mockSetupVersion).toHaveBeenCalled();
-    expect(mockSaveState).toHaveBeenCalled();
-    const savedState = mockSaveState.mock.calls[0][1];
-    expect(savedState.version).toBe('0.1.0');
-
+    // 版本号写入（setupVersion/saveState）已禁用，仅验证 spawn 与 prompt 拼接
     const spawnArgs = mockSpawn.mock.calls[0][1];
     expect(spawnArgs).toContain('/ai-workflow:w-plan 搭建测试基础设施');
   });
@@ -160,33 +138,6 @@ describe('planCommand', () => {
     await rejectError('spawn claude ENOENT');
 
     await expect(promise).rejects.toThrow('无法启动 claude: spawn claude ENOENT');
-  });
-
-  // ── state 操作 ──
-
-  it('TC8: state.json 版本号写入', async () => {
-    const promise = planCommand('test', { resume: false });
-
-    await resolveClose(0);
-    await promise;
-
-    expect(mockSaveState).toHaveBeenCalled();
-    const callArgs = mockSaveState.mock.calls[0];
-    expect(callArgs[1].version).toBe('0.1.0');
-  });
-
-  it('TC9: state.json 不存在时 loadState 返回 null', async () => {
-    mockLoadState.mockReturnValue(null);
-
-    const promise = planCommand('test', { resume: false });
-
-    await resolveClose(0);
-    await promise;
-
-    // saveState 仍被调用，且 state 是新建的对象
-    expect(mockSaveState).toHaveBeenCalled();
-    const savedState = mockSaveState.mock.calls[0][1];
-    expect(savedState.version).toBe('0.1.0');
   });
 
   // ── 参数分支 ──

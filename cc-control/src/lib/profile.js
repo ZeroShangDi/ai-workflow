@@ -1,0 +1,132 @@
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * Profile 本地注册实现（取代全局 claude plugin install / 符号链接）
+ *
+ * 将 plugin/plugin-code 的 skills/commands 注入项目 .claude/settings.json，
+ * 使命令/技能仅对当前项目生效。供 init / awf plugin 复用。
+ */
+
+const PROFILE_DIR = 'plugin-code';
+const INJECT_KEYS = ['extraSkillsDir', 'extraCommandsDir'];
+
+/**
+ * 本地注册：把 plugin/<PROFILE_DIR>/settings.json 增量合并进项目 settings.json
+ * @param {string} projectRoot - 目标项目根目录（.claude/settings.json 所在处）
+ * @param {string} pkgRoot - cc-control 包根目录（plugin/ 所在处）
+ * @returns {{written: boolean, path: string|null, error?: string}}
+ */
+export function installProfile(projectRoot, pkgRoot) {
+  const profileDir = path.join(pkgRoot, 'plugin', PROFILE_DIR);
+  const templatePath = path.join(profileDir, 'settings.json');
+  if (!fs.existsSync(templatePath)) {
+    return { written: false, path: null, error: `settings.json not found in ${profileDir}` };
+  }
+
+  const template = JSON.parse(fs.readFileSync(templatePath, 'utf8'));
+  const resolved = resolvePkg(template, pkgRoot);
+
+  const settingsPath = path.join(projectRoot, '.claude', 'settings.json');
+  const dir = path.dirname(settingsPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  let existing = {};
+  if (fs.existsSync(settingsPath)) {
+    existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  }
+
+  const merged = mergeSettings(existing, resolved);
+  fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
+  return { written: true, path: settingsPath };
+}
+
+/**
+ * 本地注销：从项目 settings.json 移除 profile 注入的键值
+ * 按注入模板的键动态清理：数组（值/路径匹配）、对象（按模板 key 删除）、标量（值匹配）
+ * @param {string} projectRoot - 目标项目根目录
+ * @param {string} pkgRoot - cc-control 包根目录（读取注入模板）
+ * @returns {{written: boolean, path: string|null}}
+ */
+export function uninstallProfile(projectRoot, pkgRoot) {
+  const settingsPath = path.join(projectRoot, '.claude', 'settings.json');
+  if (!fs.existsSync(settingsPath)) {
+    return { written: false, path: null };
+  }
+
+  const existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  const template = readTemplate(pkgRoot);
+  const injectKeys = new Set([...INJECT_KEYS, ...(template ? Object.keys(template) : [])]);
+  let changed = false;
+
+  for (const key of injectKeys) {
+    if (!(key in existing)) continue;
+    const injected = template?.[key];
+
+    if (Array.isArray(existing[key])) {
+      const remove = new Set(Array.isArray(injected) ? injected : []);
+      const kept = existing[key].filter((item) => {
+        if (remove.has(item)) return false;
+        return !(typeof item === 'string' && (item.includes(`/profiles/${PROFILE_DIR}/`) || item.includes(`/plugin/${PROFILE_DIR}/`)));
+      });
+      if (kept.length !== existing[key].length) { existing[key] = kept; changed = true; }
+      if (existing[key].length === 0) delete existing[key];
+    } else if (isPlainObject(existing[key])) {
+      const removeKeys = Object.keys(isPlainObject(injected) ? injected : {});
+      for (const k of removeKeys) {
+        if (k in existing[key]) { delete existing[key][k]; changed = true; }
+      }
+      if (Object.keys(existing[key]).length === 0) delete existing[key];
+    } else if (typeof injected === typeof existing[key] && existing[key] === injected) {
+      delete existing[key];
+      changed = true;
+    }
+  }
+
+  if (!changed) return { written: false, path: settingsPath };
+
+  fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n');
+  return { written: true, path: settingsPath };
+}
+
+/** 读取注入模板 settings.json，缺失/非法时返回 null */
+function readTemplate(pkgRoot) {
+  const templatePath = path.join(pkgRoot, 'plugin', PROFILE_DIR, 'settings.json');
+  try { return JSON.parse(fs.readFileSync(templatePath, 'utf8')); }
+  catch { return null; }
+}
+
+// ── helpers（从 plan.js 迁移）──
+
+/** 深合并 settings.json，数组去重追加，对象递归合并 */
+function mergeSettings(base, incoming) {
+  const result = { ...base };
+  for (const [key, val] of Object.entries(incoming)) {
+    if (!(key in result)) {
+      result[key] = val;
+    } else if (Array.isArray(val) && Array.isArray(result[key])) {
+      const existing = new Set(result[key]);
+      for (const item of val) { if (!existing.has(item)) { result[key].push(item); existing.add(item); } }
+    } else if (isPlainObject(val) && isPlainObject(result[key])) {
+      result[key] = mergeSettings(result[key], val);
+    } else {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
+/** 递归替换字符串和对象中的 <pkg> 占位符为 package 根路径 */
+function resolvePkg(obj, pkgRoot) {
+  if (typeof obj === 'string') return obj.replace(/<pkg>/g, pkgRoot);
+  if (Array.isArray(obj)) return obj.map((v) => resolvePkg(v, pkgRoot));
+  if (isPlainObject(obj)) {
+    const result = {};
+    for (const [k, v] of Object.entries(obj)) result[k] = resolvePkg(v, pkgRoot);
+    return result;
+  }
+  return obj;
+}
+
+/** 判断值是否为纯对象（非数组、非 null） */
+function isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }

@@ -1,15 +1,15 @@
 {
   "name": "ai-workflow-dev",
-  "description": "Local development marketplace for ai-workflow",
+  "description": "ai-workflow 编程模式 — 项目级按地址引用（commands/skills/hooks/mcpServers）",
   "owner": {
     "name": "v-shangjunhao"
   },
   "plugins": [
     {
       "name": "ai-workflow",
-      "description": "持久化多阶段工作流编排 — 给 Claude Code 加上记忆、流程和自主推进能力",
+      "description": "编程模式：15 命令 + 30 技能 + 3 MCP + 5 hooks",
       "version": "2.0.0",
-      "source": "./"
+      "source": "./plugin-code/"
     }
   ]
 }

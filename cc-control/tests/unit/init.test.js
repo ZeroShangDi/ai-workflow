@@ -6,13 +6,8 @@ import { mockExecSync, mockExec } from '../helpers/mock-child-process.js';
 
 // ── mocks ──
 
-const { mockPromptVersion } = vi.hoisted(() => ({
-  mockPromptVersion: vi.fn(() => Promise.resolve('0.1.0')),
-}));
-
-vi.mock('../../src/lib/version.js', () => ({
-  promptVersion: mockPromptVersion,
-}));
+// 版本号确认（promptVersion）在 src/cli/init.js 暂时禁用，version.js 的 mock 已移除。
+// 重新启用版本处理时，需补回 vi.mock 及对应用例。
 
 const FAKE_ROOT = '/tmp/awf-test-cc-control';
 
@@ -56,13 +51,23 @@ async function setupTemplates() {
     path.join(stateTmplDir, 'state.template.json'),
     JSON.stringify({ mode: 'idle', version: '{{VERSION}}', lastUpdated: '{{TIMESTAMP}}' }, null, 2),
   );
+
+  // 本地注册插件：plugin/plugin-code/settings.json（init 注入到项目 .claude/settings.json）
+  const profileSettings = path.join(FAKE_ROOT, 'plugin', 'plugin-code', 'settings.json');
+  await fs.mkdir(path.dirname(profileSettings), { recursive: true });
+  await fs.writeFile(profileSettings, JSON.stringify({
+    plugins: ['ai-workflow@ai-workflow-dev'],
+    enabledPlugins: { 'ai-workflow@ai-workflow-dev': true },
+    extraKnownMarketplaces: {
+      'ai-workflow-dev': { source: { source: 'directory', path: '<pkg>/plugin' } },
+    },
+  }, null, 2));
 }
 
 function withDeps() {
   mockExecSync.mockImplementation((cmd) => {
     if (cmd.includes('command -v tmux')) return Buffer.from('/usr/bin/tmux');
     if (cmd.includes('command -v claude')) return Buffer.from('/usr/bin/claude');
-    if (cmd.includes('cat')) return Buffer.from(JSON.stringify({ plugins: {} }));
     return Buffer.from('');
   });
   mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
@@ -81,7 +86,6 @@ function withoutTmux() {
   mockExecSync.mockImplementation((cmd) => {
     if (cmd.includes('command -v tmux')) throw new Error('not found');
     if (cmd.includes('command -v claude')) return Buffer.from('/usr/bin/claude');
-    if (cmd.includes('cat')) return Buffer.from(JSON.stringify({ plugins: {} }));
     return Buffer.from('');
   });
   mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
@@ -99,7 +103,6 @@ describe('initCommand', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    mockPromptVersion.mockResolvedValue('0.1.0');
     mockExecSync.mockReset();
     mockExec.mockReset();
     await setupTemplates();
@@ -111,23 +114,26 @@ describe('initCommand', () => {
     await fs.rm(FAKE_ROOT, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('TC1: 首次 init 完整流程 — 创建 .awf/ + state.json + CLAUDE.md', async () => {
+  it('TC1: 首次 init 完整流程 — .awf/ + 本地注册 settings.json + CLAUDE.md', async () => {
     withDeps();
     await initCommand({ force: false });
 
     const awf = path.join(tmpDir, '.awf');
     expect((await fs.stat(awf)).isDirectory()).toBe(true);
 
+    // 版本处理禁用：VERSION 保留占位符；TIMESTAMP 已替换为 ISO
     const raw = await fs.readFile(path.join(awf, 'state.json'), 'utf-8');
-    expect(raw).toContain('0.1.0');
-    expect(raw).not.toContain('{{VERSION}}');
-    // {{TIMESTAMP}} 被替换为 ISO 时间戳
+    expect(raw).toContain('{{VERSION}}');
     expect(raw).not.toContain('{{TIMESTAMP}}');
     expect(raw).toMatch(/"lastUpdated": "20\d\d-\d\d-\d\dT/);
 
-    // 默认插件安装执行
-    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install ai-workflow@ai-workflow-dev'));
-    expect(instCalls.length).toBeGreaterThan(0);
+    // 本地注册插件：plugin/plugin-code/settings.json 注入到项目 .claude/settings.json（无 exec 安装）
+    const settingsRaw = await fs.readFile(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8');
+    const settings = JSON.parse(settingsRaw);
+    expect(settings.enabledPlugins['ai-workflow@ai-workflow-dev']).toBe(true);
+    expect(settings.extraKnownMarketplaces['ai-workflow-dev'].source.path).toBe(`${FAKE_ROOT}/plugin`);
+    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install'));
+    expect(instCalls).toHaveLength(0);
 
     // 完成提示输出
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('✔ 初始化完成'));
@@ -230,88 +236,22 @@ describe('initCommand', () => {
     expect(hasState).toBeNull();
   });
 
-  it('TC11: 插件安装 exec 失败 — 报错不阻断', async () => {
-    mockExecSync.mockImplementation((cmd) => {
-      if (cmd.includes('command -v tmux')) return Buffer.from('/usr/bin/tmux');
-      if (cmd.includes('command -v claude')) return Buffer.from('/usr/bin/claude');
-      if (cmd.includes('cat')) return Buffer.from(JSON.stringify({ plugins: {} }));
-      return Buffer.from('');
-    });
-    mockExec.mockImplementation((_c, _o, cb) => cb(new Error('boom'), '', ''));
-
+  it('TC11: 插件模板缺失 → 本地注册 warn 不阻断', async () => {
+    withDeps();
+    await fs.rm(path.join(FAKE_ROOT, 'plugin', 'plugin-code', 'settings.json'), { force: true });
     await initCommand({ force: false });
     expect((await fs.stat(path.join(tmpDir, '.awf'))).isDirectory()).toBe(true);
     expect(process.exit).not.toHaveBeenCalledWith(1);
   });
 
-  it('TC12: .plugins.json 不存在 → 空列表（仅安装默认插件）', async () => {
-    withDeps();
-    await initCommand({ force: false });
-    expect((await fs.stat(path.join(tmpDir, '.awf'))).isDirectory()).toBe(true);
-    // 默认插件被安装，且没有额外插件
-    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install ai-workflow@ai-workflow-dev'));
-    expect(instCalls).toHaveLength(1);
-  });
+  // 已删除 TC12/TC13：init 不再读取 .plugins.json（本地注入 settings.json；全局安装改读 plugin/plugin-code/settings.json 的 plugins 字段，见 cli-aux.test.js）
+  // 已删除 TC15/TC16：init 不再处理符号链接安装（symlink 清理迁至全局安装 installAllPlugins）
 
-  it('TC13: .plugins.json 非法 JSON → 空列表', async () => {
+  it('TC14: 版本处理禁用 → state.json 保留 {{VERSION}} 占位符', async () => {
     withDeps();
-    await fs.writeFile(path.join(tmpDir, '.plugins.json'), '!!!broken');
-    await initCommand({ force: false });
-    expect(process.exit).not.toHaveBeenCalledWith(1);
-  });
-
-  it('TC14: version 为空 → state.json 保留 {{VERSION}} 占位符', async () => {
-    withDeps();
-    mockPromptVersion.mockResolvedValue('');
     await initCommand({ force: false });
 
     const raw = await fs.readFile(path.join(tmpDir, '.awf', 'state.json'), 'utf-8');
     expect(raw).toContain('{{VERSION}}');
-  });
-
-  it('TC15: 有效 symlink → 跳过安装', async () => {
-    const pluginsDir = path.join(FAKE_ROOT, 'fake-claude-plugins');
-    await fs.mkdir(pluginsDir, { recursive: true });
-
-    const real = path.join(tmpDir, 'real-plugin');
-    await fs.mkdir(real, { recursive: true });
-    await fs.writeFile(path.join(real, 'plugin.json'), '{}');
-    await fs.symlink(real, path.join(pluginsDir, 'ai-workflow'));
-
-    mockExecSync.mockImplementation((cmd) => {
-      if (cmd.includes('command -v tmux')) return Buffer.from('/usr/bin/tmux');
-      if (cmd.includes('command -v claude')) return Buffer.from('/usr/bin/claude');
-      if (cmd.includes('cat')) return Buffer.from(JSON.stringify({ plugins: { 'ai-workflow@ai-workflow-dev': true } }));
-      return Buffer.from('');
-    });
-    mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
-
-    await initCommand({ force: false });
-
-    const link = path.join(pluginsDir, 'ai-workflow');
-    expect(await fs.stat(link).catch(() => null)).not.toBeNull();
-
-    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install'));
-    expect(instCalls).toHaveLength(0);
-  });
-
-  it('TC16: 无效 symlink → 清理后重装', async () => {
-    const pluginsDir = path.join(FAKE_ROOT, 'fake-claude-plugins');
-    await fs.mkdir(pluginsDir, { recursive: true });
-
-    const empty = path.join(tmpDir, 'empty');
-    await fs.mkdir(empty, { recursive: true });
-    await fs.symlink(empty, path.join(pluginsDir, 'ai-workflow'));
-
-    withDeps();
-    await initCommand({ force: false });
-
-    // symlink 被清理
-    expect(await fs.stat(path.join(pluginsDir, 'ai-workflow')).catch(() => null)).toBeNull();
-    // marketplace 重新注册 + 插件重装
-    const addCalls = mockExecSync.mock.calls.filter(([c]) => c && c.includes('claude plugin marketplace add'));
-    expect(addCalls).toHaveLength(1);
-    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install ai-workflow@ai-workflow-dev'));
-    expect(instCalls).toHaveLength(1);
   });
 });

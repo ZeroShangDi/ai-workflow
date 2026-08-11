@@ -1,20 +1,19 @@
 {
   "mcpServers": {
     "awf-state": {
+      "type": "stdio",
       "command": "node",
       "args": ["/Users/v-shangjunhao/MyProject/ai-workflow/cc-control/src/mcp/awf-state/server.cjs"],
-      "env": {
-        "AWF_PROJECT_ROOT": "/Users/v-shangjunhao/MyProject/ai-workflow/cc-control"
-      }
+      "env": { "AWF_PROJECT_ROOT": "${CLAUDE_PROJECT_DIR}" }
     },
     "awf-session": {
+      "type": "stdio",
       "command": "node",
       "args": ["/Users/v-shangjunhao/MyProject/ai-workflow/cc-control/src/mcp/awf-session/server.cjs"],
-      "env": {
-        "AWF_BASE": "http://127.0.0.1:8787"
-      }
+      "env": { "AWF_BASE": "http://127.0.0.1:8787" }
     },
     "awf-oneshot": {
+      "type": "stdio",
       "command": "node",
       "args": ["/Users/v-shangjunhao/MyProject/ai-workflow/cc-control/src/mcp/awf-oneshot/server.cjs"]
     }
