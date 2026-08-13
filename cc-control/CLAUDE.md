@@ -18,14 +18,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 cc-control/
   package.json             # npm 包
 
-  plugin/                  # Claude Code 插件
-    plugin.json
-    commands/              #   14 个 slash commands
-    skills/                #   10 个 skills
+  plugin/                  # 插件市场（.claude-plugin/marketplace.json 注册）
+    plugin-code/           #   插件本体：15 命令 + 30 技能 + 5 hooks + 3 MCP
+      commands/            #     15 个 slash commands
+      skills/              #     30 个 skills
+      hooks/               #     5 个 hooks
+      plugin.json          #   插件清单
+      settings.json        #   安装清单（本地注入源 / 全局安装源）
+      .mcp.json            #   3 个 MCP server 声明
+
+  plugin_old/              # 旧插件归档（plugin/ 更名前的版本，不再使用）
 
   src/                     # 应用代码
     awf.js                 #   CLI 入口（Commander，7 个命令）
-    cli/                   #   CLI 命令实现（init, plan, run...）
+    cli/                   #   CLI 命令实现（init, plan, run, plugin...）
     server/                #   HTTP Session Server
     mcp/                   #   3 个 MCP Server（state, session, oneshot）
     prompts/               #   阶段 prompt 模板
@@ -75,48 +81,78 @@ PLAN → DESIGN (if UI) → CODE (loop per task) → REVIEW → TEST → FINISH
                           └── DEBUG ←────────────┘
 ```
 
-- **PLAN**: Interactive Q&A → requirements doc → prototype → WBS → task list (`/w-plan`)
-- **DESIGN**: Generate 3 UI styles → user picks → generate UI incrementally (`/w-design`)
+- **PLAN**: Interactive Q&A → requirements doc → prototype → WBS → task list (`/w-plan`, CLI 门禁/WBS/任务步骤走 `/w-plan-check` `/w-plan-wbs` `/w-plan-tasks`)
+- **DESIGN**: Generate 3 UI styles → user picks → generate UI incrementally (`/w-ui-design` → `/w-ui-code`)
 - **CODE**: Loop through tasks sequentially (`/w-dev`)
 - **DEBUG**: Systematic debugging when bugs surface (`/w-debug`)
-- **REVIEW**: Code review against code-rule-style + code-rule-quality (`/w-review`)
+- **REVIEW**: Code review against code-review-* skills (`/w-review`)
 - **TEST**: Inspect test case docs against actual code behavior (`/w-test`)
-- **FINISH**: Milestone wrap-up — quality, perf, docs, summary, memory, handoff (`/w-finish`)
+- **FINISH**: Milestone wrap-up — quality, perf, docs, summary, memory, handoff（无独立 slash 命令，由 CLI 收尾）
 
 Any node can loop back. FINISH is a milestone marker, not project end.
 
-## Slash commands
+## Slash commands（15 个，位于 plugin/plugin-code/commands/）
 
 | Command | Purpose |
 |---------|---------|
-| `/awf-run` | Autonomous workflow — drives the full state machine |
-| `/w-plan` | Task planning: requirements → prototype → WBS → task list |
-| `/w-design` | Design lifecycle: style selection, code↔Figma |
-| `/w-tree` | Task breakdown tree with dual-view HTML visualization |
-| `/w-dev` | Development execution — explore, implement, lint, verify |
-| `/w-debug` | Systematic debugging via hypothesis-evidence-elimination |
-| `/w-review` | Code review against dual standards (code + quality) |
-| `/w-test` | Test case inspection — compare `.test.md` docs against code |
-| `/w-ui` | UI restoration from Figma (requires `node-id` in URL) |
-| `/w-doc` | Module or requirement-level docs |
-| `/w-commit` | Smart commit with conventional commit messages |
-| `/w-finish` | Milestone wrap-up: quality/perf/doc/summary/memory/handoff |
-| `/w-prompt` | Prompt generator for CLI（被 CLI one-shot 调用） |
-| `/w-state` | State management reference（→ src/mcp/awf-state/） |
+| `/w-plan` | 主规划流程 — 需求 → 规范化 → WBS → 任务列表 |
+| `/w-plan-check` | CLI plan 门禁检查（claude -p 调用） |
+| `/w-plan-wbs` | 生成 WBS 空间树（claude -p 调用） |
+| `/w-plan-tasks` | 生成任务列表，插入门禁任务（claude -p 调用） |
+| `/w-dev` | 开发流程 — 按任务列表逐个执行 |
+| `/w-debug` | 调试流程 — 系统化定位和修复 bug |
+| `/w-review` | 审查流程 — 对开发产出多维审查 |
+| `/w-test` | 测试流程 — 验证开发产出 |
+| `/w-doc` | 文档管理 — 需求/测试/问题/Bug/决策五类文档 |
+| `/w-commit` | 提交流程 — 常规提交 |
+| `/w-ui-design` | 设计原型界面（UI 设计稿流程） |
+| `/w-ui-code` | 按原型设计稿实现静态页面 |
+| `/w-start` | 标记 state.json 进入 awf 运行模式（plan/run），awf run 入口触发 |
+| `/w-pause` | 标记暂停 awf 模式，进入人工介入状态 |
+| `/w-monitor` | loop 检测 — 非 tmux 调用的 cc 监测 tmux 中 cc 状态 |
 
-## Skills
+## Skills（30 个，位于 plugin/plugin-code/skills/）
 
-- **`code-rule-design`** — Architecture, data modeling, state management. Applied during PLAN/DESIGN.
-- **`code-rule-style`** — Function design, naming, error handling, defensive programming. Applied during CODE/DEBUG.
-- **`code-rule-quality`** — Testing pyramid (70/20/10), code review, conventional commits. Applied during REVIEW/TEST/FINISH.
-- **`sys-rule-workflow`** — Standards for designing commands and skills.
-- **`sys-rule-skill`** — Skill lifecycle management — create, update, delete, organize, audit.
-- **`flow-rule-git`** — Git branching and commit conventions.
-- **`flow-rule-task`** — Task decomposition rules — how to split work at the right granularity. Applied during PLAN/WBS.
-- **`flow-exec-version`** — Version bumping and changelog management.
-- **`awf-sys-spec-workflow`** — Autonomous workflow specification format.
-- **`awf-sys-spec-task`** — Task schema definition（→ src/mcp/awf-state/）
-- **`awf-flow-exec-prompt`** — Prompt generator for awf-run phases（→ src/mcp/awf-state/）
+**Plan 阶段（awf-plan-*）**
+- **`awf-plan-norm`** — 需求规范化：原始需求 → 结构化目标/边界/场景/验收标准
+- **`awf-plan-wbs`** — 生成 WBS 空间树（任务拆分）
+- **`awf-plan-tasks`** — 生成任务列表（插入门禁任务）
+- **`awf-plan-prompt`** — 执行提示词生成（填入任务）
+
+**Run 阶段（awf-run-*）**
+- **`awf-run-decision`** — 运行中需决策时的处理方案
+- **`awf-run-error`** — 运行异常时的处理方案
+- **`awf-run-review`** — 审查结果处理方案
+- **`awf-run-test`** — 测试结果处理方案
+- **`awf-run-reset`** — 反复失败重开：回撤判定、精确撤销、复盘后重探
+
+**通用**
+- **`awf-skill`** — Skill 生命周期管理（创建/修改/聚合/拆分/审计）
+- **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ src/mcp/awf-state/）
+- **`code-context-onboard`** — 跨阶段上下文传递格式 + 压缩规则
+- **`code-ask-question`** — 问题描述规范
+- **`code-commit-gitflow`** — Git 使用 + 版本管理
+- **`code-doc`** — 文档体系规范（五类文档）
+- **`code-retro-point`** — 项目复盘（Stable/Improve/Experiment）
+
+**开发（code-dev-*）**
+- **`code-dev-rule`** — 开发原则（通用行为准则）
+- **`code-dev-design`** — 设计与实现决策
+- **`code-dev-cto`** — 技术选型决策方法
+- **`code-dev-quality`** — 高质量代码标准
+- **`code-dev-security`** — 防御性编程与安全实践
+- **`code-dev-performance`** — 性能优化最佳实践
+- **`code-dev-fallback`** — 渐进增强与优雅降级
+- **`code-dev-experience-react`** / **`code-dev-experience-vue`** — 框架实践取舍
+
+**审查（code-review-*）**
+- **`code-review-quality`** — 代码质量审查（正确性/可读性/可维护性）
+- **`code-review-performance`** — 性能分析审查
+- **`code-review-security`** — 安全漏洞检查
+- **`code-review-simplify`** — 代码简化（重复/过度抽象）
+
+**测试**
+- **`code-test-case`** — AI 生成测试用例方法论
 
 These are invoked automatically by slash commands. Do not invoke them manually unless explicitly requested.
 
@@ -140,8 +176,11 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 | `awf_phase` | 设置工作流阶段 |
 | `awf_milestone_update` | 更新里程碑状态 |
 | `awf_milestone_create` | 创建里程碑 |
+| `awf_milestone_delete` | 删除里程碑 |
+| `awf_mode` | 设置运行模式（idle/plan/run） |
+| `awf_version` | 更新 state.json 版本号 |
 
-### awf-session（3 tools）— tmux 生命周期观测
+### awf-session（4 tools）— tmux 生命周期观测
 
 | Tool | 用途 |
 |------|------|
@@ -172,9 +211,9 @@ npm run lint              # 语法检查
 npm run build             # 打包验证
 npm run eval              # AI 质量评测（占位）
 
-# Claude Code 插件
-claude --plugin-dir .     # 临时加载
-/plugin install ai-workflow@ai-workflow-dev  # 永久安装
+# Claude Code 插件（安装统一在 init 阶段处理）
+awf init                  # 本地注入 plugin/plugin-code/settings.json 到 .claude/settings.json
+awf plugin install --scope global   # 全局安装 settings.json.plugins 声明的插件（claude plugin install）
 ```
 
 ## 关键文件
@@ -183,15 +222,18 @@ claude --plugin-dir .     # 临时加载
 |------|------|
 | `src/awf.js` | CLI 入口，命令路由 |
 | `src/cli/run.js` | `awf run` 主循环 |
+| `src/cli/init.js` | `awf init` — 前置检查 + 本地注册插件 + 工作区初始化 |
+| `src/cli/plugin.js` | 插件管理 — 本地注入 / 全局 claude plugin install |
+| `src/lib/profile.js` | 本地注册实现（settings.json 注入/清理） |
 | `src/cli/state.js` | state.json 读写 |
 | `src/cli/paths.js` | 路径解析 |
 | `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status） |
 | `scripts/bootstrap.sh` | 启动 tmux session + 渲染 settings + MCP 配置 |
-| `src/mcp/awf-state/server.cjs` | 状态 MCP — 14 个 tools，直接文件 I/O |
-| `src/mcp/awf-session/server.cjs` | Session MCP — 2 个 tools |
+| `src/mcp/awf-state/server.cjs` | 状态 MCP — 17 个 tools，直接文件 I/O |
+| `src/mcp/awf-session/server.cjs` | Session MCP — 4 个 tools |
 | `src/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
 | `src/prompts/run/state-machine.md` | 自治执行规则（注入给 AI 的运行时指令） |
-| `plugin/skills/awf-sys-spec-workflow/SKILL.md` | 核心状态机规范 |
+| `plugin/plugin-code/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
 
 ## 用户配置（`.claude/user/`）

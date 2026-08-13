@@ -2,3 +2,4 @@ docs/discuss/all_claude_prompts.md
 sandbox/
 .awf/context/
 .awf/plan/
+.awf/logs/
