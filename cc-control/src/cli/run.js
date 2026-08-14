@@ -1,5 +1,6 @@
 import { spawn, execSync } from 'child_process';
 import { getPaths } from '../lib/paths.js';
+import { taskWrapup } from '../lib/plugin-bridge.js';
 import { loadState, findNextTask, backupState } from '../lib/state.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
@@ -183,7 +184,7 @@ async function ensureTaskDone(taskId, projectRoot) {
   if (checkTaskDone(taskId, projectRoot)) return;
   logStep('', 'warn', `任务 ${taskId} 未标记 done，补发收尾 prompt`);
 
-  const wrapup = `用 awf_task_status 标记 ${taskId} done。用 awf_task_result 记录 ${taskId} 的执行结果。只做这两步。`;
+  const wrapup = await taskWrapup(taskId); // 指令文本由插件 prompts.json 声明（plugin-bridge）
   await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: wrapup });
   await waitForReady({ onDecision: handleDecision });
 

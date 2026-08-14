@@ -9,14 +9,13 @@ const { mockLogger } = vi.hoisted(() => ({
 // 重新启用版本处理时，需补回 version.js / state.js 的 vi.mock 及对应测试。
 
 vi.mock('../../src/lib/ui/log.js', () => ({ logger: mockLogger }));
-vi.mock('../../src/lib/paths.js', () => ({
-  getPaths: vi.fn(() => ({
-    projectRoot: '/tmp/mock-project',
-    claudePlugins: '/tmp/mock-plugins',
-    ccSettings: '/tmp/mock-settings.json',
-  })),
-  pluginCmd: vi.fn((cmd) => `/ai-workflow:${cmd}`),
-  PLUGIN_NS: 'ai-workflow',
+// plugin-bridge 为插件边界模块，单测 mock（真实逻辑见 plugin-bridge.test.js）
+vi.mock('../../src/lib/plugin-bridge.js', () => ({
+  planEntry: vi.fn((description, resume) => {
+    if (resume) return '/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求';
+    if (description) return `/ai-workflow-code:w-plan ${description}`;
+    return '/ai-workflow-code:w-plan 请开始需求规划';
+  }),
 }));
 
 import { planCommand } from '../../src/cli/plan.js';
@@ -80,7 +79,7 @@ describe('planCommand', () => {
 
     // 版本号写入（setupVersion/saveState）已禁用，仅验证 spawn 与 prompt 拼接
     const spawnArgs = mockSpawn.mock.calls[0][1];
-    expect(spawnArgs).toContain('/ai-workflow:w-plan 搭建测试基础设施');
+    expect(spawnArgs).toContain('/ai-workflow-code:w-plan 搭建测试基础设施');
   });
 
   it('TC2: 无 description 默认 prompt', async () => {
@@ -90,7 +89,7 @@ describe('planCommand', () => {
     await promise;
 
     const spawnArgs = mockSpawn.mock.calls[0][1];
-    expect(spawnArgs).toContain('/ai-workflow:w-plan 请开始需求规划');
+    expect(spawnArgs).toContain('/ai-workflow-code:w-plan 请开始需求规划');
   });
 
   it('TC3: --resume 恢复流程', async () => {
@@ -100,7 +99,7 @@ describe('planCommand', () => {
     await promise;
 
     const spawnArgs = mockSpawn.mock.calls[0][1];
-    expect(spawnArgs).toContain('/ai-workflow:w-plan --resume 请恢复上次规划会话，继续对齐需求');
+    expect(spawnArgs).toContain('/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求');
   });
 
   // ── 进程生命周期 ──
@@ -147,19 +146,19 @@ describe('planCommand', () => {
     const p1 = planCommand('需求描述', { resume: false });
     await resolveClose(0);
     await p1;
-    expect(mockSpawn.mock.calls[0][1]).toContain('/ai-workflow:w-plan 需求描述');
+    expect(mockSpawn.mock.calls[0][1]).toContain('/ai-workflow-code:w-plan 需求描述');
 
     // 无 description
     const p2 = planCommand(undefined, { resume: false });
     await resolveClose(0);
     await p2;
-    expect(mockSpawn.mock.calls[1][1]).toContain('/ai-workflow:w-plan 请开始需求规划');
+    expect(mockSpawn.mock.calls[1][1]).toContain('/ai-workflow-code:w-plan 请开始需求规划');
 
     // --resume
     const p3 = planCommand('任意', { resume: true });
     await resolveClose(0);
     await p3;
-    expect(mockSpawn.mock.calls[2][1]).toContain('/ai-workflow:w-plan --resume 请恢复上次规划会话，继续对齐需求');
+    expect(mockSpawn.mock.calls[2][1]).toContain('/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求');
   });
 
   // ── spawn 参数验证 ──

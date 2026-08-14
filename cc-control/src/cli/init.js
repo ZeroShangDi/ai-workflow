@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { getPaths } from '../lib/paths.js';
 // import { promptVersion } from '../lib/version.js'; // 版本处理暂时禁用
+import { stateTemplatePath } from '../lib/plugin-bridge.js';
 import { pluginCommand } from './plugin.js';
 import { CYAN, RED, RESET } from '../lib/ui/colors.js';
 import { logSection, logStep } from '../lib/ui/log.js';
@@ -13,7 +14,7 @@ import { logSection, logStep } from '../lib/ui/log.js';
  * 流程：
  *   0. 确认版本号（暂时禁用）
  *   1. 检查前置依赖（tmux、claude）
- *   2. 本地注册插件（注入 plugin/plugin-code 到 .claude/settings.json）
+ *   2. 本地注册插件（注入 plugin/settings.json 到 .claude/settings.json）
  *   3. 初始化 .awf/ 目录结构（从模板复制，--force 补缺失）
  *   4. 注入 awf 规则到 CLAUDE.md
  */
@@ -82,14 +83,14 @@ async function initWorkspace(paths, force, version) {
   const exists = await fs.stat(awfDir).catch(() => null);
 
   if (!exists) {
-    try { await fs.cp(templateDir, awfDir, { recursive: true }); await copyStateTemplate(paths, awfDir); await replaceVersion(awfDir, version); }
+    try { await fs.cp(templateDir, awfDir, { recursive: true }); await copyStateTemplate(awfDir); await replaceVersion(awfDir, version); }
     catch { await fs.mkdir(awfDir, { recursive: true }); logStep('.awf/', 'warn', '模板缺失，已创建空目录'); return; }
     logStep('.awf/', 'ok', '已创建'); return;
   }
   if (!force) { logStep('.awf/', 'warn', '已存在，使用 --force 补全缺失文件'); return; }
 
   await mergeMissing(templateDir, awfDir);
-  await copyStateTemplate(paths, awfDir);
+  await copyStateTemplate(awfDir);
   await replaceVersion(awfDir, version);
   logStep('.awf/', 'ok', '已补全缺失文件');
 }
@@ -105,9 +106,9 @@ async function mergeMissing(src, dest) {
   }
 }
 
-/** 如果目标不存在，从 state.template.json 复制 */
-async function copyStateTemplate(paths, awfDir) {
-  const src = path.join(paths.projectRoot, 'src', 'mcp', 'awf-state', 'state.template.json');
+/** 如果目标不存在，从插件声明的 state.template.json 复制（路径见 plugin-bridge） */
+async function copyStateTemplate(awfDir) {
+  const src = stateTemplatePath();
   const dest = path.join(awfDir, 'state.json');
   if (await fs.stat(dest).catch(() => null)) return;
   try { await fs.copyFile(src, dest); await replaceTimestamp(dest); } catch {}

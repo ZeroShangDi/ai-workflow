@@ -5,22 +5,6 @@ import os from 'os';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * 插件命名空间前缀
- * 所有 spawn claude 时引用的 slash command 必须带此前缀
- * 值与 plugin.json 中的 name 字段保持一致
- */
-export const PLUGIN_NS = 'ai-workflow';
-
-/**
- * 生成带命名空间的命令引用
- * @param {string} cmd - 短命令名，如 'w-plan'
- * @returns {string} 全限定命令，如 '/ai-workflow:w-plan'
- */
-export function pluginCmd(cmd) {
-  return `/${PLUGIN_NS}:${cmd}`;
-}
-
-/**
  * 解析所有关键路径
  *
  * 当前文件位于 cc-control/src/cli/，以此为基准：
@@ -31,6 +15,8 @@ export function pluginCmd(cmd) {
  *   - 阶段提示词模板: src/prompts/run/
  *   - Claude Code 插件目录: ~/.claude/plugins/
  *   - 开发用 settings: .claude/settings.json
+ *
+ * 注：插件命名空间/命令引用已迁至 src/lib/plugin-bridge.js（插件边界唯一模块）
  */
 export function getPaths() {
   const projectRoot = path.resolve(__dirname, '..', '..');

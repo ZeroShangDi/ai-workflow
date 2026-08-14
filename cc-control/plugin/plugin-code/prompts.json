@@ -1,0 +1,18 @@
+{
+  "plan-start": {
+    "prompt": "/ai-workflow-code:w-plan {desc}",
+    "description": "awf plan 传入需求描述时的入口提示词"
+  },
+  "plan-resume": {
+    "prompt": "/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求",
+    "description": "awf plan --resume 恢复上次规划会话的入口提示词"
+  },
+  "plan-default": {
+    "prompt": "/ai-workflow-code:w-plan 请开始需求规划",
+    "description": "awf plan 无描述时的默认入口提示词"
+  },
+  "task-wrapup": {
+    "prompt": "用 awf_task_status 标记 {taskId} done。用 awf_task_result 记录 {taskId} 的执行结果。只做这两步。",
+    "description": "任务未标记 done 时，补发的收尾 prompt（强制标记 + 记录）"
+  }
+}

@@ -1,6 +1,6 @@
 import path from 'path';
 import { spawn } from 'child_process';
-import { pluginCmd } from '../lib/paths.js';
+import { planEntry } from '../lib/plugin-bridge.js';
 // import { setupVersion } from '../lib/version.js'; // 版本处理暂时禁用
 import { logger } from '../lib/ui/log.js';
 
@@ -20,18 +20,11 @@ export async function planCommand(description, options) {
 
   // 2. 安装 profile → 已移至 init 阶段做本地注册
 
-  // 3. 发起交互式对话
-  await spawnClaude(cwd, buildPlanPrompt(description, options.resume));
+  // 3. 发起交互式对话（入口提示词由插件 prompts.json 声明，见 plugin-bridge）
+  await spawnClaude(cwd, await planEntry(description, options.resume));
 }
 
 // ── plan 专用 helper ──
-
-/** 拼接 plan 阶段发送给 Claude Code 的 prompt 字符串 */
-function buildPlanPrompt(description, resume) {
-  if (resume) return `${pluginCmd('w-plan')} --resume 请恢复上次规划会话，继续对齐需求`;
-  if (description) return `${pluginCmd('w-plan')} ${description}`;
-  return `${pluginCmd('w-plan')} 请开始需求规划`;
-}
 
 /** spawn Claude Code 交互式进程 */
 function spawnClaude(cwd, prompt) {

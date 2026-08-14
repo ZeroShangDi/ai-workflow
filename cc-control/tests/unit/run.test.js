@@ -31,9 +31,14 @@ vi.mock('../../src/lib/paths.js', () => ({
     tmuxServer: '/tmp/server.cjs',
     bootstrapScript: '/tmp/bootstrap.sh',
   })),
-  pluginCmd: vi.fn((cmd) => `/ai-workflow:${cmd}`),
-  PLUGIN_NS: 'ai-workflow',
 }));
+
+// plugin-bridge 为插件边界模块，单测 mock（真实逻辑见 plugin-bridge.test.js）
+vi.mock('../../src/lib/plugin-bridge.js', () => ({
+  taskWrapup: vi.fn((taskId) => `用 awf_task_status 标记 ${taskId} done。用 awf_task_result 记录 ${taskId} 的执行结果。只做这两步。`),
+}));
+
+import { taskWrapup } from '../../src/lib/plugin-bridge.js';
 
 const httpState = vi.hoisted(() => ({
   statusResponse: JSON.stringify({ state: 'ready' }),
@@ -311,5 +316,39 @@ describe('runCommand', () => {
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，即将重试'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('连续 2 次超时，跳过任务 T1'));
+  });
+
+  // ── TC18 ──
+
+  it('TC18: 任务未标记 done → 补发收尾 prompt（taskWrapup）', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+    taskWrapup.mockClear();
+
+    httpState.statusResponse = JSON.stringify({ state: 'ready' });
+    httpState.sendResponse = JSON.stringify({ ok: true });
+
+    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
+    const doneTasks = tasksDone(tasks);
+    // loadState 调用序: runCommand(pending) → runLoop(pending) → ensureTaskDone 回查(pending→补发) → 收尾后回查(done) → runLoop 重载(done/FINISH)
+    mockLoadState
+      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
+      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
+      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
+      .mockReturnValueOnce(stateWith({ plan: { tasks: doneTasks } }))
+      .mockReturnValue(stateWith({ plan: { tasks: doneTasks }, currentState: 'FINISH' }));
+    mockFindNextTask
+      .mockReturnValueOnce(tasks[0])
+      .mockReturnValue(null);
+
+    const promise = runCommand(undefined, {});
+    await vi.advanceTimersByTimeAsync(5000);
+    await promise;
+    vi.useRealTimers();
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 未标记 done，补发收尾 prompt'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('收尾 prompt 已生效'));
+    expect(taskWrapup).toHaveBeenCalledWith('T1');
   });
 });
