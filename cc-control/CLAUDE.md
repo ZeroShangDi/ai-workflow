@@ -22,14 +22,16 @@ cc-control/
     config.json            #   ★ 唯一配置源：port / marketplace / mcpServers / hooks
                            #     （render-config.mjs 据此生成下方各注册文件）
     settings.json          #   安装清单（本地注入源 / 全局安装源，含 core + plugin-code）
-    core/                  #   引擎层插件 ai-workflow-core：MCP + hooks（跨领域通用）
+    core/                  #   引擎层插件 ai-workflow-core：MCP + hooks + 运行态命令技能（跨领域通用）
       plugin.json          #     插件声明（含 hooks）
       .mcp.json            #     3 个 MCP server 声明（相对路径）
       hooks/hooks.json     #     5 个 hooks
+      commands/            #     slash commands（w-start/pause/monitor）
+      skills/              #     skills（awf-run-* 运行态 + awf-skill/awf-state）
       mcp/                 #     MCP server 实现（state/session/oneshot + state 模板）
     plugin-code/           #   领域层插件 ai-workflow-code：编程命令 + 技能
-      commands/            #     15 个 slash commands
-      skills/              #     30 个 skills
+      commands/            #     slash commands（w-plan* 规划 + w-dev/debug/review/test/doc/commit/ui-*）
+      skills/              #     skills（awf-plan-* + code-*）
 
   src/                     # 应用代码
     awf.js                 #   CLI 入口（Commander，7 个命令）
@@ -97,7 +99,17 @@ PLAN → DESIGN (if UI) → CODE (loop per task) → REVIEW → TEST → FINISH
 
 Any node can loop back. FINISH is a milestone marker, not project end.
 
-## Slash commands（15 个，位于 plugin/plugin-code/commands/）
+## Slash commands（双插件）
+
+### core 插件（plugin/core/commands/，命名空间 `ai-workflow-core`）
+
+| Command | Purpose |
+|---------|---------|
+| `/w-start` | 标记 state.json 进入 awf 运行模式（plan/run），awf run 入口触发 |
+| `/w-pause` | 标记暂停 awf 模式，进入人工介入状态 |
+| `/w-monitor` | loop 检测 — 非 tmux 调用的 cc 监测 tmux 中 cc 状态 |
+
+### plugin-code 插件（plugin/plugin-code/commands/，命名空间 `ai-workflow-code`）
 
 | Command | Purpose |
 |---------|---------|
@@ -113,17 +125,10 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 | `/w-commit` | 提交流程 — 常规提交 |
 | `/w-ui-design` | 设计原型界面（UI 设计稿流程） |
 | `/w-ui-code` | 按原型设计稿实现静态页面 |
-| `/w-start` | 标记 state.json 进入 awf 运行模式（plan/run），awf run 入口触发 |
-| `/w-pause` | 标记暂停 awf 模式，进入人工介入状态 |
-| `/w-monitor` | loop 检测 — 非 tmux 调用的 cc 监测 tmux 中 cc 状态 |
 
-## Skills（30 个，位于 plugin/plugin-code/skills/）
+## Skills（双插件）
 
-**Plan 阶段（awf-plan-*）**
-- **`awf-plan-norm`** — 需求规范化：原始需求 → 结构化目标/边界/场景/验收标准
-- **`awf-plan-wbs`** — 生成 WBS 空间树（任务拆分）
-- **`awf-plan-tasks`** — 生成任务列表（插入门禁任务）
-- **`awf-plan-prompt`** — 执行提示词生成（填入任务）
+### core 插件（plugin/core/skills/，命名空间 `ai-workflow-core`）
 
 **Run 阶段（awf-run-*）**
 - **`awf-run-decision`** — 运行中需决策时的处理方案
@@ -135,6 +140,16 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 **通用**
 - **`awf-skill`** — Skill 生命周期管理（创建/修改/聚合/拆分/审计）
 - **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ plugin/core/mcp/awf-state/）
+
+### plugin-code 插件（plugin/plugin-code/skills/，命名空间 `ai-workflow-code`）
+
+**Plan 阶段（awf-plan-*）**
+- **`awf-plan-norm`** — 需求规范化：原始需求 → 结构化目标/边界/场景/验收标准
+- **`awf-plan-wbs`** — 生成 WBS 空间树（任务拆分）
+- **`awf-plan-tasks`** — 生成任务列表（插入门禁任务）
+- **`awf-plan-prompt`** — 执行提示词生成（填入任务）
+
+**通用**
 - **`code-context-onboard`** — 跨阶段上下文传递格式 + 压缩规则
 - **`code-ask-question`** — 问题描述规范
 - **`code-commit-gitflow`** — Git 使用 + 版本管理

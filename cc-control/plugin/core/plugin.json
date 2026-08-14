@@ -1,6 +1,6 @@
 {
   "name": "ai-workflow-core",
-  "description": "AI Workflow 引擎层插件 — 跨领域通用：MCP（state/session/oneshot）+ hooks",
+  "description": "AI Workflow 引擎层插件 — 跨领域通用：MCP（state/session/oneshot）+ hooks + 运行态命令技能",
   "version": "2.0.0",
   "author": {
     "name": "v-shangjunhao"
