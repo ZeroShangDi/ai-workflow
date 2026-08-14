@@ -8,7 +8,7 @@
 
 1. **版本确认** — 调用 `promptVersion()` 交互式选择/输入版本号（**暂时禁用**，`version = undefined`）
 2. **前置依赖检查** — 检查 `tmux` 和 `claude` 是否可执行
-3. **注册插件** — 默认本地注入：把 `plugin/plugin-code/settings.json` 合并进项目 `.claude/settings.json`（无 exec 安装）
+3. **注册插件** — 默认本地注入：把 `plugin/settings.json` 合并进项目 `.claude/settings.json`（无 exec 安装）
 4. **工作区初始化** — 从模板创建 `.awf/` 目录结构
 5. **CLAUDE.md 注入** — 检查项目 CLAUDE.md，注入 awf 运行时规则
 
@@ -22,14 +22,14 @@
 |------|------|------|------|
 | `--force` | CLI flag | `options.force` | 当 `.awf/` 已存在时，补全缺失文件而非跳过 |
 | `process.cwd()` | 路径 | 系统 | 目标项目目录（settings.json 注入与 .awf/ 创建处） |
-| `plugin/plugin-code/settings.json` | 文件 | 包内 | 本地注册注入模板（`<pkg>` 占位符 → 包根路径） |
+| `plugin/settings.json` | 文件 | 包内 | 本地注册注入模板（`<pkg>` 占位符 → 包根路径） |
 
 ### 输出
 
 | 输出 | 类型 | 位置 | 说明 |
 |------|------|------|------|
 | `.awf/` 目录结构 | 文件系统 | `cwd/.awf/` | 从 `src/templates/awf/` 复制 |
-| `state.json` | 文件 | `.awf/state.json` | 从 `state.template.json` 复制，替换 `{{TIMESTAMP}}`；`{{VERSION}}` 因版本禁用保留占位符 |
+| `state.json` | 文件 | `.awf/state.json` | 从 `plugin/core/mcp/awf-state/state.template.json` 复制，替换 `{{TIMESTAMP}}`；`{{VERSION}}` 因版本禁用保留占位符 |
 | `.claude/settings.json` | 文件 | `cwd/.claude/settings.json` | 本地注册：合并 `enabledPlugins` / `extraKnownMarketplaces` / `plugins` 等键 |
 | `CLAUDE.md` | 文件 | `cwd/CLAUDE.md` | 创建或追加 awf 规则块 |
 | 控制台输出 | stdout | — | 分节报告每步结果（ok/warn/skip/error） |
@@ -38,9 +38,9 @@
 
 | 操作 | 目标 | 条件 |
 |------|------|------|
-| `installProfile` | `plugin/plugin-code/settings.json` → `cwd/.claude/settings.json` | 由 `pluginCommand('install')` 调用（本地 scope） |
+| `installProfile` | `plugin/settings.json` → `cwd/.claude/settings.json` | 由 `pluginCommand('install')` 调用（本地 scope） |
 | `fs.cp` (递归) | `src/templates/awf/` → `.awf/` | `.awf/` 不存在 |
-| `fs.copyFile` | `state.template.json` → `.awf/state.json` | `.awf/state.json` 不存在 |
+| `fs.copyFile` | `plugin/core/mcp/awf-state/state.template.json` → `.awf/state.json` | `.awf/state.json` 不存在 |
 | `fs.mkdir` (递归) | `.awf/` | 模板缺失时的 fallback |
 | `fs.writeFile` | `CLAUDE.md` | 不存在或需要注入 |
 | `fs.writeFile` | `.awf/state.json` | 替换 `{{TIMESTAMP}}` 占位符 |
@@ -74,7 +74,7 @@
 | 函数 | 说明 |
 |------|------|
 | `pluginCommand(action, {scope})` | 按 scope 分发：local → `localPlugin`，global → `globalPlugin` |
-| `installProfile(projectRoot, pkgRoot)` | 本地注册：读取 `plugin/plugin-code/settings.json`，深合并进项目 `.claude/settings.json` |
+| `installProfile(projectRoot, pkgRoot)` | 本地注册：读取 `plugin/settings.json`，深合并进项目 `.claude/settings.json` |
 | `loadPluginsFromProfile(paths)` | 读取 settings.json 的 `plugins` 字段（全局安装清单） |
 | `installAllPlugins(paths, plugins)` | 全局安装：注册 marketplace + 逐个 `claude plugin install` |
 

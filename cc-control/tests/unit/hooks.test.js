@@ -4,14 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const settingsPath = path.resolve(__dirname, '../../src/server/hooks/settings.json');
+const settingsPath = path.resolve(__dirname, '../../plugin/config.json');
 
 function loadConfig() {
   const raw = fs.readFileSync(settingsPath, 'utf-8');
   return { config: JSON.parse(raw), raw };
 }
 
-describe('hooks settings.json', () => {
+describe('plugin config.json hooks', () => {
   // ── TC1: 文件存在且为合法 JSON ──
 
   it('TC1: 文件存在且为合法 JSON', () => {

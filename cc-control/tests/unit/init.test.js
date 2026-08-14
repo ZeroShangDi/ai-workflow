@@ -17,8 +17,6 @@ vi.mock('../../src/lib/paths.js', () => ({
     claudePlugins: `${FAKE_ROOT}/fake-claude-plugins`,
     ccSettings: `${FAKE_ROOT}/.claude/settings.json`,
   })),
-  pluginCmd: vi.fn((cmd) => `/ai-workflow:${cmd}`),
-  PLUGIN_NS: 'ai-workflow',
 }));
 
 import { initCommand } from '../../src/cli/init.js';
@@ -45,19 +43,22 @@ async function setupTemplates() {
     '',
   ].join('\n'));
 
-  const stateTmplDir = path.join(FAKE_ROOT, 'src', 'mcp', 'awf-state');
+  const stateTmplDir = path.join(FAKE_ROOT, 'plugin', 'core', 'mcp', 'awf-state');
   await fs.mkdir(stateTmplDir, { recursive: true });
   await fs.writeFile(
     path.join(stateTmplDir, 'state.template.json'),
     JSON.stringify({ mode: 'idle', version: '{{VERSION}}', lastUpdated: '{{TIMESTAMP}}' }, null, 2),
   );
 
-  // 本地注册插件：plugin/plugin-code/settings.json（init 注入到项目 .claude/settings.json）
-  const profileSettings = path.join(FAKE_ROOT, 'plugin', 'plugin-code', 'settings.json');
+  // 本地注册插件：plugin/settings.json（安装清单，init 注入到项目 .claude/settings.json）
+  const profileSettings = path.join(FAKE_ROOT, 'plugin', 'settings.json');
   await fs.mkdir(path.dirname(profileSettings), { recursive: true });
   await fs.writeFile(profileSettings, JSON.stringify({
-    plugins: ['ai-workflow@ai-workflow-dev'],
-    enabledPlugins: { 'ai-workflow@ai-workflow-dev': true },
+    plugins: ['ai-workflow-core@ai-workflow-dev', 'ai-workflow-code@ai-workflow-dev'],
+    enabledPlugins: {
+      'ai-workflow-core@ai-workflow-dev': true,
+      'ai-workflow-code@ai-workflow-dev': true,
+    },
     extraKnownMarketplaces: {
       'ai-workflow-dev': { source: { source: 'directory', path: '<pkg>/plugin' } },
     },
@@ -127,10 +128,11 @@ describe('initCommand', () => {
     expect(raw).not.toContain('{{TIMESTAMP}}');
     expect(raw).toMatch(/"lastUpdated": "20\d\d-\d\d-\d\dT/);
 
-    // 本地注册插件：plugin/plugin-code/settings.json 注入到项目 .claude/settings.json（无 exec 安装）
+    // 本地注册插件：plugin/settings.json 注入到项目 .claude/settings.json（无 exec 安装）
     const settingsRaw = await fs.readFile(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8');
     const settings = JSON.parse(settingsRaw);
-    expect(settings.enabledPlugins['ai-workflow@ai-workflow-dev']).toBe(true);
+    expect(settings.enabledPlugins['ai-workflow-core@ai-workflow-dev']).toBe(true);
+    expect(settings.enabledPlugins['ai-workflow-code@ai-workflow-dev']).toBe(true);
     expect(settings.extraKnownMarketplaces['ai-workflow-dev'].source.path).toBe(`${FAKE_ROOT}/plugin`);
     const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install'));
     expect(instCalls).toHaveLength(0);
@@ -238,7 +240,7 @@ describe('initCommand', () => {
 
   it('TC11: 插件模板缺失 → 本地注册 warn 不阻断', async () => {
     withDeps();
-    await fs.rm(path.join(FAKE_ROOT, 'plugin', 'plugin-code', 'settings.json'), { force: true });
+    await fs.rm(path.join(FAKE_ROOT, 'plugin', 'settings.json'), { force: true });
     await initCommand({ force: false });
     expect((await fs.stat(path.join(tmpDir, '.awf'))).isDirectory()).toBe(true);
     expect(process.exit).not.toHaveBeenCalledWith(1);

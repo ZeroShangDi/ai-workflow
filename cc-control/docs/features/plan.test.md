@@ -37,7 +37,7 @@
 - `loadState(cwd)` 被调用一次
 - `saveState` 被调用，state.version 被设置为所选版本号
 - `logger.info` 输出 "版本: …"
-- `spawn` 被调用，args 为 `['--settings', ..., '--dangerously-skip-permissions', '/ai-workflow:w-plan 搭建测试基础设施']`
+- `spawn` 被调用，args 为 `['--settings', ..., '--dangerously-skip-permissions', '/ai-workflow-code:w-plan 搭建测试基础设施']`
 - `stdio` 为 `'inherit'`，`cwd` 为 `process.cwd()`
 - spawn 的 proc 监听 `close` 和 `error` 事件
 - code=0 时 `logger.success('规划会话结束')` 被调用
@@ -51,7 +51,7 @@
 **执行**：`planCommand(undefined, { resume: false })`
 
 **断言**：
-- spawn prompt 为 `/ai-workflow:w-plan 请开始需求规划`
+- spawn prompt 为 `/ai-workflow-code:w-plan 请开始需求规划`
 - 其余流程同 TC1
 
 ---
@@ -63,7 +63,7 @@
 **执行**：`planCommand("任意文本", { resume: true })`
 
 **断言**：
-- `--resume` 优先于 `description`：spawn prompt 为 `/ai-workflow:w-plan --resume 请恢复上次规划会话，继续对齐需求`
+- `--resume` 优先于 `description`：spawn prompt 为 `/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求`
 - `promptVersion` 和 `saveState` 仍正常执行
 
 ---
@@ -153,9 +153,9 @@
 
 | 输入 | 预期 prompt |
 |------|------------|
-| `("需求", {})` | `/ai-workflow:w-plan 需求` |
-| `(undefined, {})` | `/ai-workflow:w-plan 请开始需求规划` |
-| `("任意", { resume: true })` | `/ai-workflow:w-plan --resume 请恢复上次规划会话，继续对齐需求` |
+| `("需求", {})` | `/ai-workflow-code:w-plan 需求` |
+| `(undefined, {})` | `/ai-workflow-code:w-plan 请开始需求规划` |
+| `("任意", { resume: true })` | `/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求` |
 
 ---
 

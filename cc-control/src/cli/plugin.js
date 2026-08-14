@@ -10,7 +10,7 @@ import { installProfile, uninstallProfile } from '../lib/profile.js';
  * awf plugin — 独立插件管理
  *
  * 两种注册实现：
- *   - 本地注册（默认 scope=local）：注入 plugin/plugin-code/settings.json 到项目 .claude/settings.json
+ *   - 本地注册（默认 scope=local）：注入 plugin/settings.json 到项目 .claude/settings.json
  *   - 全局注册（scope=global）：读取 settings.json 的 plugins 字段 → claude plugin install
  * pluginCommand 仅负责按 scope 分发，具体实现见下方 localPlugin / globalPlugin。
  */
@@ -81,9 +81,9 @@ function execAsync(cmd, opts = {}) {
   });
 }
 
-/** 读取 plugin/plugin-code/settings.json 的 plugins 字段，返回需全局安装的插件列表 */
+/** 读取 plugin/settings.json 的 plugins 字段，返回需全局安装的插件列表 */
 async function loadPluginsFromProfile(paths) {
-  const configPath = path.join(paths.projectRoot, 'plugin', 'plugin-code', 'settings.json');
+  const configPath = path.join(paths.projectRoot, 'plugin', 'settings.json');
   try { const config = JSON.parse(await fs.readFile(configPath, 'utf-8')); return config.plugins || []; }
   catch { return []; }
 }

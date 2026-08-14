@@ -46,9 +46,9 @@ spawn('claude', [
 
 | 条件 | prompt |
 |------|--------|
-| `--resume` 为 true | `/ai-workflow:w-plan --resume 请恢复上次规划会话，继续对齐需求` |
-| 有 description | `/ai-workflow:w-plan {description}` |
-| 无 description 且非 resume | `/ai-workflow:w-plan 请开始需求规划` |
+| `--resume` 为 true | `/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求` |
+| 有 description | `/ai-workflow-code:w-plan {description}` |
+| 无 description 且非 resume | `/ai-workflow-code:w-plan 请开始需求规划` |
 
 ---
 

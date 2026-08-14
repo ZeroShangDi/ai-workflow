@@ -4,24 +4,20 @@ import path from 'path';
 /**
  * Profile 本地注册实现（取代全局 claude plugin install / 符号链接）
  *
- * 将 plugin/plugin-code 的 skills/commands 注入项目 .claude/settings.json，
- * 使命令/技能仅对当前项目生效。供 init / awf plugin 复用。
+ * 将 plugin/settings.json（安装清单）注入项目 .claude/settings.json，
+ * 使插件仅对当前项目生效。供 init / awf plugin 复用。
  */
 
-const PROFILE_DIR = 'plugin-code';
-const INJECT_KEYS = ['extraSkillsDir', 'extraCommandsDir'];
-
 /**
- * 本地注册：把 plugin/<PROFILE_DIR>/settings.json 增量合并进项目 settings.json
+ * 本地注册：把 plugin/settings.json 增量合并进项目 settings.json
  * @param {string} projectRoot - 目标项目根目录（.claude/settings.json 所在处）
  * @param {string} pkgRoot - cc-control 包根目录（plugin/ 所在处）
  * @returns {{written: boolean, path: string|null, error?: string}}
  */
 export function installProfile(projectRoot, pkgRoot) {
-  const profileDir = path.join(pkgRoot, 'plugin', PROFILE_DIR);
-  const templatePath = path.join(profileDir, 'settings.json');
+  const templatePath = path.join(pkgRoot, 'plugin', 'settings.json');
   if (!fs.existsSync(templatePath)) {
-    return { written: false, path: null, error: `settings.json not found in ${profileDir}` };
+    return { written: false, path: null, error: `settings.json not found in ${pkgRoot}/plugin` };
   }
 
   const template = JSON.parse(fs.readFileSync(templatePath, 'utf8'));
@@ -56,7 +52,7 @@ export function uninstallProfile(projectRoot, pkgRoot) {
 
   const existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
   const template = readTemplate(pkgRoot);
-  const injectKeys = new Set([...INJECT_KEYS, ...(template ? Object.keys(template) : [])]);
+  const injectKeys = new Set(template ? Object.keys(template) : []);
   let changed = false;
 
   for (const key of injectKeys) {
@@ -65,10 +61,7 @@ export function uninstallProfile(projectRoot, pkgRoot) {
 
     if (Array.isArray(existing[key])) {
       const remove = new Set(Array.isArray(injected) ? injected : []);
-      const kept = existing[key].filter((item) => {
-        if (remove.has(item)) return false;
-        return !(typeof item === 'string' && (item.includes(`/profiles/${PROFILE_DIR}/`) || item.includes(`/plugin/${PROFILE_DIR}/`)));
-      });
+      const kept = existing[key].filter((item) => !remove.has(item));
       if (kept.length !== existing[key].length) { existing[key] = kept; changed = true; }
       if (existing[key].length === 0) delete existing[key];
     } else if (isPlainObject(existing[key])) {
@@ -91,7 +84,7 @@ export function uninstallProfile(projectRoot, pkgRoot) {
 
 /** 读取注入模板 settings.json，缺失/非法时返回 null */
 function readTemplate(pkgRoot) {
-  const templatePath = path.join(pkgRoot, 'plugin', PROFILE_DIR, 'settings.json');
+  const templatePath = path.join(pkgRoot, 'plugin', 'settings.json');
   try { return JSON.parse(fs.readFileSync(templatePath, 'utf8')); }
   catch { return null; }
 }

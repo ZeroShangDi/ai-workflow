@@ -1,13 +1,19 @@
 {
   "name": "ai-workflow-dev",
-  "description": "ai-workflow 编程模式 — 项目级按地址引用（commands/skills/hooks/mcpServers）",
+  "description": "ai-workflow 双插件市场 — core 引擎层 + plugin-code 编程层",
   "owner": {
     "name": "v-shangjunhao"
   },
   "plugins": [
     {
-      "name": "ai-workflow",
-      "description": "编程模式：15 命令 + 30 技能 + 3 MCP + 5 hooks",
+      "name": "ai-workflow-core",
+      "description": "AI Workflow 引擎层插件 — 跨领域通用：MCP（state/session/oneshot）+ hooks",
+      "version": "2.0.0",
+      "source": "./core/"
+    },
+    {
+      "name": "ai-workflow-code",
+      "description": "AI Workflow 编程模式插件 — 15 命令 + 30 技能",
       "version": "2.0.0",
       "source": "./plugin-code/"
     }

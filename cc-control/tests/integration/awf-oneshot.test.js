@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/mcp/awf-oneshot/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-oneshot/server.cjs', import.meta.url));
 
 // ── mock spawn（awf-oneshot 为原生 CJS，用注入钩子）──
 const mockSpawn = vi.fn((cmd, args, options) => {

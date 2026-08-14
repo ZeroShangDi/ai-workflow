@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 // ── server path ──
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/mcp/awf-state/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-state/server.cjs', import.meta.url));
 
 // ── fixtures ──
 

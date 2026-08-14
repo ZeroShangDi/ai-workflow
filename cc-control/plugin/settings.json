@@ -2,12 +2,14 @@
   "plugins": [
     "superpowers@claude-plugins-official",
     "figma@claude-plugins-official",
-    "ai-workflow@ai-workflow-dev"
+    "ai-workflow-core@ai-workflow-dev",
+    "ai-workflow-code@ai-workflow-dev"
   ],
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
     "figma@claude-plugins-official": true,
-    "ai-workflow@ai-workflow-dev": true
+    "ai-workflow-core@ai-workflow-dev": true,
+    "ai-workflow-code@ai-workflow-dev": true
   },
   "extraKnownMarketplaces": {
     "ai-workflow-dev": {

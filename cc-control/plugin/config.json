@@ -1,4 +1,55 @@
 {
+  "port": 8787,
+  "marketplace": {
+    "name": "ai-workflow-dev",
+    "description": "ai-workflow 双插件市场 — core 引擎层 + plugin-code 编程层",
+    "owner": {
+      "name": "v-shangjunhao"
+    },
+    "plugins": [
+      {
+        "dir": "core",
+        "name": "ai-workflow-core",
+        "description": "AI Workflow 引擎层插件 — 跨领域通用：MCP（state/session/oneshot）+ hooks",
+        "version": "2.0.0",
+        "keywords": [
+          "workflow",
+          "mcp",
+          "hooks"
+        ]
+      },
+      {
+        "dir": "plugin-code",
+        "name": "ai-workflow-code",
+        "description": "AI Workflow 编程模式插件 — 15 命令 + 30 技能",
+        "version": "2.0.0",
+        "keywords": [
+          "workflow",
+          "w-plan",
+          "w-dev",
+          "w-review",
+          "autonomous"
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "awf-state": {
+      "args": ["./mcp/awf-state/server.cjs"],
+      "env": {
+        "AWF_PROJECT_ROOT": "{PROJECT_DIR}"
+      }
+    },
+    "awf-session": {
+      "args": ["./mcp/awf-session/server.cjs"],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:{PORT}"
+      }
+    },
+    "awf-oneshot": {
+      "args": ["./mcp/awf-oneshot/server.cjs"]
+    }
+  },
   "hooks": {
     "SessionStart": [
       {

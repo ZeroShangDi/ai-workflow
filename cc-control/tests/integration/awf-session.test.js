@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/mcp/awf-session/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-session/server.cjs', import.meta.url));
 
 // ── mock execSync（capturePane 用；awf-session 为原生 CJS，用注入钩子）──
 const mockExecSync = vi.fn(() => 'pane text');

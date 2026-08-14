@@ -24,7 +24,7 @@
 | 12 | 版本处理禁用 — state.json 保留 {{VERSION}} 占位符 | 边界条件 |
 
 > 说明：曾覆盖 `.plugins.json`（TC12/TC13）与 symlink 安装（TC15/TC16）的用例已删除。
-> `.plugins.json` 机制已移除，全局安装改读 `plugin/plugin-code/settings.json` 的 `plugins` 字段（见 `cli-aux.test.js`）；
+> `.plugins.json` 机制已移除，全局安装改读 `plugin/settings.json` 的 `plugins` 字段（见 `cli-aux.test.js`）；
 > init 不再处理符号链接安装（清理逻辑迁至全局安装 `installAllPlugins`）。
 
 ---
@@ -33,7 +33,7 @@
 
 ### TC1: 首次 init — 完整流程成功
 
-**前置条件**：目标目录无 `.awf/`、无 `CLAUDE.md`，模板目录与 `plugin/plugin-code/settings.json` 存在
+**前置条件**：目标目录无 `.awf/`、无 `CLAUDE.md`，模板目录与 `plugin/settings.json` 存在
 
 **执行**：`initCommand({ force: false })`
 
@@ -41,7 +41,7 @@
 - `.awf/` 目录被创建，包含 `state.json`、`README.md` 等模板文件
 - `state.json` 中 `{{VERSION}}` 保留占位符（版本处理禁用）
 - `state.json` 中 `{{TIMESTAMP}}` 被替换为 ISO 时间戳
-- `.claude/settings.json` 被创建，包含 `enabledPlugins['ai-workflow@ai-workflow-dev']` 与 `extraKnownMarketplaces`（path = `<pkg>/plugin` 解析后）
+- `.claude/settings.json` 被创建，包含 `enabledPlugins['ai-workflow-core@ai-workflow-dev']` 与 `enabledPlugins['ai-workflow-code@ai-workflow-dev']`，以及 `extraKnownMarketplaces`（path = `<pkg>/plugin` 解析后）
 - **无** `claude plugin install` exec 调用（本地注入，非全局安装）
 - `CLAUDE.md` 被创建，内容包含 `<!-- awf-rules start -->`
 - 控制台输出包含 "初始化完成"
@@ -163,7 +163,7 @@
 
 ### TC11: 插件模板缺失 — 本地注册 warn 不阻断
 
-**前置条件**：`plugin/plugin-code/settings.json` 不存在
+**前置条件**：`plugin/settings.json` 不存在
 
 **执行**：`initCommand({ force: false })`
 
@@ -195,4 +195,4 @@
 | `paths.js` | `vi.mock` | 返回临时目录中的路径（`projectRoot` = FAKE_ROOT） |
 | `version.js` | 已移除 | 版本处理禁用，不再 mock |
 
-**测试夹具（FAKE_ROOT）**：在 `setupTemplates()` 中预置 `src/templates/awf/`、`src/templates/CLAUDE.md.template`、`src/mcp/awf-state/state.template.json`、`plugin/plugin-code/settings.json`，供 init 流程读取。
+**测试夹具（FAKE_ROOT）**：在 `setupTemplates()` 中预置 `src/templates/awf/`、`src/templates/CLAUDE.md.template`、`plugin/core/mcp/awf-state/state.template.json`、`plugin/settings.json`，供 init 流程读取。

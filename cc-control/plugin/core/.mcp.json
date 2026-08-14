@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "awf-state": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "./mcp/awf-state/server.cjs"
+      ],
+      "env": {
+        "AWF_PROJECT_ROOT": "${CLAUDE_PROJECT_DIR}"
+      }
+    },
+    "awf-session": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "./mcp/awf-session/server.cjs"
+      ],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:8787"
+      }
+    },
+    "awf-oneshot": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "./mcp/awf-oneshot/server.cjs"
+      ]
+    }
+  }
+}

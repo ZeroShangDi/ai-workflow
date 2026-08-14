@@ -400,7 +400,7 @@ UI稿已更新，先对比和上一版的差异点，再逐个修改
 你自主推进，不用每个步骤都等我确认。
 改动越小越好。
 
-/ai-workflow:w-dev {task.prompt}
+/ai-workflow-code:w-dev {task.prompt}
 
 完成后更新状态。
 ```

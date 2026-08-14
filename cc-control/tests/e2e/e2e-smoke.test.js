@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
-const AWF_STATE_MCP_PATH = fileURLToPath(new URL('../../src/mcp/awf-state/server.cjs', import.meta.url));
+const AWF_STATE_MCP_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-state/server.cjs', import.meta.url));
 const FIXTURE_STATE = fileURLToPath(new URL('../fixtures/minimal-state.json', import.meta.url));
 
 // ── mock tmux：只 mock tmux。E2E 用「真实 RunLogger」验证 .awf/logs 输出 ──

@@ -28,8 +28,8 @@ vi.mock('../../src/lib/paths.js', () => ({
     tmuxServer: '/tmp/server.cjs',
     bootstrapScript: '/tmp/bootstrap.sh',
   })),
-  pluginCmd: vi.fn((cmd) => `/ai-workflow:${cmd}`),
-  PLUGIN_NS: 'ai-workflow',
+  pluginCmd: vi.fn((cmd) => `/ai-workflow-code:${cmd}`),
+  PLUGIN_NS: 'ai-workflow-code',
 }));
 
 // ── http mock for server check ──
@@ -102,7 +102,7 @@ describe('cli-aux', () => {
 
   describe('pluginCommand', () => {
     const PROFILE_PLUGINS = JSON.stringify({
-      plugins: ['superpowers@claude-plugins-official', 'figma@claude-plugins-official', 'ai-workflow@ai-workflow-dev'],
+      plugins: ['superpowers@claude-plugins-official', 'figma@claude-plugins-official', 'ai-workflow-code@ai-workflow-dev'],
     });
 
     it('TC1: install — 全局正常安装（从 settings.json.plugins 读取）', async () => {
@@ -114,11 +114,11 @@ describe('cli-aux', () => {
       await pluginCommand('install', { scope: 'global' });
 
       expect(mockExec).toHaveBeenCalledWith(
-        'claude plugin install ai-workflow@ai-workflow-dev',
+        'claude plugin install ai-workflow-code@ai-workflow-dev',
         expect.any(Object),
         expect.any(Function),
       );
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'ok', '已安装');
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'ok', '已安装');
     });
 
     it('TC2: install — 已用户级安装则跳过', async () => {
@@ -128,7 +128,7 @@ describe('cli-aux', () => {
         if (cmd.includes('cat')) return Buffer.from(JSON.stringify({ plugins: {
           'superpowers@claude-plugins-official': [{ scope: 'user' }],
           'figma@claude-plugins-official': [{ scope: 'user' }],
-          'ai-workflow@ai-workflow-dev': [{ scope: 'user' }],
+          'ai-workflow-code@ai-workflow-dev': [{ scope: 'user' }],
         } }));
         return Buffer.from('');
       });
@@ -136,7 +136,7 @@ describe('cli-aux', () => {
       await pluginCommand('install', { scope: 'global' });
 
       expect(mockExec).not.toHaveBeenCalled();
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'skip', '已安装');
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'skip', '已安装');
     });
 
     it('TC3: uninstall — 全局正常卸载', async () => {
@@ -145,11 +145,11 @@ describe('cli-aux', () => {
       await pluginCommand('uninstall', { scope: 'global' });
 
       expect(mockExec).toHaveBeenCalledWith(
-        'claude plugin uninstall ai-workflow@ai-workflow-dev',
+        'claude plugin uninstall ai-workflow-code@ai-workflow-dev',
         expect.any(Object),
         expect.any(Function),
       );
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'ok', '已卸载');
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'ok', '已卸载');
     });
 
     it('TC4: install — exec 失败报错不阻断', async () => {
@@ -161,7 +161,7 @@ describe('cli-aux', () => {
 
       await pluginCommand('install', { scope: 'global' });
 
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'error', expect.stringContaining('安装失败'));
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'error', expect.stringContaining('安装失败'));
     });
 
     it('TC5: uninstall — exec 失败报错不阻断', async () => {
@@ -170,7 +170,7 @@ describe('cli-aux', () => {
 
       await pluginCommand('uninstall', { scope: 'global' });
 
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow', 'error', expect.stringContaining('卸载失败'));
+      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'error', expect.stringContaining('卸载失败'));
     });
 
     it('TC6: 无效 action → 报错退出', async () => {

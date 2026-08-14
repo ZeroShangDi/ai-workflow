@@ -12,7 +12,7 @@ claude --plugin-dir .
 **本地永久安装：**
 ```
 /plugin marketplace add ./
-/plugin install ai-workflow@ai-workflow-dev
+/plugin install ai-workflow-code@ai-workflow-dev
 ```
 
 ## 包含的命令
