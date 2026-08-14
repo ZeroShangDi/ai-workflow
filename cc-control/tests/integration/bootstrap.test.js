@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,11 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const BOOTSTRAP = path.join(ROOT, 'scripts', 'bootstrap.sh');
-const TEMPLATE_HOOKS = path.join(ROOT, 'src', 'server', 'hooks', 'settings.json');
-const TEMPLATE_MCP = path.join(ROOT, 'src', 'mcp', 'mcp.json.template');
 const SYSTEM_PATH = '/usr/bin:/bin';
 
-// ── 临时环境 + PATH stub（tmux/claude/sleep 记日志，不真正执行）──
+// ── 临时环境 + PATH stub（tmux/claude/node/sleep 记日志或空转，不真正执行）──
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-bootstrap-test-'));
 const STUBBIN = path.join(TMP, 'bin');
 const STUB_LOG = path.join(TMP, 'stub.log');
@@ -34,17 +32,18 @@ writeStub('claude', `
 echo "claude $*" >> "$STUB_LOG"
 exit 0
 `);
+writeStub('node', 'exit 0'); // 仅满足 command -v node 前置检查
 writeStub('sleep', 'exit 0'); // 消除脚本尾部 sleep 3 的等待
 
-// 生成只含指定 stub 的 bin 目录（模拟 tmux/claude 缺失）
+// 生成只含指定 stub 的 bin 目录（模拟 tmux/claude/node 缺失）
 function subsetBin(names) {
   const dir = fs.mkdtempSync(path.join(TMP, 'bin-'));
   for (const n of names) fs.copyFileSync(path.join(STUBBIN, n), path.join(dir, n));
   return dir;
 }
 
-function runBootstrap({ script = BOOTSTRAP, binDir = STUBBIN, env = {} } = {}) {
-  return spawnSync('bash', [script], {
+function runBootstrap({ binDir = STUBBIN, env = {} } = {}) {
+  return spawnSync('bash', [BOOTSTRAP], {
     env: {
       ...process.env,
       PATH: `${binDir}:${SYSTEM_PATH}`,
@@ -58,8 +57,6 @@ function runBootstrap({ script = BOOTSTRAP, binDir = STUBBIN, env = {} } = {}) {
   });
 }
 
-const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf-8'));
-
 beforeEach(() => {
   fs.writeFileSync(STUB_LOG, '');
   fs.rmSync(WORKDIR, { recursive: true, force: true });
@@ -72,70 +69,46 @@ afterAll(() => {
 
 describe('环境检查', () => {
   it('TC1: tmux 未安装 → exit 1', () => {
-    const res = runBootstrap({ binDir: subsetBin(['claude', 'sleep']) });
+    const res = runBootstrap({ binDir: subsetBin(['claude', 'node', 'sleep']) });
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('tmux not found. Install with: brew install tmux');
-    expect(fs.existsSync(path.join(WORKDIR, '.claude'))).toBe(false); // 渲染未执行
   });
 
   it('TC2: claude 未安装 → exit 1', () => {
-    const res = runBootstrap({ binDir: subsetBin(['tmux', 'sleep']) });
+    const res = runBootstrap({ binDir: subsetBin(['tmux', 'node', 'sleep']) });
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('claude not found on PATH');
-    expect(fs.existsSync(path.join(WORKDIR, '.claude'))).toBe(false);
+  });
+
+  it('TC3: node 未安装（MCP server 需要）→ exit 1', () => {
+    const res = runBootstrap({ binDir: subsetBin(['tmux', 'claude', 'sleep']) });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('node not found on PATH');
   });
 });
 
-describe('配置渲染', () => {
-  it('TC3: settings.json __PORT__ 替换正确（CC_PORT=9999）', () => {
-    const res = runBootstrap({ env: { CC_PORT: '9999' } });
+describe('插件加载链路', () => {
+  it('TC4: 不渲染 settings.json/.mcp.json — 不覆盖项目注册', () => {
+    const res = runBootstrap();
     expect(res.status).toBe(0);
-    const settings = fs.readFileSync(path.join(WORKDIR, '.claude', 'settings.json'), 'utf-8');
-    expect(settings).not.toContain('__PORT__');
-    expect(settings).toContain('http://127.0.0.1:9999/hook');
-    // 原模板不变
-    expect(fs.readFileSync(TEMPLATE_HOOKS, 'utf-8')).toContain('__PORT__');
-  });
-
-  it('TC4: .mcp.json __TOOLS__ 替换正确', () => {
-    runBootstrap();
-    const mcp = fs.readFileSync(path.join(WORKDIR, '.mcp.json'), 'utf-8');
-    expect(mcp).toContain(`${ROOT}/src/mcp/awf-state/server.cjs`);
-    expect(mcp).toContain(`${ROOT}/src/mcp/awf-session/server.cjs`);
-    expect(mcp).toContain(`${ROOT}/src/mcp/awf-oneshot/server.cjs`);
-    expect(fs.readFileSync(TEMPLATE_MCP, 'utf-8')).toContain('__TOOLS__');
-  });
-
-  it('TC5: .mcp.json __WORKDIR__ 替换正确', () => {
-    const customWork = path.join(TMP, 'custom-work');
-    runBootstrap({ env: { CC_WORKDIR: customWork } });
-    const parsed = readJson(path.join(customWork, '.mcp.json'));
-    expect(parsed.mcpServers['awf-state'].env.AWF_PROJECT_ROOT).toBe(customWork);
-  });
-
-  it('TC6: .mcp.json 渲染后 JSON 合法（3 个 server）', () => {
-    runBootstrap();
-    const parsed = readJson(path.join(WORKDIR, '.mcp.json'));
-    expect(Object.keys(parsed.mcpServers)).toEqual(['awf-state', 'awf-session', 'awf-oneshot']);
-    for (const s of Object.values(parsed.mcpServers)) {
-      expect(s.command).toBe('node');
-      expect(Array.isArray(s.args)).toBe(true);
-    }
+    // 插件/hooks/MCP 由 .claude/settings.json 注册加载，bootstrap 不再写任何文件
+    expect(fs.existsSync(path.join(WORKDIR, '.claude', 'settings.json'))).toBe(false);
+    expect(fs.existsSync(path.join(WORKDIR, '.mcp.json'))).toBe(false);
   });
 });
 
 describe('Session 管理', () => {
-  it('TC7: session 不存在 → 创建（new-session + claude 命令）', () => {
+  it('TC5: session 不存在 → 创建（claude 无 --plugin-dir）', () => {
     const res = runBootstrap();
     expect(res.status).toBe(0);
     const log = fs.readFileSync(STUB_LOG, 'utf-8');
     expect(log).toContain(`tmux has-session -t cc`);
     expect(log).toContain(`tmux new-session -d -s cc -x 200 -y 50 -c ${WORKDIR}`);
-    expect(log).toContain('claude --plugin-dir');
-    expect(log).toContain('--permission-mode bypassPermissions');
+    expect(log).toContain('claude --permission-mode bypassPermissions');
+    expect(log).not.toContain('--plugin-dir');
   });
 
-  it('TC8: session 已存在 → exit 0 不创建', () => {
+  it('TC6: session 已存在 → exit 0 不创建', () => {
     const res = runBootstrap({ env: { STUB_HAS_SESSION: '1' } });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("tmux session 'cc' already exists");
@@ -144,14 +117,14 @@ describe('Session 管理', () => {
     expect(log).not.toContain('new-session');
   });
 
-  it('TC9: CC_SESSION 环境变量 → 自定义名称', () => {
+  it('TC7: CC_SESSION 环境变量 → 自定义名称', () => {
     runBootstrap({ env: { CC_SESSION: 'my-workflow' } });
     const log = fs.readFileSync(STUB_LOG, 'utf-8');
     expect(log).toContain('has-session -t my-workflow');
     expect(log).toContain('new-session -d -s my-workflow');
   });
 
-  it('TC10: tmux new-session 参数验证', () => {
+  it('TC8: tmux new-session 参数验证', () => {
     runBootstrap();
     const log = fs.readFileSync(STUB_LOG, 'utf-8');
     const line = log.split('\n').find((l) => l.startsWith('tmux new-session'));
@@ -159,57 +132,17 @@ describe('Session 管理', () => {
     expect(line).toContain('-s cc');
     expect(line).toContain('-x 200 -y 50');
     expect(line).toContain(`-c ${WORKDIR}`);
-    expect(line).toContain('claude --plugin-dir');
+    expect(line).not.toContain('--plugin-dir');
   });
 });
 
 describe('边界', () => {
-  it('TC11: WORKDIR 不存在 → mkdir -p 递归创建', () => {
-    const nested = path.join(TMP, 'nested', 'deep', 'work');
-    const res = runBootstrap({ env: { CC_WORKDIR: nested } });
-    expect(res.status).toBe(0);
-    expect(fs.existsSync(path.join(nested, '.claude', 'settings.json'))).toBe(true);
-    expect(fs.existsSync(path.join(nested, '.mcp.json'))).toBe(true);
-  });
-
-  it('TC12: CC_PORT 自定义端口 → settings + .mcp.json 均替换', () => {
-    runBootstrap({ env: { CC_PORT: '9999' } });
-    const settings = fs.readFileSync(path.join(WORKDIR, '.claude', 'settings.json'), 'utf-8');
-    expect(settings).toContain('http://127.0.0.1:9999/hook');
-    expect(settings).not.toContain('__PORT__');
-    const mcp = readJson(path.join(WORKDIR, '.mcp.json'));
-    expect(mcp.mcpServers['awf-session'].env.AWF_BASE).toBe('http://127.0.0.1:9999');
-  });
-
-  it('TC13: trust prompt 消除（sleep 3 + send-keys Enter）', () => {
+  it('TC9: trust prompt 消除（sleep 3 + send-keys Enter）', () => {
     const res = runBootstrap();
     expect(res.status).toBe(0);
     const log = fs.readFileSync(STUB_LOG, 'utf-8');
     expect(log).toContain('send-keys -t cc Enter');
     const src = fs.readFileSync(BOOTSTRAP, 'utf-8');
     expect(src).toContain('sleep 3');
-  });
-
-  it('TC14: 特殊字符路径（WORKDIR 与 ROOT 均含空格）', () => {
-    // (a) WORKDIR 含空格
-    const spacedWork = path.join(TMP, 'my work', 'proj');
-    runBootstrap({ env: { CC_WORKDIR: spacedWork } });
-    expect(fs.existsSync(path.join(spacedWork, '.mcp.json'))).toBe(true);
-    expect(readJson(path.join(spacedWork, '.mcp.json')).mcpServers['awf-state'].env.AWF_PROJECT_ROOT).toBe(spacedWork);
-
-    // (b) ROOT 含空格（拷贝脚本 + 模板到带空格的项目目录，验证 sed | 分隔符与引号保护）
-    const spacedProject = path.join(TMP, 'my project', 'cc-control');
-    fs.mkdirSync(path.join(spacedProject, 'scripts'), { recursive: true });
-    fs.mkdirSync(path.join(spacedProject, 'src', 'server', 'hooks'), { recursive: true });
-    fs.mkdirSync(path.join(spacedProject, 'src', 'mcp'), { recursive: true });
-    fs.copyFileSync(BOOTSTRAP, path.join(spacedProject, 'scripts', 'bootstrap.sh'));
-    fs.copyFileSync(TEMPLATE_HOOKS, path.join(spacedProject, 'src', 'server', 'hooks', 'settings.json'));
-    fs.copyFileSync(TEMPLATE_MCP, path.join(spacedProject, 'src', 'mcp', 'mcp.json.template'));
-
-    const res = runBootstrap({ script: path.join(spacedProject, 'scripts', 'bootstrap.sh') });
-    expect(res.status).toBe(0);
-    const mcp = fs.readFileSync(path.join(WORKDIR, '.mcp.json'), 'utf-8');
-    expect(mcp).toContain(`${spacedProject}/src/mcp/awf-state/server.cjs`);
-    expect(() => JSON.parse(mcp)).not.toThrow();
   });
 });

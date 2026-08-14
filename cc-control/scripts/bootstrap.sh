@@ -6,32 +6,22 @@ ROOT="$(dirname "$DIR")"
 
 SESSION="${CC_SESSION:-cc}"
 WORKDIR="${CC_WORKDIR:-$ROOT/sandbox}"
-PORT="${CC_PORT:-8787}"
 
 command -v tmux >/dev/null 2>&1 || { echo "tmux not found. Install with: brew install tmux" >&2; exit 1; }
 command -v claude >/dev/null 2>&1 || { echo "claude not found on PATH" >&2; exit 1; }
-
-# Render the hook settings (inject the server port) into the controlled workdir.
-mkdir -p "$WORKDIR/.claude"
-sed "s/__PORT__/$PORT/g" "$ROOT/src/server/hooks/settings.json" > "$WORKDIR/.claude/settings.json"
-
-# Render .mcp.json with 3 MCP servers (state, session, oneshot)
-sed -e "s|__TOOLS__|$ROOT/src/mcp|g" \
-    -e "s|__WORKDIR__|$WORKDIR|g" \
-    -e "s/__PORT__/$PORT/g" \
-    "$ROOT/src/mcp/mcp.json.template" > "$WORKDIR/.mcp.json"
+# node 用于插件 MCP server 启动，须在 PATH 上
+command -v node >/dev/null 2>&1 || { echo "node not found on PATH" >&2; exit 1; }
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session '$SESSION' already exists. Kill it with: tmux kill-session -t $SESSION"
   exit 0
 fi
 
-# Plugin dir
-PLUGIN_DIR="${CC_PLUGIN_DIR:-$ROOT/plugin}"
-
+# 插件 + hooks + MCP 由项目 .claude/settings.json 注册加载（awf init 本地注入 / 全局 claude plugin install），
+# bootstrap 只负责启动 tmux + claude，不做任何插件渲染/加载。
 # bypassPermissions: 免除文件读写、命令执行等权限确认，避免阻塞自动化工作流
 tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
-  "claude --plugin-dir '$PLUGIN_DIR' --permission-mode bypassPermissions"
+  "claude --permission-mode bypassPermissions"
 
 # Trust prompt — bypassPermissions 下仍可能出现，nudge Enter 消除
 sleep 3

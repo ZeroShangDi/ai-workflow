@@ -18,26 +18,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 cc-control/
   package.json             # npm 包
 
-  plugin/                  # 插件市场（.claude-plugin/marketplace.json 注册）
-    plugin-code/           #   插件本体：15 命令 + 30 技能 + 5 hooks + 3 MCP
+  plugin/                  # 插件市场（.claude-plugin/marketplace.json 注册，双插件）
+    config.json            #   ★ 唯一配置源：port / marketplace / mcpServers / hooks
+                           #     （render-config.mjs 据此生成下方各注册文件）
+    settings.json          #   安装清单（本地注入源 / 全局安装源，含 core + plugin-code）
+    core/                  #   引擎层插件 ai-workflow-core：MCP + hooks（跨领域通用）
+      plugin.json          #     插件声明（含 hooks）
+      .mcp.json            #     3 个 MCP server 声明（相对路径）
+      hooks/hooks.json     #     5 个 hooks
+      mcp/                 #     MCP server 实现（state/session/oneshot + state 模板）
+    plugin-code/           #   领域层插件 ai-workflow-code：编程命令 + 技能
       commands/            #     15 个 slash commands
       skills/              #     30 个 skills
-      hooks/               #     5 个 hooks
-      plugin.json          #   插件清单
-      settings.json        #   安装清单（本地注入源 / 全局安装源）
-      .mcp.json            #   3 个 MCP server 声明
-
-  plugin_old/              # 旧插件归档（plugin/ 更名前的版本，不再使用）
 
   src/                     # 应用代码
     awf.js                 #   CLI 入口（Commander，7 个命令）
     cli/                   #   CLI 命令实现（init, plan, run, plugin...）
-    server/                #   HTTP Session Server
-    mcp/                   #   3 个 MCP Server（state, session, oneshot）
+    server/                #   HTTP Session Server（CLI 基础设施，spawn 式，不进插件）
     prompts/               #   阶段 prompt 模板
     templates/             #   init 模板
 
-  scripts/                 # 开发命令（bootstrap, test, lint, build, eval）
+  scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
   tests/                   # unit / integration / eval / fixtures
   sandbox/                 # 测试沙箱（gitignored）
   docs/                    # features/issues/bugs/logs/discuss 五类项目文档
@@ -57,7 +58,7 @@ awf run           # 自主执行：遍历任务，逐阶段推进
 ```
 CLI 读取 .awf/state.json
   → 启动 HTTP Session Server (:8787)
-  → 创建 tmux session（bootstrap.sh 加载插件 + MCP servers）
+  → 创建 tmux session（bootstrap.sh 只启动 claude；插件/hooks/MCP 由 .claude/settings.json 注册加载）
   → 对每个 task 按复杂度执行阶段链：
       simple:  DEV → COMMIT
       medium:  DEV → TEST → COMMIT
@@ -72,6 +73,11 @@ CLI 读取 .awf/state.json
 - **Session Server** 通过 Claude Code Hooks（`SessionStart`/`Stop` → ready，`UserPromptSubmit` → busy）感知状态
 - **阶段间上下文天然断裂** — 每个阶段的 prompt 重新构造，不依赖上一阶段对话历史
 - **AI 通过 MCP tools 更新 state.json**（`awf_task_status`、`awf_task_result`、`awf_phase` 等），不再需要 curl
+
+## 架构原则
+
+- **插件改动，CLI 零感知** — 提示词由插件声明（`plugin/plugin-code/prompts.json`），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件模板里）。插件改名/改命令，CLI 无需改动。
+- **插件耦合收敛** — cli 与插件的必要耦合集中在 `src/lib/plugin-bridge.js`（插件边界唯一模块），cli 只负责调用/中央调度。
 
 ## Development workflow state machine
 
@@ -128,7 +134,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 
 **通用**
 - **`awf-skill`** — Skill 生命周期管理（创建/修改/聚合/拆分/审计）
-- **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ src/mcp/awf-state/）
+- **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ plugin/core/mcp/awf-state/）
 - **`code-context-onboard`** — 跨阶段上下文传递格式 + 压缩规则
 - **`code-ask-question`** — 问题描述规范
 - **`code-commit-gitflow`** — Git 使用 + 版本管理
@@ -212,8 +218,12 @@ npm run build             # 打包验证
 npm run eval              # AI 质量评测（占位）
 
 # Claude Code 插件（安装统一在 init 阶段处理）
-awf init                  # 本地注入 plugin/plugin-code/settings.json 到 .claude/settings.json
+awf init                  # 本地注入 plugin/settings.json 到 .claude/settings.json
 awf plugin install --scope global   # 全局安装 settings.json.plugins 声明的插件（claude plugin install）
+
+# 插件配置（集中化）
+npm run build             # 从 plugin/config.json 渲染 marketplace/.mcp.json/hooks/plugin.json
+node scripts/render-config.mjs   # 仅渲染（build 的子集）
 ```
 
 ## 关键文件
@@ -225,15 +235,22 @@ awf plugin install --scope global   # 全局安装 settings.json.plugins 声明�
 | `src/cli/init.js` | `awf init` — 前置检查 + 本地注册插件 + 工作区初始化 |
 | `src/cli/plugin.js` | 插件管理 — 本地注入 / 全局 claude plugin install |
 | `src/lib/profile.js` | 本地注册实现（settings.json 注入/清理） |
-| `src/cli/state.js` | state.json 读写 |
-| `src/cli/paths.js` | 路径解析 |
-| `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status） |
-| `scripts/bootstrap.sh` | 启动 tmux session + 渲染 settings + MCP 配置 |
-| `src/mcp/awf-state/server.cjs` | 状态 MCP — 17 个 tools，直接文件 I/O |
-| `src/mcp/awf-session/server.cjs` | Session MCP — 4 个 tools |
-| `src/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
+| `src/lib/state.js` | state.json 读写 |
+| `src/lib/paths.js` | 路径解析 |
+| `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词，cli 零感知 |
+| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan 入口：start/resume/default） |
+| `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status）— CLI 基础设施 |
+| `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
+| `scripts/render-config.mjs` | 从 plugin/config.json 渲染 5 个插件注册文件；`--workdir` 模式供独立沙箱渲染 |
+| `scripts/render-config.mjs` | 从 plugin/config.json 渲染 5 个插件注册文件 + 沙箱文件 |
+| `plugin/config.json` | ★ 唯一配置源（port / marketplace / mcpServers / hooks） |
+| `plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
+| `plugin/core/hooks/hooks.json` | 引擎层插件 hooks（5 个，端口从 config 注入） |
+| `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 17 个 tools，直接文件 I/O |
+| `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 4 个 tools |
+| `plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
 | `src/prompts/run/state-machine.md` | 自治执行规则（注入给 AI 的运行时指令） |
-| `plugin/plugin-code/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
+| `plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
 
 ## 用户配置（`.claude/user/`）
