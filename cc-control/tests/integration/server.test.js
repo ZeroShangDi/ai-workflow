@@ -11,6 +11,7 @@ const m = {
     hasSession: vi.fn(() => true),
     sendText: vi.fn(),
     sendEnter: vi.fn(),
+    sendCtrlC: vi.fn(),
     capture: vi.fn(() => 'pane content'),
     SESSION: 'cc',
   },
@@ -41,7 +42,7 @@ fs.mkdirSync(path.join(projectWithState, '.awf'), { recursive: true });
 fs.mkdirSync(path.join(projectNoState, '.awf'), { recursive: true });
 fs.writeFileSync(
   path.join(projectWithState, '.awf', 'state.json'),
-  JSON.stringify({ mode: 'run', version: '0.1.0', currentState: 'CODE', plan: { tasks: [{ id: 'T1', status: 'done' }] } }),
+  JSON.stringify({ mode: 'run', version: '0.1.0', currentState: 'CODE', tasks: [{ id: 'T1', status: 'done' }] }),
 );
 
 const htmlOnlyUi = path.join(TMP, 'html-only-ui');    // 只有 ui.html → / 回退 ui
@@ -159,7 +160,7 @@ describe('路由', () => {
     expect(res.contentType).toContain('application/json');
     expect(res.body.mode).toBe('run');
     expect(res.body.currentState).toBe('CODE');
-    expect(res.body.plan.tasks).toHaveLength(1);
+    expect(res.body.tasks).toHaveLength(1);
   });
 
   it('TC7: GET /awf/state → 文件不存在 → 404', async () => {
@@ -276,6 +277,38 @@ describe('路由', () => {
     const res = await api('GET', '/nonexistent');
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ ok: false, error: 'not found' });
+  });
+});
+
+// ─────────────────────────────────────────────
+// /stop 中断
+// ─────────────────────────────────────────────
+
+describe('/stop', () => {
+  it('发送 Ctrl+C 并清除决策', async () => {
+    server.setDecision({ type: 'choice', question: 'Q' });
+    server.setBusy();
+    const res = await api('POST', '/stop');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, stopped: true });
+    expect(m.tmux.sendCtrlC).toHaveBeenCalled();
+    expect(server._getState().decisionPending).toBeNull();
+  });
+
+  it('session 不存在 → 503', async () => {
+    m.tmux.hasSession.mockReturnValue(false);
+    const res = await api('POST', '/stop');
+    expect(res.status).toBe(503);
+    expect(res.body.error).toContain('tmux session');
+    expect(m.tmux.sendCtrlC).not.toHaveBeenCalled();
+  });
+
+  it('无 Stop hook 时 fallback 恢复 ready', async () => {
+    server.setBusy();
+    await api('POST', '/stop');
+    expect(server._getState().state).toBe('busy'); // 立即仍是 busy，等 Stop hook 或 fallback
+    await sleep(120); // LOCAL_CMD fallback = 60ms
+    expect(server._getState().state).toBe('ready');
   });
 });
 
@@ -423,23 +456,25 @@ describe('dashboard.html', () => {
     }
   });
 
-  it('TC35: PHASES 数组含 8 个阶段', () => {
+  it('TC35: PHASES 数组含 7 个权威阶段', () => {
     const match = html.match(/const PHASES = \[([^\]]*)\]/);
     expect(match).not.toBeNull();
     const phases = match[1].split(',').map((s) => s.trim().replace(/'/g, ''));
-    expect(phases).toEqual(['PLAN', 'DESIGN', 'CODE', 'DEV', 'REVIEW', 'TEST', 'COMMIT', 'FINISH']);
-    expect(phases).toHaveLength(8);
+    expect(phases).toEqual(['PLAN', 'DESIGN', 'CODE', 'REVIEW', 'TEST', 'COMMIT', 'FINISH']);
+    expect(phases).toHaveLength(7);
   });
 
-  it('TC36: canon 函数逻辑', () => {
+  it('TC36: canon 函数逻辑（DEBUG/DOCS/DEV 归一化到 CODE）', () => {
     const match = html.match(/function canon\(p\) \{([\s\S]*?)\n\}/);
     expect(match).not.toBeNull();
     const canon = new Function('p', match[1]);
-    expect(canon('CODE')).toBe('DEV');
-    expect(canon('DEBUG')).toBe('DEV');
-    expect(canon('DOCS')).toBe('DEV');
+    expect(canon('CODE')).toBe('CODE');
+    expect(canon('DEBUG')).toBe('CODE');
+    expect(canon('DOCS')).toBe('CODE');
+    expect(canon('DEV')).toBe('CODE');
     expect(canon('PLAN')).toBe('PLAN');
     expect(canon('REVIEW')).toBe('REVIEW');
+    expect(canon('IDLE')).toBe('IDLE');
   });
 
   it('TC37: refresh 行为（fetch 调用 + 离线处理 + 去重 + setInterval）', () => {
@@ -449,5 +484,12 @@ describe('dashboard.html', () => {
     expect(html).toContain("textContent = '离线'");
     expect(html).toContain('ss.snapshot !== lastSnapshot');
     expect(html).toContain('setInterval(refresh, 2000)');
+  });
+
+  it('TC38: 发送按钮 busy 时切换停止（/stop + handleSendOrStop）', () => {
+    expect(html).toContain('handleSendOrStop');
+    expect(html).toContain("fetch('/stop', { method: 'POST' })");
+    expect(html).toContain('renderSendButton');
+    expect(html).toContain("isBusy = !!ok && !!ss.session && ss.state === 'busy'");
   });
 });

@@ -263,6 +263,19 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.cmd });
   }
 
+  // 中断当前正在运行的 Claude 流（等价于交互式 Ctrl+C）
+  if (req.method === 'POST' && pathname === '/stop') {
+    if (!tmuxlib.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    }
+    tmuxlib.sendCtrlC();
+    clearDecision();
+    // Ctrl+C 中断可能不触发 Stop hook，兜底恢复 ready
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    fallbackTimer = setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
+    return send(res, 200, { ok: true, stopped: true });
+  }
+
   // CLI 回应决策（有 decisionPending 时跳过 ready 检查，避免死锁）
   if (req.method === 'POST' && pathname === '/respond') {
     const body = await readJson(req);
@@ -279,21 +292,21 @@ const server = http.createServer(async (req, res) => {
       const ok = await waitReady(READY_TIMEOUT_MS);
       if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
     }
+    const hadDecision = !!decisionPending;
+    const question = decisionPending ? decisionPending.question : null;
     setBusy();
     // 记录 CHOICE（所有决策统一走 /respond，不再分散在 CLI）
-    if (decisionPending) {
-      logger.logChoice(decisionPending.question, body.value);
+    if (hadDecision) {
+      logger.logChoice(question, body.value);
     }
+    // 用户已回应，立即清除决策，UI 切回输入模式（ready 恢复由 Stop 钩子/fallback 负责）
+    clearDecision();
     await submit(body.value);
     // fallback timer：Stop hook 可能因 curl 超时等原因未触发，兜底恢复 ready
-    const fallbackMs = decisionPending ? DECISION_FALLBACK_MS : LOCAL_CMD_FALLBACK_MS;
-    const hadDecision = !!decisionPending;
+    const fallbackMs = hadDecision ? DECISION_FALLBACK_MS : LOCAL_CMD_FALLBACK_MS;
     if (fallbackTimer) clearTimeout(fallbackTimer);
     fallbackTimer = setTimeout(() => {
-      if (state === 'busy') {
-        if (hadDecision) clearDecision();
-        setReady();
-      }
+      if (state === 'busy') setReady();
     }, fallbackMs);
     return send(res, 200, { ok: true, sent: body.value });
   }

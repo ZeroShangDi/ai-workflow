@@ -23,6 +23,9 @@ fi
 tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
   "claude --permission-mode bypassPermissions"
 
+# 增大回滚缓冲，避免长会话旧消息被 tmux 截断（capture-pane -S - 依赖它）
+tmux set-option -t "$SESSION" history-limit 100000
+
 # Trust prompt — bypassPermissions 下仍可能出现，nudge Enter 消除
 sleep 3
 tmux send-keys -t "$SESSION" Enter

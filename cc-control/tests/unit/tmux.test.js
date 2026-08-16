@@ -55,7 +55,7 @@ describe('tmux.cjs', () => {
     const tmux = await loadTmux();
     mockExecFileSync.mockReturnValue('pane content');
     expect(tmux.capture()).toBe('pane content');
-    expect(mockExecFileSync).toHaveBeenCalledWith('tmux', ['capture-pane', '-t', 'cc', '-p'], ENC);
+    expect(mockExecFileSync).toHaveBeenCalledWith('tmux', ['capture-pane', '-t', 'cc', '-p', '-S', '-'], ENC);
   });
 
   it('TC6: sendText 异常向上传播（不 catch）', async () => {
@@ -79,5 +79,11 @@ describe('tmux.cjs', () => {
     expect(mockExecFileSync).toHaveBeenCalledWith('tmux', ['send-keys', '-t', 'my-session', '-l', 'x'], ENC);
     tmux.sendEnter();
     expect(mockExecFileSync).toHaveBeenCalledWith('tmux', ['send-keys', '-t', 'my-session', 'Enter'], ENC);
+  });
+
+  it('TC9: sendCtrlC 正确拼装 args（C-c 中断）', async () => {
+    const tmux = await loadTmux();
+    tmux.sendCtrlC();
+    expect(mockExecFileSync).toHaveBeenCalledWith('tmux', ['send-keys', '-t', 'cc', 'C-c'], ENC);
   });
 });

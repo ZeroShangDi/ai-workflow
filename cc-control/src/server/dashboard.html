@@ -9,21 +9,26 @@
     --bg: #0f1117; --panel: #161822; --border: #252836;
     --text: #c9d1d9; --dim: #6e7681; --accent: #58a6ff;
     --done: #3fb950; --active: #d29922; --pending: #484f58;
-    --phase-active: #58a6ff; --phase-done: #3fb950;
+    --danger: #f85149; --phase-active: #58a6ff; --phase-done: #3fb950;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:var(--bg); color:var(--text); font:14px/1.6 -apple-system,BlinkMacSystemFont,sans-serif; height:100vh; display:flex; flex-direction:column; }
 
   /* top bar */
-  .topbar { display:flex; align-items:center; gap:16px; padding:12px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
+  .topbar { display:flex; align-items:center; gap:12px; padding:12px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
   .topbar .project { font-size:16px; font-weight:600; }
   .topbar .phase { padding:2px 12px; border-radius:12px; font-size:12px; font-weight:600; background:var(--phase-active); color:#fff; }
+  .topbar .mode { padding:2px 10px; border-radius:12px; font-size:11px; font-weight:600; background:var(--pending); color:var(--dim); text-transform:uppercase; }
+  .topbar .run-toggle { padding:3px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; }
+  .topbar .run-toggle.start { background:var(--done); color:#000; }
+  .topbar .run-toggle.stop { background:#7f1d1d; color:#fff; }
+  .topbar .run-toggle:hover { opacity:.9; }
   .topbar .progress { margin-left:auto; font-size:13px; color:var(--dim); }
   .topbar .progress span { color:var(--text); font-weight:600; }
 
   /* phase chain — below topbar */
-  .phase-chain { display:flex; align-items:center; gap:0; padding:8px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
-  .phase-step { display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:6px; font-size:12px; color:var(--dim); }
+  .phase-chain { display:flex; align-items:center; gap:0; padding:8px 20px; background:var(--panel); border-bottom:1px solid var(--border); overflow-x:auto; }
+  .phase-step { display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:6px; font-size:12px; color:var(--dim); white-space:nowrap; }
   .phase-step .dot { width:8px; height:8px; border-radius:50%; background:var(--pending); flex-shrink:0; }
   .phase-step.current { color:var(--accent); font-weight:600; }
   .phase-step.current .dot { background:var(--accent); animation:pulse 1.2s ease-in-out infinite; }
@@ -44,11 +49,14 @@
   .task-item .icon.done { color:var(--done); }
   .task-item .icon.active { color:var(--active); }
   .task-item .icon.pending { color:var(--pending); }
+  .task-item .icon.blocked { color:var(--danger); }
   .task-item .info { flex:1; min-width:0; }
   .task-item .name { font-size:13px; display:block; }
   .task-item .name.done { text-decoration:line-through; color:var(--dim); }
+  .task-item .name.blocked { color:var(--danger); }
   .task-item .deps { font-size:11px; color:var(--dim); }
   .task-item.current { background:rgba(88,166,255,.08); border:1px solid rgba(88,166,255,.2); }
+  .tasks .empty { color:var(--dim); font-style:italic; padding:4px 10px; }
 
   /* output area */
   .output { flex:1; display:flex; flex-direction:column; overflow:hidden; }
@@ -56,9 +64,31 @@
   .output-header h3 { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:1px; }
   .output-header .status { font-size:11px; padding:1px 8px; border-radius:8px; }
   .output-header .status.online { background:var(--done); color:#000; }
+  .output-header .status.busy { background:var(--active); color:#000; }
   .output-header .status.offline { background:var(--pending); color:var(--text); }
   .output-content { flex:1; overflow-y:auto; padding:16px; font:13px/1.7 'SF Mono',Menlo,monospace; white-space:pre-wrap; word-break:break-all; }
   .output-content .empty { color:var(--dim); font-style:italic; }
+
+  /* decision panel */
+  .decision { padding:10px 16px; background:#1c1f2a; border-top:1px solid var(--border); }
+  .decision-q { font-size:13px; font-weight:600; margin-bottom:6px; }
+  .decision-opts { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .decision-opts button { background:#1f2937; color:var(--text); border:1px solid #313d4d; border-radius:6px; padding:5px 12px; font:inherit; cursor:pointer; }
+  .decision-opts button:hover { background:#273244; }
+  .decision-opts button.sel { background:var(--accent); color:#000; border-color:var(--accent); }
+  .decision-opts button.confirm { background:var(--done); color:#000; border-color:var(--done); font-weight:600; }
+  .decision-row { display:flex; gap:8px; }
+  .decision-row input { flex:1; background:#0b0f15; color:var(--text); border:1px solid var(--border); border-radius:7px; padding:8px 12px; font:inherit; }
+  .decision-row input:focus { outline:none; border-color:var(--accent); }
+
+  /* input bar */
+  .input-bar { display:flex; gap:8px; padding:10px 16px; background:var(--panel); border-top:1px solid var(--border); }
+  .input-bar input { flex:1; background:#0b0f15; color:var(--text); border:1px solid var(--border); border-radius:7px; padding:9px 12px; font:inherit; }
+  .input-bar input:focus { outline:none; border-color:var(--accent); }
+  .input-bar button, .decision-row button { background:var(--accent); color:#000; border:none; border-radius:7px; padding:9px 16px; font:inherit; font-weight:600; cursor:pointer; }
+  .input-bar button:hover, .decision-row button:hover { opacity:.9; }
+  .input-bar button.stop { background:var(--danger); color:#fff; }
+  .input-bar input:disabled { opacity:.45; cursor:not-allowed; }
 
   .error { display:none; padding:8px 16px; background:#490202; color:#f85149; font-size:12px; }
 </style>
@@ -68,6 +98,8 @@
 <div class="topbar">
   <div class="project" id="projectName">—</div>
   <div class="phase" id="currentPhase">—</div>
+  <div class="mode" id="modePill">idle</div>
+  <button id="runToggle" class="run-toggle start" onclick="toggleRun()">启动</button>
   <div class="progress">Task <span id="progress">0/0</span></div>
 </div>
 <div class="phase-chain" id="phaseChain"></div>
@@ -79,89 +111,277 @@
   </div>
   <div class="output">
     <div class="output-header">
-      <h3>实时输出</h3>
+      <h3>消息</h3>
       <div class="status" id="connStatus">连接中</div>
     </div>
     <div class="output-content" id="output"></div>
   </div>
 </div>
 
-<script>
-// full phase ordering — all known states in workflow order
-const PHASES = ['PLAN', 'DESIGN', 'CODE', 'DEV', 'REVIEW', 'TEST', 'COMMIT', 'FINISH'];
-const PHASE_LABELS = { DEV:'开发', REVIEW:'审查', TEST:'测试', COMMIT:'提交', DEBUG:'调试', DOCS:'文档', FINISH:'收尾', PLAN:'规划', DESIGN:'设计', CODE:'开发' };
+<div class="decision" id="decisionPanel" style="display:none">
+  <div class="decision-q" id="decisionQuestion"></div>
+  <div class="decision-opts" id="decisionOptions"></div>
+  <div class="decision-row">
+    <input type="text" id="decisionInput" placeholder="自定义输入…" />
+    <button onclick="respondInput()">回应</button>
+  </div>
+</div>
 
-// canonicalise phase alias so indexOf works correctly
+<div class="input-bar" id="inputBar">
+  <input type="text" id="cmdInput" placeholder="输入指令控制流程（发送给 tmux 中的 Claude）…" />
+  <button id="sendBtn" onclick="handleSendOrStop()">发送 ↵</button>
+</div>
+
+<script>
+// 权威阶段枚举（见 awf_phase MCP tool / w-state.md）：
+// IDLE | PLAN | DESIGN | CODE | REVIEW | TEST | COMMIT | FINISH | DEBUG
+const PHASES = ['PLAN', 'DESIGN', 'CODE', 'REVIEW', 'TEST', 'COMMIT', 'FINISH'];
+const PHASE_LABELS = {
+  IDLE:'待开始', PLAN:'规划', DESIGN:'设计', CODE:'开发', DEV:'开发', DEBUG:'调试',
+  DOCS:'文档', REVIEW:'审查', TEST:'测试', COMMIT:'提交', FINISH:'收尾'
+};
+const MODE_LABEL = { idle:'idle', plan:'plan', run:'run', pause:'pause' };
+const TASK_ICON = { done:'✓', active:'●', blocked:'⚠', pending:'○' };
+const TASK_CLS  = { done:'done', active:'active', blocked:'blocked', pending:'pending' };
+
+// 归一化阶段别名：DEBUG/DOCS/DEV 都是 CODE 阶段的子状态（回环/插入），统一落到 CODE 位置
 function canon(p) {
-  if (p === 'CODE' || p === 'DEBUG' || p === 'DOCS') return 'DEV';
+  if (p === 'DEBUG' || p === 'DOCS' || p === 'DEV') return 'CODE';
   return p;
 }
 
 let lastSnapshot = '';
+let currentDecision = null;
+let autoScroll = true;
+let currentMode = 'idle';
+let isBusy = false;
+
+function showError(msg) {
+  document.getElementById('errorBar').style.display = 'block';
+  document.getElementById('errorBar').textContent = msg;
+}
 
 async function refresh() {
   try {
     const sr = await fetch('/awf/state');
-    if (!sr.ok) { document.getElementById('errorBar').style.display = 'block'; document.getElementById('errorBar').textContent = 'state.json 未找到'; return; }
-    const state = await sr.json();
-    document.getElementById('errorBar').style.display = 'none';
-    renderState(state);
+    if (!sr.ok) {
+      showError('state.json 未找到');
+    } else {
+      document.getElementById('errorBar').style.display = 'none';
+      const state = await sr.json();
+      renderState(state);
+    }
 
     const ssr = await fetch('/status?snapshot=true');
     const ss = await ssr.json();
-    document.getElementById('connStatus').textContent = ssr.ok ? '在线' : '离线';
-    document.getElementById('connStatus').className = 'status ' + (ssr.ok ? 'online' : 'offline');
+    renderConn(ssr.ok, ss);
+    renderDecision(ss.decisionPending);
+
     if (ss.snapshot && ss.snapshot !== lastSnapshot) {
       lastSnapshot = ss.snapshot;
-      document.getElementById('output').textContent = ss.snapshot;
-      document.getElementById('output').scrollTop = document.getElementById('output').scrollHeight;
+      const out = document.getElementById('output');
+      out.textContent = ss.snapshot.replace(/\n+$/, '');
+      if (autoScroll) out.scrollTop = out.scrollHeight;
     }
   } catch (e) {
-    document.getElementById('connStatus').textContent = '离线';
-    document.getElementById('connStatus').className = 'status offline';
+    renderConn(false, {});
   }
 }
 
+function renderConn(ok, ss) {
+  const el = document.getElementById('connStatus');
+  if (!ok) { el.className = 'status offline'; el.textContent = '离线'; }
+  else if (!ss.session) { el.className = 'status offline'; el.textContent = '无会话'; }
+  else if (ss.state === 'busy') { el.className = 'status busy'; el.textContent = '执行中'; }
+  else { el.className = 'status online'; el.textContent = '就绪'; }
+  isBusy = !!ok && !!ss.session && ss.state === 'busy';
+  renderSendButton();
+}
+
 function renderState(state) {
-  document.getElementById('projectName').textContent = state.project || state.task || '—';
-  const phase = state.currentState;
+  document.getElementById('projectName').textContent = (state.plan && state.plan.summary) || state.project || state.task || '—';
+  const phase = state.currentState || 'IDLE';
   document.getElementById('currentPhase').textContent = PHASE_LABELS[phase] || phase;
+  document.getElementById('modePill').textContent = MODE_LABEL[state.mode] || 'idle';
+  renderRunToggle(state.mode);
 
   // tasks
-  const tasks = state.plan?.tasks || [];
+  const tasks = state.tasks || [];
   const done = tasks.filter(t => t.status === 'done').length;
   document.getElementById('progress').textContent = done + '/' + tasks.length;
 
   const list = document.getElementById('taskList');
   list.innerHTML = '<h3>Tasks</h3>';
+  if (!tasks.length) list.insertAdjacentHTML('beforeend', '<div class="empty">暂无任务</div>');
   tasks.forEach(t => {
-    const icon = t.status === 'done' ? '✓' : t.status === 'active' ? '●' : '○';
-    const cls = t.status;
+    const cls = TASK_CLS[t.status] || 'pending';
+    const icon = TASK_ICON[t.status] || '○';
     const div = document.createElement('div');
     div.className = 'task-item' + (t.status === 'active' ? ' current' : '');
     div.innerHTML = `<span class="icon ${cls}">${icon}</span>
       <div class="info">
-        <span class="name ${cls}">[${t.id}] ${t.desc}</span>
-        ${t.deps?.length ? '<span class="deps">← [' + t.deps.join(',') + ']</span>' : ''}
+        <span class="name ${cls}">[${t.id}] ${t.title || t.desc || t.id}</span>
+        ${t.deps && t.deps.length ? '<span class="deps">← [' + t.deps.join(',') + ']</span>' : ''}
       </div>`;
     list.appendChild(div);
   });
 
   // phase chain — compare by ordinal position in PHASES
   const curIdx = PHASES.indexOf(canon(phase));
-
   const chain = document.getElementById('phaseChain');
   chain.innerHTML = PHASES.map((p, i) => {
     let cls = '';
     if (curIdx >= 0 && i < curIdx) cls = 'done';
-    else if (i === curIdx || (curIdx < 0 && canon(phase) === p)) cls = 'current';
-
-    // hide redundant aliases in the chain (CODE is shown as DEV)
+    else if (i === curIdx) cls = 'current';
     const label = PHASE_LABELS[p] || p;
     return `<div class="phase-step ${cls}"><span class="dot"></span>${label}</div>` +
       (i < PHASES.length - 1 ? '<span class="phase-arrow">→</span>' : '');
   }).join('');
 }
+
+function renderDecision(d) {
+  const panel = document.getElementById('decisionPanel');
+  const inputBar = document.getElementById('inputBar');
+  currentDecision = d;
+  if (!d || d.answered) {
+    panel.style.display = 'none';
+    inputBar.style.display = 'flex';
+    return;
+  }
+  // 出现选择器时，输入框切换为选择样式，隐藏自由输入
+  panel.style.display = 'block';
+  inputBar.style.display = 'none';
+  document.getElementById('decisionQuestion').textContent = d.question || '';
+  const opts = document.getElementById('decisionOptions');
+  opts.innerHTML = '';
+  const isMulti = !!d.multiSelect;
+  const selected = new Set();
+  (d.options || []).forEach((o, i) => {
+    const b = document.createElement('button');
+    b.textContent = (i + 1) + '. ' + o;
+    if (isMulti) {
+      b.onclick = () => {
+        if (selected.has(i)) { selected.delete(i); b.classList.remove('sel'); }
+        else { selected.add(i); b.classList.add('sel'); }
+      };
+    } else {
+      b.onclick = () => respond(String(i + 1));
+    }
+    opts.appendChild(b);
+  });
+  if (isMulti) {
+    const ok = document.createElement('button');
+    ok.textContent = '确认';
+    ok.className = 'confirm';
+    ok.onclick = () => {
+      if (selected.size === 0) return;
+      respond([...selected].sort((a, b) => a - b).map(i => i + 1).join(','));
+    };
+    opts.appendChild(ok);
+  }
+}
+
+async function respond(value) {
+  if (value == null || String(value).trim() === '') return;
+  const res = await fetch('/respond', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ value: String(value) }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) showError((data && data.error) || '回应失败');
+  refresh();
+}
+
+async function respondInput() {
+  const input = document.getElementById('decisionInput');
+  const v = input.value;
+  if (!v.trim()) return;
+  input.value = '';
+  await respond(v);
+}
+
+async function postSend(text) {
+  const res = await fetch('/send', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) showError((data && data.error) || '发送失败');
+  refresh();
+}
+
+async function postCmd(cmd) {
+  const res = await fetch('/cmd', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ cmd }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) showError((data && data.error) || '发送失败');
+  refresh();
+}
+
+async function sendText() {
+  const input = document.getElementById('cmdInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  await postSend(text);
+}
+
+async function postStop() {
+  const res = await fetch('/stop', { method: 'POST' });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) showError((data && data.error) || '停止失败');
+  refresh();
+}
+
+// 发送/停止二合一：busy 时按钮变停止，ready 时发送
+async function handleSendOrStop() {
+  if (isBusy) { await postStop(); }
+  else { await sendText(); }
+}
+
+function renderSendButton() {
+  const btn = document.getElementById('sendBtn');
+  const input = document.getElementById('cmdInput');
+  if (isBusy) {
+    btn.textContent = '停止';
+    btn.className = 'stop';
+    btn.title = '停止当前运行（Ctrl+C）';
+    input.disabled = true;
+  } else {
+    btn.textContent = '发送 ↵';
+    btn.className = '';
+    btn.title = '';
+    input.disabled = false;
+  }
+}
+
+// 启停：run→暂停 awf，pause→恢复 awf，idle/plan→启动 awf
+function renderRunToggle(mode) {
+  currentMode = mode || 'idle';
+  const btn = document.getElementById('runToggle');
+  if (currentMode === 'run') {
+    btn.textContent = '暂停 awf';
+    btn.className = 'run-toggle stop';
+  } else if (currentMode === 'pause') {
+    btn.textContent = '恢复 awf';
+    btn.className = 'run-toggle start';
+  } else {
+    btn.textContent = '启动 awf';
+    btn.className = 'run-toggle start';
+  }
+}
+
+async function toggleRun() {
+  await postCmd(currentMode === 'run' ? '/w-pause' : '/w-start');
+}
+
+// 智能自动滚动：在底部时自动跟随新内容，用户上翻则暂停，拉回底部再恢复
+document.getElementById('output').addEventListener('scroll', () => {
+  const out = document.getElementById('output');
+  autoScroll = out.scrollHeight - out.scrollTop - out.clientHeight < 8;
+});
 
 setInterval(refresh, 2000);
 refresh();

@@ -55,7 +55,7 @@ function httpGet(path) {
 
 function capturePane() {
   try {
-    return _execSync(`tmux capture-pane -t "${SESSION}" -p`, { encoding: 'utf-8', timeout: HTTP_TIMEOUT_MS });
+    return _execSync(`tmux capture-pane -t "${SESSION}" -p -S -`, { encoding: 'utf-8', timeout: HTTP_TIMEOUT_MS });
   } catch (e) {
     return `(capture failed: ${e.message})`;
   }

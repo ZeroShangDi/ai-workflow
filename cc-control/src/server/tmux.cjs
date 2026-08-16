@@ -29,9 +29,14 @@ function sendEnter() {
   tmux(['send-keys', '-t', SESSION, 'Enter']);
 }
 
-// Read the current pane content (debug snapshot only).
-function capture() {
-  return tmux(['capture-pane', '-t', SESSION, '-p']);
+// Send Ctrl+C to interrupt the running Claude response (like Ctrl+C in interactive mode).
+function sendCtrlC() {
+  tmux(['send-keys', '-t', SESSION, 'C-c']);
 }
 
-module.exports = { SESSION, hasSession, sendText, sendEnter, capture };
+// Read the full pane history (-S - 从回滚起点开始，否则只抓可见区，旧消息会丢)。
+function capture() {
+  return tmux(['capture-pane', '-t', SESSION, '-p', '-S', '-']);
+}
+
+module.exports = { SESSION, hasSession, sendText, sendEnter, sendCtrlC, capture };
