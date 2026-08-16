@@ -1,0 +1,38 @@
+{
+  "id": "multi-task-deps",
+  "name": "两任务依赖链：实现 + 测试（T2 依赖 T1）",
+  "requirements": "先实现 add(a,b)，再为它编写测试；测试任务依赖实现任务完成。",
+  "files": {},
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "add 函数：实现 + 测试（依赖链）" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "实现 add 函数",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "src/math.js 具名导出 add；add(1,2)===3",
+        "prompt": "/w-dev\n<task>\n在 src/math.js 实现并具名导出 add(a, b)，返回 a + b。\n</task>\n<constraints>\nESM 模块，src/math.js。\n</constraints>\n<files>\nsrc/math.js（新建）\n</files>\n<acceptance>\nadd(1, 2) === 3；add(0, 0) === 0。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "T2",
+        "title": "为 add 编写测试",
+        "wbsRef": "W1-002",
+        "status": "pending",
+        "deps": ["T1"],
+        "acceptance": "test/math.test.js 覆盖 add；node --test 通过",
+        "prompt": "/w-dev\n<task>\n为 src/math.js 的 add 编写单元测试。\n</task>\n<context>\nT1 已实现 src/math.js 的 add(a, b)。\n</context>\n<constraints>\nnode 内置 test runner，test/math.test.js。\n</constraints>\n<files>\nsrc/math.js（先读）、test/math.test.js（新建）\n</files>\n<acceptance>\n运行 node --test 全部通过。\n</acceptance>\n<risks>\n无。\n</risks>"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": ["src/math.js", "test/math.test.js"],
+    "verify": ["node", "--test"],
+    "tasksDone": true
+  }
+}

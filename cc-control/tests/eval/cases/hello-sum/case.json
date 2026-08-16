@@ -1,0 +1,29 @@
+{
+  "id": "hello-sum",
+  "name": "sum 函数 + 单元测试（单任务）",
+  "requirements": "实现 sum(a,b) 函数，并配一个可运行的单元测试。",
+  "files": {},
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "sum 函数 + 单元测试" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "实现 sum 函数并编写测试",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "sum(1,2)===3；sum(-1,1)===0；node --test 通过",
+        "prompt": "/w-dev\n<task>\n实现 sum(a, b) 返回 a + b，并编写单元测试验证。\n</task>\n<constraints>\nESM 模块，src/sum.js 具名导出 sum。测试用 node 内置 test runner，放 test/sum.test.js。\n</constraints>\n<files>\nsrc/sum.js（新建）、test/sum.test.js（新建）\n</files>\n<acceptance>\nsum(1, 2) === 3；sum(-1, 1) === 0；运行 node --test 全部通过。\n</acceptance>\n<risks>\n无。\n</risks>"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": ["src/sum.js", "test/sum.test.js"],
+    "verify": ["node", "--test"],
+    "tasksDone": true
+  }
+}
