@@ -91,14 +91,18 @@ describe('plugin config.json hooks', () => {
     expect(cmd).not.toContain('-d @-');
   });
 
-  // ── TC19: Stop curl 使用 -d @- ──
+  // ── TC19: Stop curl 与 SessionStart 一致（event 在 body，不从 stdin 读取）──
 
-  it('TC19: Stop curl 使用 -d @-', () => {
+  it('TC19: Stop curl 格式验证', () => {
     const { config } = loadConfig();
     const cmd = config.hooks.Stop[0].hooks[0].command;
 
-    expect(cmd).toContain('-d @-');
-    expect(cmd).toContain('event=Stop');
+    expect(cmd).toContain('curl');
+    expect(cmd).toContain('-X POST');
+    expect(cmd).toContain('"event":"Stop"');
+    expect(cmd).toContain('|| true');
+    // Stop 不应从 stdin 读取（此前 -d @- 导致 state 卡 busy）
+    expect(cmd).not.toContain('-d @-');
   });
 
   // ── TC20: PreToolUse curl 使用 sh -c + exit 0 ──
