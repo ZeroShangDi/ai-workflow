@@ -20,7 +20,7 @@
 | 6 | findNextTask: deps 未满足时跳过 | 依赖 |
 | 7 | findNextTask: deps 全满足时返回 | 依赖 |
 | 8 | findNextTask: 全部 done 返回 null | 边界 |
-| 9 | findNextTask: 双位置兼容 plan.tasks / tasks | 边界 |
+| 9 | findNextTask: tasks 在根级 | 边界 |
 | 10 | isMilestoneDone: 全 done vs 部分 pending | 边界 |
 
 ### MCP 侧 (server.cjs) — 22 个 TC
@@ -48,7 +48,7 @@
 | 29 | 未知 tool name → error | 异常 |
 | 30 | 未知 method → -32601 | 协议 |
 | 31 | state.json 不存在时 readState 抛异常 | 异常 |
-| 32 | 双位置: getTasks 兼容 plan.tasks / tasks / 空 | 边界 |
+| 32 | tasks 在根级：getTasks 取 tasks / 空 | 边界 |
 
 ---
 
@@ -62,7 +62,7 @@
 
 **断言**：
 - 返回解析后的对象
-- 包含 `mode`、`version`、`plan.tasks` 等字段
+- 包含 `mode`、`version`、`tasks` 等字段
 
 ---
 
@@ -151,23 +151,15 @@
 
 ---
 
-### TC9: findNextTask — 双位置兼容
+### TC9: findNextTask — tasks 在根级
 
-**前置条件 A**：`state.plan.tasks = [{id:'T1', status:'pending'}]`，无 `state.tasks`
+**前置条件 A**：`state.tasks = [{id:'T1', status:'pending'}]`
 
 **执行 A**：返回 T1
 
-**前置条件 B**：无 `state.plan.tasks`，`state.tasks = [{id:'T2', status:'pending'}]`
+**前置条件 B**：无 `state.tasks`
 
-**执行 B**：返回 T2
-
-**前置条件 C**：两者都存在
-
-**执行 C**：返回 `plan.tasks` 中的（优先）
-
-**前置条件 D**：两者都不存在
-
-**执行 D**：返回 `null`
+**执行 B**：返回 `null`
 
 ---
 
@@ -206,7 +198,7 @@
 **执行**：`awf_task_status({ id: 'T1', status: 'active' })`
 
 **断言**：
-- `state.plan.tasks[0].status` 变为 `'active'`
+- `state.tasks[0].status` 变为 `'active'`
 - `lastUpdated` 更新
 - 返回 `{ ok: true, tool: 'awf_task_status' }`
 
@@ -252,11 +244,10 @@
 
 **前置条件**：tasks 中无 T3
 
-**执行**：`awf_task_create({ id: 'T3', desc: '新任务', prompt: '做某事' })`
+**执行**：`awf_task_create({ id: 'T3', title: '新任务', prompt: '做某事' })`
 
 **断言**：
-- `tasks` 新增 T3，status='pending'，complexity='medium'，deps=[]
-- wbsRef、featureGroup、phases 为 null/undefined
+- `tasks` 新增 T3，status='pending'，deps=[]
 - 返回 `{ ok: true, tool: 'awf_task_create' }`
 
 ---
@@ -265,7 +256,7 @@
 
 **前置条件**：T1 已存在
 
-**执行**：`awf_task_create({ id: 'T1', desc: '重复', prompt: '...' })`
+**执行**：`awf_task_create({ id: 'T1', title: '重复', prompt: '...' })`
 
 **断言**：
 - 返回 `{ ok: false, error: 'task T1 already exists' }`
@@ -275,14 +266,13 @@
 
 ### TC18: awf_task_update — 部分字段更新
 
-**前置条件**：T1 已存在，desc='old', prompt='old'
+**前置条件**：T1 已存在，title='old', prompt='old'
 
-**执行**：`awf_task_update({ id: 'T1', desc: 'new desc' })`
+**执行**：`awf_task_update({ id: 'T1', title: 'new title' })`
 
 **断言**：
-- `T1.desc` = `'new desc'`
+- `T1.title` = `'new title'`
 - `T1.prompt` 保持 `'old'`（未传不更新）
-- featureGroup 传空字符串 → 设为 null
 
 ---
 
@@ -315,7 +305,7 @@
 
 ### TC21: awf_wbs_create/update/delete 正常链路
 
-**前置条件**：state.plan 存在，wbs 为空
+**前置条件**：wbs 为空
 
 **执行**：
 1. `awf_wbs_create({ id: 'W1', name: '模块1', desc: '...' })` → ok
@@ -442,28 +432,22 @@
 
 ---
 
-### TC32: 双位置: getTasks 兼容三种情况
+### TC32: tasks 在根级：getTasks 取 tasks / 空
 
-**前置条件 A**：`state = { plan: { tasks: [{id:'T1'}] }, tasks: [{id:'T2'}] }`
+**前置条件 A**：`state = { tasks: [{id:'T2'}] }`
 
-**执行**：`awf_task_status({ id: 'T1', status: 'done' })`
-
-**断言**：
-- 找到 T1 在 plan.tasks 中（优先）
-- T2 在 tasks 中不被触碰
-
-**前置条件 B**：`state = { tasks: [{id:'T2'}] }`（无 plan）
+**执行**：`awf_task_status({ id: 'T2', status: 'done' })`
 
 **断言**：
-- 找到 T2 在 tasks 中
+- 找到 T2 在根级 tasks 中，status 变为 done
 
-**前置条件 C**：`state = {}`（无 plan，无 tasks）
+**前置条件 B**：`state = {}`（无 tasks）
 
 **执行**：`awf_task_create(...)`
 
 **断言**：
-- `ensureTasks()` 创建 `state.plan.tasks = []`
-- 任务写入 plan.tasks
+- `ensureTasks()` 创建根级 `state.tasks = []`
+- 任务写入根级 tasks
 
 ---
 

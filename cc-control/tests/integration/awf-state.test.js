@@ -26,13 +26,11 @@ function baseState() {
     mode: 'idle',
     version: '0.1.0',
     currentState: 'IDLE',
-    plan: {
-      summary: '默认计划',
-      tasks: [
-        { id: 'T1', desc: '任务1', prompt: 'p1', status: 'pending', deps: [], complexity: 'medium', wbsRef: null, featureGroup: null, phases: null },
-        { id: 'T2', desc: '任务2', prompt: 'p2', status: 'pending', deps: [], complexity: 'medium', wbsRef: null, featureGroup: null, phases: null },
-      ],
-    },
+    plan: { summary: '默认计划' },
+    tasks: [
+      { id: 'T1', title: '任务1', prompt: 'p1', status: 'pending', deps: [], wbsRef: null, acceptance: null },
+      { id: 'T2', title: '任务2', prompt: 'p2', status: 'pending', deps: [], wbsRef: null, acceptance: null },
+    ],
     milestones: [],
   };
 }
@@ -163,7 +161,7 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
 
     expect(res.mode).toBe('idle');
     expect(res.version).toBe('0.1.0');
-    expect(res.plan.tasks).toHaveLength(2);
+    expect(res.tasks).toHaveLength(2);
     // read-only: state 不变
     expect(readState(tmpDir)).toEqual(before);
   });
@@ -175,8 +173,8 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(res).toEqual({ ok: true, tool: 'awf_task_status' });
 
     const s = readState(tmpDir);
-    expect(s.plan.tasks.find((t) => t.id === 'T1').status).toBe('active');
-    expect(s.plan.tasks.find((t) => t.id === 'T2').status).toBe('pending');
+    expect(s.tasks.find((t) => t.id === 'T1').status).toBe('active');
+    expect(s.tasks.find((t) => t.id === 'T2').status).toBe('pending');
     expect(s.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
@@ -194,7 +192,7 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(res.ok).toBe(true);
 
     const s = readState(tmpDir);
-    expect(s.plan.tasks.find((t) => t.id === 'T1').exec).toEqual({ result: '完成', files: ['a.js', 'b.js'] });
+    expect(s.tasks.find((t) => t.id === 'T1').exec).toEqual({ result: '完成', files: ['a.js', 'b.js'] });
   });
 
   it('TC15: awf_task_commit 追加 commit 记录', async () => {
@@ -202,51 +200,49 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     await client.callTool('awf_task_commit', { id: 'T1', hash: 'def5678', message: 'fix: y' });
 
     const s = readState(tmpDir);
-    expect(s.plan.tasks.find((t) => t.id === 'T1').commits).toEqual([
+    expect(s.tasks.find((t) => t.id === 'T1').commits).toEqual([
       { hash: 'abc1234', message: 'feat: add x' },
       { hash: 'def5678', message: 'fix: y' },
     ]);
   });
 
   it('TC16: awf_task_create 正常创建（默认值）', async () => {
-    const res = await client.callTool('awf_task_create', { id: 'T3', desc: '新任务', prompt: '做某事' });
+    const res = await client.callTool('awf_task_create', { id: 'T3', title: '新任务', prompt: '做某事' });
     expect(res).toEqual({ ok: true, tool: 'awf_task_create' });
 
     const s = readState(tmpDir);
-    const t3 = s.plan.tasks.find((t) => t.id === 'T3');
+    const t3 = s.tasks.find((t) => t.id === 'T3');
     expect(t3).toMatchObject({
-      id: 'T3', desc: '新任务', prompt: '做某事',
-      status: 'pending', deps: [], complexity: 'medium',
-      featureGroup: null, phases: null,
+      id: 'T3', title: '新任务', prompt: '做某事',
+      status: 'pending', deps: [],
     });
     expect(t3.wbsRef).toBeUndefined(); // 未提供时为 undefined（JSON 序列化丢弃）
-    expect(s.plan.tasks).toHaveLength(3);
+    expect(s.tasks).toHaveLength(3);
   });
 
   it('TC17: awf_task_create id 重复 → ok:false', async () => {
     const before = readState(tmpDir);
-    const res = await client.callTool('awf_task_create', { id: 'T1', desc: '重复', prompt: '...' });
+    const res = await client.callTool('awf_task_create', { id: 'T1', title: '重复', prompt: '...' });
 
     expect(res.ok).toBe(false);
     expect(res.error).toBe('task T1 already exists');
     expect(readState(tmpDir)).toEqual(before);
   });
 
-  it('TC18: awf_task_update 部分字段更新 + featureGroup 空串 → null', async () => {
-    const res = await client.callTool('awf_task_update', { id: 'T1', desc: 'new desc', featureGroup: '' });
+  it('TC18: awf_task_update 部分字段更新', async () => {
+    const res = await client.callTool('awf_task_update', { id: 'T1', title: 'new title' });
     expect(res.ok).toBe(true);
 
-    const t1 = readState(tmpDir).plan.tasks.find((t) => t.id === 'T1');
-    expect(t1.desc).toBe('new desc');
+    const t1 = readState(tmpDir).tasks.find((t) => t.id === 'T1');
+    expect(t1.title).toBe('new title');
     expect(t1.prompt).toBe('p1'); // 未传不更新
-    expect(t1.featureGroup).toBeNull();
   });
 
   it('TC19: awf_task_delete 正常删除', async () => {
     const res = await client.callTool('awf_task_delete', { id: 'T2' });
     expect(res).toEqual({ ok: true, tool: 'awf_task_delete' });
 
-    const tasks = readState(tmpDir).plan.tasks;
+    const tasks = readState(tmpDir).tasks;
     expect(tasks.map((t) => t.id)).toEqual(['T1']);
   });
 
@@ -270,16 +266,16 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
   it('TC21: awf_wbs_create/update/delete 正常链路', async () => {
     await client.callTool('awf_wbs_create', { id: 'W1', name: '模块1', desc: '...' });
     let s = readState(tmpDir);
-    expect(s.plan.wbs).toHaveLength(1);
-    expect(s.plan.wbs[0]).toMatchObject({ id: 'W1', name: '模块1', deps: [] });
+    expect(s.wbs).toHaveLength(1);
+    expect(s.wbs[0]).toMatchObject({ id: 'W1', name: '模块1', deps: [] });
 
     await client.callTool('awf_wbs_update', { id: 'W1', name: '模块1-改' });
     s = readState(tmpDir);
-    expect(s.plan.wbs[0].name).toBe('模块1-改');
+    expect(s.wbs[0].name).toBe('模块1-改');
 
     await client.callTool('awf_wbs_delete', { id: 'W1' });
     s = readState(tmpDir);
-    expect(s.plan.wbs).toEqual([]);
+    expect(s.wbs).toEqual([]);
   });
 
   it('TC22: awf_wbs_create id 重复 → ok:false', async () => {
@@ -343,29 +339,13 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(res.error).toContain('ENOENT');
   });
 
-  // ── dual position: plan.tasks vs tasks ──
+  // ── tasks / wbs at root ──
 
-  it('TC32: 双位置兼容 — plan.tasks 优先 / root tasks / 空 state', async () => {
-    // A: 两者都存在 → 操作 plan.tasks，root tasks 不触碰
-    writeState(tmpDir, {
-      plan: { tasks: [{ id: 'T1', status: 'pending' }] },
-      tasks: [{ id: 'T2', status: 'pending' }],
-    });
-    await client.callTool('awf_task_status', { id: 'T1', status: 'done' });
-    let s = readState(tmpDir);
-    expect(s.plan.tasks[0].status).toBe('done');
-    expect(s.tasks[0].status).toBe('pending');
-
-    // B: 只有 root tasks
-    writeState(tmpDir, { tasks: [{ id: 'T2', status: 'pending' }] });
-    await client.callTool('awf_task_status', { id: 'T2', status: 'done' });
-    s = readState(tmpDir);
-    expect(s.tasks[0].status).toBe('done');
-
-    // C: 空 state → create 落到新建的 plan.tasks
+  it('TC32: tasks 在根级，create 落到根级 tasks', async () => {
     writeState(tmpDir, {});
-    await client.callTool('awf_task_create', { id: 'T3', desc: 'x', prompt: 'y' });
-    s = readState(tmpDir);
-    expect(s.plan.tasks).toEqual([expect.objectContaining({ id: 'T3', status: 'pending' })]);
+    await client.callTool('awf_task_create', { id: 'T3', title: 'x', prompt: 'y' });
+    const s = readState(tmpDir);
+    expect(s.tasks).toEqual([expect.objectContaining({ id: 'T3', status: 'pending' })]);
+    expect(s.plan?.tasks).toBeUndefined();
   });
 });

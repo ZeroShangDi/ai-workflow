@@ -163,7 +163,7 @@ describe('E2E 冒烟测试 — awf run 完整链路', () => {
 
     // 6. 验证任务完成 + FINISH
     const state = JSON.parse(fs.readFileSync(path.join(TMP, '.awf', 'state.json'), 'utf-8'));
-    const task = state.plan.tasks.find((t) => t.id === 'T1');
+    const task = state.tasks.find((t) => t.id === 'T1');
     expect(task.status).toBe('done');
     expect(task.exec.result).toContain('E2E 冒烟测试通过');
     expect(state.currentState).toBe('FINISH');

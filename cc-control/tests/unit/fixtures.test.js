@@ -6,14 +6,14 @@ describe('state factory', () => {
     const state = createState();
     expect(state.mode).toBe('run');
     expect(state.currentState).toBe('IDLE');
-    expect(state.plan.tasks).toEqual([]);
+    expect(state.tasks).toEqual([]);
   });
 
   it('should create a state with custom tasks', () => {
-    const task = createTask({ id: 'T1', desc: 'Test', status: 'active' });
+    const task = createTask({ id: 'T1', title: 'Test', status: 'active' });
     const state = createState({ tasks: [task] });
-    expect(state.plan.tasks).toHaveLength(1);
-    expect(state.plan.tasks[0].id).toBe('T1');
+    expect(state.tasks).toHaveLength(1);
+    expect(state.tasks[0].id).toBe('T1');
   });
 
   it('should create a state with custom milestones', () => {
@@ -32,7 +32,6 @@ describe('state factory', () => {
     const task = createTask({ id: 'T2' });
     expect(task.id).toBe('T2');
     expect(task.status).toBe('pending');
-    expect(task.complexity).toBe('simple');
     expect(task.deps).toEqual([]);
   });
 });

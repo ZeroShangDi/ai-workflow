@@ -41,7 +41,7 @@ export function getNextTask(state) {
 }
 
 export function findNextTask(state) {
-  const tasks = state?.plan?.tasks || state?.tasks || [];
+  const tasks = state?.tasks || [];
   return tasks.find((t) => {
     if (t.status !== 'pending') return false;
     if (!t.deps || t.deps.length === 0) return true;
@@ -54,7 +54,7 @@ export function findNextTask(state) {
 
 /** 检查是否所有任务均已完成 */
 export function isMilestoneDone(state) {
-  const tasks = state?.plan?.tasks || state?.tasks || [];
+  const tasks = state?.tasks || [];
   return tasks.length > 0 && tasks.every((t) => t.status === 'done');
 }
 

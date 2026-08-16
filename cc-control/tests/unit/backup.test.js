@@ -22,7 +22,7 @@ describe('backupState', () => {
       version: '0.1.0',
       mode: 'run',
       currentState: 'FINISH',
-      plan: { tasks: [{ id: 'T1', status: 'done' }] },
+      tasks: [{ id: 'T1', status: 'done' }],
       ...overrides,
     }));
   }

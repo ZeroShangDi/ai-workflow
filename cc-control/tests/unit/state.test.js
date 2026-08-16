@@ -91,11 +91,11 @@ describe('state.js — CLI', () => {
   describe('findNextTask', () => {
     it('TC5: 返回首个 pending 无 deps 任务', () => {
       const state = {
-        plan: { tasks: [
+        tasks: [
           { id: 'T1', status: 'done' },
           { id: 'T2', status: 'pending', deps: [] },
           { id: 'T3', status: 'pending' },
-        ]},
+        ],
       };
       const result = findNextTask(state);
       expect(result.id).toBe('T2');
@@ -103,10 +103,10 @@ describe('state.js — CLI', () => {
 
     it('TC6: deps 未满足时跳过', () => {
       const state = {
-        plan: { tasks: [
+        tasks: [
           { id: 'T1', status: 'pending' },
           { id: 'T2', status: 'pending', deps: ['T1'] },
-        ]},
+        ],
       };
       const result = findNextTask(state);
       expect(result.id).toBe('T1');
@@ -114,10 +114,10 @@ describe('state.js — CLI', () => {
 
     it('TC7: deps 全满足时返回', () => {
       const state = {
-        plan: { tasks: [
+        tasks: [
           { id: 'T1', status: 'done' },
           { id: 'T2', status: 'pending', deps: ['T1'] },
-        ]},
+        ],
       };
       const result = findNextTask(state);
       expect(result.id).toBe('T2');
@@ -125,30 +125,20 @@ describe('state.js — CLI', () => {
 
     it('TC8: 全部 done 返回 null', () => {
       const state = {
-        plan: { tasks: [
+        tasks: [
           { id: 'T1', status: 'done' },
           { id: 'T2', status: 'done' },
-        ]},
+        ],
       };
       expect(findNextTask(state)).toBeNull();
     });
 
-    it('TC9: 双位置兼容 — plan.tasks 优先', () => {
-      // plan.tasks present
-      const stateA = { plan: { tasks: [{ id: 'T1', status: 'pending' }] } };
-      expect(findNextTask(stateA).id).toBe('T1');
+    it('TC9: tasks 在根级', () => {
+      const state = { tasks: [{ id: 'T1', status: 'pending' }] };
+      expect(findNextTask(state).id).toBe('T1');
 
-      // only root tasks
-      const stateB = { tasks: [{ id: 'T2', status: 'pending' }] };
-      expect(findNextTask(stateB).id).toBe('T2');
-
-      // both: plan.tasks wins
-      const stateC = { plan: { tasks: [{ id: 'T3', status: 'pending' }] }, tasks: [{ id: 'T4', status: 'pending' }] };
-      expect(findNextTask(stateC).id).toBe('T3');
-
-      // neither
-      const stateD = {};
-      expect(findNextTask(stateD)).toBeNull();
+      // 无 tasks
+      expect(findNextTask({})).toBeNull();
     });
   });
 
@@ -157,21 +147,21 @@ describe('state.js — CLI', () => {
   describe('isMilestoneDone', () => {
     it('TC10: isMilestoneDone', () => {
       // All done
-      const allDone = { plan: { tasks: [
+      const allDone = { tasks: [
         { id: 'T1', status: 'done' },
         { id: 'T2', status: 'done' },
-      ]}};
+      ]};
       expect(isMilestoneDone(allDone)).toBe(true);
 
       // Partial
-      const partial = { plan: { tasks: [
+      const partial = { tasks: [
         { id: 'T1', status: 'done' },
         { id: 'T2', status: 'pending' },
-      ]}};
+      ]};
       expect(isMilestoneDone(partial)).toBe(false);
 
       // Empty
-      expect(isMilestoneDone({ plan: { tasks: [] } })).toBe(false);
+      expect(isMilestoneDone({ tasks: [] })).toBe(false);
     });
   });
 });

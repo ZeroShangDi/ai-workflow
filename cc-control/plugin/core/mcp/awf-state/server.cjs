@@ -79,15 +79,13 @@ const TOOLS = [
       type: 'object',
       properties: {
         id: { type: 'string', description: '任务 ID（唯一）' },
-        desc: { type: 'string', description: '任务描述' },
-        prompt: { type: 'string', description: '开发 prompt' },
+        title: { type: 'string', description: '任务名（一句话）' },
+        prompt: { type: 'string', description: '执行提示词（命令 + 上下文）' },
         wbsRef: { type: 'string', description: '关联的 WBS ID' },
         deps: { type: 'array', items: { type: 'string' }, description: '依赖任务 ID 列表' },
-        complexity: { type: 'string', enum: ['simple', 'medium', 'complex'], description: '任务复杂度：simple=DEV+COMMIT, medium=DEV+TEST+COMMIT, complex=DEV+DOCS+REVIEW+TEST+COMMIT' },
-        featureGroup: { type: 'string', description: '可选，归属的特性组 ID，同组最后一个任务触发集成 TEST+DOCS' },
-        phases: { type: 'array', items: { type: 'string' }, description: '可选，显式指定阶段链，覆盖 complexity 推导' },
+        acceptance: { type: 'string', description: '可验证的完成条件' },
       },
-      required: ['id', 'desc', 'prompt'],
+      required: ['id', 'title', 'prompt'],
     },
   },
   {
@@ -97,13 +95,11 @@ const TOOLS = [
       type: 'object',
       properties: {
         id: { type: 'string', description: '任务 ID' },
-        desc: { type: 'string', description: '新的任务描述' },
-        prompt: { type: 'string', description: '新的开发 prompt' },
+        title: { type: 'string', description: '新的任务名' },
+        prompt: { type: 'string', description: '新的执行提示词' },
         wbsRef: { type: 'string', description: '新的 WBS 引用' },
         deps: { type: 'array', items: { type: 'string' }, description: '新的依赖列表' },
-        complexity: { type: 'string', enum: ['simple', 'medium', 'complex'], description: '任务复杂度' },
-        featureGroup: { type: 'string', description: '特性组 ID' },
-        phases: { type: 'array', items: { type: 'string' }, description: '显式阶段链' },
+        acceptance: { type: 'string', description: '新的完成条件' },
       },
       required: ['id'],
     },
@@ -283,19 +279,13 @@ const handlers = {
       // all other tools: read → mutate → write
       const s = readState();
 
-      // tasks may live at root ("s.tasks") or under plan ("s.plan.tasks")
+      // tasks live at root ("s.tasks")
       function getTasks() {
-        if (s.plan && Array.isArray(s.plan.tasks)) return s.plan.tasks;
-        if (Array.isArray(s.tasks)) return s.tasks;
-        return [];
+        return Array.isArray(s.tasks) ? s.tasks : [];
       }
       function ensureTasks() {
-        if (s.plan && Array.isArray(s.plan.tasks)) return s.plan.tasks;
-        if (Array.isArray(s.tasks)) return s.tasks;
-        // default: write to plan.tasks
-        if (!s.plan) s.plan = {};
-        if (!s.plan.tasks) s.plan.tasks = [];
-        return s.plan.tasks;
+        if (!Array.isArray(s.tasks)) s.tasks = [];
+        return s.tasks;
       }
       const tasks = getTasks();
       const milestones = s.milestones || [];
@@ -328,24 +318,20 @@ const handlers = {
             return textResult({ ok: false, error: `task ${args.id} already exists` });
           }
           taskList.push({
-            id: args.id, desc: args.desc, prompt: args.prompt,
+            id: args.id, title: args.title, prompt: args.prompt,
             wbsRef: args.wbsRef, deps: args.deps || [], status: 'pending',
-            complexity: args.complexity || 'medium',
-            featureGroup: args.featureGroup || null,
-            phases: args.phases || null,
+            acceptance: args.acceptance,
           });
           break;
         }
         case 'awf_task_update': {
           const t = tasks.find(t => t.id == args.id);
           if (!t) return textResult({ ok: false, error: `task ${args.id} not found` });
-          if (args.desc !== undefined) t.desc = args.desc;
+          if (args.title !== undefined) t.title = args.title;
           if (args.prompt !== undefined) t.prompt = args.prompt;
           if (args.wbsRef !== undefined) t.wbsRef = args.wbsRef;
           if (args.deps !== undefined) t.deps = args.deps;
-          if (args.complexity !== undefined) t.complexity = args.complexity;
-          if (args.featureGroup !== undefined) t.featureGroup = args.featureGroup || null;
-          if (args.phases !== undefined) t.phases = args.phases || null;
+          if (args.acceptance !== undefined) t.acceptance = args.acceptance;
           break;
         }
         case 'awf_task_delete': {
@@ -367,19 +353,18 @@ const handlers = {
           break;
         }
         case 'awf_wbs_create': {
-          if (!s.plan) s.plan = {};
-          if (!s.plan.wbs) s.plan.wbs = [];
-          if (s.plan.wbs.find(w => w.id == args.id)) {
+          if (!Array.isArray(s.wbs)) s.wbs = [];
+          if (s.wbs.find(w => w.id == args.id)) {
             return textResult({ ok: false, error: `wbs ${args.id} already exists` });
           }
-          s.plan.wbs.push({
+          s.wbs.push({
             id: args.id, name: args.name, desc: args.desc,
             acceptance: args.acceptance, deps: args.deps || [],
           });
           break;
         }
         case 'awf_wbs_update': {
-          const w = s.plan?.wbs?.find(w => w.id == args.id);
+          const w = s.wbs?.find(w => w.id == args.id);
           if (!w) return textResult({ ok: false, error: `wbs ${args.id} not found` });
           if (args.name !== undefined) w.name = args.name;
           if (args.desc !== undefined) w.desc = args.desc;
@@ -388,11 +373,11 @@ const handlers = {
           break;
         }
         case 'awf_wbs_delete': {
-          const idx = s.plan?.wbs?.findIndex(w => w.id == args.id);
+          const idx = s.wbs?.findIndex(w => w.id == args.id);
           if (idx === undefined || idx === -1) {
             return textResult({ ok: false, error: `wbs ${args.id} not found` });
           }
-          s.plan.wbs.splice(idx, 1);
+          s.wbs.splice(idx, 1);
           break;
         }
         case 'awf_phase': {

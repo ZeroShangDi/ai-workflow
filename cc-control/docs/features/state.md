@@ -25,20 +25,14 @@ State 管理分为两层：
 |------|------|
 | `loadState(projectRoot)` | `fs.readFileSync` → `JSON.parse`，失败返回 `null` |
 | `saveState(projectRoot, state)` | 自动创建 `.awf/` 目录，写 `lastUpdated`，`JSON.stringify` 缩进 2 空格 |
-| `findNextTask(state)` | 双位置兼容：取 `state.plan.tasks` \|\| `state.tasks`，找第一个 status=pending 且 deps 满足的任务 |
+| `findNextTask(state)` | 取根级 `state.tasks`，找第一个 status=pending 且 deps 满足的任务 |
 | `getNextTask(state)` | `findNextTask` 别名 |
 | `getCurrentPhase(projectRoot)` | `loadState` → `state?.currentState \|\| null` |
 | `isMilestoneDone(state)` | 所有 task status=done 且 tasks.length>0 |
 
-### 双位置兼容
+### 任务/WBS 位置
 
-`findNextTask` 和 `isMilestoneDone` 均按优先级读取：
-
-```
-state.plan.tasks → state.tasks → []
-```
-
-`state.plan.tasks` 优先（v0.1.3+ 新格式），`state.tasks` 为旧格式兼容。
+`tasks` 和 `wbs` 统一放在 state.json **根级**（不再放 `plan` 下）。`plan` 只保留元数据（summary/reqDoc/hasUI/inScope/outOfScope/acceptanceCriteria）。
 
 ---
 
@@ -89,7 +83,7 @@ readState() → 找到目标对象 → 修改 → writeState(s) → 返回 { ok:
 | `awf_task_status` | `id, status` | 更新 `task.status`，id 不存在→error |
 | `awf_task_result` | `id` | 写入 `task.exec.result` 和 `task.exec.files`，id 不存在→error |
 | `awf_task_commit` | `id, hash, message` | 追加 `task.commits[]`，id 不存在→error |
-| `awf_task_create` | `id, desc, prompt` | 创建任务，id 重复→error，默认 status=pending, complexity=medium |
+| `awf_task_create` | `id, title, prompt` | 创建任务，id 重复→error，默认 status=pending |
 | `awf_task_update` | `id` | 只更新提供的字段（undefined 不覆盖），id 不存在→error |
 | `awf_task_delete` | `id` | `splice` 删除，id 不存在→error |
 
@@ -103,7 +97,7 @@ readState() → 找到目标对象 → 修改 → writeState(s) → 返回 { ok:
 
 | Tool | Required | 行为 |
 |------|----------|------|
-| `awf_wbs_create` | `id, name` | 追加到 `plan.wbs[]`，id 重复→error |
+| `awf_wbs_create` | `id, name` | 追加到根级 `wbs[]`，id 重复→error |
 | `awf_wbs_update` | `id` | 更新指定字段，id 不存在→error |
 | `awf_wbs_delete` | `id` | `splice` 删除，id 不存在→error |
 
@@ -139,38 +133,35 @@ readState() → 找到目标对象 → 修改 → writeState(s) → 返回 { ok:
     "hasUI": false,
     "inScope": ["事项1"],
     "outOfScope": ["事项2"],
-    "acceptanceCriteria": ["标准1"],
-    "wbs": [
-      {
-        "id": "W1",
-        "name": "名称",
-        "desc": "描述",
-        "acceptance": "验收标准",
-        "deps": []
-      }
-    ],
-    "tasks": [                    // v0.1.3+ 主位置
-      {
-        "id": "T1",
-        "desc": "任务描述",
-        "prompt": "开发 prompt",
-        "status": "pending",      // pending | active | done | blocked
-        "complexity": "medium",   // simple | medium | complex
-        "deps": [],               // 依赖任务 ID
-        "wbsRef": "W1",           // 关联 WBS ID（可选）
-        "featureGroup": null,     // 特性组 ID（可选）
-        "phases": null,           // 显式阶段链（可选）
-        "exec": {                 // awf_task_result 写入
-          "result": "...",
-          "files": ["..."]
-        },
-        "commits": [              // awf_task_commit 写入
-          { "hash": "abc1234", "message": "feat: ..." }
-        ]
-      }
-    ]
+    "acceptanceCriteria": ["标准1"]
   },
-  "tasks": [],                   // 旧格式兼容（v0.1.2 及之前）
+  "wbs": [
+    {
+      "id": "W1",
+      "name": "名称",
+      "desc": "描述",
+      "acceptance": "验收标准",
+      "deps": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "任务标题",
+      "wbsRef": "W1",           // 关联 WBS ID（可选）
+      "status": "pending",      // pending | active | done | blocked
+      "deps": [],               // 依赖任务 ID
+      "acceptance": "验收标准",
+      "prompt": "开发 prompt",
+      "exec": {                 // awf_task_result 写入
+        "result": "...",
+        "files": ["..."]
+      },
+      "commits": [              // awf_task_commit 写入
+        { "hash": "abc1234", "message": "feat: ..." }
+      ]
+    }
+  ],
   "milestones": [
     {
       "id": "M1",
