@@ -51,10 +51,19 @@ export function planEntry(description, resume) {
 }
 
 /**
- * 任务收尾 prompt — 任务未标记 done 时补发，强制 AI 标记 + 记录结果
+ * 任务收尾 prompt — 任务未标记 done 时补发，让 AI 按真实状态收尾（完成才标 done）
  * @param {string} taskId - 任务 ID，如 'T1'
  * @returns {Promise<string>}
  */
 export function taskWrapup(taskId) {
   return resolvePrompt('task-wrapup', { taskId });
+}
+
+/**
+ * 任务收尾追问 prompt — wrapup 未生效时，让 AI 明确三选一（完成 / 继续 / 卡住）
+ * @param {string} taskId - 任务 ID，如 'T1'
+ * @returns {Promise<string>}
+ */
+export function taskSettle(taskId) {
+  return resolvePrompt('task-settle', { taskId });
 }

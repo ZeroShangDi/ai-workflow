@@ -1,7 +1,7 @@
 import { spawn, execSync } from 'child_process';
 import { getPaths } from '../lib/paths.js';
-import { taskWrapup } from '../lib/plugin-bridge.js';
-import { loadState, findNextTask, backupState } from '../lib/state.js';
+import { taskWrapup, taskSettle } from '../lib/plugin-bridge.js';
+import { loadState, findNextTask, backupState, saveState } from '../lib/state.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
 import { logSection, logStep } from '../lib/ui/log.js';
@@ -113,7 +113,7 @@ async function ensureSession(bootstrapScript, workDir, sessionName) {
  */
 async function runLoop(projectRoot) {
   let currentState = loadState(projectRoot);
-  const allTasks = currentState?.plan?.tasks || currentState?.tasks || [];
+  const allTasks = currentState?.tasks || [];
   const total = allTasks.length;
   let consecutiveTimeouts = 0;
 
@@ -122,10 +122,10 @@ async function runLoop(projectRoot) {
     if (!nextTask) break;
 
     const idx = allTasks.findIndex(t => t.id === nextTask.id) + 1;
-    logBanner(`任务 ${idx}/${total}: ${nextTask.desc}`);
-    logPrompt(nextTask.prompt || nextTask.desc || '');
+    logBanner(`任务 ${idx}/${total}: ${nextTask.title}`);
+    logPrompt(nextTask.prompt || nextTask.title || '');
 
-    const result = await executeTask(nextTask.prompt || nextTask.desc || '', nextTask.id, projectRoot);
+    const result = await executeTask(nextTask.prompt || nextTask.title || '', nextTask.id, projectRoot);
     currentState = loadState(projectRoot);
 
     if (result === 'timeout') {
@@ -134,7 +134,8 @@ async function runLoop(projectRoot) {
       if (taskStillPending && taskStillPending.id === nextTask.id) {
         logStep('', 'warn', `任务 ${nextTask.id} 仍为 pending，即将重试`);
         if (consecutiveTimeouts >= 2) {
-          logStep('', 'error', `连续 ${consecutiveTimeouts} 次超时，跳过任务 ${nextTask.id}（需人工介入）`);
+          logStep('', 'error', `连续 ${consecutiveTimeouts} 次超时，跳过任务 ${nextTask.id}（已标 blocked，需人工介入）`);
+          markTaskBlocked(nextTask.id, projectRoot);
           consecutiveTimeouts = 0;
         }
       } else {
@@ -151,8 +152,8 @@ async function runLoop(projectRoot) {
 }
 
 /**
- * 发送 prompt 到 Session Server → 等待就绪 → 确认任务完成 → 收尾
- * @returns {'ok' | 'timeout'}
+ * 发送 prompt 到 Session Server → 等待就绪 → 收尾协商
+ * @returns {'done' | 'timeout' | 'blocked' | 'stuck'}
  */
 async function executeTask(prompt, taskId, projectRoot) {
   const sendResp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
@@ -161,42 +162,85 @@ async function executeTask(prompt, taskId, projectRoot) {
   const spin = createSpinner('executing...');
   try {
     await waitForReady({ onDecision: handleDecision });
-    await waitForReady({ onDecision: handleDecision });
-
-    if (taskId) await ensureTaskDone(taskId, projectRoot);
-
     spin.stop();
-    console.log(`     ${GREEN}✔ done${RESET}`);
-    return 'ok';
+    if (!taskId) { console.log(`     ${GREEN}✔ done${RESET}`); return 'done'; }
+    return await settleTask(taskId, projectRoot);
   } catch (err) {
     spin.stop();
     if (taskId && checkTaskDone(taskId, projectRoot)) {
       logStep('', 'warn', `超时但任务 ${taskId} 已完成（Stop hook 未触发）`);
-      return 'ok';
+      return 'done';
     }
     logStep('', 'error', `超时: ${err.message}`);
     return 'timeout';
   }
 }
 
-/** 如果任务未标记 done，补发收尾 prompt 强制标记 */
-async function ensureTaskDone(taskId, projectRoot) {
-  if (checkTaskDone(taskId, projectRoot)) return;
+/** 收尾协商追问的最大轮数，超过则标 blocked 跳过 */
+const MAX_SETTLE_ROUNDS = 3;
+
+/**
+ * 收尾协商循环 — 校验任务是否 done，未 done 则补发收尾 prompt 再追问，
+ * 最多 MAX_SETTLE_ROUNDS 轮，仍未完成则标 blocked 并跳过。
+ * @returns {'done' | 'blocked' | 'stuck'}
+ */
+async function settleTask(taskId, projectRoot) {
+  if (checkTaskDone(taskId, projectRoot)) { console.log(`     ${GREEN}✔ done${RESET}`); return 'done'; }
+
   logStep('', 'warn', `任务 ${taskId} 未标记 done，补发收尾 prompt`);
+  await sendPrompt(await taskWrapup(taskId));
+  if (checkTaskDone(taskId, projectRoot)) {
+    logStep('', 'ok', `收尾 prompt 已生效`);
+    console.log(`     ${GREEN}✔ done${RESET}`);
+    return 'done';
+  }
 
-  const wrapup = await taskWrapup(taskId); // 指令文本由插件 prompts.json 声明（plugin-bridge）
-  await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: wrapup });
-  await waitForReady({ onDecision: handleDecision });
+  for (let round = 1; round <= MAX_SETTLE_ROUNDS; round++) {
+    logStep('', 'warn', `任务 ${taskId} 仍为 pending，追问（第 ${round}/${MAX_SETTLE_ROUNDS} 轮）`);
+    await sendPrompt(await taskSettle(taskId));
+    if (checkTaskDone(taskId, projectRoot)) {
+      logStep('', 'ok', `任务 ${taskId} 已完成`);
+      console.log(`     ${GREEN}✔ done${RESET}`);
+      return 'done';
+    }
+    if (getTaskStatus(taskId, projectRoot) === 'blocked') {
+      logStep('', 'warn', `任务 ${taskId} 已标记 blocked，暂停等待人工介入`);
+      return 'blocked';
+    }
+  }
 
-  if (checkTaskDone(taskId, projectRoot)) { logStep('', 'ok', `收尾 prompt 已生效`); }
-  else { logStep('', 'warn', `收尾 prompt 未生效，任务 ${taskId} 仍为 pending`); }
+  logStep('', 'error', `任务 ${taskId} 多轮追问后仍未完成，标记 blocked 并跳过`);
+  markTaskBlocked(taskId, projectRoot);
+  return 'stuck';
+}
+
+/** 发送 prompt 并等待 ready；超时忽略（由上层回查 state 决定下一步） */
+async function sendPrompt(text) {
+  await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
+  try { await waitForReady({ onDecision: handleDecision }); } catch { /* 超时忽略 */ }
 }
 
 /** 从 state.json 中检查指定任务是否已标记 done */
 function checkTaskDone(taskId, projectRoot) {
   const state = loadState(projectRoot);
-  const tasks = state?.plan?.tasks || state?.tasks || [];
+  const tasks = state?.tasks || [];
   return tasks.find(t => t.id === taskId)?.status === 'done';
+}
+
+/** 读取指定任务的 status（pending/active/done/blocked） */
+function getTaskStatus(taskId, projectRoot) {
+  const state = loadState(projectRoot);
+  const tasks = state?.tasks || [];
+  return tasks.find(t => t.id === taskId)?.status || null;
+}
+
+/** 编排器仲裁：将任务标记为 blocked（使 findNextTask 跳过，避免死循环） */
+function markTaskBlocked(taskId, projectRoot) {
+  const state = loadState(projectRoot);
+  const task = state?.tasks?.find(t => t.id === taskId);
+  if (!task) return;
+  task.status = 'blocked';
+  saveState(projectRoot, state);
 }
 
 // ── 决策处理 ──
@@ -251,14 +295,13 @@ async function handleDecision(d) {
 
 // ── 输出辅助 ──
 
-/** 截断显示 prompt 首行 + 总字符数 */
+/** 完整显示 prompt（多行，保留 XML 标签结构） */
 function logPrompt(prompt) {
-  const MAX = 120;
-  const firstLine = prompt.split('\n')[0];
-  if (firstLine.length <= MAX) console.log(`     ${DIM}prompt${RESET}  ${firstLine}`);
-  else console.log(`     ${DIM}prompt${RESET}  ${firstLine.slice(0, MAX)}...`);
-  const total = prompt.length;
-  if (total > firstLine.length) console.log(`     ${DIM}(${total.toLocaleString()} chars)${RESET}`);
+  const lines = prompt.split('\n');
+  console.log(`     ${DIM}prompt (${lines.length} 行 · ${prompt.length} 字符)${RESET}`);
+  for (const line of lines) {
+    console.log(`       ${line}`);
+  }
 }
 
 /** 打印任务分隔横幅 */

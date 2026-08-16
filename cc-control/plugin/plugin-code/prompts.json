@@ -12,7 +12,11 @@
     "description": "awf plan 无描述时的默认入口提示词"
   },
   "task-wrapup": {
-    "prompt": "用 awf_task_status 标记 {taskId} done。用 awf_task_result 记录 {taskId} 的执行结果。只做这两步。",
-    "description": "任务未标记 done 时，补发的收尾 prompt（强制标记 + 记录）"
+    "prompt": "任务 {taskId} 的执行提示词已处理。请按当前真实状态收尾：\n- 已完成 → awf_task_status 标记 {taskId} done + awf_task_result 记录结果\n- 未完成 → 继续完成工作，不要标记 done",
+    "description": "任务未标记 done 时补发的收尾 prompt（按真实状态收尾，未完成不标 done）"
+  },
+  "task-settle": {
+    "prompt": "任务 {taskId} 尚未标记 done（当前 status=pending）。请明确当前状态并三选一执行：\n1. 已完成 → awf_task_status 标记 {taskId} done + awf_task_result 记录结果\n2. 未完成，继续做 → 继续实现直到完成，再标记 done\n3. 卡住或需决策 → awf_task_status 标记 {taskId} blocked，并调 awf_await_choice 说明障碍",
+    "description": "任务收尾追问 prompt（多轮协商：完成 / 继续 / 卡住三选一）"
   }
 }

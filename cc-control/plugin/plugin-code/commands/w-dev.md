@@ -20,6 +20,7 @@
 2. 探索相关代码上下文
 3. 按设计方案实现
 4. 自检 / lint / 构建验证
+5. 完成后主动收尾：`awf_task_status` 标 done + `awf_task_result` 记录结果；未完成则不要标 done，继续做或标 blocked
 
 ## 重开机制
 

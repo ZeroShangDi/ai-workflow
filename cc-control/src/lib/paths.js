@@ -12,7 +12,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *   - CLI 入口: src/awf.js
  *   - Session Server: src/server/server.cjs
  *   - tmux 启动脚本: scripts/bootstrap.sh
- *   - 阶段提示词模板: src/prompts/run/
  *   - Claude Code 插件目录: ~/.claude/plugins/
  *   - 开发用 settings: .claude/settings.json
  *
@@ -28,8 +27,6 @@ export function getPaths() {
     tmuxServer: path.join(projectRoot, 'src', 'server', 'server.cjs'),
     /** tmux session 启动脚本 */
     bootstrapScript: path.join(projectRoot, 'scripts', 'bootstrap.sh'),
-    /** 阶段 prompt 模板目录 */
-    prompts: path.join(projectRoot, 'src', 'prompts', 'run'),
     /** ~/.claude/plugins/ — CC 全局插件目录 */
     claudePlugins: path.join(os.homedir(), '.claude', 'plugins'),
     /** cc-control 开发用 settings.json */

@@ -36,9 +36,10 @@ vi.mock('../../src/lib/paths.js', () => ({
 // plugin-bridge 为插件边界模块，单测 mock（真实逻辑见 plugin-bridge.test.js）
 vi.mock('../../src/lib/plugin-bridge.js', () => ({
   taskWrapup: vi.fn((taskId) => `用 awf_task_status 标记 ${taskId} done。用 awf_task_result 记录 ${taskId} 的执行结果。只做这两步。`),
+  taskSettle: vi.fn((taskId) => `任务 ${taskId} 尚未标记 done，请明确状态三选一。`),
 }));
 
-import { taskWrapup } from '../../src/lib/plugin-bridge.js';
+import { taskWrapup, taskSettle } from '../../src/lib/plugin-bridge.js';
 
 const httpState = vi.hoisted(() => ({
   statusResponse: JSON.stringify({ state: 'ready' }),
@@ -99,7 +100,7 @@ vi.mock('node:http', async () => {
 import { runCommand } from '../../src/cli/run.js';
 
 function stateWith(overrides) {
-  return { currentState: 'CODE', plan: { tasks: [] }, ...overrides };
+  return { currentState: 'CODE', tasks: [], ...overrides };
 }
 
 function tasksDone(tasks) {
@@ -150,12 +151,12 @@ describe('runCommand', () => {
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'do it' }];
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'do it' }];
     // loadState sequence: initial → runLoop → waitForTaskDone (done!) → runLoop → final
     mockLoadState
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValue(stateWith({ plan: { tasks: tasksDone(tasks) }, currentState: 'FINISH' }));
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValue(stateWith({ tasks: tasksDone(tasks), currentState: 'FINISH' }));
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValue(null);
@@ -175,8 +176,8 @@ describe('runCommand', () => {
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'done' }];
-    mockLoadState.mockReturnValue(stateWith({ plan: { tasks } }));
+    const tasks = [{ id: 'T1', title: 't1', status: 'done' }];
+    mockLoadState.mockReturnValue(stateWith({ tasks }));
     mockFindNextTask.mockReturnValue(null);
 
     const promise = runCommand(undefined, {});
@@ -193,8 +194,8 @@ describe('runCommand', () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'exit').mockImplementation(() => {});
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'done' }];
-    mockLoadState.mockReturnValue(stateWith({ plan: { tasks } }));
+    const tasks = [{ id: 'T1', title: 't1', status: 'done' }];
+    mockLoadState.mockReturnValue(stateWith({ tasks }));
     mockFindNextTask.mockReturnValue(null);
 
     const onSpy = vi.spyOn(process, 'on');
@@ -217,9 +218,9 @@ describe('runCommand', () => {
 
     httpState.sendResponse = JSON.stringify({ ok: false, error: 'session busy' });
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
     // 始终 pending：超时后回查仍 pending → 触发「即将重试」warn
-    mockLoadState.mockReturnValue(stateWith({ plan: { tasks } }));
+    mockLoadState.mockReturnValue(stateWith({ tasks }));
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValueOnce(tasks[0])
@@ -243,11 +244,11 @@ describe('runCommand', () => {
 
     httpState.statusResponse = JSON.stringify({ state: 'ready' });
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
     mockLoadState
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValue(stateWith({ plan: { tasks: tasksDone(tasks) }, currentState: 'FINISH' }));
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValue(stateWith({ tasks: tasksDone(tasks), currentState: 'FINISH' }));
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValue(null);
@@ -272,12 +273,12 @@ describe('runCommand', () => {
     httpState.statusSequence = [JSON.stringify({ state: 'ready' })]; // ensureServer 启动检测
     httpState.statusResponse = JSON.stringify({ state: 'busy' });    // waitForReady 永不 ready
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
     const doneTasks = tasksDone(tasks);
     mockLoadState
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))       // runCommand 初始
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))       // runLoop 初始
-      .mockReturnValue(stateWith({ plan: { tasks: doneTasks } })); // checkTaskDone 回查 → done
+      .mockReturnValueOnce(stateWith({ tasks }))       // runCommand 初始
+      .mockReturnValueOnce(stateWith({ tasks }))       // runLoop 初始
+      .mockReturnValue(stateWith({ tasks: doneTasks })); // checkTaskDone 回查 → done
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValue(null);
@@ -299,9 +300,9 @@ describe('runCommand', () => {
 
     httpState.sendResponse = JSON.stringify({ ok: false, error: 'busy' });
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
     // 始终 pending：2 次超时后触发「跳过任务」error
-    mockLoadState.mockReturnValue(stateWith({ plan: { tasks } }));
+    mockLoadState.mockReturnValue(stateWith({ tasks }));
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValueOnce(tasks[0])
@@ -329,15 +330,15 @@ describe('runCommand', () => {
     httpState.statusResponse = JSON.stringify({ state: 'ready' });
     httpState.sendResponse = JSON.stringify({ ok: true });
 
-    const tasks = [{ id: 'T1', desc: 't1', status: 'pending', prompt: 'p' }];
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
     const doneTasks = tasksDone(tasks);
     // loadState 调用序: runCommand(pending) → runLoop(pending) → ensureTaskDone 回查(pending→补发) → 收尾后回查(done) → runLoop 重载(done/FINISH)
     mockLoadState
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks } }))
-      .mockReturnValueOnce(stateWith({ plan: { tasks: doneTasks } }))
-      .mockReturnValue(stateWith({ plan: { tasks: doneTasks }, currentState: 'FINISH' }));
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks: doneTasks }))
+      .mockReturnValue(stateWith({ tasks: doneTasks, currentState: 'FINISH' }));
     mockFindNextTask
       .mockReturnValueOnce(tasks[0])
       .mockReturnValue(null);
@@ -350,5 +351,69 @@ describe('runCommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 未标记 done，补发收尾 prompt'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('收尾 prompt 已生效'));
     expect(taskWrapup).toHaveBeenCalledWith('T1');
+  });
+
+  // ── TC19 ──
+
+  it('TC19: 收尾未生效 → 追问一轮 → 任务完成', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+    taskWrapup.mockClear();
+    taskSettle.mockClear();
+
+    httpState.statusResponse = JSON.stringify({ state: 'ready' });
+    httpState.sendResponse = JSON.stringify({ ok: true });
+
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
+    const doneTasks = tasksDone(tasks);
+    // loadState 调用序: runCommand → runLoop → settleTask 首查(pending) → wrapup 后查(pending) → 追问后查(done) → runLoop 重载(done/FINISH)
+    mockLoadState
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks: doneTasks }))
+      .mockReturnValue(stateWith({ tasks: doneTasks, currentState: 'FINISH' }));
+    mockFindNextTask
+      .mockReturnValueOnce(tasks[0])
+      .mockReturnValue(null);
+
+    const promise = runCommand(undefined, {});
+    await vi.advanceTimersByTimeAsync(5000);
+    await promise;
+    vi.useRealTimers();
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，追问（第 1/3 轮）'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 已完成'));
+    expect(taskSettle).toHaveBeenCalledWith('T1');
+  });
+
+  // ── TC20 ──
+
+  it('TC20: 追问 3 轮仍未完成 → 标 blocked 跳过', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+    taskWrapup.mockClear();
+    taskSettle.mockClear();
+
+    httpState.statusResponse = JSON.stringify({ state: 'ready' });
+    httpState.sendResponse = JSON.stringify({ ok: true });
+
+    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
+    // 始终 pending：wrapup 未生效 + 追问 3 轮均 pending → stuck → markTaskBlocked
+    mockLoadState.mockReturnValue(stateWith({ tasks }));
+    mockFindNextTask
+      .mockReturnValueOnce(tasks[0])
+      .mockReturnValue(null);
+
+    const promise = runCommand(undefined, {});
+    await vi.advanceTimersByTimeAsync(5000);
+    await promise;
+    vi.useRealTimers();
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 多轮追问后仍未完成，标记 blocked 并跳过'));
+    expect(taskSettle).toHaveBeenCalledTimes(3);
   });
 });
