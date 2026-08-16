@@ -1,1 +1,0 @@
-../../src/mcp/awf-state/commands/w-state.md
