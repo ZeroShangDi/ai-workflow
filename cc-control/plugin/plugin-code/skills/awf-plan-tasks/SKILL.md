@@ -47,6 +47,73 @@ description: >
 
 id 遵循编号规范 `{前缀}{级别}-{序号}`（见 w-plan 的编号规范章节）：`T`=任务，级别=树深度，序号=同级内 3 位补零递增。`wbsRef` 指向同级别的 WBS 节点（`W{级别}-{序号}`），叶子任务序号与 WBS 节点序号对齐便于溯源。门禁任务级别取其所管辖子树的叶子级别，序号排在该区块任务末尾。
 
+**`title` vs `prompt`**：`title` 给人看（任务列表扫描，一句话）；`prompt` 给 AI 看（执行指令，自包含，由 awf-plan-prompt 生成）。
+
+## 任务运行时扩展
+
+上面 7 字段是规划时写入的。执行过程中，任务对象追加运行时字段：
+
+```json
+{
+  "exec": { "result": null, "files": [] },
+  "commits": []
+}
+```
+
+| 字段 | 类型 | 写入方 | 说明 |
+|------|------|--------|------|
+| `exec.result` | `string\|null` | CODE | 做了什么、决策、已知限制 |
+| `exec.files` | `string[]` | CODE | 本次创建/修改的文件 |
+| `commits[].hash` | `string` | COMMIT | 提交 SHA |
+| `commits[].message` | `string` | COMMIT | commit message |
+
+### 状态流转
+
+```
+pending → active → done
+  │                 │
+  └──→ blocked ←────┘
+```
+
+| 流转 | 触发 |
+|------|------|
+| `pending` → `active` | awf-run 选中此任务进入执行 |
+| `active` → `done` | w-commit 成功完成 |
+| `active` → `blocked` | 外部依赖，需人工决策（建 Issue） |
+| `blocked` → `pending` | Issue 解决，重新入队 |
+| `done` → `active` | （少见）w-review 发现需返工 |
+
+### 阶段读写矩阵
+
+| 阶段 | 读 | 写 |
+|------|-----|-----|
+| PLAN | — | `id`, `title`, `prompt`, `wbsRef`, `deps`, `acceptance`, `status = "pending"` |
+| CODE | `id`, `title`, `prompt`, `deps`, `status` | `status`, `exec.result`, `exec.files` |
+| REVIEW | `title`, `exec.result`, `exec.files` | 不直接写 task |
+| TEST | `title`, `exec.result`, `acceptance` | 不直接写 task |
+| COMMIT | `status`, `exec.result`, `exec.files` | `status = "done"`, `commits[]` |
+| DEBUG | `title`, `exec.files`, `exec.result` | `status`（可能回 `active`） |
+| FINISH | 全部 task 的 `status` | — |
+
+## 粒度判定（合并/拆分）
+
+合并还是拆分，依据**复杂度**，不机械按域合并、也不机械保留颗粒度。三维判定，各分 低/中/高：
+
+| 维度 | 问什么 |
+|------|--------|
+| 认知负荷 | 一次理解这个任务需要多少上下文/概念 |
+| 实现规模 | 涉及多少文件/代码量/改动面 |
+| 调试风险 | 出问题后定位范围有多大 |
+
+规则：
+
+- **全低且同模式** → 合并为一个任务（如 storage + cookie 两个传感器）
+- **任一维高** → 独立成任务
+- **全高** → 拆分（一个任务拆成多个更小的）
+- **否则** → 保留当前颗粒度
+
+不强制每个任务逼近模型极限 —— 单一小改动的任务也成立（如只改一个样式）。
+
 ## 门禁任务
 
 | 门禁类型 | 插入位置 | 时机 | 级别/序号 |
@@ -78,10 +145,18 @@ W1-001 图片hover模块
 
 生成顺序即后序：对话（共享）→ 缓存（共享）→ 意图识别（独立）→ 模块测试 → 全局文档。被依赖模块的任务先产出，独立模块在后。
 
+## 落盘正确性
+
+tasks 是 WBS 的派生叶子，落盘时**只增删改 `tasks` 数组**：
+
+- `wbs` / `plan.summary` / `inScope` / `outOfScope` / `acceptanceCriteria` / `milestones` 是上游规划产物，原样保留，不因重写 tasks 而清空
+- 每个任务的 `wbsRef` 必须能解析到 WBS 树中的真实节点
+- 合并/删除任务后做连带修正：下游 `deps` 里指向旧任务 ID 的，重指向新 ID；`milestones[].tasks` 重新生成，各里程碑任务数之和 = 任务总数
+
 ## 原则
 
 - **依赖链明确**：每个任务知道它在谁之后（deps）、谁在它之后（被依赖它的任务）
 - **验收可验证**：是/否可判断，不含"完善""优化"等模糊词
 - **提示词随任务**：每个任务（含门禁）带有自包含执行上下文（由 awf-plan-prompt 生成），阶段断裂时 AI 能冷启动
 - **门禁是任务不是检查**：门禁作为正式 task 落盘，参与状态流转，靠 deps 保证时序
-- **粒度经济**：简单功能可收成模块级任务（叶子），不强制拆出功能层 —— 无功能子树则不插审查，仅插模块级测试与全局文档
+- **粒度看复杂度**：合并/拆分依据三维复杂度判定（见「粒度判定」），不机械按域合并、也不机械保留颗粒度

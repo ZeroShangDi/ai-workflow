@@ -2,38 +2,35 @@
 
 > **状态由用户手动维护**，AI 不修改本文件状态。已存在标记 `[x]`，待建标记 `[ ]`。
 >
-> 目录约定：
-> - `commands/` — 通用命令
-> - `runtime-commands/` — awf 特有命令
-> - `prompts/` — 提示词模板命令
-> - `skills/` — 通用技能
-> - `runtime-skills/` — awf 特有技能
+> 目录约定（双插件结构）：
+> - `plugin/core/commands/` — 引擎层运行态命令（w-start/pause/monitor/state）
+> - `plugin/plugin-code/commands/` — 领域层命令（w-plan* + w-dev/debug/review/test/doc/commit/ui-*）
+> - `plugin/core/skills/` — 引擎层技能（awf-run-* + awf-skill/awf-state）
+> - `plugin/plugin-code/skills/` — 领域层技能（awf-plan-* + code-*）
 
 ## 命令
 
-### commands/（通用）
+### plugin/core/commands/（引擎层）
 
-- [💡] w-commit — 提交流程
-- [x] w-debug — 调试流程
-- [x] w-dev — 开发流程
-- [x] w-doc — 文档管理方法论
-- [x] w-review — 审查流程
-- [x] w-test — 测试流程
-- [x] w-ui-code — 按原型稿实现静态页面
-- [x] w-ui-design — 设计原型界面
-
-### runtime-commands/（awf 特有）
-
-- [💡] w-plan — 主规划流程
 - [x] w-start — 标记进入 awf 运行模式
 - [x] w-pause — 标记暂停，进入人工介入
 - [x] w-monitor — tmux 循环检测机制
+- [x] w-state — awf-state MCP tools 参考
 
-### prompts/（提示词模板）
+### plugin/plugin-code/commands/（领域层）
 
+- [💡] w-plan — 主规划流程
 - [x] w-plan-check — 检查产出的 state.json 是否符合标准
 - [x] w-plan-tasks — 生成任务列表
 - [x] w-plan-wbs — 生成 WBS 空间树
+- [x] w-dev — 开发流程
+- [x] w-debug — 调试流程
+- [x] w-review — 审查流程
+- [x] w-test — 测试流程
+- [💡] w-commit — 提交流程
+- [x] w-doc — 文档管理方法论
+- [x] w-ui-code — 按原型稿实现静态页面
+- [x] w-ui-design — 设计原型界面
 
 ### 规划中（未建）
 
@@ -47,7 +44,7 @@
 
 ## 技能
 
-### skills/（通用）
+### plugin/plugin-code/skills/（领域层）
 
 - [x] code-ask-question — 如何描述一个问题
 - [x] code-commit-gitflow — Git 使用说明
@@ -68,13 +65,13 @@
 - [x] code-review-security — 安全漏洞检查
 - [x] code-review-simplify — 代码简化
 - [x] code-test-case — AI 生成测试用例
-
-### runtime-skills/（awf 特有）
-
 - [x] awf-plan-norm — 需求规范化
 - [x] awf-plan-prompt — 执行提示词生成
 - [x] awf-plan-tasks — 生成任务列表
 - [💡] awf-plan-wbs — 生成 WBS 空间树
+
+### plugin/core/skills/（引擎层）
+
 - [x] awf-run-decision — 运行时决策处理
 - [x] awf-run-error — 运行时异常处理
 - [x] awf-run-reset — 反复失败时重开（回撤 + 复盘 + 重新探索）

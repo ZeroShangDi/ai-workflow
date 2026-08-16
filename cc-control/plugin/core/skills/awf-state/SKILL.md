@@ -1,10 +1,9 @@
 ---
 name: awf-state
 description: >
-  awf-state MCP 使用指南 + state.json 数据模型解释说明。
-  覆盖 MCP 工具的使用场景和数据模型中核心字段/扩展字段/运行时字段/关联字段的定义。
+  awf-state MCP 使用指南 + state.json 数据模型。
+  覆盖 MCP 工具的使用场景和 state.json 中任务/WBS/plan 元数据/milestones 字段定义。
   触发条件：需要读写 state.json、调用 awf-state MCP tools、理解状态字段含义时。
-  引用方：awf-flow-exec-prompt, awf-sys-spec-workflow
 ---
 
 # awf-state — MCP 使用指南 + 数据模型
@@ -29,6 +28,9 @@ description: >
 | `awf_phase` | 设置工作流阶段 |
 | `awf_milestone_update` | 更新里程碑状态 |
 | `awf_milestone_create` | 创建里程碑 |
+| `awf_milestone_delete` | 删除里程碑 |
+| `awf_mode` | 设置运行模式（idle/plan/run） |
+| `awf_version` | 更新 state.json 版本号 |
 
 ### 使用原则
 
@@ -39,18 +41,33 @@ description: >
 
 ## 数据模型
 
-### 核心字段
+### 任务（task）
 
-TODO: 待 awf-sys-spec-task 定稿后填入
+任务 schema 的权威定义在 plugin-code 的 `awf-plan-tasks` skill。此处列 state.json 中实际出现的字段：
 
-### 扩展字段
+| 字段 | 说明 |
+|------|------|
+| `id` / `title` / `wbsRef` / `deps` / `acceptance` / `prompt` | 规划时写入（见 awf-plan-tasks） |
+| `status` | `pending` / `active` / `done` / `blocked` |
+| `exec.result` / `exec.files` | 运行时写入（CODE 阶段） |
+| `commits[]` | 运行时写入（COMMIT 阶段） |
 
-TODO
+任务数组位置：根级 `tasks`。
 
-### 运行时字段
+### WBS
 
-TODO
+WBS 数组位于根级 `wbs`。
 
-### 关联字段
+| 字段 | 说明 |
+|------|------|
+| `id` / `name` / `desc` / `acceptance` / `deps` | WBS 工作分解项 |
 
-TODO
+### Plan 元数据
+
+`plan` 只承载规划元数据：`summary` / `reqDoc` / `hasUI` / `inScope` / `outOfScope` / `acceptanceCriteria`
+
+### Milestones
+
+| 字段 | 说明 |
+|------|------|
+| `id` / `desc` / `status` / `tasks[]` | 里程碑（`status`: `active` / `done`） |

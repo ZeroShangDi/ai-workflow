@@ -37,7 +37,6 @@ cc-control/
     awf.js                 #   CLI 入口（Commander，7 个命令）
     cli/                   #   CLI 命令实现（init, plan, run, plugin...）
     server/                #   HTTP Session Server（CLI 基础设施，spawn 式，不进插件）
-    prompts/               #   阶段 prompt 模板
     templates/             #   init 模板
 
   scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
@@ -108,6 +107,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 | `/w-start` | 标记 state.json 进入 awf 运行模式（plan/run），awf run 入口触发 |
 | `/w-pause` | 标记暂停 awf 模式，进入人工介入状态 |
 | `/w-monitor` | loop 检测 — 非 tmux 调用的 cc 监测 tmux 中 cc 状态 |
+| `/w-state` | awf-state MCP tools 参考（参数/返回/执行流程） |
 
 ### plugin-code 插件（plugin/plugin-code/commands/，命名空间 `ai-workflow-code`）
 
@@ -253,7 +253,7 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `src/lib/state.js` | state.json 读写 |
 | `src/lib/paths.js` | 路径解析 |
 | `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词，cli 零感知 |
-| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan 入口：start/resume/default） |
+| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan 入口 start/resume/default + 任务收尾 wrapup），runtime 指令由插件声明 |
 | `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
 | `scripts/render-config.mjs` | 从 plugin/config.json 渲染 5 个插件注册文件；`--workdir` 模式供独立沙箱渲染 |
@@ -264,7 +264,6 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 17 个 tools，直接文件 I/O |
 | `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 4 个 tools |
 | `plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
-| `src/prompts/run/state-machine.md` | 自治执行规则（注入给 AI 的运行时指令） |
 | `plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
 

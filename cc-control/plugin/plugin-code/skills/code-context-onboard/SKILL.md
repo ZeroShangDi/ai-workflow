@@ -3,7 +3,7 @@ name: code-context-onboard
 description: >
   跨阶段上下文传递格式 + 上下文压缩规则 — 用于开发接力，解决上下文断裂问题。
   触发条件：awf run 阶段切换、session 冷启动、上下文压缩时。
-  引用方：awf-flow-exec-prompt, w-dev
+  引用方：w-dev
 ---
 
 # 上下文接力协议

@@ -1,4 +1,4 @@
-# 状态管理
+# w-state
 
 通过 awf-state MCP tools 更新 `.awf/state.json`。MCP server 在 tmux session 启动时自动配置，无需手动 curl。
 
@@ -33,18 +33,16 @@
 ### awf_task_create
 创建新任务
 - `id` (string, 必填) — 唯一任务 ID
-- `desc` (string, 必填) — 任务描述
-- `prompt` (string, 必填) — 开发 prompt
+- `title` (string, 必填) — 任务名（一句话）
+- `prompt` (string, 必填) — 执行提示词（命令 + 上下文）
 - `wbsRef` (string, 可选) — 关联 WBS ID
 - `deps` (string[], 可选) — 依赖任务 ID 列表
+- `acceptance` (string, 可选) — 可验证的完成条件
 
 ### awf_task_update
 更新任务字段（只更新提供的字段）
 - `id` (string, 必填) — 任务 ID
-- `desc`, `prompt`, `wbsRef`, `deps` (可选)
-- `complexity` (enum, 可选) — `simple` | `medium` | `complex`
-- `featureGroup` (string, 可选) — 特性组 ID
-- `phases` (string[], 可选) — 显式阶段链，覆盖 complexity 推导
+- `title`, `prompt`, `wbsRef`, `deps`, `acceptance` (可选)
 
 ### awf_task_delete
 删除任务
@@ -77,11 +75,6 @@
 ### awf_phase
 设置当前工作流阶段
 - `phase` (string, 必填) — `IDLE` | `PLAN` | `DESIGN` | `CODE` | `REVIEW` | `TEST` | `COMMIT` | `FINISH` | `DEBUG`
-
-### awf_milestone_update
-更新里程碑状态
-- `id` (string, 必填) — 里程碑 ID
-- `status` (enum, 必填) — `active` | `done`
 
 ### awf_milestone_update
 更新里程碑状态
