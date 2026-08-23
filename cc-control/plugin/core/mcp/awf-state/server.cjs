@@ -31,8 +31,14 @@ function textResult(obj) {
 const TOOLS = [
   {
     name: 'awf_read_state',
-    description: '读取当前工作流的完整 state.json（任务列表、里程碑、WBS、阶段等）',
-    inputSchema: { type: 'object', properties: {}, required: [] },
+    description: '读取工作流状态。不传 taskId → 返回完整 state.json；传 taskId → 只返回该任务完整详情（含 status/exec/commits）。判断任务状态或 exec 时用 taskId 单查，避免全量读取',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: '任务 ID，如 T1。传了则只返回该任务详情' },
+      },
+      required: [],
+    },
   },
   {
     name: 'awf_task_status',
@@ -273,7 +279,13 @@ const handlers = {
     try {
       // special: read-only
       if (name === 'awf_read_state') {
-        return textResult(readState());
+        const s = readState();
+        if (args?.taskId) {
+          const t = (s.tasks || []).find((x) => x.id == args.taskId);
+          if (!t) return textResult({ ok: false, error: `task ${args.taskId} not found` });
+          return textResult(t);
+        }
+        return textResult(s);
       }
 
       // all other tools: read → mutate → write

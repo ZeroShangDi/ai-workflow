@@ -10,8 +10,8 @@
 
 ### awf_read_state
 读取当前工作流完整状态（任务、里程碑、WBS、阶段等）
-- 参数: 无
-- 返回: 完整 state.json 内容
+- `taskId` (string, 可选) — 任务 ID。传了则只返回该任务完整详情（含 `status` / `exec` / `commits`），判断任务状态或 exec 时用单查，避免全量读取
+- 不传 `taskId` → 返回完整 state.json 内容
 
 ### awf_task_status
 更新任务状态

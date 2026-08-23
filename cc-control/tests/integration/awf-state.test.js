@@ -166,6 +166,24 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(readState(tmpDir)).toEqual(before);
   });
 
+  it('TC11d: awf_read_state 传 taskId → 只返回该任务完整详情', async () => {
+    const res = await client.callTool('awf_read_state', { taskId: 'T1' });
+
+    expect(res.id).toBe('T1');
+    expect(res.title).toBe('任务1');
+    expect(res.prompt).toBe('p1');
+    expect(res.status).toBe('pending');
+    expect(res.tasks).toBeUndefined();
+    expect(res.mode).toBeUndefined();
+  });
+
+  it('TC11e: awf_read_state 传不存在的 taskId → ok:false', async () => {
+    const res = await client.callTool('awf_read_state', { taskId: 'T999' });
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('T999');
+  });
+
   // ── task lifecycle ──
 
   it('TC12: awf_task_status 更新任务状态', async () => {

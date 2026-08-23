@@ -14,7 +14,7 @@ description: >
 
 | Tool | 用途 |
 |------|------|
-| `awf_read_state` | 读取完整 state.json |
+| `awf_read_state` | 读取状态（默认完整 state；判断任务状态/exec 时传 `taskId` 单查） |
 | `awf_task_status` | 更新任务状态（pending/active/done/blocked） |
 | `awf_task_result` | 记录执行结果和产出文件 |
 | `awf_task_commit` | 追加 commit 记录 |
@@ -36,6 +36,7 @@ description: >
 
 - state.json 只能通过 MCP tools 修改，禁止直接文件读写
 - 每个 tool 有明确的写入范围和校验规则
+- 判断任务状态或 exec 时，用 `awf_read_state` 传 `taskId` 单查该任务，不要全量读取整个 state.json
 
 ---
 

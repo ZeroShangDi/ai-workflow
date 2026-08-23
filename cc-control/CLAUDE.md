@@ -183,7 +183,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 
 | Tool | 用途 |
 |------|------|
-| `awf_read_state` | 读取完整 state.json |
+| `awf_read_state` | 读取状态（默认完整 state；判断任务状态/exec 时传 `taskId` 单查） |
 | `awf_task_status` | 更新任务状态（pending/active/done/blocked） |
 | `awf_task_result` | 记录执行结果和产出文件 |
 | `awf_task_commit` | 追加 commit 记录 |
