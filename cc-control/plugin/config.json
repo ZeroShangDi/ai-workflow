@@ -35,10 +35,7 @@
   },
   "mcpServers": {
     "awf-state": {
-      "args": ["./mcp/awf-state/server.cjs"],
-      "env": {
-        "AWF_PROJECT_ROOT": "{PROJECT_DIR}"
-      }
+      "args": ["./mcp/awf-state/server.cjs"]
     },
     "awf-session": {
       "args": ["./mcp/awf-session/server.cjs"],

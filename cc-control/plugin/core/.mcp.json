@@ -4,17 +4,14 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "./mcp/awf-state/server.cjs"
-      ],
-      "env": {
-        "AWF_PROJECT_ROOT": "${CLAUDE_PROJECT_DIR}"
-      }
+        "${CLAUDE_PLUGIN_ROOT}/mcp/awf-state/server.cjs"
+      ]
     },
     "awf-session": {
       "type": "stdio",
       "command": "node",
       "args": [
-        "./mcp/awf-session/server.cjs"
+        "${CLAUDE_PLUGIN_ROOT}/mcp/awf-session/server.cjs"
       ],
       "env": {
         "AWF_BASE": "http://127.0.0.1:8787"
@@ -24,7 +21,7 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "./mcp/awf-oneshot/server.cjs"
+        "${CLAUDE_PLUGIN_ROOT}/mcp/awf-oneshot/server.cjs"
       ]
     }
   }

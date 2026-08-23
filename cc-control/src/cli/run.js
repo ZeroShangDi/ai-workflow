@@ -1,6 +1,7 @@
 import { spawn, execSync } from 'child_process';
 import { getPaths } from '../lib/paths.js';
 import { taskWrapup, taskSettle } from '../lib/plugin-bridge.js';
+import { installProjectMcp } from '../lib/profile.js';
 import { loadState, findNextTask, backupState, saveState } from '../lib/state.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
@@ -70,6 +71,10 @@ export async function runCommand(task, options) {
 
 /** 启动 Session Server + tmux session 两个基础设施 */
 async function startSession({ serverScript, bootstrapScript, projectRoot, workDir, sessionName = 'cc' }) {
+  // 项目级 .mcp.json 是 MCP 工具可用的必要条件（enabled-only 插件注册下插件 .mcp.json 不暴露工具）
+  // 幂等合并：只刷新 awf-* server 的绝对路径，保留项目已有 server
+  const m = installProjectMcp(workDir, projectRoot, SERVER_PORT);
+  if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
   await ensureServer(serverScript, projectRoot, workDir);
   await ensureSession(bootstrapScript, workDir, sessionName);
 }

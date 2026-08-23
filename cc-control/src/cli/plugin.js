@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { getPaths } from '../lib/paths.js';
 import { logger, logStep } from '../lib/ui/log.js';
 import { createSpinner } from '../lib/ui/spinner.js';
-import { installProfile, uninstallProfile } from '../lib/profile.js';
+import { installProfile, uninstallProfile, installProjectMcp } from '../lib/profile.js';
 
 /**
  * awf plugin — 独立插件管理
@@ -30,6 +30,9 @@ async function localPlugin(action) {
       const r = installProfile(cwd, projectRoot);
       if (r.written) logger.success(`已本地注册 plugin → ${r.path}`);
       else logger.warn(r.error || '本地注册失败');
+      const m = installProjectMcp(cwd, projectRoot);
+      if (m.written) logger.success(`已写入项目 MCP 注册 → ${m.path}`);
+      else logger.warn(m.error || '项目 MCP 注册失败');
       break;
     }
 

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { projectMcpJson } from './plugin-config.js';
 
 /**
  * Profile 本地注册实现（取代全局 claude plugin install / 符号链接）
@@ -87,6 +88,40 @@ function readTemplate(pkgRoot) {
   const templatePath = path.join(pkgRoot, 'plugin', 'settings.json');
   try { return JSON.parse(fs.readFileSync(templatePath, 'utf8')); }
   catch { return null; }
+}
+
+/**
+ * 项目级 MCP 注册：把插件声明的 3 个 awf-* server（绝对路径）合并进项目 .mcp.json。
+ *
+ * 背景：本地注册（enabled-only 插件）下，插件 .mcp.json 只连通不暴露工具，
+ * 项目级 .mcp.json 是 MCP 工具在 awf run 会话中可用的必要条件。
+ * 幂等：只覆盖 awf-* 同名 server（保证路径当前），保留用户已有 server。
+ * @param {string} projectRoot - 目标项目根目录（.mcp.json 所在处）
+ * @param {string} repoRoot - cc-control 根目录（读 plugin/config.json）
+ * @param {number} [port] - 端口覆盖，缺省用 config.json 的 port
+ * @returns {{written: boolean, path: string|null, servers: string[]}}
+ */
+export function installProjectMcp(projectRoot, repoRoot, port) {
+  let mcpServers;
+  try {
+    ({ mcpServers } = projectMcpJson(repoRoot, port));
+  } catch (err) {
+    if (err.code === 'ENOENT') return { written: false, path: null, servers: [], error: 'plugin/config.json 缺失，跳过项目 MCP 注册' };
+    throw err;
+  }
+  const mcpPath = path.join(projectRoot, '.mcp.json');
+
+  let existing = {};
+  if (fs.existsSync(mcpPath)) {
+    try { existing = JSON.parse(fs.readFileSync(mcpPath, 'utf8')); }
+    catch { /* 非法 JSON → 从 awf 声明重建 */ }
+  }
+
+  existing.mcpServers = existing.mcpServers || {};
+  for (const [name, srv] of Object.entries(mcpServers)) existing.mcpServers[name] = srv;
+
+  fs.writeFileSync(mcpPath, JSON.stringify(existing, null, 2) + '\n');
+  return { written: true, path: mcpPath, servers: Object.keys(mcpServers) };
 }
 
 // ── helpers（从 plan.js 迁移）──

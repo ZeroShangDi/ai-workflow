@@ -48,11 +48,11 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     expect(fs.readFileSync(PLUGIN_CONFIG, 'utf-8')).toContain('./mcp/awf-state/server.cjs');
   });
 
-  it('TC3: .mcp.json AWF_PROJECT_ROOT = workdir', () => {
+  it('TC3: .mcp.json awf-state 不携带 AWF_PROJECT_ROOT（server 用 cwd 回退）', () => {
     const work = path.join(TMP, 'w3');
     render(work);
     const parsed = readJson(path.join(work, '.mcp.json'));
-    expect(parsed.mcpServers['awf-state'].env.AWF_PROJECT_ROOT).toBe(work);
+    expect(parsed.mcpServers['awf-state'].env).toBeUndefined();
   });
 
   it('TC4: .mcp.json 渲染后 JSON 合法（3 个 server）', () => {
@@ -88,15 +88,20 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     const spacedWork = path.join(TMP, 'my work', 'proj');
     render(spacedWork);
     expect(fs.existsSync(path.join(spacedWork, '.mcp.json'))).toBe(true);
-    expect(readJson(path.join(spacedWork, '.mcp.json')).mcpServers['awf-state'].env.AWF_PROJECT_ROOT).toBe(spacedWork);
+    expect(readJson(path.join(spacedWork, '.mcp.json')).mcpServers['awf-state'].env).toBeUndefined();
   });
 
-  it('TC8: 特殊字符路径（ROOT 含空格，拷贝脚本 + config 到带空格目录）', () => {
+  it('TC8: 特殊字符路径（ROOT 含空格，拷贝脚本 + config + 共享模块到带空格目录）', () => {
     const spacedProject = path.join(TMP, 'my project', 'cc-control');
     fs.mkdirSync(path.join(spacedProject, 'scripts'), { recursive: true });
     fs.mkdirSync(path.join(spacedProject, 'plugin'), { recursive: true });
+    fs.mkdirSync(path.join(spacedProject, 'src', 'lib'), { recursive: true });
     fs.copyFileSync(RENDER, path.join(spacedProject, 'scripts', 'render-config.mjs'));
     fs.copyFileSync(PLUGIN_CONFIG, path.join(spacedProject, 'plugin', 'config.json'));
+    fs.copyFileSync(
+      path.join(ROOT, 'src', 'lib', 'plugin-config.js'),
+      path.join(spacedProject, 'src', 'lib', 'plugin-config.js'),
+    );
 
     const work = path.join(TMP, 'w-spaced-root');
     const res = spawnSync(NODE, [path.join(spacedProject, 'scripts', 'render-config.mjs'), '--workdir', work], { encoding: 'utf8' });
