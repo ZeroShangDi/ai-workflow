@@ -17,14 +17,14 @@ description: >
 
 | 任务类型 | 命令 |
 |---------|------|
-| 设计 | /w-ui-design |
-| UI 实现 | /w-ui-code |
-| 开发 | /w-dev |
-| 调试 | /w-debug |
-| 审查 | /w-review |
-| 测试 | /w-test |
-| 文档 | /w-doc |
-| 提交 | /w-commit |
+| 设计 | /ai-workflow-code:w-ui-design |
+| UI 实现 | /ai-workflow-code:w-ui-code |
+| 开发 | /ai-workflow-code:w-dev |
+| 调试 | /ai-workflow-code:w-debug |
+| 审查 | /ai-workflow-code:w-review |
+| 测试 | /ai-workflow-code:w-test |
+| 文档 | /ai-workflow-code:w-doc |
+| 提交 | /ai-workflow-code:w-commit |
 
 ## 提示词结构
 
@@ -35,7 +35,7 @@ description: >
 3. `<context>` — 前序任务（deps）完成了什么、产出了什么
 4. `<constraints>` — 框架、库、模式约束
 5. `<files>` — 涉及的文件路径（AI 动手前先读这些文件）
-6. `<acceptance>` — 验收标准，写成可判定的断言（给定输入 → 预期输出），/w-test 可直接对照验证
+6. `<acceptance>` — 验收标准，写成可判定的断言（给定输入 → 预期输出），/ai-workflow-code:w-test 可直接对照验证
 7. `<risks>` — 已知的坑
 
 ## 示例
@@ -43,7 +43,7 @@ description: >
 开发任务（登录表单）：
 
 ```
-/w-dev
+/ai-workflow-code:w-dev
 <task>
 在 src/components/LoginForm.vue 实现邮箱+密码登录表单。
 </task>

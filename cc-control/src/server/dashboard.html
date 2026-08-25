@@ -374,7 +374,7 @@ function renderRunToggle(mode) {
 }
 
 async function toggleRun() {
-  await postCmd(currentMode === 'run' ? '/w-pause' : '/w-start');
+  await postCmd(currentMode === 'run' ? '/ai-workflow-core:w-pause' : '/ai-workflow-core:w-start');
 }
 
 // 智能自动滚动：在底部时自动跟随新内容，用户上翻则暂停，拉回底部再恢复
