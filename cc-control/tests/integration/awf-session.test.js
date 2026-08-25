@@ -145,6 +145,14 @@ describe('awf-session MCP tools', () => {
     expect(result.content[0].text).toContain('"ok": false');
     expect(result.content[0].text).toContain('unknown tool: unknown_tool');
   });
+
+  it('TC25: awf_context_ready 正常 → POST /context-ready', async () => {
+    const result = await mod.handlers['tools/call']({ name: 'awf_context_ready', arguments: {} });
+    expect(result.content[0].text).toContain('"ok": true');
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe('POST');
+    expect(requests[0].url).toBe('/context-ready');
+  });
 });
 
 describe('HTTP helpers', () => {
@@ -201,10 +209,10 @@ describe('JSON-RPC 协议', () => {
     expect(sent.result.serverInfo.name).toBe('awf-session-mcp');
   });
 
-  it('TC22: tools/list 返回 4 个 tools', async () => {
+  it('TC22: tools/list 返回 5 个 tools', async () => {
     const sent = await callRpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const names = sent.result.tools.map((t) => t.name);
-    expect(names).toEqual(['awf_session_status', 'awf_capture_pane', 'awf_await_choice', 'awf_await_input']);
+    expect(names).toEqual(['awf_session_status', 'awf_capture_pane', 'awf_await_choice', 'awf_await_input', 'awf_context_ready']);
     for (const t of sent.result.tools) {
       expect(t).toHaveProperty('name');
       expect(t).toHaveProperty('description');

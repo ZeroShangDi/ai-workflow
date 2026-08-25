@@ -24,13 +24,17 @@ const PROMPTS = {
     prompt: '用 awf_task_status 标记 {taskId} done。用 awf_task_result 记录 {taskId} 的执行结果。只做这两步。',
     description: '任务未标记 done 时，补发的收尾 prompt（强制标记 + 记录）',
   },
+  'context-check': {
+    prompt: '上下文检查：当前占用：{usage}。只判断是否压缩，不做任何任务工作。低于 65% 回复 AWF_CONTEXT_OK，否则写快照并通知。',
+    description: '每个任务执行前的上下文压缩检查',
+  },
 };
 
 vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({ projectRoot: FAKE_ROOT })),
 }));
 
-import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup } from '../../src/lib/plugin-bridge.js';
+import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck } from '../../src/lib/plugin-bridge.js';
 
 beforeAll(async () => {
   const dir = path.join(FAKE_ROOT, 'plugin', 'plugin-code');
@@ -76,5 +80,12 @@ describe('stateTemplatePath — 插件内部路径收敛', () => {
 describe('taskWrapup — 任务收尾 prompt', () => {
   it('填充 {taskId}，使用插件模板中的 MCP tool 指令', async () => {
     expect(await taskWrapup('T3')).toBe('用 awf_task_status 标记 T3 done。用 awf_task_result 记录 T3 的执行结果。只做这两步。');
+  });
+});
+
+describe('contextCheck — 任务前上下文检查 prompt', () => {
+  it('填充 {usage} 占位符（statusline 实测 / 未知回退）', async () => {
+    expect(await contextCheck('已用约 62%（statusline 实测）')).toContain('当前占用：已用约 62%（statusline 实测）');
+    expect(await contextCheck('未知（statusline 未配置，请自行估算）')).toContain('当前占用：未知（statusline 未配置，请自行估算）');
   });
 });

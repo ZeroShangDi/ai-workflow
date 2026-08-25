@@ -213,6 +213,11 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
 
     const s = readState();
     expect(s.tasks.map((t) => t.status)).toEqual(['done', 'done']);
-    expect(sentPrompts()).toEqual(['task one', 'task two']);
+    // 第一个任务跳过上下文检查；第二个任务前会先发 context-check prompt
+    const prompts = sentPrompts();
+    expect(prompts).toHaveLength(3);
+    expect(prompts[0]).toBe('task one');
+    expect(prompts[1]).toContain('上下文检查');
+    expect(prompts[2]).toBe('task two');
   }, 20000);
 });

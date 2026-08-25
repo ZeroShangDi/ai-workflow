@@ -25,6 +25,7 @@ let state = 'ready'; // 'ready' | 'busy'
 let decisionPending = null; // null | { type: 'choice'|'text', question: string, options?: string[] }
 let waiters = [];
 let fallbackTimer = null; // /cmd /respond 的兜底恢复定时器（测试中需可清除）
+let contextReady = false; // awf_context_ready 置位，CLI 一次性消费后 /clear
 
 function setDecision(d) {
   decisionPending = d;
@@ -197,11 +198,25 @@ const server = http.createServer(async (req, res) => {
 
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
-    const out = { ok: true, state, session: tmuxlib.hasSession(), decisionPending };
+    const out = { ok: true, state, session: tmuxlib.hasSession(), decisionPending, contextReady };
     if (url.searchParams.get('snapshot')) {
       try { out.snapshot = tmuxlib.capture(); } catch { out.snapshot = null; }
     }
     return send(res, 200, out);
+  }
+
+  // 上下文压缩快照就绪标记：AI 写快照后经 awf_context_ready → POST 置位，CLI 读后消费
+  if (req.method === 'POST' && pathname === '/context-ready') {
+    contextReady = true;
+    console.log('[context-ready] 快照就绪，待 CLI /clear');
+    return send(res, 200, { ok: true, contextReady });
+  }
+
+  // 一次性消费：读取后立即复位，避免重复触发
+  if (req.method === 'GET' && pathname === '/context-ready') {
+    const ready = contextReady;
+    contextReady = false;
+    return send(res, 200, { ok: true, ready });
   }
 
   // AI 通知：需要人做选择（带选项）
@@ -335,7 +350,7 @@ function stop() {
 
 // ---- test helpers ----
 function _getState() {
-  return { state, decisionPending, waiters: [...waiters] };
+  return { state, decisionPending, waiters: [...waiters], contextReady };
 }
 
 function _resetForTest() {
@@ -346,6 +361,7 @@ function _resetForTest() {
   state = 'ready';
   decisionPending = null;
   waiters = [];
+  contextReady = false;
 }
 
 module.exports = {

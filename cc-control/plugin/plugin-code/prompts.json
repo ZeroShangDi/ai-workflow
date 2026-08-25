@@ -18,5 +18,9 @@
   "task-settle": {
     "prompt": "任务 {taskId} 尚未标记 done（当前 status=pending）。请明确当前状态并三选一执行：\n1. 已完成 → awf_task_status 标记 {taskId} done + awf_task_result 记录结果\n2. 未完成，继续做 → 继续实现直到完成，再标记 done\n3. 卡住或需决策 → awf_task_status 标记 {taskId} blocked，并调 awf_await_choice 说明障碍",
     "description": "任务收尾追问 prompt（多轮协商：完成 / 继续 / 卡住三选一）"
+  },
+  "context-check": {
+    "prompt": "上下文检查（依据 code-context-onboard 技能规则，只做判断不做任何任务工作）：\n0. 当前对话上下文占用：{usage}\n1. 判断是否需要压缩（优先以第 0 行的实测值为准；无实测则按对话轮数/体积估算）：\n   - 占用明显充足（明显低于窗口 ~65%），或虽接近阈值但下个任务轻量、可安全完成 → 只回复 `AWF_CONTEXT_OK`，不修改任何文件、不做任何其他操作\n   - 占用已接近/超过窗口 ~65%，且下个任务仍需较多上下文 → 压缩\n2. 压缩执行（四步）：\n   a. 按 code-context-onboard 的 7 段快照格式生成交接快照（标识符如 UUID/路径/端口必须原样保留）\n   b. 写入 `.awf/context/handoff.md`（目录不存在则创建）\n   c. 调用 `awf_context_ready` 通知 CLI 快照已就绪\n   d. 回复 `AWF_CONTEXT_READY`，结束本轮\n3. 本轮是纯检查轮：无论如何都不要开始执行任何任务、不要调用任务相关工具。",
+    "description": "每个任务执行前的上下文压缩检查（引导 AI 按 code-context-onboard 判断是否需要压缩）"
   }
 }

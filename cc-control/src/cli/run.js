@@ -1,9 +1,11 @@
 import { spawn, execSync } from 'child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { getPaths } from '../lib/paths.js';
-import { taskWrapup, taskSettle } from '../lib/plugin-bridge.js';
+import { taskWrapup, taskSettle, contextCheck } from '../lib/plugin-bridge.js';
 import { installProjectMcp } from '../lib/profile.js';
 import { loadState, findNextTask, backupState, saveState } from '../lib/state.js';
-import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, SERVER_PORT } from '../lib/session/client.js';
+import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, sendCmd, getContextReady, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
 import { logSection, logStep } from '../lib/ui/log.js';
 import { CYAN, GREEN, YELLOW, RED, DIM, RESET } from '../lib/ui/colors.js';
@@ -76,6 +78,7 @@ async function startSession({ serverScript, bootstrapScript, projectRoot, workDi
   const m = installProjectMcp(workDir, projectRoot, SERVER_PORT);
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
   await ensureServer(serverScript, projectRoot, workDir);
+  await writeRunSettings(workDir, projectRoot);
   await ensureSession(bootstrapScript, workDir, sessionName);
 }
 
@@ -110,6 +113,30 @@ async function ensureSession(bootstrapScript, workDir, sessionName) {
   logStep('session', 'ok', `${sessionName} → ${workDir}`);
 }
 
+/**
+ * 写 run-session 专属 settings（.awf/run-settings.json）— 仅声明 statusLine 上下文占用状态行。
+ * bootstrap 以 --settings 注入（合并语义：只覆盖 statusLine 键，不动用户/项目 settings），
+ * 使 tmux 会话里状态行每次刷新把 context_window 实测百分比写入 .awf/context/usage.json。
+ * 作用域限定在 run 会话，不污染用户在项目里的交互式会话。
+ */
+async function writeRunSettings(workDir, pkgRoot) {
+  await fs.mkdir(path.join(workDir, '.awf'), { recursive: true });
+  await fs.writeFile(
+    path.join(workDir, '.awf', 'run-settings.json'),
+    JSON.stringify(
+      {
+        statusLine: {
+          type: 'command',
+          command: `node "${path.join(pkgRoot, 'scripts', 'context-usage.mjs')}"`,
+          refreshInterval: 30,
+        },
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 // ── 任务循环 ──
 
 /**
@@ -130,7 +157,10 @@ async function runLoop(projectRoot) {
     logBanner(`任务 ${idx}/${total}: ${nextTask.title}`);
     logPrompt(nextTask.prompt || nextTask.title || '');
 
-    const result = await executeTask(nextTask.prompt || nextTask.title || '', nextTask.id, projectRoot);
+    // 任务前上下文检查：AI 按 code-context-onboard 判断是否需压缩，需要则 /clear 后注入快照
+    const taskPrompt = nextTask.prompt || nextTask.title || '';
+    const prompt = await maybeCompactContext(taskPrompt, idx, projectRoot);
+    const result = await executeTask(prompt, nextTask.id, projectRoot);
     currentState = loadState(projectRoot);
 
     if (result === 'timeout') {
@@ -223,6 +253,90 @@ async function settleTask(taskId, projectRoot) {
 async function sendPrompt(text) {
   await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
   try { await waitForReady({ onDecision: handleDecision }); } catch { /* 超时忽略 */ }
+}
+
+/**
+ * 任务前上下文压缩检查 — 每个任务执行前（跳过第一个任务）调一次，分两层：
+ *   第一层 CLI：读 statusline 实测占用，低于 checkThreshold → 直接发任务（零额外往返）
+ *   第二层 AI ：占用 ≥ 阈值 或 无实测 → 发 context-check prompt，AI 结合下个任务体量精确判断
+ *     → 不需压缩 → 原样返回任务 prompt
+ *     → 需要压缩 → AI 写快照 + awf_context_ready → CLI 读快照 + /clear + 前缀注入
+ *
+ * 扩展点（未来可配置的前置处理管道接缝）：启用/跳过/阈值统一从
+ * contextCompactionConfig() 读取，后续接 .awf/config.json / awf run flag 等配置源时
+ * 只改这一个函数即可，也可在此挂更多任务前处理。
+ *
+ * @param {string} taskPrompt - 原始任务 prompt
+ * @param {number} taskIndex - 1-based 任务序号（第一个任务跳过检查）
+ * @param {string} projectRoot - 用户项目根目录（cwd）
+ * @returns {Promise<string>} 可能注入快照后的任务 prompt
+ */
+async function maybeCompactContext(taskPrompt, taskIndex, projectRoot) {
+  const cfg = contextCompactionConfig();
+  if (!cfg.enabled) return taskPrompt;
+  if (cfg.skipFirst && taskIndex <= (cfg.skipFirstCount || 1)) return taskPrompt;
+
+  const pct = await readContextUsage(projectRoot);
+
+  // 第一层（CLI）：有实测且低于过滤阈值 → 上下文充足，直接执行任务，零额外往返
+  if (pct !== null && pct < cfg.checkThreshold) return taskPrompt;
+
+  // 第二层（AI）：占用 ≥ 阈值（上下文接近上限）或无实测（statusline 未配置，回退自估算）
+  //   → 注入实测百分比，让 AI 结合对话实际与下个任务体量精确判断
+  await sendPrompt(await contextCheck(formatContextUsage(pct)));
+
+  // 查就绪标记（一次性消费）— 未触发 → 原样执行
+  const ready = await getContextReady(SERVER_PORT);
+  if (!ready) return taskPrompt;
+
+  // 3. 压缩：读快照 → /clear 清空对话 → 快照前缀注入下个任务 prompt
+  //    快照不可读时保守跳过（清空却不注入比保留旧上下文更糟）
+  logStep('', 'warn', `上下文接近窗口上限，压缩中（/clear 后注入快照）`);
+  const snapshot = await readHandoffSnapshot(projectRoot);
+  if (!snapshot) {
+    logStep('', 'warn', `快照不可读 (.awf/context/handoff.md)，跳过压缩`);
+    return taskPrompt;
+  }
+  await sendCmd('/clear');
+  logStep('', 'ok', `已注入上下文快照 (.awf/context/handoff.md)`);
+  return `【上下文快照】按 code-context-onboard 生成，接手前先读\n${snapshot}\n\n${taskPrompt}`;
+}
+
+/** 上下文压缩检查配置 — 未来配置源的接缝（当前硬编码默认值） */
+function contextCompactionConfig() {
+  return {
+    enabled: true,
+    skipFirst: true,
+    skipFirstCount: 1,
+    // 第一层 CLI 过滤阈值：实测占用低于此值直接放行，不打扰 AI。
+    // 高于旧压缩触发点(65%)，只把「真接近上限」的场景交给 AI 第二层精确判断
+    checkThreshold: 80,
+  };
+}
+
+/** 读取 AI 写好的交接快照；不存在或不可读 → null（降级为不注入） */
+async function readHandoffSnapshot(projectRoot) {
+  try {
+    return await fs.readFile(path.join(projectRoot, '.awf', 'context', 'handoff.md'), 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+/** 读取 statusline 写入的 usage.json 中实测百分比；缺省 → null（回退 AI 自估算） */
+async function readContextUsage(projectRoot) {
+  try {
+    const raw = await fs.readFile(path.join(projectRoot, '.awf', 'context', 'usage.json'), 'utf-8');
+    const pct = JSON.parse(raw).used_percentage;
+    return typeof pct === 'number' ? pct : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 格式化上下文占用描述：有实测 → 带百分比；无 → 提示 AI 自行估算 */
+function formatContextUsage(pct) {
+  return pct !== null ? `已用约 ${pct}%（statusline 实测）` : '未知（statusline 未配置，请自行估算）';
 }
 
 /** 从 state.json 中检查指定任务是否已标记 done */

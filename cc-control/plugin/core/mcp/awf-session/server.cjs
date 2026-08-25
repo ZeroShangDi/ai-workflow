@@ -103,6 +103,11 @@ const TOOLS = [
       required: ['question'],
     },
   },
+  {
+    name: 'awf_context_ready',
+    description: '通知 CLI：上下文压缩快照已就绪（已按 code-context-onboard 写入 .awf/context/handoff.md）。CLI 将执行 /clear 清空对话并把快照注入下一个任务。必须在写完快照文件后才调用',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 // ---- JSON-RPC / MCP handler ----
@@ -154,6 +159,11 @@ const handlers = {
           const result = await httpPost('/ask', JSON.stringify({
             question: args.question, context: args.context,
           }));
+          return textResult(result);
+        }
+        case 'awf_context_ready': {
+          logStderr('context_ready');
+          const result = await httpPost('/context-ready', JSON.stringify({}));
           return textResult(result);
         }
         default:

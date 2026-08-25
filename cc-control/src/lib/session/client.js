@@ -70,6 +70,21 @@ export function sendRespond(value, port = SERVER_PORT) {
   return httpPost(`http://127.0.0.1:${port}/respond`, { value });
 }
 
+/** GET /context-ready — 一次性消费上下文就绪标记（读取后服务端自动复位） */
+export function getContextReady(port = SERVER_PORT) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/context-ready`, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => {
+        try { resolve(!!JSON.parse(data).ready); } catch { resolve(false); }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(2000, () => { req.destroy(); resolve(false); });
+  });
+}
+
 // ── 等待就绪 + 决策处理 ──
 
 /**

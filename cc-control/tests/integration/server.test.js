@@ -278,6 +278,29 @@ describe('路由', () => {
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ ok: false, error: 'not found' });
   });
+
+  it('TC-CR1: POST /context-ready → 置位，/status 透出', async () => {
+    const res = await api('POST', '/context-ready');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, contextReady: true });
+    expect(server._getState().contextReady).toBe(true);
+    const st = await api('GET', '/status');
+    expect(st.body.contextReady).toBe(true);
+  });
+
+  it('TC-CR2: GET /context-ready → 返回标记并一次性消费（读后复位）', async () => {
+    await api('POST', '/context-ready');
+    const res1 = await api('GET', '/context-ready');
+    expect(res1.body).toEqual({ ok: true, ready: true });
+    expect(server._getState().contextReady).toBe(false); // 已消费
+    const res2 = await api('GET', '/context-ready');
+    expect(res2.body).toEqual({ ok: true, ready: false });
+  });
+
+  it('TC-CR3: GET /context-ready 未置位 → ready:false', async () => {
+    const res = await api('GET', '/context-ready');
+    expect(res.body).toEqual({ ok: true, ready: false });
+  });
 });
 
 // ─────────────────────────────────────────────

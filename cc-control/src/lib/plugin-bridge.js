@@ -67,3 +67,14 @@ export function taskWrapup(taskId) {
 export function taskSettle(taskId) {
   return resolvePrompt('task-settle', { taskId });
 }
+
+/**
+ * 任务前上下文检查 prompt — 引导 AI 按 code-context-onboard 判断是否需要压缩
+ * 输出协议：AWF_CONTEXT_OK（无需压缩）| AWF_CONTEXT_READY（已写快照并通知 CLI）
+ * @param {string} [usage] - statusline 实测上下文占用描述（如「已用约 62%（statusline 实测）」；
+ *   无实测时为「未知（statusline 未配置，请自行估算）」），填充模板 {usage} 占位符
+ * @returns {Promise<string>}
+ */
+export function contextCheck(usage) {
+  return resolvePrompt('context-check', { usage });
+}
