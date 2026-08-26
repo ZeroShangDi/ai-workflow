@@ -58,19 +58,35 @@ function preflight() {
 // ── 用例加载 ──
 
 function loadCases() {
-  const cases = [];
+  const raw = [];
   for (const entry of fs.readdirSync(CASES_DIR)) {
     const caseDir = path.join(CASES_DIR, entry);
     const caseFile = path.join(caseDir, 'case.json');
     if (!fs.existsSync(caseFile)) continue;
     try {
-      cases.push({ dir: caseDir, ...JSON.parse(fs.readFileSync(caseFile, 'utf-8')) });
+      raw.push({ dir: caseDir, ...JSON.parse(fs.readFileSync(caseFile, 'utf-8')) });
     } catch (err) {
       console.error(`✘ 解析 ${caseFile} 失败: ${err.message}`);
       process.exit(1);
     }
   }
-  return cases;
+  // extends：从另一个 case 继承（seed 顶层合并 / config·files·expected 全量覆盖），供对照用例复用任务集
+  const byId = new Map(raw.map((c) => [c.id, c]));
+  const resolveCase = (c) => {
+    if (!c.extends) return c;
+    const parent = byId.get(c.extends);
+    if (!parent) { console.error(`✘ case '${c.id}' extends 未找到: ${c.extends}`); process.exit(1); }
+    const rp = resolveCase(parent);
+    return {
+      ...rp,
+      ...c,
+      seed: { ...rp.seed, ...(c.seed || {}) },
+      files: c.files ?? rp.files,
+      config: c.config ?? rp.config,
+      expected: c.expected ?? rp.expected,
+    };
+  };
+  return raw.map(resolveCase);
 }
 
 function selectCases(all) {
@@ -122,7 +138,7 @@ function readState(sandbox) {
   catch { return null; }
 }
 
-function scoreCase(sandbox, expected) {
+function scoreCase(sandbox, expected, logPath) {
   const checks = [];
   const fail = (msg) => checks.push({ ok: false, msg });
   const pass = (msg) => checks.push({ ok: true, msg });
@@ -144,6 +160,31 @@ function scoreCase(sandbox, expected) {
   for (const f of expected.files || []) {
     if (fs.existsSync(path.join(sandbox, f))) pass(`产物存在: ${f}`);
     else fail(`产物缺失: ${f}`);
+  }
+
+  // 多 agent 并行证据：
+  //   logContain — eval.log 必须包含的批次派发标记（证明 CLI 按批次屏障派发，而非逐任务）
+  //   markerSpanMs — 各任务 marker 文件的 mtime 最大跨度上限（证明子任务几乎同时落盘，即真并行）
+  if (logPath) {
+    let logText = null;
+    const getLog = () => { if (logText === null) { try { logText = fs.readFileSync(logPath, 'utf-8'); } catch { logText = ''; } } return logText; };
+    for (const pat of expected.logContain || []) {
+      if (getLog().includes(pat)) pass(`日志含批次派发标记: ${pat}`);
+      else fail(`日志缺失批次派发标记: ${pat}`);
+    }
+  }
+  if (typeof expected.markerSpanMs === 'number') {
+    const times = (expected.markerFiles || [])
+      .map((f) => path.join(sandbox, f))
+      .filter((p) => fs.existsSync(p))
+      .map((p) => fs.statSync(p).mtimeMs);
+    if (times.length === (expected.markerFiles || []).length) {
+      const span = Math.max(...times) - Math.min(...times);
+      if (span <= expected.markerSpanMs) pass(`并行证据: ${times.length} 个 marker 写入时间跨度 ${Math.round(span)}ms ≤ ${expected.markerSpanMs}ms`);
+      else fail(`疑似未并行: marker 写入时间跨度 ${Math.round(span)}ms > ${expected.markerSpanMs}ms`);
+    } else {
+      fail(`marker 缺失: ${expected.markerFiles.filter((f) => !fs.existsSync(path.join(sandbox, f))).join(', ')}`);
+    }
   }
 
   return checks;
@@ -180,8 +221,12 @@ async function runCase(c) {
     return { id: c.id, name: c.name, ok: false, checks: [{ ok: false, msg }], sandbox, logPath };
   }
 
-  // 2. 播种 state.json
+  // 2. 播种 state.json + 可选多 agent 配置
   writeFile(path.join(sandbox, '.awf', 'state.json'), JSON.stringify(c.seed, null, 2));
+  if (c.config) {
+    // run.agents > 1 → awf run 走多 agent 批次循环（runBatchLoop）
+    writeFile(path.join(sandbox, '.awf', 'config.json'), JSON.stringify(c.config, null, 2));
+  }
 
   // 3. run
   const runRes = await runCmd(process.execPath, [AWF, 'run'], { cwd: sandbox, logStream: log });
@@ -192,7 +237,7 @@ async function runCase(c) {
   }
 
   // 4. 评分
-  const checks = scoreCase(sandbox, c.expected || {});
+  const checks = scoreCase(sandbox, c.expected || {}, logPath);
   const verifyCode = await runVerify(sandbox, c.expected?.verify);
   if (verifyCode !== null) {
     checks.push(verifyCode === 0

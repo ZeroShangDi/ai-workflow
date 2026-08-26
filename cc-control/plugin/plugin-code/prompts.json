@@ -22,5 +22,13 @@
   "context-check": {
     "prompt": "上下文检查（依据 code-context-onboard 技能规则，只做判断不做任何任务工作）：\n0. 当前对话上下文占用：{usage}\n1. 判断是否需要压缩（优先以第 0 行的实测值为准；无实测则按对话轮数/体积估算）：\n   - 占用明显充足（明显低于窗口 ~65%），或虽接近阈值但下个任务轻量、可安全完成 → 只回复 `AWF_CONTEXT_OK`，不修改任何文件、不做任何其他操作\n   - 占用已接近/超过窗口 ~65%，且下个任务仍需较多上下文 → 压缩\n2. 压缩执行（四步）：\n   a. 按 code-context-onboard 的 7 段快照格式生成交接快照（标识符如 UUID/路径/端口必须原样保留）\n   b. 写入 `.awf/context/handoff.md`（目录不存在则创建）\n   c. 调用 `awf_context_ready` 通知 CLI 快照已就绪\n   d. 回复 `AWF_CONTEXT_READY`，结束本轮\n3. 本轮是纯检查轮：无论如何都不要开始执行任何任务、不要调用任务相关工具。",
     "description": "每个任务执行前的上下文压缩检查（引导 AI 按 code-context-onboard 判断是否需要压缩）"
+  },
+  "batch-dispatch": {
+    "prompt": "批次执行（多 agent 并行）：\n\n本批次编号：{batchId}\n待执行任务（每个都必须执行，禁止合并/替换/跳过/新增）：\n{tasks}\n\n执行要求：\n1. 在同一轮内并行调用原生 Agent 工具，为批次内每个任务派生一个子 Agent（一条消息内多个 Agent 调用 → 并行启动）。\n2. 每个子 Agent 只执行分配给它的任务提示词；子 Agent 不得写 .awf/state.json、不得调用任务状态 MCP 写接口、不得直接 AskUserQuestion。\n3. 子 Agent 返回固定形状结果：{ taskId, status: succeeded|blocked|needs_input, result, files, tests, commits }。\n4. 等所有子 Agent 全部返回，不得后台遗留。\n5. 用 awf-state MCP 逐任务落账：awf_task_status done + awf_task_result + awf_task_commit（有提交时）。\n6. 有子 Agent 返回 needs_input → 汇总问题，经 awf_await_choice / awf_await_input 询问用户，获答后继续完成该任务。\n7. 全部落账完成后结束本轮。",
+    "description": "多任务批次派发（主 Agent 并行派生子 Agent 执行，聚合落账；子 Agent 只执行、由主 Agent 独写 state）"
+  },
+  "batch-reconcile": {
+    "prompt": "批次 {batchId} 尚有任务未标记 done。请用 awf_read_state 核对各任务真实状态后逐项收尾：\n- 子 Agent 已完成但未落账的 → 用 awf-state MCP 补记（awf_task_status done + awf_task_result）\n- 确实未完成的 → 明确原因\n- 需要决策的 → 经 awf_await_choice 说明障碍\n不要重新执行任务。",
+    "description": "批次收尾 reconcile prompt（主 Agent 补落账未完成的任务，不重做）"
   }
 }

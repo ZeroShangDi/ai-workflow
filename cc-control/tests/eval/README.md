@@ -44,14 +44,19 @@ node tests/eval/run-eval.mjs --keep
   "id": "hello-sum",
   "name": "人类可读名",
   "requirements": "原始需求（给人看）",
-  "files": { "package.json": "..." },   // 可选：run 前写入沙箱的额外文件
-  "seed": {                              // 等价于 plan 产物的 state.json
-    "tasks": [ /* 任务列表，prompt 用 /w-dev + XML 结构 */ ]
+  "extends": "other-case-id",             // 可选：继承另一用例（seed 合并；config/files/expected 全量覆盖），对照用例复用任务集
+  "config": { "run": { "agents": {...} } }, // 可选：写入沙箱 .awf/config.json；run.agents.max>1 → 走多 agent 批次循环
+  "files": { "package.json": "..." },     // 可选：run 前写入沙箱的额外文件
+  "seed": {                               // 等价于 plan 产物的 state.json
+    "tasks": [ /* 任务列表，prompt 用 /w-dev + XML 结构；多 agent 用例需带 kind(dev/review/test/doc) */ ]
   },
   "expected": {
-    "files": ["src/sum.js"],             // 必须存在的产物
-    "verify": ["node", "--test"],        // 校验命令，退出码 0 = 通过
-    "tasksDone": true                    // 所有任务 status=done 且 exec.result 非空
+    "files": ["src/sum.js"],              // 必须存在的产物（含多 agent 的 eval-marker/<taskId>.done）
+    "verify": ["node", "--test"],         // 校验命令，退出码 0 = 通过
+    "tasksDone": true,                    // 所有任务 status=done 且 exec.result 非空
+    "logContain": ["批次 B1 (4): T1, T2, T3, T4"],  // 可选：eval.log 必须含的批次派发标记（多 agent 并行证据）
+    "markerFiles": ["eval-marker/T1.done"],          // 可选：并行证据——这些文件 mtime 跨度 < markerSpanMs 才算并行
+    "markerSpanMs": 90000
   }
 }
 ```
@@ -61,6 +66,18 @@ node tests/eval/run-eval.mjs --keep
 1. **任务完成** — 所有任务 `status=done`，且 done 任务 `exec.result` 非空（双证据，防伪完成）
 2. **产物存在** — `expected.files` 列出的文件落盘
 3. **校验通过** — `expected.verify` 命令退出码 0
+4. **多 agent 并行证据**（仅多 agent 用例）：
+   - `logContain` — eval.log 含「批次 B1 (N): …」派发标记，证明 CLI 按批次屏障整批派发（而非逐任务串行）
+   - `markerSpanMs` — 各任务 marker 文件写入时间跨度上限，证明子任务几乎同时落盘（真并行）；串行执行会因任务依次完成而远超阈值
+
+## 多 agent 用例速查
+
+| 用例 | 配置 | 验证点 |
+|------|------|--------|
+| `multi-agent-parallel` | `max=9, maxModules=2, maxPerModule=2, maxPerFeature=1` | 4 dev 并发 → 4 review 并行 → 2 test 并行 → doc 独占；批次 banner + marker 时间跨度 |
+| `multi-agent-serial-baseline` | `max=1`（同任务集，extends） | 单 agent 串行也能完成同一任务集；与并行用例对比耗时/批次数 |
+
+跑对照：`npm run eval -- --only multi-agent-parallel` 与 `npm run eval -- --only multi-agent-serial-baseline`，比较两例日志中批次数与总耗时。
 
 ## 已知限制
 

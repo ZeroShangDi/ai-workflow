@@ -220,4 +220,36 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
     expect(prompts[1]).toContain('上下文检查');
     expect(prompts[2]).toBe('task two');
   }, 20000);
+
+  it('E2E-6: 多 agent（run.agents.max>1）→ 整批一次派发，子任务全部完成', async () => {
+    // 配置多 agent：runCommand 分流走 runBatchLoop（批次屏障）
+    fs.mkdirSync(path.join(TMP, '.awf'), { recursive: true });
+    fs.writeFileSync(
+      path.join(TMP, '.awf', 'config.json'),
+      JSON.stringify({ run: { agents: { max: 2, maxModules: 2, maxPerModule: 2, maxPerFeature: 1 } } }),
+    );
+    writeState(baseState([
+      task('T1', 'task one'),
+      task('T2', 'task two'),
+    ]));
+
+    // 模拟主 Agent：收到批次编排 prompt（含两个 taskId）→ 两个子任务统一落账 done
+    promptHandler = (text) => {
+      if (text.includes('task one') && text.includes('task two')) {
+        markDone('T1');
+        markDone('T2');
+      }
+      server.setReady();
+    };
+
+    await runCommand(undefined, {});
+
+    const s = readState();
+    expect(s.tasks.map((t) => t.status)).toEqual(['done', 'done']);
+    // 批次屏障：只 send 一次整批，不逐任务 send
+    const prompts = sentPrompts();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain('task one');
+    expect(prompts[0]).toContain('task two');
+  }, 20000);
 });

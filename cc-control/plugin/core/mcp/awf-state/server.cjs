@@ -86,6 +86,7 @@ const TOOLS = [
       properties: {
         id: { type: 'string', description: '任务 ID（唯一）' },
         title: { type: 'string', description: '任务名（一句话）' },
+        kind: { type: 'string', enum: ['dev', 'review', 'test', 'doc'], description: '任务类型（默认 dev）。门禁任务必须标注：review=审查门禁 / test=测试门禁 / doc=文档门禁' },
         prompt: { type: 'string', description: '执行提示词（命令 + 上下文）' },
         wbsRef: { type: 'string', description: '关联的 WBS ID' },
         deps: { type: 'array', items: { type: 'string' }, description: '依赖任务 ID 列表' },
@@ -102,6 +103,7 @@ const TOOLS = [
       properties: {
         id: { type: 'string', description: '任务 ID' },
         title: { type: 'string', description: '新的任务名' },
+        kind: { type: 'string', enum: ['dev', 'review', 'test', 'doc'], description: '新的任务类型' },
         prompt: { type: 'string', description: '新的执行提示词' },
         wbsRef: { type: 'string', description: '新的 WBS 引用' },
         deps: { type: 'array', items: { type: 'string' }, description: '新的依赖列表' },
@@ -330,7 +332,7 @@ const handlers = {
             return textResult({ ok: false, error: `task ${args.id} already exists` });
           }
           taskList.push({
-            id: args.id, title: args.title, prompt: args.prompt,
+            id: args.id, title: args.title, kind: args.kind || 'dev', prompt: args.prompt,
             wbsRef: args.wbsRef, deps: args.deps || [], status: 'pending',
             acceptance: args.acceptance,
           });
@@ -340,6 +342,7 @@ const handlers = {
           const t = tasks.find(t => t.id == args.id);
           if (!t) return textResult({ ok: false, error: `task ${args.id} not found` });
           if (args.title !== undefined) t.title = args.title;
+          if (args.kind !== undefined) t.kind = args.kind;
           if (args.prompt !== undefined) t.prompt = args.prompt;
           if (args.wbsRef !== undefined) t.wbsRef = args.wbsRef;
           if (args.deps !== undefined) t.deps = args.deps;

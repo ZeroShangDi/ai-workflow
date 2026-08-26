@@ -78,3 +78,24 @@ export function taskSettle(taskId) {
 export function contextCheck(usage) {
   return resolvePrompt('context-check', { usage });
 }
+
+/**
+ * 批次派发 prompt — 主 Agent 并行派生子 Agent 执行一个任务批次
+ * @param {{ batchId: string, tasks: Array<{ taskId: string, title: string, kind: string, prompt: string }> }} opts
+ * @returns {Promise<string>}
+ */
+export function batchDispatch({ batchId, tasks }) {
+  const tasksText = Array.isArray(tasks)
+    ? tasks.map((t) => `- ${t.taskId} [${t.kind}] ${t.title}\n  提示词：${t.prompt}`).join('\n')
+    : tasks;
+  return resolvePrompt('batch-dispatch', { batchId, tasks: tasksText });
+}
+
+/**
+ * 批次收尾 reconcile prompt — 主 Agent 补落账未完成任务，不重做
+ * @param {string} batchId - 批次 ID，如 'B1'
+ * @returns {Promise<string>}
+ */
+export function batchReconcile(batchId) {
+  return resolvePrompt('batch-reconcile', { batchId });
+}

@@ -28,13 +28,21 @@ const PROMPTS = {
     prompt: '上下文检查：当前占用：{usage}。只判断是否压缩，不做任何任务工作。低于 65% 回复 AWF_CONTEXT_OK，否则写快照并通知。',
     description: '每个任务执行前的上下文压缩检查',
   },
+  'batch-dispatch': {
+    prompt: '批次执行：本批次编号：{batchId}\n待执行任务：\n{tasks}\n并行派生子 Agent，子 Agent 不写 state。',
+    description: '多任务批次派发',
+  },
+  'batch-reconcile': {
+    prompt: '批次 {batchId} 尚有任务未标记 done，请核对收尾，不要重新执行。',
+    description: '批次收尾 reconcile prompt',
+  },
 };
 
 vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({ projectRoot: FAKE_ROOT })),
 }));
 
-import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck } from '../../src/lib/plugin-bridge.js';
+import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck, batchDispatch, batchReconcile } from '../../src/lib/plugin-bridge.js';
 
 beforeAll(async () => {
   const dir = path.join(FAKE_ROOT, 'plugin', 'plugin-code');
@@ -87,5 +95,29 @@ describe('contextCheck — 任务前上下文检查 prompt', () => {
   it('填充 {usage} 占位符（statusline 实测 / 未知回退）', async () => {
     expect(await contextCheck('已用约 62%（statusline 实测）')).toContain('当前占用：已用约 62%（statusline 实测）');
     expect(await contextCheck('未知（statusline 未配置，请自行估算）')).toContain('当前占用：未知（statusline 未配置，请自行估算）');
+  });
+});
+
+describe('batchDispatch — 批次派发 prompt', () => {
+  it('填充 {batchId}，把任务数组序列化为可读列表（taskId/kind/title/prompt）', async () => {
+    const res = await batchDispatch({
+      batchId: 'B1',
+      tasks: [
+        { taskId: 'T1', title: '做 A', kind: 'dev', prompt: '/ai-workflow-code:w-dev <task>…' },
+        { taskId: 'T2', title: '做 B', kind: 'review', prompt: '审查 A' },
+      ],
+    });
+    expect(res).toContain('本批次编号：B1');
+    expect(res).toContain('- T1 [dev] 做 A');
+    expect(res).toContain('提示词：/ai-workflow-code:w-dev <task>…');
+    expect(res).toContain('- T2 [review] 做 B');
+    expect(res).toContain('子 Agent 不写 state');
+  });
+});
+
+describe('batchReconcile — 批次收尾 prompt', () => {
+  it('填充 {batchId}，明确不重新执行', async () => {
+    expect(await batchReconcile('B1')).toContain('批次 B1 尚有任务未标记 done');
+    expect(await batchReconcile('B1')).toContain('不要重新执行');
   });
 });

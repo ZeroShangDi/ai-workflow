@@ -5,6 +5,7 @@ import { getPaths } from '../lib/paths.js';
 import { taskWrapup, taskSettle, contextCheck } from '../lib/plugin-bridge.js';
 import { installProjectMcp } from '../lib/profile.js';
 import { loadState, findNextTask, backupState, saveState } from '../lib/state.js';
+import { loadRunConfig } from '../lib/run-config.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, sendCmd, getContextReady, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
 import { logSection, logStep } from '../lib/ui/log.js';
@@ -37,7 +38,9 @@ export async function runCommand(task, options) {
     cleaned = true;
     const session = process.env.CC_SESSION || 'cc';
     try { execSync(`tmux kill-session -t ${session} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
-    try { execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    // 只杀监听端口的 server，避免误杀自己——client 与 server 有 keep-alive 连接，
+    // 若不带 -sTCP:LISTEN，lsof 会把本进程也算进去，kill -9 后 run 以被 SIGKILL 结束（exit 非 0）
+    try { execSync(`lsof -ti:${SERVER_PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
     console.log(`${DIM}  服务已关闭${RESET}`);
   };
   process.on('SIGINT', () => { doCleanup(); process.exit(0); });
@@ -61,9 +64,16 @@ export async function runCommand(task, options) {
   logStep('dashboard', 'ok', `http://localhost:${SERVER_PORT}`);
   console.log('');
 
-  // 2. 任务循环
+  // 2. 任务循环（单/多 agent 分流）
+  //    单 agent（run.agents.max === 1，默认）→ 原 runLoop，多 agent 代码不参与，切换零风险
   try {
-    await runLoop(projectRoot);
+    const cfg = loadRunConfig(projectRoot);
+    if (cfg.agents.max > 1) {
+      const { runBatchLoop } = await import('./run-batch.js');
+      await runBatchLoop(projectRoot, cfg);
+    } else {
+      await runLoop(projectRoot);
+    }
   } finally {
     doCleanup();
   }
@@ -84,7 +94,7 @@ async function startSession({ serverScript, bootstrapScript, projectRoot, workDi
 
 /** 确保 Session Server 已启动，先释放旧端口再 spawn */
 async function ensureServer(serverScript, projectRoot, workDir) {
-  try { execSync(`lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+  try { execSync(`lsof -ti:${SERVER_PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   await sleep(300);
 
   const spin = createSpinner('starting tmux-http ...');
@@ -250,7 +260,7 @@ async function settleTask(taskId, projectRoot) {
 }
 
 /** 发送 prompt 并等待 ready；超时忽略（由上层回查 state 决定下一步） */
-async function sendPrompt(text) {
+export async function sendPrompt(text) {
   await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
   try { await waitForReady({ onDecision: handleDecision }); } catch { /* 超时忽略 */ }
 }
@@ -271,7 +281,7 @@ async function sendPrompt(text) {
  * @param {string} projectRoot - 用户项目根目录（cwd）
  * @returns {Promise<string>} 可能注入快照后的任务 prompt
  */
-async function maybeCompactContext(taskPrompt, taskIndex, projectRoot) {
+export async function maybeCompactContext(taskPrompt, taskIndex, projectRoot) {
   const cfg = contextCompactionConfig();
   if (!cfg.enabled) return taskPrompt;
   if (cfg.skipFirst && taskIndex <= (cfg.skipFirstCount || 1)) return taskPrompt;
@@ -347,14 +357,14 @@ function checkTaskDone(taskId, projectRoot) {
 }
 
 /** 读取指定任务的 status（pending/active/done/blocked） */
-function getTaskStatus(taskId, projectRoot) {
+export function getTaskStatus(taskId, projectRoot) {
   const state = loadState(projectRoot);
   const tasks = state?.tasks || [];
   return tasks.find(t => t.id === taskId)?.status || null;
 }
 
 /** 编排器仲裁：将任务标记为 blocked（使 findNextTask 跳过，避免死循环） */
-function markTaskBlocked(taskId, projectRoot) {
+export function markTaskBlocked(taskId, projectRoot) {
   const state = loadState(projectRoot);
   const task = state?.tasks?.find(t => t.id === taskId);
   if (!task) return;
@@ -373,7 +383,7 @@ const seenAnswers = new Set();
  *   choice          → readline 手动选择
  *   text            → readline 手动输入
  */
-async function handleDecision(d) {
+export async function handleDecision(d) {
   if (d.source === 'AskUserQuestion') {
     if (d.answered) {
       if (!seenAnswers.has(d.question)) { console.log(`     ${GREEN}✔ 已选择: ${d.answer}${RESET}`); seenAnswers.add(d.question); }
@@ -415,7 +425,7 @@ async function handleDecision(d) {
 // ── 输出辅助 ──
 
 /** 完整显示 prompt（多行，保留 XML 标签结构） */
-function logPrompt(prompt) {
+export function logPrompt(prompt) {
   const lines = prompt.split('\n');
   console.log(`     ${DIM}prompt (${lines.length} 行 · ${prompt.length} 字符)${RESET}`);
   for (const line of lines) {
@@ -424,4 +434,4 @@ function logPrompt(prompt) {
 }
 
 /** 打印任务分隔横幅 */
-function logBanner(text) { console.log(`${CYAN}  ── ${text} ──${RESET}`); }
+export function logBanner(text) { console.log(`${CYAN}  ── ${text} ──${RESET}`); }

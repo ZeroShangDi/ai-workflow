@@ -1,0 +1,157 @@
+{
+  "id": "multi-agent-parallel",
+  "name": "多 agent 并行：2 模块×2 功能门禁 DAG，4 dev 并发 + 门禁分层（run.agents 9/2/2/1）",
+  "requirements": "验证多 agent 并行执行：4 个 dev 任务（跨 2 模块 4 功能、各改独立文件）并发派发为 4 个子 Agent，功能 review 门禁、模块 test 门禁分层并行，doc 门禁独占收尾；批次屏障一次派发整批。",
+  "config": {
+    "run": {
+      "agents": { "max": 9, "maxModules": 2, "maxPerModule": 2, "maxPerFeature": 1 }
+    }
+  },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "多 agent 并行：2 模块工具库" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "实现 math.add",
+        "kind": "dev",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "src/util/math.js 具名导出 add；add(1,2)===3；eval-marker/T1.done 存在",
+        "prompt": "/w-dev\n<task>\n在 src/util/math.js 实现并具名导出 add(a, b)，返回 a + b。\n</task>\n<constraints>\n只创建/修改 src/util/math.js 一个文件；ESM 模块，export const add。完成后创建 eval-marker/T1.done（内容写 T1），目录不存在则创建。不要修改 package.json 或任何其他文件，不要执行任何 git 命令。\n</constraints>\n<files>\nsrc/util/math.js（新建）、eval-marker/T1.done（新建）\n</files>\n<acceptance>\nadd(1, 2) === 3；add(0, 0) === 0；eval-marker/T1.done 存在。\n</acceptance>\n<risks>\n并行环境中工作，只碰自己的文件，避免与其他任务冲突。\n</risks>"
+      },
+      {
+        "id": "T2",
+        "title": "实现 string.upper",
+        "kind": "dev",
+        "wbsRef": "W1-002",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "src/util/string.js 具名导出 upper；upper('hi')==='HI'；eval-marker/T2.done 存在",
+        "prompt": "/w-dev\n<task>\n在 src/util/string.js 实现并具名导出 upper(s)，返回字符串的大写形式。\n</task>\n<constraints>\n只创建/修改 src/util/string.js 一个文件；ESM 模块，export const upper。完成后创建 eval-marker/T2.done（内容写 T2），目录不存在则创建。不要修改 package.json 或任何其他文件，不要执行任何 git 命令。\n</constraints>\n<files>\nsrc/util/string.js（新建）、eval-marker/T2.done（新建）\n</files>\n<acceptance>\nupper('hi') === 'HI'；upper('') === ''；eval-marker/T2.done 存在。\n</acceptance>\n<risks>\n并行环境中工作，只碰自己的文件，避免与其他任务冲突。\n</risks>"
+      },
+      {
+        "id": "T3",
+        "title": "实现 model.createUser",
+        "kind": "dev",
+        "wbsRef": "W2-001",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "src/model/user.js 导出 createUser；createUser('a').name==='a'；eval-marker/T3.done 存在",
+        "prompt": "/w-dev\n<task>\n在 src/model/user.js 实现并导出 createUser(name)，返回 { name }。\n</task>\n<constraints>\n只创建/修改 src/model/user.js 一个文件；ESM 模块，export function createUser。完成后创建 eval-marker/T3.done（内容写 T3），目录不存在则创建。不要修改 package.json 或任何其他文件，不要执行任何 git 命令。\n</constraints>\n<files>\nsrc/model/user.js（新建）、eval-marker/T3.done（新建）\n</files>\n<acceptance>\ncreateUser('a').name === 'a'；eval-marker/T3.done 存在。\n</acceptance>\n<risks>\n并行环境中工作，只碰自己的文件，避免与其他任务冲突。\n</risks>"
+      },
+      {
+        "id": "T4",
+        "title": "实现 model.createOrder",
+        "kind": "dev",
+        "wbsRef": "W2-002",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "src/model/order.js 导出 createOrder；createOrder(7).id===7；eval-marker/T4.done 存在",
+        "prompt": "/w-dev\n<task>\n在 src/model/order.js 实现并导出 createOrder(id)，返回 { id }。\n</task>\n<constraints>\n只创建/修改 src/model/order.js 一个文件；ESM 模块，export function createOrder。完成后创建 eval-marker/T4.done（内容写 T4），目录不存在则创建。不要修改 package.json 或任何其他文件，不要执行任何 git 命令。\n</constraints>\n<files>\nsrc/model/order.js（新建）、eval-marker/T4.done（新建）\n</files>\n<acceptance>\ncreateOrder(7).id === 7；eval-marker/T4.done 存在。\n</acceptance>\n<risks>\n并行环境中工作，只碰自己的文件，避免与其他任务冲突。\n</risks>"
+      },
+      {
+        "id": "R1",
+        "title": "审查 util 功能 1（math）",
+        "kind": "review",
+        "wbsRef": "W1-003",
+        "status": "pending",
+        "deps": ["T1"],
+        "acceptance": "确认 math.add 实现正确",
+        "prompt": "/w-review\n<task>\n审查 src/util/math.js 的 add 实现是否符合验收。\n</task>\n<constraints>\n只读审查，不修改任何文件。\n</constraints>\n<acceptance>\nadd(a,b) 正确返回 a+b，无缺陷、无多余代码；通过后标记完成。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "R2",
+        "title": "审查 util 功能 2（string）",
+        "kind": "review",
+        "wbsRef": "W1-004",
+        "status": "pending",
+        "deps": ["T2"],
+        "acceptance": "确认 string.upper 实现正确",
+        "prompt": "/w-review\n<task>\n审查 src/util/string.js 的 upper 实现是否符合验收。\n</task>\n<constraints>\n只读审查，不修改任何文件。\n</constraints>\n<acceptance>\nupper(s) 正确返回大写形式，无缺陷、无多余代码；通过后标记完成。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "R3",
+        "title": "审查 model 功能 1（user）",
+        "kind": "review",
+        "wbsRef": "W2-003",
+        "status": "pending",
+        "deps": ["T3"],
+        "acceptance": "确认 createUser 实现正确",
+        "prompt": "/w-review\n<task>\n审查 src/model/user.js 的 createUser 实现是否符合验收。\n</task>\n<constraints>\n只读审查，不修改任何文件。\n</constraints>\n<acceptance>\ncreateUser(name) 正确返回 { name }，无缺陷；通过后标记完成。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "R4",
+        "title": "审查 model 功能 2（order）",
+        "kind": "review",
+        "wbsRef": "W2-004",
+        "status": "pending",
+        "deps": ["T4"],
+        "acceptance": "确认 createOrder 实现正确",
+        "prompt": "/w-review\n<task>\n审查 src/model/order.js 的 createOrder 实现是否符合验收。\n</task>\n<constraints>\n只读审查，不修改任何文件。\n</constraints>\n<acceptance>\ncreateOrder(id) 正确返回 { id }，无缺陷；通过后标记完成。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "X1",
+        "title": "模块 util 测试门禁",
+        "kind": "test",
+        "wbsRef": "W1-005",
+        "status": "pending",
+        "deps": ["T1", "R1", "T2", "R2"],
+        "acceptance": "test/util.test.js 覆盖 add 与 upper；node --test 通过",
+        "prompt": "/w-test\n<task>\n为 src/util/math.js 的 add 和 src/util/string.js 的 upper 编写单元测试。\n</task>\n<constraints>\n只创建 test/util.test.js 一个文件；node 内置 test runner；不要修改 src 下任何文件。\n</constraints>\n<files>\ntest/util.test.js（新建）\n</files>\n<acceptance>\n运行 node --test 全部通过。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "X2",
+        "title": "模块 model 测试门禁",
+        "kind": "test",
+        "wbsRef": "W2-005",
+        "status": "pending",
+        "deps": ["T3", "R3", "T4", "R4"],
+        "acceptance": "test/model.test.js 覆盖 createUser 与 createOrder；node --test 通过",
+        "prompt": "/w-test\n<task>\n为 src/model/user.js 的 createUser 和 src/model/order.js 的 createOrder 编写单元测试。\n</task>\n<constraints>\n只创建 test/model.test.js 一个文件；node 内置 test runner；不要修改 src 下任何文件。\n</constraints>\n<files>\ntest/model.test.js（新建）\n</files>\n<acceptance>\n运行 node --test 全部通过。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "D1",
+        "title": "文档门禁",
+        "kind": "doc",
+        "wbsRef": "W0-001",
+        "status": "pending",
+        "deps": ["T1", "R1", "T2", "R2", "T3", "R3", "T4", "R4", "X1", "X2"],
+        "acceptance": "README.md 说明各模块导出",
+        "prompt": "/w-doc\n<task>\n为项目写 README.md，说明 src/util（add / upper）与 src/model（createUser / createOrder）的导出与用途。\n</task>\n<constraints>\n只创建/修改 README.md 一个文件。\n</constraints>\n<files>\nREADME.md（新建）\n</files>\n<acceptance>\nREADME.md 存在且覆盖 4 个导出函数的用途说明。\n</acceptance>\n<risks>\n无。\n</risks>"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": [
+      "src/util/math.js",
+      "src/util/string.js",
+      "src/model/user.js",
+      "src/model/order.js",
+      "eval-marker/T1.done",
+      "eval-marker/T2.done",
+      "eval-marker/T3.done",
+      "eval-marker/T4.done",
+      "test/util.test.js",
+      "test/model.test.js",
+      "README.md"
+    ],
+    "markerFiles": ["eval-marker/T1.done", "eval-marker/T2.done", "eval-marker/T3.done", "eval-marker/T4.done"],
+    "markerSpanMs": 90000,
+    "logContain": [
+      "批次 B1 (4): T1, T2, T3, T4",
+      "批次 B2 (4): R1, R2, R3, R4",
+      "批次 B3 (2): X1, X2",
+      "批次 B4 (1): D1"
+    ],
+    "verify": [
+      "node", "--input-type=module", "-e",
+      "import { existsSync } from 'node:fs';\nconst m = await import('./src/util/math.js');\nconst s = await import('./src/util/string.js');\nconst u = await import('./src/model/user.js');\nconst o = await import('./src/model/order.js');\nconst markers = ['T1','T2','T3','T4'].every((id) => existsSync('eval-marker/'+id+'.done'));\nif (m.add(1,2)!==3 || s.upper('hi')!=='HI' || u.createUser('a').name!=='a' || o.createOrder(7).id!==7 || !markers) { console.error('VERIFY_FAIL'); process.exit(1); }\nconsole.log('ALL_OK');"
+    ],
+    "tasksDone": true
+  }
+}
