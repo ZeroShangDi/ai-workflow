@@ -41,6 +41,7 @@ description: >
   "wbsRef": "W2-001",
   "status": "pending",
   "deps": ["T1-001"],
+  "plannedFiles": ["src/a.js", "src/a.test.js"],
   "acceptance": "可验证的完成条件",
   "prompt": "执行提示词（由 awf-plan-prompt 生成）"
 }
@@ -56,6 +57,13 @@ description: >
 | `doc` | 文档门禁（全局，deps = 全部任务） |
 
 普通任务不填则默认为 `dev`。门禁任务必须显式标注 kind（见下方「门禁任务」表）。
+
+**`plannedFiles`（规划改动文件）**：plan 阶段预测该任务将创建/修改的文件路径（相对项目根，含目录或具体文件，如 `src/util/` 或 `src/util/math.js`）。多 agent 并行时调度器按文件集不相交过滤——plannedFiles 冲突的任务不同批。
+
+- 改动类任务（dev）应尽量声明 plannedFiles，越具体越利于并行。
+- 缺失该字段的任务**保守串行**：不与任何其他任务并行（每批仅一个）。
+- 只读门禁（review/doc）可不声明；测试门禁（test）若写独立 test 文件，可声明 `test/` 目录。
+- 目录前缀即冲突：`src/util/` 与 `src/util/math.js` 视为冲突。
 
 id 遵循编号规范 `{前缀}{级别}-{序号}`（见 w-plan 的编号规范章节）：`T`=任务，级别=树深度，序号=同级内 3 位补零递增。`wbsRef` 指向同级别的 WBS 节点（`W{级别}-{序号}`），叶子任务序号与 WBS 节点序号对齐便于溯源。门禁任务级别取其所管辖子树的叶子级别，序号排在该区块任务末尾。
 
@@ -99,7 +107,7 @@ pending → active → done
 
 | 阶段 | 读 | 写 |
 |------|-----|-----|
-| PLAN | — | `id`, `title`, `kind`, `prompt`, `wbsRef`, `deps`, `acceptance`, `status = "pending"` |
+| PLAN | — | `id`, `title`, `kind`, `plannedFiles`, `prompt`, `wbsRef`, `deps`, `acceptance`, `status = "pending"` |
 | CODE | `id`, `title`, `prompt`, `deps`, `status` | `status`, `exec.result`, `exec.files` |
 | REVIEW | `title`, `exec.result`, `exec.files` | 不直接写 task |
 | TEST | `title`, `exec.result`, `acceptance` | 不直接写 task |

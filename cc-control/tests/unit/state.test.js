@@ -171,9 +171,9 @@ describe('state.js — CLI', () => {
     it('TC-B1: 无 deps 多任务按 max 截断，保持原始顺序', () => {
       const state = {
         tasks: [
-          { id: 'T1', status: 'pending' },
-          { id: 'T2', status: 'pending' },
-          { id: 'T3', status: 'pending' },
+          { id: 'T1', status: 'pending', plannedFiles: ['src/a.js'] },
+          { id: 'T2', status: 'pending', plannedFiles: ['src/b.js'] },
+          { id: 'T3', status: 'pending', plannedFiles: ['src/c.js'] },
         ],
       };
       expect(selectReadyBatch(state, { agents: { max: 2 } }).map(t => t.id)).toEqual(['T1', 'T2']);
@@ -203,10 +203,10 @@ describe('state.js — CLI', () => {
     it('TC-B4: maxPerFeature=1 → 功能内串行，跨功能并行', () => {
       const state = {
         tasks: [
-          { id: 'T1', status: 'pending' },
-          { id: 'T2', status: 'pending' },
+          { id: 'T1', status: 'pending', plannedFiles: ['src/util/a.js'] },
+          { id: 'T2', status: 'pending', plannedFiles: ['src/util/b.js'] },
           { id: 'R1', kind: 'review', status: 'pending', deps: ['T1', 'T2'] },
-          { id: 'T3', status: 'pending' },
+          { id: 'T3', status: 'pending', plannedFiles: ['src/model/c.js'] },
           { id: 'R2', kind: 'review', status: 'pending', deps: ['T3'] },
         ],
       };
@@ -217,13 +217,13 @@ describe('state.js — CLI', () => {
     it('TC-B5: maxPerModule=1 → 每模块最多一个任务', () => {
       const state = {
         tasks: [
-          { id: 'T1', status: 'pending' },
-          { id: 'T2', status: 'pending' },
+          { id: 'T1', status: 'pending', plannedFiles: ['src/util/a.js'] },
+          { id: 'T2', status: 'pending', plannedFiles: ['src/util/b.js'] },
           { id: 'R1', kind: 'review', status: 'pending', deps: ['T1', 'T2'] },
-          { id: 'T3', status: 'pending' },
+          { id: 'T3', status: 'pending', plannedFiles: ['src/util/c.js'] },
           { id: 'R2', kind: 'review', status: 'pending', deps: ['T3'] },
           { id: 'X1', kind: 'test', status: 'pending', deps: ['R1', 'R2', 'T1', 'T2', 'T3'] },
-          { id: 'T4', status: 'pending' },
+          { id: 'T4', status: 'pending', plannedFiles: ['src/model/d.js'] },
           { id: 'R3', kind: 'review', status: 'pending', deps: ['T4'] },
           { id: 'X2', kind: 'test', status: 'pending', deps: ['R3', 'T4'] },
         ],
@@ -235,10 +235,10 @@ describe('state.js — CLI', () => {
     it('TC-B6: maxModules=1 → 只允许一个模块活跃', () => {
       const state = {
         tasks: [
-          { id: 'T1', status: 'pending' },
+          { id: 'T1', status: 'pending', plannedFiles: ['src/util/a.js'] },
           { id: 'R1', kind: 'review', status: 'pending', deps: ['T1'] },
           { id: 'X1', kind: 'test', status: 'pending', deps: ['R1', 'T1'] },
-          { id: 'T4', status: 'pending' },
+          { id: 'T4', status: 'pending', plannedFiles: ['src/model/d.js'] },
           { id: 'R3', kind: 'review', status: 'pending', deps: ['T4'] },
           { id: 'X2', kind: 'test', status: 'pending', deps: ['R3', 'T4'] },
         ],
@@ -272,6 +272,45 @@ describe('state.js — CLI', () => {
         ],
       };
       expect(selectReadyBatch(state).map(t => t.id)).toEqual(['T2']);
+    });
+
+    it('TC-B10: 缺失 plannedFiles → 保守串行（不进并行批次，全缺失时单独成批一次一个）', () => {
+      const state = {
+        tasks: [
+          { id: 'T1', status: 'pending' },                       // 缺失
+          { id: 'T2', status: 'pending', plannedFiles: ['a.js'] },
+          { id: 'T3', status: 'pending' },                       // 缺失
+        ],
+      };
+      // 有文件 T2 组批；缺失 T1/T3 不进批次
+      expect(selectReadyBatch(state, { agents: { max: 9 } }).map(t => t.id)).toEqual(['T2']);
+      // 全缺失 → 单独成批第一个
+      const allMissing = { tasks: [{ id: 'A', status: 'pending' }, { id: 'B', status: 'pending' }] };
+      expect(selectReadyBatch(allMissing, { agents: { max: 9 } }).map(t => t.id)).toEqual(['A']);
+    });
+
+    it('TC-B11: plannedFiles 冲突 → 不同批（后到者留到下一批）', () => {
+      const state = {
+        tasks: [
+          { id: 'T1', status: 'pending', plannedFiles: ['src/util/math.js'] },
+          { id: 'T2', status: 'pending', plannedFiles: ['src/util/math.js'] },
+          { id: 'T3', status: 'pending', plannedFiles: ['src/model/order.js'] },
+        ],
+      };
+      // T1 与 T2 同文件冲突；T3 独立。max=3 → 批 [T1, T3]
+      expect(selectReadyBatch(state, { agents: { max: 3 } }).map(t => t.id)).toEqual(['T1', 'T3']);
+    });
+
+    it('TC-B12: 目录前缀冲突（src/util/ vs src/util/math.js）', () => {
+      const state = {
+        tasks: [
+          { id: 'T1', status: 'pending', plannedFiles: ['src/util/'] },
+          { id: 'T2', status: 'pending', plannedFiles: ['src/util/math.js'] },
+          { id: 'T3', status: 'pending', plannedFiles: ['src/model/'] },
+        ],
+      };
+      // T1 目录 src/util/ 与 T2 冲突；T3 独立
+      expect(selectReadyBatch(state, { agents: { max: 3 } }).map(t => t.id)).toEqual(['T1', 'T3']);
     });
   });
 });

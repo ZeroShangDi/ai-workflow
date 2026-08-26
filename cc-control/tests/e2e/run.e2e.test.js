@@ -229,8 +229,8 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
       JSON.stringify({ run: { agents: { max: 2, maxModules: 2, maxPerModule: 2, maxPerFeature: 1 } } }),
     );
     writeState(baseState([
-      task('T1', 'task one'),
-      task('T2', 'task two'),
+      { id: 'T1', title: 'T1', prompt: 'task one', status: 'pending', deps: [], plannedFiles: ['src/a.js'] },
+      { id: 'T2', title: 'T2', prompt: 'task two', status: 'pending', deps: [], plannedFiles: ['src/b.js'] },
     ]));
 
     // 模拟主 Agent：收到批次编排 prompt（含两个 taskId）→ 两个子任务统一落账 done

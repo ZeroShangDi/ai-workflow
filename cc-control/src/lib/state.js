@@ -92,6 +92,33 @@ function buildScopeIndex(tasks) {
   return scope;
 }
 
+// ── plannedFiles 冲突判定 ──
+
+/** 任务是否声明了 plannedFiles（缺失/空数组 → 保守串行） */
+function hasPlannedFiles(task) {
+  return Array.isArray(task.plannedFiles) && task.plannedFiles.length > 0;
+}
+
+/** 两个路径冲突：精确相同，或一方是另一方的目录前缀（src/util/ vs src/util/math.js） */
+function filesConflict(a, b) {
+  if (a === b) return true;
+  // 归一化尾斜杠，避免 'src/util/' + '/' = 'src/util//' 匹配不上
+  const na = a.replace(/\/+$/, '');
+  const nb = b.replace(/\/+$/, '');
+  return na === nb || na.startsWith(nb + '/') || nb.startsWith(na + '/');
+}
+
+/** 任务的 plannedFiles 与已选批次的文件是否冲突 */
+function conflictsWithBatch(task, batchFiles) {
+  const files = task.plannedFiles || [];
+  for (const f of files) {
+    for (const bf of batchFiles) {
+      if (filesConflict(f, bf)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * 选择一个可并行的 ready 批次（确定性 greedy，保持 state 原始顺序）
  *
@@ -123,12 +150,18 @@ export function selectReadyBatch(state, config) {
 
   const scope = buildScopeIndex(tasks);
   const batch = [];
+  const batchFiles = []; // 已选批次任务的 plannedFiles 展平（冲突判定）
   const perFeature = new Map();
   const perModule = new Map();
   const activeModules = new Set();
 
   for (const t of ready) {
+    // 缺失 plannedFiles → 保守串行：不进并行批次（无文件声明，无法判定冲突面）。
+    // 例外：review 门禁只读审查，天然无写冲突，无需文件声明即可并行。
+    if (!hasPlannedFiles(t) && t.kind !== 'review') continue;
     if (batch.length >= max) break;
+    // 文件冲突：plannedFiles 与已选批次不相交，否则留到后续批次
+    if (conflictsWithBatch(t, batchFiles)) continue;
     const s = scope.get(t.id) || {};
     const fid = s.featureId;
     const mid = s.moduleId;
@@ -139,8 +172,15 @@ export function selectReadyBatch(state, config) {
       activeModules.add(mid);
     }
     batch.push(t);
+    batchFiles.push(...(t.plannedFiles || []));
     if (fid) perFeature.set(fid, (perFeature.get(fid) || 0) + 1);
     if (mid) perModule.set(mid, (perModule.get(mid) || 0) + 1);
+  }
+
+  // 有文件声明的任务都没能成批（全是缺失 plannedFiles 的任务）→ 取第一个缺失任务单独成批
+  if (batch.length === 0) {
+    const noFiles = ready.find((t) => !hasPlannedFiles(t));
+    if (noFiles) return [noFiles];
   }
   return batch;
 }

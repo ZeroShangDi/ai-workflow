@@ -97,13 +97,13 @@ plan 已生成门禁图（普通任务 → review gate → test gate，以 `deps
 
 | 里程碑 | 内容 | 验收 |
 |---|---|---|
-| **M1** 调度骨架 | 本文档定稿 + `run-config.js` + task `kind` + 批次选择器 + runLoop 批次循环 + batch 模板 | `max:1` 零变化；DAG wave 并行；单测/E2E |
+| **M1** 调度骨架 ✅ | 本文档定稿 + `run-config.js` + task `kind` + 批次选择器 + runBatchLoop + batch 模板 + eval 全真用例 | `max:1` 零变化；DAG wave 并行；单测/E2E/eval |
 | **M2** hooks 观测 | 透传 stdin + mainSessionId + SubagentStart/Stop 注册 + 闩锁过滤 | 主 session 隔离；子 agent 事件不影响 ready/busy |
 | **M3** 状态与协议 | awf-task claim/batch-submit + 文件锁 + 批处理 skill 强化 | 主 Agent 独写原子化 |
-| **M4** 增强（延后） | `plannedFiles` 跨功能冲突过滤 + 决策上抛增强 | 冲突任务不同批 |
+| **M4** plannedFiles 冲突过滤 ✅ / 决策上抛（延后） | plan 侧 `plannedFiles` 字段（awf-plan-tasks + awf-state MCP）+ 调度按文件集不相交过滤；**缺失即串行**（review 只读门禁天然可并行） | 冲突任务不同批 |
 
 ## 9. 开放问题（M3+）
 
 - 主 Agent 批处理 skill 的可靠性兜底：CLI 心跳 / 超时监督的深度。
-- `plannedFiles` 做进 plan 侧，跨功能文件冲突按文件集不相交过滤。
+- 决策上抛增强：子 Agent `needs_input` 上抛主 Agent 的 `awf_await_choice/input` 归属路由（M4 延后部分）。
 - 多 agent 同时 `await_choice/input` 的归属标注与路由。
