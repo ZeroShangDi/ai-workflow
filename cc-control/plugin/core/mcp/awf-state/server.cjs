@@ -9,6 +9,7 @@ const path = require('path');
 
 const PROJECT_ROOT = process.env.AWF_PROJECT_ROOT || process.cwd();
 const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
+const LOCK_PATH = path.join(PROJECT_ROOT, '.awf', 'state.lock');
 
 // ---- file helpers ----
 
@@ -17,9 +18,34 @@ function readState() {
   return JSON.parse(raw);
 }
 
+// state 写锁：CLI(saveState) 与 MCP(writeState) 可能并发写，用 .awf/state.lock
+// 原子创建（O_EXCL）串行化写操作，避免整文件覆写撕裂 / 竞态。读改写丢更新由
+// 写者收敛（多 agent 下主 Agent 独写）兜底。
+function syncSleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function withStateLock(fn) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      const fd = fs.openSync(LOCK_PATH, 'wx');
+      fs.closeSync(fd);
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      if (Date.now() > deadline) throw new Error(`state.lock timeout: ${LOCK_PATH}`);
+      syncSleep(50);
+    }
+  }
+  try { return fn(); } finally { try { fs.unlinkSync(LOCK_PATH); } catch {} }
+}
+
 function writeState(s) {
   s.lastUpdated = new Date().toISOString();
-  fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+  withStateLock(() => {
+    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+  });
 }
 
 function textResult(obj) {
@@ -76,6 +102,22 @@ const TOOLS = [
         message: { type: 'string', description: 'commit message' },
       },
       required: ['id', 'hash', 'message'],
+    },
+  },
+  {
+    name: 'awf_task_complete',
+    description: '原子完成一个任务：一次提交 status + result + files + commits（替代多次 awf_task_status/result/commit 调用，避免落账中间态）。status 缺省 done',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '任务 ID' },
+        status: { type: 'string', enum: ['done', 'blocked'], description: '最终状态（默认 done）' },
+        result: { type: 'string', description: '执行结果描述（exec.result）' },
+        files: { type: 'array', items: { type: 'string' }, description: '产出文件路径列表（exec.files）' },
+        commits: { type: 'array', items: { type: 'object', properties: { hash: { type: 'string' }, message: { type: 'string' } }, required: ['hash', 'message'] }, description: 'commit 记录列表' },
+        blockedReason: { type: 'string', description: 'status=blocked 时的原因说明' },
+      },
+      required: ['id'],
     },
   },
   {
@@ -326,6 +368,28 @@ const handlers = {
           if (!t) return textResult({ ok: false, error: `task ${args.id} not found` });
           if (!t.commits) t.commits = [];
           t.commits.push({ hash: args.hash, message: args.message });
+          break;
+        }
+        case 'awf_task_complete': {
+          const t = tasks.find(t => t.id == args.id);
+          if (!t) return textResult({ ok: false, error: `task ${args.id} not found` });
+          const status = args.status || 'done';
+          if (status !== 'done' && status !== 'blocked') {
+            return textResult({ ok: false, error: `status must be done|blocked, got ${status}` });
+          }
+          if (!t.exec) t.exec = {};
+          if (args.result !== undefined) t.exec.result = args.result;
+          if (args.files) t.exec.files = args.files;
+          if (args.commits) {
+            if (!t.commits) t.commits = [];
+            t.commits.push(...args.commits);
+          }
+          if (status === 'blocked') {
+            t.blockedReason = args.blockedReason;
+          } else {
+            delete t.blockedReason;
+          }
+          t.status = status;
           break;
         }
         case 'awf_task_create': {

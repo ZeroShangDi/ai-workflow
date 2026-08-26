@@ -137,9 +137,9 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(result.serverInfo).toEqual({ name: 'awf-state-mcp', version: '1.0.0' });
   });
 
-  it('TC28: tools/list 返回 17 个 tools', async () => {
+  it('TC28: tools/list 返回 18 个 tools', async () => {
     const tools = await client.toolsList();
-    expect(tools).toHaveLength(17);
+    expect(tools).toHaveLength(18);
     tools.forEach((t) => {
       expect(t).toHaveProperty('name');
       expect(t).toHaveProperty('description');
@@ -222,6 +222,46 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
       { hash: 'abc1234', message: 'feat: add x' },
       { hash: 'def5678', message: 'fix: y' },
     ]);
+  });
+
+  it('TC33: awf_task_complete 一次原子提交 done + result + files + commits', async () => {
+    const res = await client.callTool('awf_task_complete', {
+      id: 'T1', status: 'done', result: '完成', files: ['a.js', 'b.js'],
+      commits: [{ hash: 'abc1234', message: 'feat: x' }, { hash: 'def5678', message: 'fix: y' }],
+    });
+    expect(res.ok).toBe(true);
+
+    const t1 = readState(tmpDir).tasks.find((t) => t.id === 'T1');
+    expect(t1.status).toBe('done');
+    expect(t1.exec).toEqual({ result: '完成', files: ['a.js', 'b.js'] });
+    expect(t1.commits).toEqual([
+      { hash: 'abc1234', message: 'feat: x' },
+      { hash: 'def5678', message: 'fix: y' },
+    ]);
+    expect(t1.blockedReason).toBeUndefined();
+  });
+
+  it('TC34: awf_task_complete blocked + blockedReason', async () => {
+    await client.callTool('awf_task_complete', { id: 'T1', status: 'blocked', result: '卡住', blockedReason: '需外部依赖' });
+
+    const t1 = readState(tmpDir).tasks.find((t) => t.id === 'T1');
+    expect(t1.status).toBe('blocked');
+    expect(t1.blockedReason).toBe('需外部依赖');
+    expect(t1.exec.result).toBe('卡住');
+  });
+
+  it('TC35: awf_task_complete 非法 status / 不存在 id → ok:false 且 state 不变', async () => {
+    const before = readState(tmpDir);
+
+    const badStatus = await client.callTool('awf_task_complete', { id: 'T1', status: 'in_progress' });
+    expect(badStatus.ok).toBe(false);
+    expect(badStatus.error).toContain('status must be');
+
+    const noTask = await client.callTool('awf_task_complete', { id: 'T99' });
+    expect(noTask.ok).toBe(false);
+    expect(noTask.error).toBe('task T99 not found');
+
+    expect(readState(tmpDir)).toEqual(before);
   });
 
   it('TC16: awf_task_create 正常创建（默认值）', async () => {

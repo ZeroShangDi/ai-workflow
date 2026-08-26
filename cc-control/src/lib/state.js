@@ -6,6 +6,28 @@ const STATE_FILE = '.awf/state.json';
 
 // ── 基础读写 ──
 
+/** 同步 sleep（锁重试用，避免依赖异步上下文） */
+function syncSleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** state 写锁：与 awf-state MCP 的 writeState 共用 .awf/state.lock，防 CLI/MCP 并发写 */
+function withStateLock(lockPath, fn) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.closeSync(fd);
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      if (Date.now() > deadline) throw new Error(`state lock timeout: ${lockPath}`);
+      syncSleep(50);
+    }
+  }
+  try { return fn(); } finally { try { fs.unlinkSync(lockPath); } catch {} }
+}
+
 /** 读取 .awf/state.json */
 export function loadState(projectRoot) {
   const filePath = path.join(projectRoot, STATE_FILE);
@@ -16,7 +38,7 @@ export function loadState(projectRoot) {
   }
 }
 
-/** 写入 .awf/state.json（自动补 lastUpdated） */
+/** 写入 .awf/state.json（自动补 lastUpdated；加写锁防与 MCP 并发写） */
 export function saveState(projectRoot, state) {
   const filePath = path.join(projectRoot, STATE_FILE);
   const dir = path.dirname(filePath);
@@ -24,7 +46,9 @@ export function saveState(projectRoot, state) {
     fs.mkdirSync(dir, { recursive: true });
   }
   state.lastUpdated = new Date().toISOString();
-  fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+  withStateLock(path.join(projectRoot, '.awf', 'state.lock'), () => {
+    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+  });
 }
 
 // ── 任务查询 ──

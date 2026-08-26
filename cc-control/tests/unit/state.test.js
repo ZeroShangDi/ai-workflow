@@ -84,6 +84,15 @@ describe('state.js — CLI', () => {
       const raw = fs.readFileSync(filePath, 'utf-8');
       expect(raw).toContain('  "mode"');
     });
+
+    it('TC4b: saveState 加写锁且无 .awf/state.lock 残留', () => {
+      saveState(tmpDir, { mode: 'idle', version: '0.1.0' });
+      // 锁文件应被释放（withStateLock finally 清理）
+      expect(fs.existsSync(path.join(tmpDir, '.awf', 'state.lock'))).toBe(false);
+      // state.json 正常写入
+      const content = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));
+      expect(content.mode).toBe('idle');
+    });
   });
 
   // ── findNextTask ──
