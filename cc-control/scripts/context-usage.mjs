@@ -33,7 +33,9 @@ async function main() {
   try { info = JSON.parse((await readStdin()) || '{}'); } catch { /* 非 JSON 输入 → 无数据 */ }
 
   const cw = info?.context_window;
-  const cwd = info?.cwd || process.cwd();
+  // 写盘位置：优先用 CLI 注入的固定 workdir（argv[2]），否则回退会话 cwd ——
+  // 会话 cwd 会随 AI 在任务间 cd 漂移，导致 usage.json 写到别处、CLI 读到旧值。
+  const cwd = process.argv[2] || info?.cwd || process.cwd();
   const pct = typeof cw?.used_percentage === 'number' ? cw.used_percentage : null;
 
   if (cw) {

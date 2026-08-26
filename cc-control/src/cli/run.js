@@ -127,7 +127,7 @@ async function writeRunSettings(workDir, pkgRoot) {
       {
         statusLine: {
           type: 'command',
-          command: `node "${path.join(pkgRoot, 'scripts', 'context-usage.mjs')}"`,
+          command: `node "${path.join(pkgRoot, 'scripts', 'context-usage.mjs')}" "${workDir}"`,
           refreshInterval: 30,
         },
       },
