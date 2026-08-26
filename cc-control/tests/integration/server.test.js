@@ -454,6 +454,49 @@ describe('/hook 事件', () => {
     expect(d.answer).toBe('A方案');
     expect(d.answered).toBe(true);
   });
+
+  // ── M2: mainSessionId 隔离 + 子 agent 观测 ──
+
+  it('TC33: SessionStart 透传 payload → 记录 mainSessionId', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    expect(server._getState().mainSessionId).toBe('sess-main');
+    expect(server._getState().state).toBe('ready');
+  });
+
+  it('TC34: 子 agent 的 UserPromptSubmit（非主 session_id）不翻转主闩锁', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    const res = await api('POST', '/hook', { event: 'UserPromptSubmit', session_id: 'sess-sub' });
+    expect(res.body.state).toBe('ready'); // 子 agent 事件被过滤
+    expect(server._getState().state).toBe('ready');
+  });
+
+  it('TC35: 主 session 才驱动 busy/ready；子 agent Stop 不提前置 ready', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    await api('POST', '/hook', { event: 'UserPromptSubmit', session_id: 'sess-main' });
+    expect(server._getState().state).toBe('busy');
+    // 子 agent Stop（子 session）→ 不置 ready，仍 busy（闩锁只认主）
+    await api('POST', '/hook', { event: 'Stop', session_id: 'sess-sub' });
+    expect(server._getState().state).toBe('busy');
+    // 主 Stop → ready
+    await api('POST', '/hook', { event: 'Stop', session_id: 'sess-main' });
+    expect(server._getState().state).toBe('ready');
+  });
+
+  it('TC36: SubagentStart/Stop 只进观测 registry，不驱动主闩锁', async () => {
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-sub' });
+    expect(server._getState().activeAgents).toBe(1);
+    expect(server._getState().state).toBe('ready'); // 不翻转
+    await api('POST', '/hook', { event: 'SubagentStop', session_id: 'sess-sub' });
+    expect(server._getState().activeAgents).toBe(0);
+  });
+
+  it('TC37: /status 暴露 mainSessionId 与 activeAgents', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-sub' });
+    const res = await api('GET', '/status');
+    expect(res.body.mainSessionId).toBe('sess-main');
+    expect(res.body.activeAgents).toBe(1);
+  });
 });
 
 // ─────────────────────────────────────────────

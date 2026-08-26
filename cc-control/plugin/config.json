@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 -X POST http://127.0.0.1:__PORT__/hook -H 'content-type: application/json' -d '{\"event\":\"SessionStart\"}' >/dev/null 2>&1 || true"
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SessionStart\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
           }
         ]
       }
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 -X POST http://127.0.0.1:__PORT__/hook -H 'content-type: application/json' -d '{\"event\":\"UserPromptSubmit\"}' >/dev/null 2>&1 || true"
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=UserPromptSubmit\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
           }
         ]
       }
@@ -73,7 +73,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 -X POST http://127.0.0.1:__PORT__/hook -H 'content-type: application/json' -d '{\"event\":\"Stop\"}' >/dev/null 2>&1 || true"
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=Stop\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SubagentStart\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SubagentStop\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
           }
         ]
       }

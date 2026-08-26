@@ -98,7 +98,7 @@ plan 已生成门禁图（普通任务 → review gate → test gate，以 `deps
 | 里程碑 | 内容 | 验收 |
 |---|---|---|
 | **M1** 调度骨架 ✅ | 本文档定稿 + `run-config.js` + task `kind` + 批次选择器 + runBatchLoop + batch 模板 + eval 全真用例 | `max:1` 零变化；DAG wave 并行；单测/E2E/eval |
-| **M2** hooks 观测 | 透传 stdin + mainSessionId + SubagentStart/Stop 注册 + 闩锁过滤 | 主 session 隔离；子 agent 事件不影响 ready/busy |
+| **M2** hooks 观测 ✅ | 生命周期 hook 改 stdin 透传（server 记录 `mainSessionId`）+ `UserPromptSubmit`/`Stop` 只认主 session 驱动闩锁 + 注册 `SubagentStart/Stop` 进 agent registry（不驱动闩锁）+ `/status` 暴露 `mainSessionId`/`activeAgents` | 主 session 隔离；子 agent 事件不影响 ready/busy |
 | **M3** 状态原子化 ✅ | awf-state 新增 `awf_task_complete`（一次提交 status+result+files+commits，替代 3 次调用防中间态）+ state 文件锁（CLI `saveState` 与 MCP `writeState` 共用 `.awf/state.lock`）。batch-submit / 批处理 skill 强化延后 | 落账原子化；并发写加锁防丢更新 |
 | **M4** plannedFiles 冲突过滤 ✅ | plan 侧 `plannedFiles` 字段（awf-plan-tasks + awf-state MCP）+ 调度按文件集不相交过滤；**缺失即串行**（review 只读门禁天然可并行） | 冲突任务不同批 |
 | **M5** 决策上抛（独立） | 子 Agent `needs_input` → 主 Agent 统一 `awf_await_choice/input` 的归属路由机制（单独设计+实现） | 子 Agent 不直接问用户，决策上抛主 Agent |

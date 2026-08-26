@@ -26,6 +26,13 @@ let decisionPending = null; // null | { type: 'choice'|'text', question: string,
 let waiters = [];
 let fallbackTimer = null; // /cmd /respond 的兜底恢复定时器（测试中需可清除）
 let contextReady = false; // awf_context_ready 置位，CLI 一次性消费后 /clear
+let mainSessionId = null; // 主 Claude 会话的 session_id（SessionStart 透传 payload 记录）
+const agents = new Map(); // 子 agent 观测: key(session_id/agent_id) → { sessionId, status, startedAt }
+
+/** 是否为影响主 ready/busy 的会话：mainSessionId 未记录或 payload 无 session_id 时向后兼容，全接受 */
+function isMainSession(body) {
+  return !mainSessionId || !body.session_id || body.session_id === mainSessionId;
+}
 
 function setDecision(d) {
   decisionPending = d;
@@ -132,14 +139,27 @@ const server = http.createServer(async (req, res) => {
     const body = (await readJson(req)) || {};
     const event = body.event || url.searchParams.get('event');
 
-    if (event === 'UserPromptSubmit') setBusy();
-    else if (event === 'Stop') {
-      clearDecision();
-      setReady();
-      logger.captureFromTranscript();
-    } else if (event === 'SessionStart') {
+    if (event === 'SessionStart') {
+      if (body.session_id && !mainSessionId) mainSessionId = body.session_id;
       setReady();
       logger.resetTranscript();
+    } else if (event === 'UserPromptSubmit') {
+      // 子 agent 的 prompt 不翻转主闩锁（子 agent 完成是 SubagentStop，不触发主 Stop，引用计数会悬挂）
+      if (isMainSession(body)) setBusy();
+    } else if (event === 'Stop') {
+      if (isMainSession(body)) {
+        clearDecision();
+        setReady();
+        logger.captureFromTranscript();
+      }
+    } else if (event === 'SubagentStart') {
+      // 只观测，不驱动主闩锁
+      const key = body.session_id || body.agent_id || 'unknown';
+      agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
+    } else if (event === 'SubagentStop') {
+      const key = body.session_id || body.agent_id || 'unknown';
+      const a = agents.get(key);
+      if (a) a.status = 'stopped';
     }
 
     // PreToolUse: 检测 AskUserQuestion，在执行前设置 decisionPending（不拦截）
@@ -198,7 +218,11 @@ const server = http.createServer(async (req, res) => {
 
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
-    const out = { ok: true, state, session: tmuxlib.hasSession(), decisionPending, contextReady };
+    const out = {
+      ok: true, state, session: tmuxlib.hasSession(), decisionPending, contextReady,
+      mainSessionId,
+      activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
+    };
     if (url.searchParams.get('snapshot')) {
       try { out.snapshot = tmuxlib.capture(); } catch { out.snapshot = null; }
     }
@@ -350,7 +374,11 @@ function stop() {
 
 // ---- test helpers ----
 function _getState() {
-  return { state, decisionPending, waiters: [...waiters], contextReady };
+  return {
+    state, decisionPending, waiters: [...waiters], contextReady,
+    mainSessionId,
+    activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
+  };
 }
 
 function _resetForTest() {
@@ -362,6 +390,8 @@ function _resetForTest() {
   decisionPending = null;
   waiters = [];
   contextReady = false;
+  mainSessionId = null;
+  agents.clear();
 }
 
 module.exports = {

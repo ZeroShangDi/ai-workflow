@@ -22,18 +22,20 @@ describe('plugin config.json hooks', () => {
     expect(config.hooks).toBeDefined();
   });
 
-  // ── TC2: 包含 5 个 Hook 事件键 ──
+  // ── TC2: 包含 7 个 Hook 事件键 ──
 
-  it('TC2: 包含 5 个 Hook 事件键', () => {
+  it('TC2: 包含 7 个 Hook 事件键（含子 agent 观测）', () => {
     const { config } = loadConfig();
     const keys = Object.keys(config.hooks);
 
     expect(keys).toContain('SessionStart');
     expect(keys).toContain('UserPromptSubmit');
     expect(keys).toContain('Stop');
+    expect(keys).toContain('SubagentStart');
+    expect(keys).toContain('SubagentStop');
     expect(keys).toContain('PreToolUse');
     expect(keys).toContain('PostToolUse');
-    expect(keys).toHaveLength(5);
+    expect(keys).toHaveLength(7);
   });
 
   // ── TC3: 每个 Hook 的 curl 命令完整性 ──
@@ -77,32 +79,32 @@ describe('plugin config.json hooks', () => {
     expect(config.hooks.PostToolUse[0].matcher).toBeUndefined();
   });
 
-  // ── TC18: SessionStart curl 命令 ──
+  // ── TC18: SessionStart curl 命令（M2：透传 stdin 携带 session_id）──
 
-  it('TC18: SessionStart curl 命令格式验证', () => {
+  it('TC18: SessionStart curl 命令格式验证（透传 stdin）', () => {
     const { config } = loadConfig();
     const cmd = config.hooks.SessionStart[0].hooks[0].command;
 
     expect(cmd).toContain('curl');
     expect(cmd).toContain('-X POST');
-    expect(cmd).toContain('"event":"SessionStart"');
-    expect(cmd).toContain('|| true');
-    // SessionStart 不应从 stdin 读取
-    expect(cmd).not.toContain('-d @-');
+    expect(cmd).toContain('?event=SessionStart');
+    expect(cmd).toContain('-d @-'); // 透传原始 payload（server 据此记录 mainSessionId）
+    expect(cmd).toContain("sh -c '");
+    expect(cmd).toContain('; exit 0');
   });
 
-  // ── TC19: Stop curl 与 SessionStart 一致（event 在 body，不从 stdin 读取）──
+  // ── TC19: Stop curl 与 SessionStart 一致（透传，server 按 session_id 过滤）──
 
-  it('TC19: Stop curl 格式验证', () => {
+  it('TC19: Stop curl 格式验证（透传 stdin）', () => {
     const { config } = loadConfig();
     const cmd = config.hooks.Stop[0].hooks[0].command;
 
     expect(cmd).toContain('curl');
     expect(cmd).toContain('-X POST');
-    expect(cmd).toContain('"event":"Stop"');
-    expect(cmd).toContain('|| true');
-    // Stop 不应从 stdin 读取（此前 -d @- 导致 state 卡 busy）
-    expect(cmd).not.toContain('-d @-');
+    expect(cmd).toContain('?event=Stop');
+    expect(cmd).toContain('-d @-'); // 透传 session_id，子 agent Stop 不误翻主闩锁
+    expect(cmd).toContain("sh -c '");
+    expect(cmd).toContain('; exit 0');
   });
 
   // ── TC20: PreToolUse curl 使用 sh -c + exit 0 ──
@@ -116,22 +118,17 @@ describe('plugin config.json hooks', () => {
     expect(cmd).not.toContain('|| true');
   });
 
-  // ── TC21: 所有 curl 都有 -m 2 和容错 ──
+  // ── TC21: 所有 curl 都有 -m 2 和容错（统一透传 sh -c + exit 0）──
 
-  it('TC21: 所有 curl 都有 -m 2 和容错', () => {
+  it('TC21: 所有 curl 都有 -m 2 和容错（统一 sh -c + exit 0）', () => {
     const { config } = loadConfig();
 
-    for (const [eventName, hookEntries] of Object.entries(config.hooks)) {
+    for (const [, hookEntries] of Object.entries(config.hooks)) {
       const cmd = hookEntries[0].hooks[0].command;
       expect(cmd).toContain('-m 2');
       expect(cmd).toContain('>/dev/null 2>&1');
-
-      // 容错机制
-      if (eventName === 'PreToolUse') {
-        expect(cmd).toContain('; exit 0');
-      } else {
-        expect(cmd).toContain('|| true');
-      }
+      // 容错：sh -c ...; exit 0（透传类）或 || true（PostToolUse）
+      expect(cmd).toMatch(/; exit 0'|\|\| true/);
     }
   });
 });
