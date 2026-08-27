@@ -234,3 +234,24 @@ CLI 滑动窗口调度器
 6. **兜底**：reconcile（解析失败/超时 → 重试/收尾）
 7. **M5 决策上抛**（独立任务）；**eval 用例更新**（滑动窗口语义）+ 重跑验证
 
+## 14. 实现与验证结果（2026-08-27）
+
+### 实现落点
+- **scheduler.js**：滑动窗口核心（就绪池 + 配额上限 + plannedFiles 动态冲突 + 补位循环 + 落账后池刷新）
+- **run-batch.js**：集成（dispatcher + waitAnyDone 轮询 + 补发检测）；派发用 **tmux /send**（socket 内部开关失效降级）
+- **server.cjs**：SubagentStop 落账（解析 RESULT 写 state）+ 落账失败写 subagent-failed + 拒绝指向已完成任务的 RESULT（防假成功）
+- **messaging.js**：inbox socket 客户端（保留，待 socket 可用）
+- **subagent-dispatch 模板**：两轮强化（只派生指定任务 → 只派生一次 + 禁子 Agent 调 MCP 写）
+
+### 全真验证（eval multi-agent-parallel，多轮迭代后）
+| 轮次 | 结果 | 暴露问题 → 修复 |
+|---|---|---|
+| socket 实证 | socket 不绑定 | CLAUDE_CODE_HARBOR_KITE 内部开关实测无效 → 降级 tmux 补位 |
+| eval#1 | 通过（人工干预） | 子 Agent taskId 错写 → 补发机制 |
+| eval#2 | 卡死（X1） | taskId 错写指向已 done 任务 → server 拒绝 + 补发 |
+| eval#3 | 通过（补发兜底） | 主会话重复派生 R1 + 子 Agent 调 MCP 写 → 约束强化 |
+| **eval#4** | **完美通过** | **11 任务各 1 次子 Agent、零失败、零补发、无重复派生** |
+
+### 结论
+滑动窗口方案**完整验证**：CLI 调度 + tmux 补位 + SubagentStop 落账 + 补发安全网 + 约束强化。补发机制保留（安全网），当前约束下子 Agent 输出干净。
+
