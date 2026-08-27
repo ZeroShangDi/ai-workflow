@@ -41,6 +41,38 @@ function logSubagentFailure(body, settled) {
   }
 }
 
+// ---- 决策上抛记录（NEEDS_INPUT）：CLI 据此暂停补位、主 Agent 原生 AskUserQuestion 问用户 ----
+const SUBAGENT_NEEDS_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-needs-input.jsonl');
+
+/** 解析子 Agent 的 NEEDS_INPUT（`NEEDS_INPUT: {json}`）；成功返回 { taskId, question, options?, context? }，否则 null */
+function parseSubagentNeedsInput(body) {
+  const msg = body.last_assistant_message || '';
+  const m = msg.match(/NEEDS_INPUT:\s*(\{[\s\S]*\})/);
+  if (!m) return null;
+  try {
+    const r = JSON.parse(m[1]);
+    if (r && typeof r.taskId === 'string' && typeof r.question === 'string') return r;
+  } catch { /* 解析失败 */ }
+  return null;
+}
+
+/** 写决策上抛记录（不落账，任务保持等待；CLI 暂停补位直到决策解决） */
+function logSubagentNeedsInput(body, needs) {
+  try {
+    fs.mkdirSync(path.dirname(SUBAGENT_NEEDS_LOG), { recursive: true });
+    fs.appendFileSync(SUBAGENT_NEEDS_LOG, JSON.stringify({
+      ts: new Date().toISOString(),
+      agentId: body.agent_id || body.session_id || 'unknown',
+      taskId: needs.taskId,
+      question: needs.question,
+      options: needs.options || [],
+      context: needs.context || null,
+    }) + '\n');
+  } catch (e) {
+    console.log(`[subagent-needs] ${e.message}`);
+  }
+}
+
 // ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
 // 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
 const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
@@ -249,13 +281,20 @@ const server = http.createServer(async (req, res) => {
       const a = agents.get(key);
       if (a) a.status = 'stopped';
       logSubagentEvent(event, body);
-      // 落账：解析 last_assistant_message 的 RESULT → 写 state；失败记录（CLI 据此补发）
-      const settled = settleSubagent(body);
-      if (!settled.ok) {
-        console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
-        logSubagentFailure(body, settled);
+      // 决策上抛优先：NEEDS_INPUT → 写记录（不落账，任务等待；CLI 暂停补位、主 Agent 原生 AskUserQuestion）
+      const needs = parseSubagentNeedsInput(body);
+      if (needs) {
+        logSubagentNeedsInput(body, needs);
+        console.log(`[subagent-needs] ${needs.taskId}: ${needs.question.slice(0, 40)}`);
       } else {
-        console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
+        // 落账：解析 RESULT → 写 state；失败记录（CLI 据此补发）
+        const settled = settleSubagent(body);
+        if (!settled.ok) {
+          console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
+          logSubagentFailure(body, settled);
+        } else {
+          console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
+        }
       }
     }
 

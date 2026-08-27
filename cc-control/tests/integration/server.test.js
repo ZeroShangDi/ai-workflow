@@ -567,6 +567,30 @@ describe('/hook 事件', () => {
     expect(rec.resultTaskId).toBe('T3');
     expect(rec.reason).toContain('already done');
   });
+
+  it('TC42: SubagentStop NEEDS_INPUT → 写 subagent-needs-input.jsonl，不落账（决策挂起）', async () => {
+    // 清理前置测试可能残留的失败记录（NEEDS_INPUT 不应触发落账失败）
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-n',
+      last_assistant_message: 'RESULT: {"taskId": "T1", ...}\n\nNEEDS_INPUT: {"taskId": "T1", "question": "API 用 v1 还是 v2？", "options": ["v1", "v2"]}',
+    });
+    // 决策记录
+    const logPath = path.join(projectWithState, '.awf', 'logs', 'subagent-needs-input.jsonl');
+    expect(fs.existsSync(logPath)).toBe(true);
+    const rec = JSON.parse(fs.readFileSync(logPath, 'utf-8').trim().split('\n').pop());
+    expect(rec.taskId).toBe('T1');
+    expect(rec.question).toContain('v1 还是 v2');
+    expect(rec.options).toEqual(['v1', 'v2']);
+    // 不落账（任务保持 pending，等待决策）
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('pending');
+    // 不应写失败记录（NEEDS_INPUT 不是落账失败）
+    expect(fs.existsSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'))).toBe(false);
+  });
 });
 
 // ─────────────────────────────────────────────

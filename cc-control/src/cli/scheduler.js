@@ -112,7 +112,8 @@ function pickFromPool(pool, running, quota, scope) {
  *  - projectRoot: 项目根（读 .awf/state.json）
  *  - cfg: run 配置（agents 配额）
  *  - dispatcher: { send(task) => Promise } — 派发「派生后台子 Agent 执行 task」指令
- *  - waitAnyDone: (running) => Promise<string[]> — 等待至少一个运行中任务完成，返回完成的 taskId 列表（running 为当前运行集合，便于轮询检测）
+ *  - waitAnyDone: (running) => Promise<{ done: string[], suspended: boolean }> — 等待至少一个运行中任务完成；
+ *    返回完成的 taskId 列表 + 是否决策上抛挂起（挂起时不补位，等决策解决）
  *  - onTaskComplete: (taskId, task) => void — 完成回调（可选，落账侧）
  * @returns {Promise<{ dispatched: number }>}
  */
@@ -124,21 +125,25 @@ export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, 
   const pool = peekReadyTasks(state);
   const poolIds = new Set(pool.map((t) => t.id));
   let dispatched = 0;
+  let suspended = false; // 决策上抛挂起：不补位，等决策解决
 
   while (true) {
-    // 补位：填到配额满或池无可派（含文件冲突/独占/保守串行阻塞）
-    let picked;
-    while ((picked = pickFromPool(pool, running, quota, scope))) {
-      await dispatcher.send(picked.task);
-      running.add(picked.task, picked.scope);
-      pool.splice(pool.indexOf(picked.task), 1);
-      poolIds.delete(picked.task.id);
-      dispatched++;
+    // 补位：填到配额满或池无可派（含文件冲突/独占/保守串行阻塞）；决策挂起时跳过
+    if (!suspended) {
+      let picked;
+      while ((picked = pickFromPool(pool, running, quota, scope))) {
+        await dispatcher.send(picked.task);
+        running.add(picked.task, picked.scope);
+        pool.splice(pool.indexOf(picked.task), 1);
+        poolIds.delete(picked.task.id);
+        dispatched++;
+      }
     }
     if (running.size === 0) break; // 池空或无可派且无运行 → 结束
 
     // 等至少一个完成（容忍延迟）
-    const done = await waitAnyDone(running);
+    const { done, suspended: nextSuspended } = await waitAnyDone(running);
+    suspended = nextSuspended;
     for (const id of done) {
       const s = scope.get(id) || {};
       const task = running.remove(id, s);

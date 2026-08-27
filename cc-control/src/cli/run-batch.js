@@ -25,11 +25,14 @@ const POLL_MS = 2000;
 const WAIT_TIMEOUT_MS = 15 * 60 * 1000; // 单轮等待上限 15min，超时中断暴露问题
 const RESEND_MAX = 2; // 单个子 Agent 落账补发上限
 
-/** 轮询 state 检测运行中任务完成 + 检测落账失败并补发（SendMessage 恢复子 Agent 补齐 RESULT） */
+/** 轮询 state 检测完成 + 落账失败补发 + 决策上抛挂起（NEEDS_INPUT 未解决 → suspended） */
 function makeWaitAnyDone(projectRoot, dispatcher) {
   const failedLog = path.join(projectRoot, '.awf', 'logs', 'subagent-failed.jsonl');
+  const needsLog = path.join(projectRoot, '.awf', 'logs', 'subagent-needs-input.jsonl');
   let lastFailedTs = 0; // 上次处理的失败记录时间
+  let lastNeedsTs = 0;  // 上次处理的决策上抛记录时间
   const resendCount = new Map(); // agentId -> 已补发次数
+  const pendingNeeds = new Map(); // taskId -> true（决策挂起中）
   let resending = false;
 
   async function resendPending() {
@@ -60,6 +63,21 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
     }
   }
 
+  /** 检测决策上抛记录（NEEDS_INPUT），标记挂起任务 */
+  async function checkNeedsInput() {
+    let raw;
+    try { raw = fs.readFileSync(needsLog, 'utf-8'); } catch { return; }
+    for (const line of raw.trim().split('\n').filter(Boolean)) {
+      const rec = JSON.parse(line);
+      if (!rec.ts || rec.ts <= lastNeedsTs) continue;
+      lastNeedsTs = rec.ts;
+      if (rec.taskId) {
+        pendingNeeds.set(rec.taskId, true);
+        logStep('', 'warn', `任务 ${rec.taskId} 需决策（${rec.question.slice(0, 40)}...），暂停补位等待主 Agent 提问`);
+      }
+    }
+  }
+
   return async (running) => {
     const deadline = Date.now() + WAIT_TIMEOUT_MS;
     for (;;) {
@@ -68,7 +86,14 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
         const t = state?.tasks?.find((x) => x.id === id);
         return t && (t.status === 'done' || t.status === 'blocked');
       });
-      if (done.length > 0) return done;
+      await checkNeedsInput();
+      // 决策挂起：有 needs_input 记录且对应任务未落账（未解决）
+      let suspended = false;
+      for (const tid of pendingNeeds.keys()) {
+        const t = state?.tasks?.find((x) => x.id === tid);
+        if (!t || (t.status !== 'done' && t.status !== 'blocked')) { suspended = true; break; }
+      }
+      if (done.length > 0 || suspended) return { done, suspended };
       await resendPending();
       if (Date.now() > deadline) throw new Error(`等待任务完成超时（${WAIT_TIMEOUT_MS / 60000}min）`);
       await sleep(POLL_MS);

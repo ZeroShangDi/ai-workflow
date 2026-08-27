@@ -28,18 +28,19 @@ describe('runScheduler — 滑动窗口核心（纯逻辑）', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  /** 构造 waitAnyDone：按脚本顺序返回完成任务，返回前落盘标 done（模拟落账 → 池刷新） */
+  /** 构造 waitAnyDone：按脚本顺序返回完成任务；元素可为数组（done）或 { done, suspended } */
   function makeWaitAnyDone(completionScript) {
     return async (running) => { // running 由调度器传入（轮询用），测试忽略
-      const done = completionScript.shift();
-      if (!done) return [];
+      const step = completionScript.shift();
+      if (!step) return { done: [], suspended: false };
+      const done = Array.isArray(step) ? step : (step.done || []);
       const s = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));
       for (const id of done) {
         const t = s.tasks.find((x) => x.id === id);
         if (t) t.status = 'done';
       }
       fs.writeFileSync(path.join(tmpDir, '.awf', 'state.json'), JSON.stringify(s));
-      return done;
+      return { done, suspended: !Array.isArray(step) && !!step.suspended };
     };
   }
 
@@ -150,5 +151,28 @@ describe('runScheduler — 滑动窗口核心（纯逻辑）', () => {
 
     expect(dispatched).toBe(2);
     expect(sent).toEqual(['T1', 'T2']); // 保守串行
+  });
+
+  it('TC-F: 决策挂起（suspended）→ 不补位，决策解决后恢复补位', async () => {
+    writeState(tmpDir, [
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },      // 会 needs_input 挂起
+      { id: 'T3', kind: 'dev', plannedFiles: ['c.js'], status: 'pending', deps: [] },      // 正常完成
+      { id: 'T2', kind: 'dev', plannedFiles: ['b.js'], status: 'pending', deps: ['T3'] },  // T3 完成后就绪
+    ]);
+
+    const { dispatched } = await runScheduler({
+      projectRoot: tmpDir,
+      cfg: CFG({ max: 3 }),
+      dispatcher,
+      waitAnyDone: makeWaitAnyDone([
+        { done: ['T3'], suspended: true },  // T3 完成但 T1 决策挂起 → T2 就绪但不补位
+        { done: [], suspended: true },       // 仍挂起
+        { done: ['T1'], suspended: false },  // T1 决策解决 → 恢复补位 → T2 派发
+        { done: ['T2'], suspended: false },
+      ]),
+    });
+
+    expect(dispatched).toBe(3);
+    expect(sent).toEqual(['T1', 'T3', 'T2']); // 挂起期间 T2 未被派发（暂停补位），解决后才派
   });
 });
