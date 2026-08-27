@@ -30,7 +30,7 @@ describe('runScheduler — 滑动窗口核心（纯逻辑）', () => {
 
   /** 构造 waitAnyDone：按脚本顺序返回完成任务，返回前落盘标 done（模拟落账 → 池刷新） */
   function makeWaitAnyDone(completionScript) {
-    return async () => {
+    return async (running) => { // running 由调度器传入（轮询用），测试忽略
       const done = completionScript.shift();
       if (!done) return [];
       const s = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));

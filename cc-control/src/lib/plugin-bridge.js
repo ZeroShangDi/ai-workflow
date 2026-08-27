@@ -99,3 +99,12 @@ export function batchDispatch({ batchId, tasks }) {
 export function batchReconcile(batchId) {
   return resolvePrompt('batch-reconcile', { batchId });
 }
+
+/**
+ * 滑动窗口单任务派发 prompt — 主 Agent 派生后台子 Agent 执行一个任务
+ * @param {{ taskId: string, taskPrompt: string }} opts
+ * @returns {Promise<string>}
+ */
+export function subagentDispatch({ taskId, taskPrompt }) {
+  return resolvePrompt('subagent-dispatch', { taskId, taskPrompt });
+}

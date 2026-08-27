@@ -6,6 +6,8 @@ ROOT="$(dirname "$DIR")"
 
 SESSION="${CC_SESSION:-cc}"
 WORKDIR="${CC_WORKDIR:-$ROOT/sandbox}"
+# 固定 inbox socket 路径（cross-session messaging）：CLI 用同一路径注入派生指令
+MESSAGING_SOCKET="${CC_MESSAGING_SOCKET:-$WORKDIR/.awf/messaging.sock}"
 
 command -v tmux >/dev/null 2>&1 || { echo "tmux not found. Install with: brew install tmux" >&2; exit 1; }
 command -v claude >/dev/null 2>&1 || { echo "claude not found on PATH" >&2; exit 1; }
@@ -20,10 +22,11 @@ fi
 # 插件 + hooks + MCP 由项目 .claude/settings.json 注册加载（awf init 本地注入 / 全局 claude plugin install），
 # bootstrap 只负责启动 tmux + claude，不做任何插件渲染/加载。
 # bypassPermissions: 免除文件读写、命令执行等权限确认，避免阻塞自动化工作流
-# --settings .awf/run-settings.json: 仅声明 statusLine（上下文占用状态行），合并语义不覆盖其他配置；
-#   run.js 每次会话启动前写入，状态行据此把实测 context_window 百分比落到 .awf/context/usage.json
+# --settings .awf/run-settings.json: statusLine + crossSessionInbound（多 agent 滑动窗口注入需要 accept）
+# env -u: 去掉会关闭 cross-session messaging 的变量（telemetry/feature-flag 类），仅影响本 claude 会话
+# --messaging-socket-path: 固定 inbox socket 路径，CLI 无需猜（隐藏 flag，2.1.227 确认存在）
 tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
-  "claude --permission-mode bypassPermissions --settings \"$WORKDIR/.awf/run-settings.json\""
+  "env -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC -u DISABLE_TELEMETRY -u DO_NOT_TRACK -u DISABLE_GROWTHBOOK claude --permission-mode bypassPermissions --messaging-socket-path \"$MESSAGING_SOCKET\" --settings \"$WORKDIR/.awf/run-settings.json\""
 
 # 增大回滚缓冲，避免长会话旧消息被 tmux 截断（capture-pane -S - 依赖它）
 tmux set-option -t "$SESSION" history-limit 100000

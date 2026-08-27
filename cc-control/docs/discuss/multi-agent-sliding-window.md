@@ -129,6 +129,35 @@
 ### 版本注意
 - 升级到 v2.1.232+ 后交互会话默认开 **fork mode**：`run_in_background` 参数移除、子 Agent 一律 fork 后台、结果全部走消息回传 → 提示词层需兼容「带参数 / 无参数」两种形态
 
+### ★ socket 集成落地（2026-08-27 查证，反编译 2.1.227 bundle + 实测活会话）
+
+**决定性前提**：本机 env `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`（及 `DISABLE_TELEMETRY`/`DO_NOT_TRACK`/`DISABLE_GROWTHBOOK`）会**关闭 cross-session messaging**——实测当前活会话无文件系统 inbox socket。**必须先处理**：bootstrap 启动 claude 时 unset（仅影响 claude 会话，不改用户全局 telemetry 偏好）。
+
+**socket 路径（三选一，推荐 A）**：
+- **A. 隐藏 flag 固定路径**：`claude --messaging-socket-path <固定路径>`（`--help` 不显示，bundle 确认存在；启动即固定，CLI 不用猜）。需实证与 feature-flag 交互。
+- B. CLI 按 pid 算：`$TMPDIR/cc-socks/<pid>.sock`（macOS，os.tmpdir() 实际值）
+- C. SessionStart hook 落盘：`CLAUDE_CODE_MESSAGING_SOCKET`/`TOKEN` 在 SessionStart 前导出给 hooks，hook 写到 `.awf/messaging.json`，CLI 读
+- 预设 `CLAUDE_CODE_MESSAGING_SOCKET` env 无效（路径只由 flag/tmpdir 决定，不读该 env 作输入）
+
+**`crossSessionInbound: "accept"` 必须配**（主会话 bypassPermissions 默认 hold 未证明权限的消息）：配在项目 `.claude/settings.json`（bootstrap 用 `--settings` 注入 run-settings.json 也可）。注意 managed/项目级 `hold`/`refuse` 会压过用户级 `accept`。
+
+**Node socket 客户端（线格式 NDJSON，`\n` 结尾）**：
+```js
+conn.write(JSON.stringify({
+  type: 'user',
+  message: { role: 'user', content: '<指令文本>' },
+  priority: 'next',
+}) + '\n');
+// macOS：写后延时 ~200ms 再 end()
+```
+- 官方示例：`echo '{"type":"user","message":{"role":"user","content":"hello"}}' | socat - UNIX-CONNECT:<path>`
+- auth：macOS/Linux 可选（官方示例无 auth）；Windows 必填首行
+- 可选字段：`msgV:1` / `msg_id` / `from` / `file_attachments`（官方示例仅 type+message，倾向可接受，正式接入前实证）
+
+**注入行为**：`type:"user"` 消息 = 主会话收到一条用户 prompt（等价终端输入）→ 会执行"派生后台子 Agent"；mid-turn 在工具间隙读取不打断运行工具；`/` 命令按纯文本不执行。
+
+**待实证**：`--messaging-socket-path` 与 feature-flag 交互；最小信封（无 msgV/msg_id/priority）被接受；去 env 后 socket 绑定到公式路径。
+
 ### 对滑动窗口架构的落地
 ```
 CLI 滑动窗口调度器
@@ -169,6 +198,23 @@ CLI 滑动窗口调度器
 2. **taskId 关联自动解决**：taskId 在 RESULT 里，**无需 agent_id ↔ taskId 预映射**。
 
 ⚠️ 留意：SubagentStart/Stop 的 `session_id` 是**主会话的**（子 Agent 靠 `agent_id` 区分）。已验证子 Agent 生命周期事件不进主闩锁判断（M2）；但子 Agent 其他活动事件（Pre/PostToolUse）是否带主 session_id、是否影响 `isMainSession` 过滤，后续滑动窗口实现时留意。
+
+### 落账流程修正（2026-08-27 用户补充，覆盖上方「解析→落账」简化描述）
+
+**问题**：`runBatchLoop` 现有的 reconcile（发 `batch-reconcile` 收尾让主 Agent 落账）是沿用**单 agent 的 settle/wrapup 思路**——主回合结束后 CLI 检测未落账 → 补发提示词。多 agent 滑动窗口下**时机和对象都错**：任务状态应由 **SubagentStop hook** 驱动，不该让主 Agent 收尾落账。
+
+**正确流程（用户定稿）**：
+```
+子 Agent 结束 → SubagentStop hook
+  → hook 读 last_assistant_message，校验字段完整（taskId/status/result）
+  ├─ 完整 → 解析 → 落账 → 调度器释放配额 → 补位
+  └─ 缺失 → 补发提示词：主 Agent 用 SendMessage 与该子 Agent（其 sid）对话，要求补齐固定格式字段
+        → 子 Agent 补齐输出 → 再次进入 hook → 有字段 → 落账
+```
+
+**关键**：
+- 补发对象是「主 Agent 与对应子 Agent 对话」（SendMessage 恢复子 Agent 要字段），**不是**发 batch-reconcile 让主 Agent 自己标。
+- 单 agent 靠 CLI settle（检测→提示词→主会话自改）；多 agent 靠 **hook 字段校验落账**（检测在 hook、补发走 SendMessage 恢复子 Agent）——**两套机制不通用**，`runBatchLoop` 的 reconcile 在滑动窗口实现里**移除**。这正是单/多 agent run 必须隔离的原因。
 
 ## 12. 调度器设计要求（2026-08-27 用户要求）
 

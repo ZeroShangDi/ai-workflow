@@ -118,15 +118,22 @@ async function ensureSession(bootstrapScript, workDir, sessionName) {
   try { execSync(`tmux kill-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   execSync(`bash "${bootstrapScript}"`, {
     stdio: 'ignore', cwd: workDir,
-    env: { ...process.env, CC_WORKDIR: workDir, CC_SESSION: sessionName },
+    env: {
+      ...process.env,
+      CC_WORKDIR: workDir,
+      CC_SESSION: sessionName,
+      CC_MESSAGING_SOCKET: path.join(workDir, '.awf', 'messaging.sock'),
+    },
   });
   logStep('session', 'ok', `${sessionName} → ${workDir}`);
 }
 
 /**
- * 写 run-session 专属 settings（.awf/run-settings.json）— 仅声明 statusLine 上下文占用状态行。
- * bootstrap 以 --settings 注入（合并语义：只覆盖 statusLine 键，不动用户/项目 settings），
- * 使 tmux 会话里状态行每次刷新把 context_window 实测百分比写入 .awf/context/usage.json。
+ * 写 run-session 专属 settings（.awf/run-settings.json）— 声明 statusLine + crossSessionInbound。
+ * bootstrap 以 --settings 注入（合并语义：只覆盖声明键，不动用户/项目 settings），
+ * 使 tmux 会话里状态行每次刷新把 context_window 实测百分比写入 .awf/context/usage.json；
+ * crossSessionInbound: accept 是多 agent 滑动窗口经 inbox socket 注入派发指令的前提
+ *（主会话 bypassPermissions 默认 hold 未证明权限的入站消息）。
  * 作用域限定在 run 会话，不污染用户在项目里的交互式会话。
  */
 async function writeRunSettings(workDir, pkgRoot) {
@@ -135,6 +142,7 @@ async function writeRunSettings(workDir, pkgRoot) {
     path.join(workDir, '.awf', 'run-settings.json'),
     JSON.stringify(
       {
+        crossSessionInbound: 'accept',
         statusLine: {
           type: 'command',
           command: `node "${path.join(pkgRoot, 'scripts', 'context-usage.mjs')}" "${workDir}"`,

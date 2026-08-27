@@ -30,5 +30,9 @@
   "batch-reconcile": {
     "prompt": "批次 {batchId} 尚有任务未标记 done。请用 awf_read_state 核对各任务真实状态后逐项收尾：\n- 子 Agent 已完成但未落账的 → 用 awf_task_complete 补记（一次提交 status + result + files + commits）\n- 确实未完成的 → 明确原因\n- 需要决策的 → 经 awf_await_choice 说明障碍\n不要重新执行任务。",
     "description": "批次收尾 reconcile prompt（主 Agent 补落账未完成的任务，不重做）"
+  },
+  "subagent-dispatch": {
+    "prompt": "请派生一个后台子 Agent（run_in_background: true）执行任务 {taskId}。你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n\n子 Agent 提示词：\n{taskPrompt}\n\n子 Agent 结束输出格式要求：最后一行必须严格为 `RESULT: {json}`，其中 json 至少含 taskId / status(done|blocked) / result / files（如 `RESULT: {\"taskId\": \"{taskId}\", \"status\": \"done\", \"result\": \"完成说明\", \"files\": [\"路径\"]}`）。",
+    "description": "滑动窗口单任务派发（CLI 经 inbox socket 注入；主 Agent 派生后台子 Agent，子 Agent 输出固定格式 RESULT 供 hook 落账）"
   }
 }

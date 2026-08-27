@@ -112,7 +112,7 @@ function pickFromPool(pool, running, quota, scope) {
  *  - projectRoot: 项目根（读 .awf/state.json）
  *  - cfg: run 配置（agents 配额）
  *  - dispatcher: { send(task) => Promise } — 派发「派生后台子 Agent 执行 task」指令
- *  - waitAnyDone: () => Promise<string[]> — 等待至少一个运行中任务完成，返回完成的 taskId 列表
+ *  - waitAnyDone: (running) => Promise<string[]> — 等待至少一个运行中任务完成，返回完成的 taskId 列表（running 为当前运行集合，便于轮询检测）
  *  - onTaskComplete: (taskId, task) => void — 完成回调（可选，落账侧）
  * @returns {Promise<{ dispatched: number }>}
  */
@@ -138,7 +138,7 @@ export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, 
     if (running.size === 0) break; // 池空或无可派且无运行 → 结束
 
     // 等至少一个完成（容忍延迟）
-    const done = await waitAnyDone();
+    const done = await waitAnyDone(running);
     for (const id of done) {
       const s = scope.get(id) || {};
       const task = running.remove(id, s);

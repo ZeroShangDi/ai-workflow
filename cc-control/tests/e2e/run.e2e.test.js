@@ -32,12 +32,15 @@ mockTmux.sendText.mockImplementation((text) => {
 const h = vi.hoisted(() => ({
   execSync: vi.fn(() => Buffer.from('')),
   spawn: vi.fn(),
+  runScheduler: vi.fn(async () => ({ dispatched: 0 })), // 滑动窗口调度器在 mock 环境不真跑（真实 socket 派发留给全真 eval）
 }));
 
 vi.mock('node:child_process', () => ({
   execSync: h.execSync,
   spawn: h.spawn,
 }));
+
+vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: h.runScheduler }));
 
 import { runCommand } from '../../src/cli/run.js';
 
@@ -122,6 +125,7 @@ beforeEach(() => {
   promptHandler = null;
   mockTmux.sendText.mockClear();
   mockTmux.sendEnter.mockClear();
+  h.runScheduler.mockClear();
   fs.rmSync(path.join(TMP, '.awf', 'versions'), { recursive: true, force: true });
   fs.rmSync(path.join(TMP, '.awf', 'logs'), { recursive: true, force: true });
 });
@@ -221,35 +225,16 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
     expect(prompts[2]).toBe('task two');
   }, 20000);
 
-  it('E2E-6: 多 agent（run.agents.max>1）→ 整批一次派发，子任务全部完成', async () => {
-    // 配置多 agent：runCommand 分流走 runBatchLoop（批次屏障）
+  it('E2E-6: 多 agent（run.agents.max>1）分流到 runBatchLoop（滑动窗口入口）', async () => {
     fs.mkdirSync(path.join(TMP, '.awf'), { recursive: true });
-    fs.writeFileSync(
-      path.join(TMP, '.awf', 'config.json'),
-      JSON.stringify({ run: { agents: { max: 2, maxModules: 2, maxPerModule: 2, maxPerFeature: 1 } } }),
-    );
+    fs.writeFileSync(path.join(TMP, '.awf', 'config.json'), JSON.stringify({ run: { agents: { max: 2 } } }));
     writeState(baseState([
       { id: 'T1', title: 'T1', prompt: 'task one', status: 'pending', deps: [], plannedFiles: ['src/a.js'] },
-      { id: 'T2', title: 'T2', prompt: 'task two', status: 'pending', deps: [], plannedFiles: ['src/b.js'] },
     ]));
-
-    // 模拟主 Agent：收到批次编排 prompt（含两个 taskId）→ 两个子任务统一落账 done
-    promptHandler = (text) => {
-      if (text.includes('task one') && text.includes('task two')) {
-        markDone('T1');
-        markDone('T2');
-      }
-      server.setReady();
-    };
 
     await runCommand(undefined, {});
 
-    const s = readState();
-    expect(s.tasks.map((t) => t.status)).toEqual(['done', 'done']);
-    // 批次屏障：只 send 一次整批，不逐任务 send
-    const prompts = sentPrompts();
-    expect(prompts).toHaveLength(1);
-    expect(prompts[0]).toContain('task one');
-    expect(prompts[0]).toContain('task two');
+    // max>1 → 分流到滑动窗口调度器（真实 socket 派发 + hook 落账留给全真 eval；mock 环境只验证分流）
+    expect(h.runScheduler).toHaveBeenCalled();
   }, 20000);
 });
