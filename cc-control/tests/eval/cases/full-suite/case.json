@@ -1,0 +1,152 @@
+{
+  "id": "full-suite",
+  "name": "全功能回归：滑动窗口并行 + 门禁流转 + 落账 + 决策上抛（随功能迭代持续更新）",
+  "requirements": "一个用例覆盖全部核心功能：多任务滑动窗口并行、dev→review→test→doc 门禁流转、plannedFiles 并行、SubagentStop 落账、NEEDS_INPUT 决策上抛（T1 需决策）、awf-worker 身份。随功能迭代更新此用例。",
+  "config": {
+    "run": { "agents": { "max": 4, "maxModules": 2, "maxPerModule": 2, "maxPerFeature": 1 } }
+  },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "全功能回归：2 模块工具库 + 决策上抛" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "实现 math.add（需决策实现风格）",
+        "kind": "dev",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/util/math.js", "eval-marker/T1.done"],
+        "acceptance": "src/util/math.js 导出 add；add(1,2)===3；eval-marker/T1.done 存在",
+        "prompt": "在 src/util/math.js 实现并导出 add(a, b)。\n\n【关键决策】实现前必须确定用哪种实现风格（v1：单行箭头函数；v2：带 Number 校验），但你无法自行决定——必须用 NEEDS_INPUT 上抛给主 Agent 询问用户（不要自行猜测）：\n`NEEDS_INPUT: {\"taskId\": \"T1\", \"question\": \"add 用哪种实现风格？\", \"options\": [\"v1 单行\", \"v2 带校验\"], \"context\": \"两种均可满足验收\"}`\n\n按用户选择实现：\n- v1 → `export const add = (a, b) => a + b;`\n- v2 → 带 Number 校验的实现。\n完成后创建 eval-marker/T1.done（内容写 T1）。只创建这两个文件。"
+      },
+      {
+        "id": "T2",
+        "title": "实现 string.upper",
+        "kind": "dev",
+        "wbsRef": "W1-002",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/util/string.js", "eval-marker/T2.done"],
+        "acceptance": "src/util/string.js 导出 upper；upper('hi')==='HI'；eval-marker/T2.done 存在",
+        "prompt": "在 src/util/string.js 实现并导出 upper(s)，返回大写形式。\n`export const upper = (s) => String(s).toUpperCase();`\n完成后创建 eval-marker/T2.done（内容写 T2）。只创建这两个文件。"
+      },
+      {
+        "id": "T3",
+        "title": "实现 model.createUser",
+        "kind": "dev",
+        "wbsRef": "W2-001",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/model/user.js", "eval-marker/T3.done"],
+        "acceptance": "src/model/user.js 导出 createUser；createUser('a').name==='a'；eval-marker/T3.done 存在",
+        "prompt": "在 src/model/user.js 实现并导出 createUser(name)，返回 { name }。\n`export function createUser(name) { return { name }; }`\n完成后创建 eval-marker/T3.done（内容写 T3）。只创建这两个文件。"
+      },
+      {
+        "id": "T4",
+        "title": "实现 model.createOrder",
+        "kind": "dev",
+        "wbsRef": "W2-002",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/model/order.js", "eval-marker/T4.done"],
+        "acceptance": "src/model/order.js 导出 createOrder；createOrder(7).id===7；eval-marker/T4.done 存在",
+        "prompt": "在 src/model/order.js 实现并导出 createOrder(id)，返回 { id }。\n`export function createOrder(id) { return { id }; }`\n完成后创建 eval-marker/T4.done（内容写 T4）。只创建这两个文件。"
+      },
+      {
+        "id": "R1",
+        "title": "审查 util 功能 1（math）",
+        "kind": "review",
+        "wbsRef": "W1-003",
+        "status": "pending",
+        "deps": ["T1"],
+        "acceptance": "确认 math.add 实现正确",
+        "prompt": "审查 src/util/math.js 的 add 实现。只读审查，不修改文件。确认 add(a,b) 正确返回 a+b。"
+      },
+      {
+        "id": "R2",
+        "title": "审查 util 功能 2（string）",
+        "kind": "review",
+        "wbsRef": "W1-004",
+        "status": "pending",
+        "deps": ["T2"],
+        "acceptance": "确认 string.upper 实现正确",
+        "prompt": "审查 src/util/string.js 的 upper 实现。只读审查，不修改文件。确认 upper(s) 正确返回大写。"
+      },
+      {
+        "id": "R3",
+        "title": "审查 model 功能 1（user）",
+        "kind": "review",
+        "wbsRef": "W2-003",
+        "status": "pending",
+        "deps": ["T3"],
+        "acceptance": "确认 createUser 实现正确",
+        "prompt": "审查 src/model/user.js 的 createUser 实现。只读审查，不修改文件。确认 createUser(name) 正确返回 { name }。"
+      },
+      {
+        "id": "R4",
+        "title": "审查 model 功能 2（order）",
+        "kind": "review",
+        "wbsRef": "W2-004",
+        "status": "pending",
+        "deps": ["T4"],
+        "acceptance": "确认 createOrder 实现正确",
+        "prompt": "审查 src/model/order.js 的 createOrder 实现。只读审查，不修改文件。确认 createOrder(id) 正确返回 { id }。"
+      },
+      {
+        "id": "X1",
+        "title": "模块 util 测试门禁",
+        "kind": "test",
+        "wbsRef": "W1-005",
+        "status": "pending",
+        "deps": ["T1", "R1", "T2", "R2"],
+        "plannedFiles": ["test/util.test.js"],
+        "acceptance": "test/util.test.js 覆盖 add 与 upper",
+        "prompt": "为 src/util/math.js 的 add 和 src/util/string.js 的 upper 编写单元测试，只创建 test/util.test.js，node 内置 test runner。"
+      },
+      {
+        "id": "X2",
+        "title": "模块 model 测试门禁",
+        "kind": "test",
+        "wbsRef": "W2-005",
+        "status": "pending",
+        "deps": ["T3", "R3", "T4", "R4"],
+        "plannedFiles": ["test/model.test.js"],
+        "acceptance": "test/model.test.js 覆盖 createUser 与 createOrder",
+        "prompt": "为 src/model/user.js 的 createUser 和 src/model/order.js 的 createOrder 编写单元测试，只创建 test/model.test.js，node 内置 test runner。"
+      },
+      {
+        "id": "D1",
+        "title": "文档门禁",
+        "kind": "doc",
+        "wbsRef": "W0-001",
+        "status": "pending",
+        "deps": ["T1", "R1", "T2", "R2", "T3", "R3", "T4", "R4", "X1", "X2"],
+        "plannedFiles": ["README.md"],
+        "acceptance": "README.md 说明各模块导出",
+        "prompt": "为项目写 README.md，说明 src/util（add/upper）与 src/model（createUser/createOrder）的导出与用途。只创建 README.md。"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "tasksDone": true,
+    "files": [
+      "src/util/math.js", "src/util/string.js", "src/model/user.js", "src/model/order.js",
+      "eval-marker/T1.done", "eval-marker/T2.done", "eval-marker/T3.done", "eval-marker/T4.done",
+      "test/util.test.js", "test/model.test.js", "README.md"
+    ],
+    "markerFiles": ["eval-marker/T1.done", "eval-marker/T2.done", "eval-marker/T3.done", "eval-marker/T4.done"],
+    "markerSpanMs": 90000,
+    "logContain": ["派发 T1", "派发 T2", "派发 T3", "派发 T4"],
+    "fileContain": [
+      { "file": ".awf/logs/subagent-needs-input.jsonl", "contains": ["T1", "实现风格"] }
+    ],
+    "verify": [
+      "node", "--input-type=module", "-e",
+      "import { existsSync } from 'node:fs';\nconst m = await import('./src/util/math.js');\nconst s = await import('./src/util/string.js');\nconst u = await import('./src/model/user.js');\nconst o = await import('./src/model/order.js');\nconst markers = ['T1','T2','T3','T4'].every((id) => existsSync('eval-marker/'+id+'.done'));\nif (m.add(1,2)!==3 || s.upper('hi')!=='HI' || u.createUser('a').name!=='a' || o.createOrder(7).id!==7 || !markers) { console.error('VERIFY_FAIL'); process.exit(1); }\nconsole.log('ALL_OK');"
+    ]
+  }
+}
