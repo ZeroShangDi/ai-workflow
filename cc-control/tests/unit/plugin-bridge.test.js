@@ -36,13 +36,17 @@ const PROMPTS = {
     prompt: '批次 {batchId} 尚有任务未标记 done，请核对收尾，不要重新执行。',
     description: '批次收尾 reconcile prompt',
   },
+  'subagent-dispatch': {
+    prompt: '请派生后台子 Agent 执行任务 {taskId}。只派生本指令指定的任务 {taskId}，严禁派生、追加其他任务。子 Agent 提示词：{taskPrompt}。RESULT 的 taskId 必须严格等于 {taskId}。',
+    description: '滑动窗口单任务派发',
+  },
 };
 
 vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({ projectRoot: FAKE_ROOT })),
 }));
 
-import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck, batchDispatch, batchReconcile } from '../../src/lib/plugin-bridge.js';
+import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck, batchDispatch, batchReconcile, subagentDispatch } from '../../src/lib/plugin-bridge.js';
 
 beforeAll(async () => {
   const dir = path.join(FAKE_ROOT, 'plugin', 'plugin-code');
@@ -119,5 +123,15 @@ describe('batchReconcile — 批次收尾 prompt', () => {
   it('填充 {batchId}，明确不重新执行', async () => {
     expect(await batchReconcile('B1')).toContain('批次 B1 尚有任务未标记 done');
     expect(await batchReconcile('B1')).toContain('不要重新执行');
+  });
+});
+
+describe('subagentDispatch — 滑动窗口单任务派发', () => {
+  it('填充 taskId + taskPrompt，含只派生指定任务的硬约束', async () => {
+    const res = await subagentDispatch({ taskId: 'R1', taskPrompt: '审查 math' });
+    expect(res).toContain('执行任务 R1');
+    expect(res).toContain('严禁派生、追加其他任务'); // 防主会话擅自派发
+    expect(res).toContain('审查 math');
+    expect(res).toContain('taskId 必须严格等于 R1');
   });
 });

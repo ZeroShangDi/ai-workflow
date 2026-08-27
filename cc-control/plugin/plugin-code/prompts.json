@@ -32,7 +32,7 @@
     "description": "批次收尾 reconcile prompt（主 Agent 补落账未完成的任务，不重做）"
   },
   "subagent-dispatch": {
-    "prompt": "请派生一个后台子 Agent（run_in_background: true）执行任务 {taskId}。你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n\n子 Agent 提示词：\n{taskPrompt}\n\n子 Agent 结束输出格式要求：最后一行必须严格为 `RESULT: {json}`，其中 json 至少含 taskId / status(done|blocked) / result / files（如 `RESULT: {\"taskId\": \"{taskId}\", \"status\": \"done\", \"result\": \"完成说明\", \"files\": [\"路径\"]}`）。",
-    "description": "滑动窗口单任务派发（CLI 经 inbox socket 注入；主 Agent 派生后台子 Agent，子 Agent 输出固定格式 RESULT 供 hook 落账）"
+    "prompt": "请派生一个后台子 Agent（run_in_background: true）执行任务 {taskId}。你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n\n【严格约束】只派生本指令指定的任务 {taskId}，严禁派生、追加或合并任何其他任务（包括你判断为已就绪的审查、测试等）。其他任务的派发由 CLI 另行下发指令，你不得自行决定派发哪些任务。\n\n子 Agent 提示词：\n{taskPrompt}\n\n子 Agent 结束输出格式要求：最后一行必须严格为 `RESULT: {json}`，其中 json 至少含 taskId / status(done|blocked) / result / files，且 RESULT 中的 taskId 必须严格等于 {taskId}（如 `RESULT: {\"taskId\": \"{taskId}\", \"status\": \"done\", \"result\": \"完成说明\", \"files\": [\"路径\"]}`）。",
+    "description": "滑动窗口单任务派发（CLI 注入指令；主 Agent 只派生指定任务的后台子 Agent，禁止追加其他任务，子 Agent 输出固定格式 RESULT 供 hook 落账）"
   }
 }
