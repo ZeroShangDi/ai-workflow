@@ -19,13 +19,13 @@ model: inherit
 ```
 RESULT: {"taskId": "<任务ID>", "status": "done", "result": "<完成说明>", "files": ["<产出路径>"]}
 ```
-status 可选 `done | blocked | failed`；blocked/failed 时在 result 说明原因。
+status 可选 `done | blocked | failed`；blocked/failed 时在 result 说明原因。**taskId 必须是派发给你的任务 ID（Agent 工具 prompt 中声明的）**，绝不可编造或改写。
 
 **需决策**：
 ```
 NEEDS_INPUT: {"taskId": "<任务ID>", "question": "<问题>", "options": ["<选项>"], "context": "<背景>"}
 ```
-options 可选。遇真正需要用户决策时用此上抛，不自行猜测关键决策。
+options 可选。遇真正需要用户决策时用此上抛，不自行猜测关键决策。taskId 同样必须是派发给你的任务 ID。
 
 ## 行为
 

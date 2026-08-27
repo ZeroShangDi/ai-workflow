@@ -32,7 +32,7 @@
     "description": "批次收尾 reconcile prompt（主 Agent 补落账未完成的任务，不重做）"
   },
   "subagent-dispatch": {
-    "prompt": "请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。\n你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n【严格约束】只派生一个子 Agent，且只派生一次，严禁重复派发同一任务、严禁派生其他任务。其他任务由 CLI 另行下发。\n子 Agent prompt（仅任务内容；RESULT / NEEDS_INPUT 输出格式约束已固化在 awf-worker 身份，无需重复）：\n{taskPrompt}",
-    "description": "滑动窗口单任务派发（主 Agent 用插件内置 ai-workflow-core:awf-worker 子 Agent 类型派生；约束身份化：白名单禁写 + RESULT/NEEDS_INPUT 格式固化）"
+    "prompt": "请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。\n你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n【严格约束】只派生一个子 Agent，且只派生一次，严禁重复派发同一任务、严禁派生其他任务。其他任务由 CLI 另行下发。\n子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』；RESULT / NEEDS_INPUT 输出格式已固化在 awf-worker 身份）：\n{taskPrompt}",
+    "description": "滑动窗口单任务派发（主 Agent 用插件内置 ai-workflow-core:awf-worker 子 Agent 类型派生；约束身份化：白名单禁写 + RESULT/NEEDS_INPUT 格式固化；prompt 开头声明任务 ID 防错写）"
   }
 }
