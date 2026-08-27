@@ -32,7 +32,7 @@
     "description": "批次收尾 reconcile prompt（主 Agent 补落账未完成的任务，不重做）"
   },
   "subagent-dispatch": {
-    "prompt": "请派生一个后台子 Agent（run_in_background: true）执行任务 {taskId}。你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n\n【严格约束】只派生本指令指定的任务 {taskId}，严禁派生、追加或合并任何其他任务（包括你判断为已就绪的审查、测试等）。其他任务的派发由 CLI 另行下发指令，你不得自行决定派发哪些任务。\n\n子 Agent 提示词：\n{taskPrompt}\n\n子 Agent 结束输出格式要求：最后一行必须严格为 `RESULT: {json}`，其中 json 至少含 taskId / status(done|blocked) / result / files，且 RESULT 中的 taskId 必须严格等于 {taskId}（如 `RESULT: {\"taskId\": \"{taskId}\", \"status\": \"done\", \"result\": \"完成说明\", \"files\": [\"路径\"]}`）。",
-    "description": "滑动窗口单任务派发（CLI 注入指令；主 Agent 只派生指定任务的后台子 Agent，禁止追加其他任务，子 Agent 输出固定格式 RESULT 供 hook 落账）"
+    "prompt": "请派生一个后台子 Agent（run_in_background: true）执行任务 {taskId}。你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n\n【严格约束】\n1. 本指令只派生【一个】子 Agent，且只派生一次。严禁重复派发同一任务，严禁派生、追加或合并任何其他任务（包括你判断为已就绪的审查、测试等）。其他任务的派发由 CLI 另行下发指令，你不得自行决定派发哪些任务。\n2. 派发给子 Agent 的提示词必须附加约束：子 Agent 严禁调用任何 awf-state MCP 写工具（awf_task_status / awf_task_result / awf_task_commit / awf_task_complete 等），任务落账由系统 hook 完成，子 Agent 只执行任务并输出 RESULT。\n\n子 Agent 提示词：\n{taskPrompt}\n\n子 Agent 结束输出格式要求：最后一行必须严格为 `RESULT: {json}`，其中 json 至少含 taskId / status(done|blocked) / result / files，且 RESULT 中的 taskId 必须严格等于 {taskId}（如 `RESULT: {\"taskId\": \"{taskId}\", \"status\": \"done\", \"result\": \"完成说明\", \"files\": [\"路径\"]}`）。",
+    "description": "滑动窗口单任务派发（CLI 注入指令；主 Agent 只派生一个指定任务的后台子 Agent，禁止重复派发/追加其他任务，禁止子 Agent 调 MCP 写，子 Agent 输出固定格式 RESULT 供 hook 落账）"
   }
 }

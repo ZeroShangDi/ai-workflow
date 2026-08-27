@@ -37,7 +37,7 @@ const PROMPTS = {
     description: '批次收尾 reconcile prompt',
   },
   'subagent-dispatch': {
-    prompt: '请派生后台子 Agent 执行任务 {taskId}。只派生本指令指定的任务 {taskId}，严禁派生、追加其他任务。子 Agent 提示词：{taskPrompt}。RESULT 的 taskId 必须严格等于 {taskId}。',
+    prompt: '请派生后台子 Agent 执行任务 {taskId}。只派生【一个】子 Agent 且只派生一次，严禁重复派发同一任务、严禁派生其他任务。派发给子 Agent 的提示词必须附加：严禁调用 awf-state MCP 写工具。子 Agent 提示词：{taskPrompt}。RESULT 的 taskId 必须严格等于 {taskId}。',
     description: '滑动窗口单任务派发',
   },
 };
@@ -127,10 +127,13 @@ describe('batchReconcile — 批次收尾 prompt', () => {
 });
 
 describe('subagentDispatch — 滑动窗口单任务派发', () => {
-  it('填充 taskId + taskPrompt，含只派生指定任务的硬约束', async () => {
+  it('填充 taskId + taskPrompt，含只派生一次/禁 MCP 写/禁其他任务的硬约束', async () => {
     const res = await subagentDispatch({ taskId: 'R1', taskPrompt: '审查 math' });
     expect(res).toContain('执行任务 R1');
-    expect(res).toContain('严禁派生、追加其他任务'); // 防主会话擅自派发
+    expect(res).toContain('只派生【一个】子 Agent 且只派生一次'); // 防重复派发同一任务
+    expect(res).toContain('严禁重复派发同一任务');
+    expect(res).toContain('严禁派生其他任务'); // 防擅自追加
+    expect(res).toContain('严禁调用 awf-state MCP 写工具'); // 防子 Agent 自写 state
     expect(res).toContain('审查 math');
     expect(res).toContain('taskId 必须严格等于 R1');
   });
