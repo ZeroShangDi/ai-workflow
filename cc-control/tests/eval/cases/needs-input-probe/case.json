@@ -1,0 +1,39 @@
+{
+  "id": "needs-input-probe",
+  "name": "M5 决策上抛：子 Agent NEEDS_INPUT → 主 Agent AskUserQuestion（autoSelect）→ 恢复完成",
+  "requirements": "验证 M5 全真链：子 Agent（awf-worker）遇需决策输出 NEEDS_INPUT → server 记录 → 主 Agent 原生 AskUserQuestion（CLI handleDecision autoSelect 自动选 v1）→ SendMessage 恢复子 Agent 告知答案 → 子 Agent 按 v1 完成 → RESULT 落账。",
+  "config": {
+    "run": { "agents": { "max": 2 } }
+  },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "M5 决策上抛验证" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "选择 API 版本并实现 apiFetch",
+        "kind": "dev",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/api.js"],
+        "acceptance": "src/api.js 导出 apiFetch，且按所选 API 版本实现",
+        "prompt": "在 src/api.js 实现并导出 apiFetch。\n\n【关键决策】实现前必须确定用哪个 API 版本（v1 或 v2），但你无法自行决定——遇到此选择时必须用 NEEDS_INPUT 上抛给主 Agent 询问用户（不要自行猜测）：\n`NEEDS_INPUT: {\"taskId\": \"T1\", \"question\": \"apiFetch 用哪个 API 版本？\", \"options\": [\"v1\", \"v2\"], \"context\": \"两种均可，需用户选择\"}`\n\n然后按用户选择的版本实现 src/api.js：\n- 选 v1 → `export const apiFetch = () => fetch('/api/v1');`\n- 选 v2 → `export const apiFetch = () => fetch('/api/v2');`"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "tasksDone": true,
+    "files": ["src/api.js"],
+    "fileContain": [
+      { "file": ".awf/logs/subagent-needs-input.jsonl", "contains": ["T1", "API 版本"] }
+    ],
+    "verify": [
+      "node", "--input-type=module", "-e",
+      "const m = await import('./src/api.js'); if (typeof m.apiFetch !== 'function') { console.error('VERIFY_FAIL'); process.exit(1); } console.log('ALL_OK');"
+    ]
+  }
+}
