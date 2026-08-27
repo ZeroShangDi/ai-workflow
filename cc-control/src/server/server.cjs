@@ -24,6 +24,23 @@ function logSubagentEvent(event, body) {
   }
 }
 
+// ---- 落账失败记录：CLI 据此触发补发（SendMessage 恢复子 Agent 补齐 RESULT）----
+const SUBAGENT_FAILED_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-failed.jsonl');
+
+function logSubagentFailure(body, settled) {
+  try {
+    fs.mkdirSync(path.dirname(SUBAGENT_FAILED_LOG), { recursive: true });
+    fs.appendFileSync(SUBAGENT_FAILED_LOG, JSON.stringify({
+      ts: new Date().toISOString(),
+      agentId: body.agent_id || body.session_id || 'unknown',
+      reason: settled.reason,
+      resultTaskId: (parseSubagentResult(body) || {}).taskId || null,
+    }) + '\n');
+  } catch (e) {
+    console.log(`[subagent-fail] ${e.message}`);
+  }
+}
+
 // ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
 // 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
 const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
@@ -227,10 +244,14 @@ const server = http.createServer(async (req, res) => {
       const a = agents.get(key);
       if (a) a.status = 'stopped';
       logSubagentEvent(event, body);
-      // 落账：解析 last_assistant_message 的 RESULT → 写 state；失败记录原因（补发由 CLI 侧驱动）
+      // 落账：解析 last_assistant_message 的 RESULT → 写 state；失败记录（CLI 据此补发）
       const settled = settleSubagent(body);
-      if (!settled.ok) console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
-      else console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
+      if (!settled.ok) {
+        console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
+        logSubagentFailure(body, settled);
+      } else {
+        console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
+      }
     }
 
     // PreToolUse: 检测 AskUserQuestion，在执行前设置 decisionPending（不拦截）

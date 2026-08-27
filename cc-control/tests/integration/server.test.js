@@ -524,6 +524,25 @@ describe('/hook 事件', () => {
     const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
     expect(s.tasks[0].status).toBe('pending');
   });
+
+  it('TC40: SubagentStop 落账失败（taskId 不存在）→ 写 subagent-failed.jsonl（补发依据）', async () => {
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-bad',
+      last_assistant_message: 'RESULT: {"taskId": "T999", "status": "done"}', // taskId 不存在
+    });
+    const logPath = path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl');
+    expect(fs.existsSync(logPath)).toBe(true);
+    const rec = JSON.parse(fs.readFileSync(logPath, 'utf-8').trim().split('\n').pop());
+    expect(rec.agentId).toBe('agent-bad');
+    expect(rec.resultTaskId).toBe('T999');
+    expect(rec.reason).toContain('not found');
+    // state 不变（落账失败）
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('pending');
+  });
 });
 
 // ─────────────────────────────────────────────
