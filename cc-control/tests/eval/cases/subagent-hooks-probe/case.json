@@ -1,0 +1,34 @@
+{
+  "id": "subagent-hooks-probe",
+  "name": "实证：后台子 Agent 是否触发 SubagentStart/Stop + last_assistant_message 落账可行性",
+  "requirements": "验证滑动窗口落账前提：主会话以 run_in_background:true 派生后台子 Agent，子 Agent 结束时输出固定格式；检查 SubagentStop hook 是否触发、last_assistant_message 是否含固定格式（决定落账能否走 hook 解析）。",
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "后台子 Agent hook 实证" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "实证后台子 Agent",
+        "kind": "dev",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "probe-result.txt 存在；subagent-events.jsonl 含 SubagentStart/SubagentStop 与 RESULT",
+        "prompt": "请用 run_in_background: true 派生一个后台子 Agent 执行下面的任务。你只负责派生子 Agent，不要自己创建文件。\n\n子 Agent 任务：创建 probe-result.txt，内容写 probe-done。\n\n子 Agent 结束输出格式要求：最后一行必须是 `RESULT: {\"taskId\": \"T1\", \"status\": \"done\", \"result\": \"probe-done\"}`（严格以该行结尾）。"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "tasksDone": false,
+    "files": ["probe-result.txt"],
+    "fileContain": [
+      {
+        "file": ".awf/logs/subagent-events.jsonl",
+        "contains": ["SubagentStart", "SubagentStop", "RESULT"]
+      }
+    ]
+  }
+}

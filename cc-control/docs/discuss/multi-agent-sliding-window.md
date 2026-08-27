@@ -84,7 +84,7 @@
 
 ## 8. 待办清单（回家后按序）
 
-1. **验证 `run_in_background` 子 Agent 实际行为**（完成信号 / MCP 继承 / SubagentStop 触发）——这是滑动窗口的解锁点
+1. **验证 `run_in_background` 子 Agent 实际行为** — ✅ 官方行为已查证（见 §10）；**剩 2 个实证点**：后台子 Agent 是否触发 SubagentStart/Stop、inbox socket 注入实测
 2. **确认落账路径**（hook 直写 state / 经 server / 子 Agent 自写）与 **taskId ↔ 子 Agent 关联机制**
 3. **重设计 `runBatchLoop`**：批次屏障 → 滑动窗口调度器（就绪池 + 配额上限语义 + 补位循环 + reconcile 兜底）
 4. **batch 模板改写**：主 Agent 只派生后台子 Agent，不落账；落账走 hook
@@ -94,4 +94,97 @@
 
 ## 9. 下一步建议
 
-先做第 1 项（验证后台子 Agent 行为），它决定第 2、3 项怎么设计。可用最小实验：单主会话里让主 Agent 派生 2 个后台子 Agent，观察：主 Agent 回合是否立即结束、SubagentStop 是否触发、子 Agent 能否调 MCP。
+已从「先验证后台子 Agent」推进到「**实证 2 个关键点 + 按 socket 注入重构派发通道**」：
+
+- **实证 A**：后台子 Agent 是否触发 SubagentStart/SubagentStop（决定落账是否走 hook）
+- **实证 B**：CLI 经 inbox socket 向主会话注入派生指令（决定派发通道）
+- 实证通过后：CLI 滑动窗口调度器（socket 注入补位 + SubagentStop 落账）
+
+## 10. run_in_background 行为查证（2026-08-27，claude-code-guide，版本 2.1.227）
+
+**核心结论**：滑动窗口架构**可行**，且有官方通道支持。
+
+### 后台子 Agent（官方明确）
+- **不阻塞主回合**：主会话可继续做自己的工具调用，回合自然结束；子 Agent 结果作为「后续回合的完成通知」到达，非 in-band 返回值
+- **继承全部 MCP 工具**（built-in 收窄到 19 个但 MCP 一个不砍）→ 子 Agent 可自调 `awf_task_complete`（备选落账路径）
+- 主会话可感知完成（后续回合通知），但 **CLI 不依赖主会话唤醒**
+
+### SubagentStart/Stop hooks（部分需实证）
+- hook 存在、payload 字段明确（session_id / agent_id / agent_type / prompt_id / last_assistant_message 等）
+- **⚠ 需实证：官方未显式声明对 run_in_background 后台子 Agent 是否触发**（描述不分前后台，倾向会触发，但设计依赖它必须先实测）
+- 已确认：子 Agent 内部每次工具调用也会触发 PreToolUse/PostToolUse（带 agent_id/agent_type）→ hook 通道已能观测子 Agent 活动
+
+### 前台子 Agent（重要纠正）
+- **逐个返回即继续（串行阻塞）**，不是并行等待 → 前台模型本来就不支持并行，滑动窗口必须走后台
+
+### ★ inbox socket（官方通道，滑动窗口派发的关键）
+- 每个启用 messaging 的会话绑 inbox socket（Unix domain socket，路径在 `CLAUDE_CODE_MESSAGING_SOCKET` env / `/status` Peer address）
+- **CLI 可在主会话活动回合的工具调用间隙注入文本消息，不打断运行中的工具**；主会话 idle → 立即开新回合
+- 版本门槛 v2.1.224+（本机 2.1.227 ✅）
+- 约束：
+  1. **纯文本**——命令字符串（如 `/compact`）不执行，只是普通文本
+  2. 需显式配置主会话 `crossSessionInbound: "accept"`（否则 bypassPermissions 默认 hold 他人消息等批准）
+  3. CLI 是 claude 的祖先进程（非子进程），own-child 快速通道不适用
+
+### 版本注意
+- 升级到 v2.1.232+ 后交互会话默认开 **fork mode**：`run_in_background` 参数移除、子 Agent 一律 fork 后台、结果全部走消息回传 → 提示词层需兼容「带参数 / 无参数」两种形态
+
+### 对滑动窗口架构的落地
+```
+CLI 滑动窗口调度器
+  ├─ 派发：经 inbox socket 向主会话注入「派生下一个后台子 Agent」文本指令（不打断回合）
+  ├─ 完成感知：SubagentStop hook → /hook → 落账（若实证不触发 → 改子 Agent 自写 / 主会话通知）
+  ├─ 补位：socket 注入下一个
+  └─ 兜底：reconcile
+```
+
+## 11. 落账路径定稿（2026-08-27 用户确认方向）
+
+**子 Agent 结构化返回 + SubagentStop hook 解析落账**（用户否决「子 Agent 自调 MCP」，因工具调用易失败）：
+
+```
+子 Agent 结束 → 输出固定格式 JSON（含 taskId/status/result/files）
+  → SubagentStop hook → 读 payload.last_assistant_message（= 子 Agent 最终文本，官方明确）
+  → 解析 → 落账（hook 直写 state 或经 server）
+  → 解析失败 → CLI 兜底（该任务未落账 → 重试/收尾，复用 reconcile 模式）
+```
+
+关键依据 / 风险：
+- `last_assistant_message`：SubagentStop/Stop 专用字段 = 子 Agent 最后一次回复文本（官方明确，建议用它而非读 transcript）
+- 比子 Agent 自调 MCP **更稳**（输出文本成功率高）；风险：子 Agent 不按格式（prompt 强约束 + 兜底）、后台子 Agent 是否触发 SubagentStop（**需实证**）
+- **SubagentStop 之后可再通话**（官方明确：主会话 SendMessage 可恢复已完成的后台子 Agent，保留历史）——但那是主会话工具，CLI 不能直接调；hook 落账是一次性的，失败走 CLI 兜底，不需要再通话
+
+### ✅ 实证通过（2026-08-27，subagent-hooks-probe eval 用例）
+
+沙箱：`sandbox/eval/subagent-hooks-probe-2026-08-27T02-22-59`（保留）
+
+| 检查项 | 结果 |
+|---|---|
+| 后台子 Agent 触发 SubagentStart/Stop | ✅ payload `hook_event_name` 确认 |
+| `last_assistant_message` 含固定格式 | ✅ `"RESULT: {\"taskId\": \"T1\", \"status\": \"done\", \"result\": \"probe-done\"}"` 完整落在该字段 |
+| 子 Agent 真执行 | ✅ `probe-result.txt` = `probe-done` |
+
+**两个重要结论**：
+1. 落账路径可行：固定格式 RESULT 完整落在 `last_assistant_message`，hook 解析即可落账。
+2. **taskId 关联自动解决**：taskId 在 RESULT 里，**无需 agent_id ↔ taskId 预映射**。
+
+⚠️ 留意：SubagentStart/Stop 的 `session_id` 是**主会话的**（子 Agent 靠 `agent_id` 区分）。已验证子 Agent 生命周期事件不进主闩锁判断（M2）；但子 Agent 其他活动事件（Pre/PostToolUse）是否带主 session_id、是否影响 `isMainSession` 过滤，后续滑动窗口实现时留意。
+
+## 12. 调度器设计要求（2026-08-27 用户要求）
+
+- **滑动窗口调度器算法独立成单独文件**（不塞进 run.js）
+- **预留「完成时延时补位」逻辑**：完成信号可能有延迟（hook 异步/解析耗时），补位循环不能依赖即时信号，需容忍延迟窗口
+- 派发用 **socket 即时补位**（已确认用方案 1）
+
+## 13. 实证后下一步（待办更新）
+
+落账前提已实证，进入滑动窗口实现设计：
+
+1. **滑动窗口调度器**（新文件，如 `src/cli/scheduler.js`）：就绪池 + 配额上限语义 + 补位循环 + 完成信号（SubagentStop → 解析 last_assistant_message → 落账）+ 延时补位预留
+2. **inbox socket 派发集成**：CLI 注入「派生后台子 Agent 执行 taskX」指令；主会话配 `crossSessionInbound: accept`
+3. **taskId 解析**：hook/server 解析 RESULT 拿 taskId + 结果 → 落账（`awf_task_complete` 或直写 state）
+4. **batch 模板改写**：主 Agent 只派生后台子 Agent（含"子 Agent 结束时输出固定格式"约束），不落账
+5. **M2 SubagentStop 从观测升级为落账触发**（实证已确认触发）
+6. **兜底**：reconcile（解析失败/超时 → 重试/收尾）
+7. **M5 决策上抛**（独立任务）；**eval 用例更新**（滑动窗口语义）+ 重跑验证
+

@@ -173,6 +173,15 @@ function scoreCase(sandbox, expected, logPath) {
       else fail(`日志缺失批次派发标记: ${pat}`);
     }
   }
+  // fileContain — 指定沙箱文件必须包含的字符串（如 .awf/logs/subagent-events.jsonl 含 SubagentStop）
+  for (const fc of expected.fileContain || []) {
+    let text = '';
+    try { text = fs.readFileSync(path.join(sandbox, fc.file), 'utf-8'); } catch { /* 文件缺失 */ }
+    for (const needle of fc.contains || []) {
+      if (text.includes(needle)) pass(`文件 ${fc.file} 含: ${needle}`);
+      else fail(`文件 ${fc.file} 缺: ${needle}`);
+    }
+  }
   if (typeof expected.markerSpanMs === 'number') {
     const times = (expected.markerFiles || [])
       .map((f) => path.join(sandbox, f))

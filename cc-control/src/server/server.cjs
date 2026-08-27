@@ -12,6 +12,18 @@ const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
 const logger = new RunLogger(PROJECT_ROOT);
 if (logger.enabled) console.log(`[server] run log: ${logger.path}`);
 
+// ---- subagent 事件日志：SubagentStart/Stop 的完整 payload 追加写入（实证/观测用）----
+const SUBAGENT_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-events.jsonl');
+
+function logSubagentEvent(event, body) {
+  try {
+    fs.mkdirSync(path.dirname(SUBAGENT_LOG), { recursive: true });
+    fs.appendFileSync(SUBAGENT_LOG, JSON.stringify({ ts: new Date().toISOString(), event, body }) + '\n');
+  } catch (e) {
+    console.log(`[subagent-log] ${e.message}`);
+  }
+}
+
 const PORT = Number(process.env.CC_PORT || 8787);
 const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
@@ -156,10 +168,12 @@ const server = http.createServer(async (req, res) => {
       // 只观测，不驱动主闩锁
       const key = body.session_id || body.agent_id || 'unknown';
       agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
+      logSubagentEvent(event, body);
     } else if (event === 'SubagentStop') {
       const key = body.session_id || body.agent_id || 'unknown';
       const a = agents.get(key);
       if (a) a.status = 'stopped';
+      logSubagentEvent(event, body);
     }
 
     // PreToolUse: 检测 AskUserQuestion，在执行前设置 decisionPending（不拦截）
