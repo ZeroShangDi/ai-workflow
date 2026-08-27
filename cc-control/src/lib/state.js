@@ -82,7 +82,7 @@ export function findNextTask(state) {
 // ── 多 agent 批次选择 ──
 
 /** 独占任务类型：doc/commit 必须单独成批，不与其他任务并行 */
-const EXCLUSIVE_KINDS = new Set(['doc', 'commit']);
+export const EXCLUSIVE_KINDS = new Set(['doc', 'commit']);
 
 /**
  * 静态作用域索引：taskId → { featureId, moduleId }
@@ -90,7 +90,7 @@ const EXCLUSIVE_KINDS = new Set(['doc', 'commit']);
  * - test gate 的 deps 内任务归该模块（moduleId = test gate id）
  * doc gate（deps=全部任务）不参与，避免污染模块归属
  */
-function buildScopeIndex(tasks) {
+export function buildScopeIndex(tasks) {
   const taskById = new Map(tasks.map((t) => [t.id, t]));
   const scope = new Map();
   const get = (id) => {
@@ -124,7 +124,7 @@ function hasPlannedFiles(task) {
 }
 
 /** 两个路径冲突：精确相同，或一方是另一方的目录前缀（src/util/ vs src/util/math.js） */
-function filesConflict(a, b) {
+export function filesConflict(a, b) {
   if (a === b) return true;
   // 归一化尾斜杠，避免 'src/util/' + '/' = 'src/util//' 匹配不上
   const na = a.replace(/\/+$/, '');
@@ -141,6 +141,19 @@ function conflictsWithBatch(task, batchFiles) {
     }
   }
   return false;
+}
+
+/**
+ * 所有就绪任务（pending 且 deps 全 done），保持 state 原始顺序。
+ * 不做配额/文件冲突/独占过滤——那些是滑动窗口调度器运行时判断。
+ * @param {object} state
+ * @returns {object[]}
+ */
+export function peekReadyTasks(state) {
+  const tasks = state?.tasks || [];
+  if (tasks.length === 0) return [];
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  return tasks.filter((t) => t.status === 'pending' && depsDone(t, taskById));
 }
 
 /**
