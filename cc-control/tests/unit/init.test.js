@@ -24,11 +24,11 @@ import { initCommand } from '../../src/cli/init.js';
 // ── template helpers ──
 
 async function setupTemplates() {
-  const tmplDir = path.join(FAKE_ROOT, 'src', 'templates', 'awf');
-  const bugsDir = path.join(tmplDir, 'bugs');
-  await fs.mkdir(bugsDir, { recursive: true });
-  await fs.writeFile(path.join(tmplDir, 'README.md'), '# AI Workflow\n');
-  await fs.writeFile(path.join(bugsDir, 'TEMPLATE.md'), '# Bug Template\n');
+  const tmplDir = path.join(FAKE_ROOT, 'src', 'templates');
+  await fs.mkdir(tmplDir, { recursive: true });
+  // .awf 骨架模板（精简：README + config，无 TEMPLATE.md）
+  await fs.writeFile(path.join(tmplDir, 'awf-README.md'), '# AI Workflow\n');
+  await fs.writeFile(path.join(tmplDir, 'awf-config.json'), JSON.stringify({ run: { agents: { max: 1 } } }, null, 2));
 
   const claudeMdTmpl = path.join(FAKE_ROOT, 'src', 'templates', 'CLAUDE.md.template');
   await fs.mkdir(path.dirname(claudeMdTmpl), { recursive: true });
@@ -227,9 +227,9 @@ describe('initCommand', () => {
     });
   });
 
-  it('TC10: 模板目录缺失 → fallback 空 .awf/', async () => {
+  it('TC10: 模板缺失 → fallback 空 .awf/', async () => {
     withDeps();
-    await fs.rm(path.join(FAKE_ROOT, 'src', 'templates', 'awf'), { recursive: true, force: true });
+    await fs.rm(path.join(FAKE_ROOT, 'src', 'templates', 'awf-README.md'), { force: true });
     await initCommand({ force: false });
 
     const awf = path.join(tmpDir, '.awf');

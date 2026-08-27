@@ -76,34 +76,36 @@ function checkPrerequisites() {
 
 // ── 工作空间初始化 ──
 
-/** 检查/创建 .awf/ 目录，从模板复制文件，--force 时补全缺失 */
+/** 检查/创建 .awf/ 目录，生成精简骨架（目录 + README + config + state，--force 补缺失） */
 async function initWorkspace(paths, force, version) {
   const awfDir = path.join(process.cwd(), '.awf');
-  const templateDir = path.join(paths.projectRoot, 'src', 'templates', 'awf');
+  const tplDir = path.join(paths.projectRoot, 'src', 'templates');
   const exists = await fs.stat(awfDir).catch(() => null);
 
+  const ensureSkeleton = async () => {
+    // 目录结构（bugs/issues/logs/reports/versions）
+    const dirs = ['bugs', 'issues', 'logs', 'reports/lint', 'reports/test', 'reports/review', 'reports/summary', 'versions'];
+    await fs.mkdir(awfDir, { recursive: true });
+    for (const d of dirs) await fs.mkdir(path.join(awfDir, d), { recursive: true });
+    // README / config：缺失时复制模板（不覆盖用户改过的）
+    if (!await fs.stat(path.join(awfDir, 'README.md')).catch(() => null)) {
+      await fs.copyFile(path.join(tplDir, 'awf-README.md'), path.join(awfDir, 'README.md'));
+    }
+    if (!await fs.stat(path.join(awfDir, 'config.json')).catch(() => null)) {
+      await fs.copyFile(path.join(tplDir, 'awf-config.json'), path.join(awfDir, 'config.json'));
+    }
+    await copyStateTemplate(awfDir);
+    await replaceVersion(awfDir, version);
+  };
+
   if (!exists) {
-    try { await fs.cp(templateDir, awfDir, { recursive: true }); await copyStateTemplate(awfDir); await replaceVersion(awfDir, version); }
-    catch { await fs.mkdir(awfDir, { recursive: true }); logStep('.awf/', 'warn', '模板缺失，已创建空目录'); return; }
-    logStep('.awf/', 'ok', '已创建'); return;
+    try { await ensureSkeleton(); logStep('.awf/', 'ok', '已创建'); return; }
+    catch { logStep('.awf/', 'warn', '创建失败'); return; }
   }
   if (!force) { logStep('.awf/', 'warn', '已存在，使用 --force 补全缺失文件'); return; }
 
-  await mergeMissing(templateDir, awfDir);
-  await copyStateTemplate(awfDir);
-  await replaceVersion(awfDir, version);
+  await ensureSkeleton();
   logStep('.awf/', 'ok', '已补全缺失文件');
-}
-
-/** 递归对比模板目录，只复制目标目录不存在的条目 */
-async function mergeMissing(src, dest) {
-  const entries = await fs.readdir(src, { withFileTypes: true });
-  for (const e of entries) {
-    const srcPath = path.join(src, e.name), destPath = path.join(dest, e.name);
-    const destExists = await fs.stat(destPath).catch(() => null);
-    if (e.isDirectory()) { if (!destExists) await fs.mkdir(destPath, { recursive: true }); await mergeMissing(srcPath, destPath); }
-    else { if (!destExists) await fs.copyFile(srcPath, destPath); }
-  }
 }
 
 /** 如果目标不存在，从插件声明的 state.template.json 复制（路径见 plugin-bridge） */
