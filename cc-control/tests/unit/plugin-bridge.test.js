@@ -37,7 +37,7 @@ const PROMPTS = {
     description: '批次收尾 reconcile prompt',
   },
   'subagent-dispatch': {
-    prompt: '请派生后台子 Agent 执行任务 {taskId}。只派生【一个】子 Agent 且只派生一次，严禁重复派发同一任务、严禁派生其他任务。派发给子 Agent 的提示词必须附加：严禁调用 awf-state MCP 写工具。子 Agent 提示词：{taskPrompt}。RESULT 的 taskId 必须严格等于 {taskId}。',
+    prompt: '请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。只派生一个且只派生一次，严禁重复派发同一任务、严禁派生其他任务。子 Agent prompt：{taskPrompt}。',
     description: '滑动窗口单任务派发',
   },
 };
@@ -127,14 +127,12 @@ describe('batchReconcile — 批次收尾 prompt', () => {
 });
 
 describe('subagentDispatch — 滑动窗口单任务派发', () => {
-  it('填充 taskId + taskPrompt，含只派生一次/禁 MCP 写/禁其他任务的硬约束', async () => {
+  it('填充 taskId + taskPrompt，用 awf-worker 类型 + 只派生一次硬约束', async () => {
     const res = await subagentDispatch({ taskId: 'R1', taskPrompt: '审查 math' });
+    expect(res).toContain('subagent_type: ai-workflow-core:awf-worker'); // 约束身份化到 awf-worker
     expect(res).toContain('执行任务 R1');
-    expect(res).toContain('只派生【一个】子 Agent 且只派生一次'); // 防重复派发同一任务
-    expect(res).toContain('严禁重复派发同一任务');
+    expect(res).toContain('只派生一个且只派生一次'); // 防重复派发同一任务
     expect(res).toContain('严禁派生其他任务'); // 防擅自追加
-    expect(res).toContain('严禁调用 awf-state MCP 写工具'); // 防子 Agent 自写 state
     expect(res).toContain('审查 math');
-    expect(res).toContain('taskId 必须严格等于 R1');
   });
 });
