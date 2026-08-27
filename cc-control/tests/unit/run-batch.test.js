@@ -12,15 +12,18 @@ const m = vi.hoisted(() => ({
   mockSleep: vi.fn(() => Promise.resolve()),
   mockBackupState: vi.fn(),
   mockLoadState: vi.fn(() => null),
+  mockGetStatus: vi.fn(),
+  mockHandleDecision: vi.fn(),
 }));
 
 vi.mock('../../src/lib/plugin-bridge.js', () => ({ subagentDispatch: m.mockSubagentDispatch }));
-vi.mock('../../src/lib/session/client.js', () => ({ httpPostJson: m.mockHttpPostJson, sleep: m.mockSleep, SERVER_PORT: 8787 }));
+vi.mock('../../src/lib/session/client.js', () => ({ httpPostJson: m.mockHttpPostJson, sleep: m.mockSleep, SERVER_PORT: 8787, getStatus: m.mockGetStatus }));
 vi.mock('../../src/lib/state.js', () => ({
   loadState: m.mockLoadState,
   backupState: m.mockBackupState,
 }));
 vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
+vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
 
 import { runBatchLoop } from '../../src/cli/run-batch.js';
 
@@ -29,6 +32,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     for (const k of Object.keys(m)) m[k].mockReset();
     m.mockSleep.mockImplementation(() => Promise.resolve());
     m.mockLoadState.mockReturnValue(null);
+    m.mockGetStatus.mockResolvedValue({}); // 默认无主 Agent 决策
   });
 
   it('TC-A: 调用 runScheduler（透传 cfg）并 backup', async () => {
@@ -94,6 +98,28 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
       'http://127.0.0.1:8787/send',
       expect.objectContaining({ text: expect.stringContaining('agent-bad') }),
     );
+  });
+
+  it('TC-G: 主 Agent AskUserQuestion（决策挂起）→ handleDecision 响应', async () => {
+    let waitAnyDone;
+    m.mockRunScheduler.mockImplementation(async ({ waitAnyDone: w }) => {
+      waitAnyDone = w;
+      return { dispatched: 0 };
+    });
+    m.mockHandleDecision.mockResolvedValue();
+    await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
+
+    // 第一次：有未答决策 → handleDecision 处理（响应主 Agent AskUserQuestion）；之后无决策
+    m.mockGetStatus
+      .mockResolvedValueOnce({ decisionPending: { question: '选 A 还是 B', options: ['A', 'B'], answered: false } })
+      .mockResolvedValue({});
+    m.mockLoadState
+      .mockReturnValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
+      .mockReturnValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
+      .mockReturnValue({ tasks: [{ id: 'T1', status: 'done' }] });
+    await waitAnyDone({ taskIds: () => ['T1'] });
+
+    expect(m.mockHandleDecision).toHaveBeenCalledTimes(1); // 决策被响应（/respond 回主 Agent）
   });
 
   it('TC-C: waitAnyDone 轮询 state 检测运行中任务完成', async () => {

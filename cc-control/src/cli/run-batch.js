@@ -17,7 +17,8 @@ import fs from 'node:fs';
 import { loadState, backupState } from '../lib/state.js';
 import { runScheduler } from './scheduler.js';
 import { subagentDispatch } from '../lib/plugin-bridge.js';
-import { httpPostJson, sleep, SERVER_PORT } from '../lib/session/client.js';
+import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
+import { handleDecision } from './run.js';
 import { logStep } from '../lib/ui/log.js';
 import { GREEN, RESET } from '../lib/ui/colors.js';
 
@@ -81,18 +82,23 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
   return async (running) => {
     const deadline = Date.now() + WAIT_TIMEOUT_MS;
     for (;;) {
+      // 响应主 Agent 决策（AskUserQuestion 原生上抛）：hook → server decisionPending → 本层处理 → /respond。
+      // 决策处理期间阻塞 = 调度器不返回 = 暂停补位；处理完（AskUserQuestion 结束）恢复。
+      const status = await getStatus(SERVER_PORT);
+      const dp = status?.decisionPending;
+      if (dp && !dp.answered) {
+        await handleDecision(dp);
+        continue;
+      }
+
       const state = loadState(projectRoot);
       const done = running.taskIds().filter((id) => {
         const t = state?.tasks?.find((x) => x.id === id);
         return t && (t.status === 'done' || t.status === 'blocked');
       });
       await checkNeedsInput();
-      // 决策挂起：有 needs_input 记录且对应任务未落账（未解决）
-      let suspended = false;
-      for (const tid of pendingNeeds.keys()) {
-        const t = state?.tasks?.find((x) => x.id === tid);
-        if (!t || (t.status !== 'done' && t.status !== 'blocked')) { suspended = true; break; }
-      }
+      // 决策挂起：有待解决 NEEDS_INPUT 且主 Agent 正 AskUserQuestion（进行中）→ 不补位
+      const suspended = pendingNeeds.size > 0 && !!dp && !dp.answered;
       if (done.length > 0 || suspended) return { done, suspended };
       await resendPending();
       if (Date.now() > deadline) throw new Error(`等待任务完成超时（${WAIT_TIMEOUT_MS / 60000}min）`);
