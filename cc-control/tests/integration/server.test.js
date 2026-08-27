@@ -497,6 +497,33 @@ describe('/hook 事件', () => {
     expect(res.body.mainSessionId).toBe('sess-main');
     expect(res.body.activeAgents).toBe(1);
   });
+
+  // ── M2+: SubagentStop 落账（解析 last_assistant_message 的 RESULT → 写 state）──
+
+  it('TC38: SubagentStop 落账——解析 RESULT 写 state（done + exec）', async () => {
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-1',
+      last_assistant_message: '完成。\n\nRESULT: {"taskId": "T1", "status": "done", "result": "做完了", "files": ["a.js"]}',
+    });
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('done');
+    expect(s.tasks[0].exec).toEqual({ result: '做完了', files: ['a.js'] });
+  });
+
+  it('TC39: SubagentStop 无有效 RESULT → 不落账，state 不变', async () => {
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-1',
+      last_assistant_message: '我没按格式输出',
+    });
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('pending');
+  });
 });
 
 // ─────────────────────────────────────────────

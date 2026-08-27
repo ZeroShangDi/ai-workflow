@@ -24,6 +24,59 @@ function logSubagentEvent(event, body) {
   }
 }
 
+// ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
+// 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
+const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
+const STATE_LOCK = path.join(PROJECT_ROOT, '.awf', 'state.lock');
+
+function withStateLock(fn) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      const fd = fs.openSync(STATE_LOCK, 'wx');
+      fs.closeSync(fd);
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      if (Date.now() > deadline) throw new Error(`state.lock timeout: ${STATE_LOCK}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try { return fn(); } finally { try { fs.unlinkSync(STATE_LOCK); } catch {} }
+}
+
+/** 解析子 Agent 固定格式 RESULT（`RESULT: {json}`）；成功返回结果对象，失败返回 null */
+function parseSubagentResult(body) {
+  const msg = body.last_assistant_message || '';
+  const m = msg.match(/RESULT:\s*(\{[\s\S]*\})/);
+  if (!m) return null;
+  try {
+    const r = JSON.parse(m[1]);
+    if (r && typeof r.taskId === 'string' && (r.status === 'done' || r.status === 'blocked')) return r;
+  } catch { /* 解析失败 */ }
+  return null;
+}
+
+/** SubagentStop 落账：写 state（task status + exec.result/files/commits）；返回 { ok, taskId?, reason? } */
+function settleSubagent(body) {
+  const result = parseSubagentResult(body);
+  if (!result) return { ok: false, reason: 'no valid RESULT in last_assistant_message' };
+  return withStateLock(() => {
+    let s;
+    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, reason: 'state.json unreadable' }; }
+    const task = (s.tasks || []).find((t) => t.id === result.taskId);
+    if (!task) return { ok: false, reason: `task ${result.taskId} not found` };
+    if (!task.exec) task.exec = {};
+    task.status = result.status;
+    if (result.result !== undefined) task.exec.result = result.result;
+    if (result.files) task.exec.files = result.files;
+    if (result.commits) { task.commits = task.commits || []; task.commits.push(...result.commits); }
+    s.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+    return { ok: true, taskId: result.taskId, status: result.status };
+  });
+}
+
 const PORT = Number(process.env.CC_PORT || 8787);
 const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
@@ -174,6 +227,10 @@ const server = http.createServer(async (req, res) => {
       const a = agents.get(key);
       if (a) a.status = 'stopped';
       logSubagentEvent(event, body);
+      // 落账：解析 last_assistant_message 的 RESULT → 写 state；失败记录原因（补发由 CLI 侧驱动）
+      const settled = settleSubagent(body);
+      if (!settled.ok) console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
+      else console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
     }
 
     // PreToolUse: 检测 AskUserQuestion，在执行前设置 decisionPending（不拦截）
