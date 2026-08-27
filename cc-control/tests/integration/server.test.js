@@ -543,6 +543,30 @@ describe('/hook 事件', () => {
     const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
     expect(s.tasks[0].status).toBe('pending');
   });
+
+  it('TC41: RESULT taskId 指向已 done 任务 → 拒绝 + 写失败记录（防错标假成功）', async () => {
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE',
+      tasks: [
+        { id: 'T3', status: 'done' },               // 已完成（子 Agent 误把 taskId 写到这里）
+        { id: 'X1', status: 'pending' },            // 真实任务，应落账
+      ],
+    }));
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-x1',
+      last_assistant_message: 'RESULT: {"taskId": "T3", "status": "done", "result": "创建 test/util.test.js"}', // 错写 T3
+    });
+    // T3 未被二次覆盖；X1 仍 pending（落账拒绝）
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks.find((t) => t.id === 'T3').status).toBe('done');
+    expect(s.tasks.find((t) => t.id === 'X1').status).toBe('pending');
+    // 失败记录（补发依据）
+    const logPath = path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl');
+    const rec = JSON.parse(fs.readFileSync(logPath, 'utf-8').trim().split('\n').pop());
+    expect(rec.agentId).toBe('agent-x1');
+    expect(rec.resultTaskId).toBe('T3');
+    expect(rec.reason).toContain('already done');
+  });
 });
 
 // ─────────────────────────────────────────────

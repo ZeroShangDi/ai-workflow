@@ -83,6 +83,11 @@ function settleSubagent(body) {
     try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, reason: 'state.json unreadable' }; }
     const task = (s.tasks || []).find((t) => t.id === result.taskId);
     if (!task) return { ok: false, reason: `task ${result.taskId} not found` };
+    // 指向已完成/已阻塞任务 → 拒绝：RESULT taskId 可能错写（如 X1 子 Agent 误写成已 done 的 T3），
+    // 否则落账"假成功"（错标已有任务），真实任务永不落账且不触发补发
+    if (task.status === 'done' || task.status === 'blocked') {
+      return { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）` };
+    }
     if (!task.exec) task.exec = {};
     task.status = result.status;
     if (result.result !== undefined) task.exec.result = result.result;
