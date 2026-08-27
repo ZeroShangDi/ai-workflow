@@ -255,3 +255,18 @@ CLI 滑动窗口调度器
 ### 结论
 滑动窗口方案**完整验证**：CLI 调度 + tmux 补位 + SubagentStop 落账 + 补发安全网 + 约束强化。补发机制保留（安全网），当前约束下子 Agent 输出干净。
 
+## 15. 角色分工演进讨论（2026-08-27，dispatcher 构想暂缓）
+
+**问题**：主 Agent 派发职责过载（曾擅自追加派发 R1），考虑把"派发动作"剥离。
+
+**构想（用户）**：dispatcher 子 Agent 专职派发——dispatcher 与 worker 是**平级对等角色**（非嵌套父子），CLI 总调度经拉模式（dispatcher 经 MCP 索要任务）指挥它；派发 + 状态标记归 dispatcher，主 Agent 只留决策上抛。
+
+**查证结果**：
+- 子 Agent 嵌套派发可行（深度 <3，main→dispatcher→worker = 2 层），但 **dispatcher→worker 是嵌套父子，非用户设想的平级**（子 Agent 只能派更深层，不能创建"平级"子 Agent）
+- dispatcher 感知 worker 完成难：嵌套子 Agent 完成通知机制未确认；worker SubagentStop 的 session 归属待实证
+- CLI→dispatcher 无独立通道（子 Agent 无 inbox socket），只能拉模式（dispatcher 经 MCP 索要）
+
+**结论**：**dispatcher 方案暂缓**（平级做不到 + 完成感知难 + 通道受限），构想留档。当前保留**主 Agent 派发 + awf-worker 身份化**（工具白名单硬保证 + AskUserQuestion 硬移除）。
+
+**后续决策**：先做 **M5 决策上抛**（子 Agent needs_input → 上抛主 Agent → 用户），再做 **awf-worker 子 Agent 身份化**（约束固化 + 禁写硬保证）。
+
