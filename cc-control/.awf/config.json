@@ -1,0 +1,10 @@
+{
+  "run": {
+    "agents": {
+      "max": 1,
+      "maxModules": 1,
+      "maxPerModule": 1,
+      "maxPerFeature": 1
+    }
+  }
+}
