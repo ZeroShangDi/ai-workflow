@@ -13,9 +13,12 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 │   └── TEMPLATE.md         #   新建 Issue 模板
 ├── bugs/                   # 运行时缺陷记录
 │   └── TEMPLATE.md         #   新建 Bug 模板
-├── reports/                # 测试/审查/lint/汇总报告
+├── decisions/              # AI 运行期决策记录（供人复盘）
+│   └── TEMPLATE.md         #   新建决策模板
+├── reports/                # 测试/审查/性能/lint/汇总报告
 │   ├── test/               #   测试报告（按版本分目录）
 │   ├── review/             #   审查报告（按版本分目录）
+│   ├── perf/               #   性能分析报告
 │   ├── lint/               #   Lint 报告（按版本分目录）
 │   └── summary/            #   里程碑汇总报告
 └── logs/                   # awf run 全量运行日志
@@ -94,6 +97,16 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通�
 
 ---
 
+### decisions/ — AI 运行期决策
+
+`awf run` 运行过程中 AI 做出的辅助决策记录，供人**运行后复盘**查看，与人为决策（`docs/discuss/`）分开。
+
+**命名**：`NNN-short-slug.md`
+
+**正文**：场景 → 决策 → 依据 → 是否需人工复核
+
+---
+
 ### reports/ — 报告产出
 
 `awf run` 各阶段产出的报告，按类型和版本分目录。
@@ -102,6 +115,7 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通�
 |--------|------|------|
 | `test/` | TEST | 测试报告（feature / impacted / full_regression） |
 | `review/` | REVIEW | 审查报告（code / security / ui / architecture） |
+| `perf/` | REVIEW | 性能分析报告 |
 | `lint/` | DEV/REVIEW | Lint 检查报告 |
 | `summary/` | FINISH | 里程碑汇总报告 |
 
@@ -111,7 +125,7 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通�
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `type` | `enum` | `test` / `review` / `lint` / `summary` |
+| `type` | `enum` | `test` / `review` / `perf` / `lint` / `summary` |
 | `task_id` | `string\|null` | 关联任务 ID |
 | `milestone` | `string` | 所属里程碑 |
 | `result` | `enum` | `pass` / `fail` / `partial` / `changes_requested` |

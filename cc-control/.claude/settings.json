@@ -1,15 +1,9 @@
 {
-  "plugins": [
-    "superpowers@claude-plugins-official",
-    "figma@claude-plugins-official",
-    "ai-workflow-core@ai-workflow-dev",
-    "ai-workflow-code@ai-workflow-dev"
-  ],
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
     "figma@claude-plugins-official": true,
-    "ai-workflow-core@ai-workflow-dev": true,
-    "ai-workflow-code@ai-workflow-dev": true
+    "ai-workflow-code@ai-workflow-dev": true,
+    "ai-workflow-core@ai-workflow-dev": true
   },
   "extraKnownMarketplaces": {
     "ai-workflow-dev": {
@@ -18,5 +12,11 @@
         "path": "/Users/v-shangjunhao/MyProject/ai-workflow/cc-control/plugin"
       }
     }
-  }
+  },
+  "plugins": [
+    "superpowers@claude-plugins-official",
+    "figma@claude-plugins-official",
+    "ai-workflow-core@ai-workflow-dev",
+    "ai-workflow-code@ai-workflow-dev"
+  ]
 }

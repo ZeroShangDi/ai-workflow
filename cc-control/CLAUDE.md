@@ -277,14 +277,21 @@ Personal preferences stored in the target project's `.claude/user/`, NOT committ
 
 ```
 docs/
-├── features/    # w-doc 产出的需求文档 + 测试用例 + WBS + 原型
-├── issues/      # 阻塞问题、待决策事项
-├── bugs/        # 缺陷记录、根因、修复方案
-├── logs/        # 开发日志、变更记录、路线图
-└── discuss/     # 讨论记录、方案对比、架构决策、方法论
+├── features/     # 功能文档 + 测试用例（扁平 <name>.md + <name>.test.md）+ 开发日志（.log.md）
+├── discuss/      # 决策记忆（人）、讨论记录、方案对比、架构决策
+├── reuse/        # 可复用资源
+├── CHANGELOG.md  # 项目级版本变迁（重点概括）
+└── reference/    # 参考 / 草稿
+
+.awf/
+├── issues/       # 问题记录（等价 GitHub Issues）
+├── bugs/         # 缺陷记录
+├── decisions/    # AI 运行期决策记录（供人复盘）
+├── reports/      # 测试 / 审查 / 性能 / lint / 汇总报告
+└── state.json    # 运行时状态（awf run 读写）
 ```
 
-- **`.claude/issues/`** — Issue escalation: AI creates issues here for human-needed decisions
+文档生成走 `/w-doc`（总控：生成策略 / 意图解析 / 路由）+ `code-doc`（实施：每类文档模板）；术语与级别遵循 `awf-plan-level`。
 
 
 <!-- awf-rules start -->

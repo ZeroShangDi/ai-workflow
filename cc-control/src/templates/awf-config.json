@@ -6,5 +6,10 @@
       "maxPerModule": 1,
       "maxPerFeature": 1
     }
+  },
+  "docs": {
+    "enabled": true,
+    "types": ["feature", "test", "log", "bug", "issue", "decision", "reuse", "changelog"],
+    "reports": ["test", "review", "perf"]
   }
 }
