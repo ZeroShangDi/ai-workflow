@@ -31,11 +31,17 @@
       "prompt": "更新根 CLAUDE.md，使其反映当前代码现状（任务 ID：T2-001）。\n\n必改点（对照源码逐一核实，勿照抄旧描述）：\n1. 核心编排流程 `awf run` 内部：不再只写\"逐任务按阶段链 claude -p 生成 prompt\"。实际为 src/cli/run.js 单/多 agent 分流：run.agents.max>1 时走 run-batch.js 的 runBatchLoop（滑动窗口调度，CLI 拥有调度权），否则走 runLoop（原阶段链）。读 src/cli/run.js 确认。\n2. hooks：当前 7 个事件（SessionStart/UserPromptSubmit/Stop/SubagentStart/SubagentStop/PreToolUse(AskUserQuestion)/PostToolUse），不是 5 个。对照 plugin/core/hooks/hooks.json。\n3. 新增模块/文件补进\"关键文件\"表：src/cli/run-batch.js、src/cli/scheduler.js（滑动窗口调度器：就绪池+配额+plannedFiles 冲突+补位）、src/lib/messaging.js（inbox socket 注入）、plugin/core/agents/awf-worker.md（子 Agent 身份化，RESULT/NEEDS_INPUT 输出协议）、src/templates/awf-config.json（run.agents 配额）、.awf/config.json。\n4. 常用命令补 open/attach：awf open、awf attach。\n5. MCP 工具表数量校准：awf-state 实际 18 工具（含 awf_task_complete 原子落账）、awf-session 实际 5 工具（含 awf_context_ready）。对照 plugin/core/mcp/awf-state/server.cjs、awf-session/server.cjs。\n6. 架构原则：补\"CLI 拥有调度权\"描述（子 Agent 禁写 state、落账原子化 awf_task_complete、M5 决策上抛）。\n\n完成后自查：文中每个路径 test -e 存在；hooks 数、工具数与源码一致。",
       "wbsRef": "W2-001",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "CLAUDE.md"
       ],
-      "acceptance": "CLAUDE.md 中 hooks 数量=7、执行流程含单/多 agent 分流+滑动窗口、run-batch/scheduler/messaging/awf-worker/config.json/open/attach 均有体现，路径全部真实"
+      "acceptance": "CLAUDE.md 中 hooks 数量=7、执行流程含单/多 agent 分流+滑动窗口、run-batch/scheduler/messaging/awf-worker/config.json/open/attach 均有体现，路径全部真实",
+      "exec": {
+        "result": "更新根 CLAUDE.md 反映当前代码现状：awf run 单/多 agent 分流（runBatchLoop 滑动窗口 + runLoop 阶段链）、hooks 5→7、MCP 工具数校准（awf-state 18 / awf-session 5）、关键文件表补 run-batch/scheduler/messaging/awf-worker/awf-config/。awf config 6 项新文件、常用命令补 awf open、架构原则补 CLI 拥有调度权。所有新增路径 test -e 通过，hooks/工具数与源码一致。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/CLAUDE.md"
+        ]
+      }
     },
     {
       "id": "T2-002",
@@ -44,11 +50,17 @@
       "prompt": "重写 plugin/README.md（任务 ID：T2-002）。当前内容仍是旧\"Profiles 三层模型\"（shared/software-dev/novel-writing），与插件实际结构完全不符。\n\n依据现状重写（对照 plugin/config.json、plugin/core/、plugin/plugin-code/ 核实）：\n1. 双插件市场结构：core（ai-workflow-core 引擎层：MCP 3 server + 7 hooks + 运行态命令技能 + awf-worker agent）+ plugin-code（ai-workflow-code 编程层：w-plan*/w-dev/w-review 等命令技能）。marketplace.json 声明双插件。\n2. 目录树更新为实际 plugin/ 结构（config.json 唯一配置源 → 渲染 marketplace/.mcp.json/hooks/plugin.json；settings.json 安装清单）。\n3. 说明 config.json 单一配置源机制（node scripts/render-config.mjs 渲染）。\n4. plugin/core/agents/awf-worker.md 子 Agent 身份（滑动窗口执行单元，禁写 state，RESULT/NEEDS_INPUT 输出协议）。\n\n自查：文中目录树与 find plugin 实际输出一致。",
       "wbsRef": "W2-002",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "plugin/README.md"
       ],
-      "acceptance": "plugin/README.md 反映 core/plugin-code 双插件结构 + marketplace + config.json 单一配置源 + settings 安装清单 + awf-worker agent，目录树与实际一致"
+      "acceptance": "plugin/README.md 反映 core/plugin-code 双插件结构 + marketplace + config.json 单一配置源 + settings 安装清单 + awf-worker agent，目录树与实际一致",
+      "exec": {
+        "result": "重写 plugin/README.md：废弃旧 Profiles 三层模型，改为双插件市场结构说明（core 引擎层 ai-workflow-core + plugin-code 编程层 ai-workflow-code），目录树更新为实际 plugin/ 结构并与 find plugin 输出一致，新增 config.json 单一配置源及 render-config.mjs 渲染机制说明，新增 awf-worker 子 Agent 身份与输出协议说明",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/plugin/README.md"
+        ]
+      }
     },
     {
       "id": "T2-003",
@@ -57,11 +69,17 @@
       "prompt": "更新 docs/discuss/architecture-notes.md（任务 ID：T2-003）。现有内容把 awf 定位为\"单 Agent 阶段驱动\"且\"未来多 Agent 遵守约束（多 tmux session / git worktree）\"——该定位已被实现推翻，需修正并补决策记录。\n\n改动：\n1. 开篇\"当前定位\"段补注：多 Agent 已实现，路线从批次屏障修正为滑动窗口。\n2. 新增章节「多 Agent 滑动窗口决策（2026-08）」：方案 C（单 tmux + 原生子 Agent + CLI 中央调度）→ 批次屏障被用户否定 → 修正为滑动窗口（inbox socket 派发 + runScheduler 就绪池/配额/plannedFiles 冲突 + SubagentStop 落账 + M5 决策上抛 NEEDS_INPUT→主 Agent AskUserQuestion）。关键设计：CLI 拥有调度权；子 Agent 禁写 state（awf-worker 硬约束）；落账原子化 awf_task_complete + state.lock。\n3. 原\"多 Agent 路线的设计原则\"一节标注已部分实现/被推翻（多 tmux session 未采用，改为单 tmux + 子 Agent 并发；worktree 隔离未采用）。\n4. 修正文内\"12 个命令 + 9 个 skill\"等过时数字（当前命令/skill 数以 plugin 实际为准）。\n\n参考：docs/discuss/multi-agent-sliding-window.md、docs/discuss/multi-agent-mode.md、plugin/core/agents/awf-worker.md。",
       "wbsRef": "W2-003",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/discuss/architecture-notes.md"
       ],
-      "acceptance": "architecture-notes.md 新增 multi-agent 滑动窗口决策段（方案 C→滑动窗口修正、单 tmux+子 Agent、CLI 调度、批次屏障被否、M5 决策上抛），与已实现方向一致"
+      "acceptance": "architecture-notes.md 新增 multi-agent 滑动窗口决策段（方案 C→滑动窗口修正、单 tmux+子 Agent、CLI 调度、批次屏障被否、M5 决策上抛），与已实现方向一致",
+      "exec": {
+        "result": "architecture-notes.md 已更新：当前定位段补注多 Agent 已实现（批次屏障→滑动窗口）；新增「多 Agent 滑动窗口决策（2026-08）」章节（方案 C→批次屏障被否→滑动窗口修正，CLI 拥有调度权、子 Agent 禁写 state、awf_task_complete+state.lock 原子落账、M5 NEEDS_INPUT→AskUserQuestion 上抛）；多 Agent 设计原则标注已推翻/部分实现（多 tmux 与 worktree 未采用）；命令/skill 数字按 plugin 实际核正为 16 命令 + 31 skill（core 4 命令+7 skill，plugin-code 12 命令+24 skill）。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/docs/discuss/architecture-notes.md"
+        ]
+      }
     },
     {
       "id": "T2-004",
@@ -70,11 +88,17 @@
       "prompt": "更新 docs/features/run.md（任务 ID：T2-004）。当前内容仍是旧 runLoop 阶段链，需补 multi-agent 滑动窗口。\n\n改动（对照源码核实）：\n1. 执行流程更新：runCommand 启动环境后按 loadRunConfig 分流——run.agents.max>1 → runBatchLoop（run-batch.js，滑动窗口）；否则 runLoop（原阶段链）。读 src/cli/run.js。\n2. 新增滑动窗口调度章节：src/cli/scheduler.js — 就绪池 + 四级配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突过滤（src/lib/state.js buildScopeIndex/filesConflict）+ 补位循环。配额语义：硬上限非目标。\n3. 落账链路：子 Agent 完成 → RESULT 输出 → SubagentStop hook → server 解析写 state（awf_task_complete 原子落账）；失败 → 补发（SendMessage 恢复）。\n4. 决策上抛：子 Agent NEEDS_INPUT → 主 Agent AskUserQuestion（M5），暂停补位。\n5. 执行提示词由插件声明（plugin-bridge.js subagentDispatch / taskWrapup / taskSettle / contextCheck），CLI 只读取填充占位符。\n6. 常量表更新（POLL_MS/WAIT_TIMEOUT_MS/RESEND_MAX 等，读 run-batch.js 核实）。\n\n自查：文中源码路径/常量名与 src/cli/run.js、run-batch.js、scheduler.js 一致。",
       "wbsRef": "W2-004",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/features/run.md"
       ],
-      "acceptance": "run.md 描述 runCommand 单/多 agent 分流 + runBatchLoop 滑动窗口调度（就绪池/配额/plannedFiles 冲突/补位）+ 落账/决策上抛链路，与 run.js/run-batch.js/scheduler.js 一致"
+      "acceptance": "run.md 描述 runCommand 单/多 agent 分流 + runBatchLoop 滑动窗口调度（就绪池/配额/plannedFiles 冲突/补位）+ 落账/决策上抛链路，与 run.js/run-batch.js/scheduler.js 一致",
+      "exec": {
+        "result": "docs/features/run.md 已更新：补 runCommand 单/多 agent 分流、滑动窗口调度章节（就绪池/四级配额/plannedFiles 冲突/补位循环）、SubagentStop 落账链路、NEEDS_INPUT 决策上抛暂停补位、插件声明执行提示词、常量表（POLL_MS/WAIT_TIMEOUT_MS/RESEND_MAX/MAX_SETTLE_ROUNDS）及依赖清单，源码路径与常量名对照 run.js/run-batch.js/scheduler.js/state.js/plugin-bridge.js/server.cjs 核实一致",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/docs/features/run.md"
+        ]
+      }
     },
     {
       "id": "T2-005",
@@ -83,11 +107,17 @@
       "prompt": "更新 docs/features/hooks.md（任务 ID：T2-005）。当前写 5 个 hook、源码路径 src/server/hooks/settings.json（已不存在），需校准。\n\n改动（对照 plugin/core/hooks/hooks.json、plugin/config.json 核实）：\n1. 源码路径：src/server/hooks/settings.json → plugin/core/hooks/hooks.json（由 plugin/config.json 的 hooks 字段经 render-config.mjs 渲染生成，端口注入 __PORT__）。\n2. 事件数 5 → 7：SessionStart / UserPromptSubmit / Stop / SubagentStart / SubagentStop / PreToolUse(AskUserQuestion matcher) / PostToolUse。\n3. 各事件语义更新：\n   - SubagentStart/SubagentStop：子 Agent 生命周期观测；SubagentStop 用于落账（server 解析 last_assistant_message 的 RESULT 写 state）。\n   - PreToolUse(AskUserQuestion)：M5 决策上抛信号（主 Agent 提问时通知 server）。\n   - PostToolUse：AskUserQuestion 的 answer 回写。\n4. 架构图更新：补子 Agent 路径（mainSessionId 隔离，只认主 session 驱动闩锁）。\n\n自查：事件数、matcher、curl 方式与 hooks.json 一致。",
       "wbsRef": "W2-005",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/features/hooks.md"
       ],
-      "acceptance": "hooks.md 事件数=7、源码路径改为 plugin/core/hooks/hooks.json（config.json 渲染）、补 SubagentStart/Stop/PreToolUse/PostToolUse 语义"
+      "acceptance": "hooks.md 事件数=7、源码路径改为 plugin/core/hooks/hooks.json（config.json 渲染）、补 SubagentStart/Stop/PreToolUse/PostToolUse 语义",
+      "exec": {
+        "result": "docs/features/hooks.md 已校准：源码路径改为 plugin/core/hooks/hooks.json（由 plugin/config.json hooks 字段经 render-config.mjs 渲染，__PORT__→端口）；事件数 5→7（新增 SubagentStart/SubagentStop）；更新 SubagentStop 落账语义（解析 last_assistant_message 的 NEEDS_INPUT/RESULT 写 state）、PreToolUse 为 M5 决策上抛、PostToolUse 为 AskUserQuestion answer 回写；架构图补子 Agent 路径（mainSessionId 隔离，仅主会话驱动闩锁）；curl 方式统一为 query ?event= + stdin @-，与 hooks.json 一致。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/docs/features/hooks.md"
+        ]
+      }
     },
     {
       "id": "T2-006",
@@ -96,11 +126,17 @@
       "prompt": "更新 docs/features/state.md（任务 ID：T2-006）。\n\n改动（对照 plugin/core/mcp/awf-state/server.cjs、src/lib/state.js 核实）：\n1. 源码路径修正：src/mcp/awf-state/server.cjs → plugin/core/mcp/awf-state/server.cjs（MCP server 已随插件移动）。\n2. MCP 侧工具清单补全（当前 18 个）：新增 awf_task_complete（原子完成：一次提交 status+result+files+commits，避免落账中间态）。\n3. state 并发安全：state.lock 文件锁（CLI/MCP 共用），防并发写坏。\n4. 新增调度辅助函数（src/lib/state.js）：peekReadyTasks、buildScopeIndex、filesConflict（plannedFiles 跨功能冲突过滤）、EXCLUSIVE_KINDS。\n5. 数据模型：tasks/wbs 根级 + title（已扁平化）。\n\n自查：工具名清单与 server.cjs 注册一致（grep awf_ 核对）。",
       "wbsRef": "W2-006",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/features/state.md"
       ],
-      "acceptance": "state.md MCP 侧路径改为 plugin/core/mcp/awf-state/server.cjs、补 awf_task_complete 原子落账 + state.lock + plannedFiles 冲突过滤 + 18 工具清单"
+      "acceptance": "state.md MCP 侧路径改为 plugin/core/mcp/awf-state/server.cjs、补 awf_task_complete 原子落账 + state.lock + plannedFiles 冲突过滤 + 18 工具清单",
+      "exec": {
+        "result": "docs/features/state.md 已按 5 项改动更新：(1) 源码路径修正 src/lib/state.js + plugin/core/mcp/awf-state/server.cjs（头部/架构表）；(2) MCP 工具清单补全至 18 个，新增 awf_task_complete（原子完成 status+result+files+commits，blockedReason 支持），tools/list 返回数 17→18，并补 task_create/update 的 kind/plannedFiles 参数；(3) 新增第 3 节「并发安全（state.lock）」描述 CLI/MCP 共用 O_EXCL 文件锁（50ms 重试/5s 超时/finally 释放/读不持锁），架构概述与 saveState/运行时/deps 均交叉引用；(4) 新增「多 agent 调度辅助」小节覆盖 EXCLUSIVE_KINDS/buildScopeIndex/filesConflict/peekReadyTasks/selectReadyBatch（另补 backupState）；(5) Schema 任务对象补齐 kind/plannedFiles/blockedReason，tasks/wbs 根级 + title 扁平化保持。工具清单经 grep 与 server.cjs 18 个注册一致。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/docs/features/state.md"
+        ]
+      }
     },
     {
       "id": "T2-007",
@@ -109,11 +145,17 @@
       "prompt": "更新 docs/features/server.md（任务 ID：T2-007）。当前缺 multi-agent 相关新职责。\n\n改动（对照 src/server/server.cjs、src/lib/messaging.js、src/server/run-logger.cjs 核实）：\n1. 新增职责段：SubagentStop hook 落账（解析 last_assistant_message 的 RESULT → 写 state；拒绝指向已完成任务的 RESULT 防 taskId 错写）。\n2. 决策上抛：PreToolUse(AskUserQuestion) hook → 记录决策挂起；暂停补位基于 AskUserQuestion 状态。\n3. inbox socket：CLI 经 src/lib/messaging.js injectText 向主会话注入派生指令（NDJSON 线格式；cross-session messaging 内部开关 CLAUDE_CODE_HARBOR_KITE 实测无效，降级 tmux 回合补位）。\n4. /status 扩展：暴露 activeAgents、decisionPending 等。\n5. 架构图更新：加 hooks 决策流。\n\n自查：路由/职责与 server.cjs 实际一致。",
       "wbsRef": "W2-007",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/features/server.md"
       ],
-      "acceptance": "server.md 补 SubagentStop 落账（解析 RESULT 写 state）、PreToolUse(AskUserQuestion) 决策上抛、inbox socket 派发、暂停补位"
+      "acceptance": "server.md 补 SubagentStop 落账（解析 RESULT 写 state）、PreToolUse(AskUserQuestion) 决策上抛、inbox socket 派发、暂停补位",
+      "exec": {
+        "result": "已更新 docs/features/server.md，对照 src/server/server.cjs、src/lib/messaging.js、src/server/run-logger.cjs 核实。改动：1) 新增 §4 多 agent 滑动窗口集成段，含 §4.1 SubagentStop 落账（parseSubagentResult 解析 last_assistant_message 的 RESULT → settleSubagent 在 state.lock 下写 state；拒绝指向已完成/阻塞任务的 RESULT 防 taskId 错写；失败写 subagent-failed.jsonl 供 CLI 补发）、§4.2 决策上抛（PreToolUse(AskUserQuestion)→setDecision 挂起 + PostToolUse 兜底 answer；子 Agent NEEDS_INPUT→subagent-needs-input.jsonl 不落账；CLI 暂停补位基于 decisionPending/needs）、§4.3 inbox socket（injectText NDJSON 线格式；CLAUDE_CODE_HARBOR_KITE 实测无效降级 tmux 回合补位）。2) §3 状态机补 mainSessionId 隔离（isMainSession）、contextReady/agents、DECISION_FALLBACK_MS。3) 路由表与 /status 扩展补 activeAgents/decisionPending/contextReady/mainSessionId，并补文档缺失的 /stop 与 /context-ready 路由。4) 架构图加 hooks 决策流（SubagentStop→settle→state.json、AskUserQuestion→decisionPending→/respond、inbox socket 派发）。5) hook 事件表补 SubagentStart/SubagentStop 及主会话闩锁隔离语义。自查：路由/职责与 server.cjs 实际一致。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/docs/features/server.md"
+        ]
+      }
     },
     {
       "id": "T2-008",
@@ -122,11 +164,17 @@
       "prompt": "更新 docs/features/auto-decision.md（任务 ID：T2-008）。当前只覆盖单 agent 自动决策闭环，需补 M5 多 agent 决策上抛。\n\n改动（对照 src/cli/run-batch.js、plugin/core/agents/awf-worker.md、src/server/server.cjs 核实）：\n1. 子 Agent 侧：NEEDS_INPUT 输出协议（{taskId, question, options, context}）→ server 记录到 .awf/logs/subagent-needs-input.jsonl。\n2. CLI 侧：run-batch.js checkNeedsInput 读取 needs-input 日志 → 标记任务挂起 pendingNeeds → 暂停补位（等主 Agent 提问）。\n3. 主 Agent 侧：AskUserQuestion（PreToolUse hook 透传）→ 用户回答 → 子 Agent 恢复。\n4. 与单 agent 决策（autoSelect/awf_await_choice）的关系：多 agent 场景主 Agent 用 AskUserQuestion 而非 awf_await_choice。\n5. 架构图补全链路。\n\n自查：链路描述与 run-batch.js makeWaitAnyDone/checkNeedsInput 一致。",
       "wbsRef": "W2-008",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/features/auto-decision.md"
       ],
-      "acceptance": "auto-decision.md 补 M5 决策上抛链路（子 Agent NEEDS_INPUT → 主 Agent AskUserQuestion → 暂停补位），含 needs-input 日志与补位语义"
+      "acceptance": "auto-decision.md 补 M5 决策上抛链路（子 Agent NEEDS_INPUT → 主 Agent AskUserQuestion → 暂停补位），含 needs-input 日志与补位语义",
+      "exec": {
+        "result": "docs/features/auto-decision.md 已补 M5 多 agent 决策上抛：头部源码引用新增 run.js/run-batch.js/awf-worker.md；架构概述补单/多 agent 双链路说明；新增 §5（5.1 子 Agent NEEDS_INPUT 协议、5.2 server 记 .awf/logs/subagent-needs-input.jsonl 不落账、5.3 CLI checkNeedsInput/pendingNeeds/suspended 暂停补位、5.4 主 Agent AskUserQuestion 透传+SendMessage 恢复、5.5 与单 agent 决策关系、5.6 完整链路时序），原依赖节顺延为 §6。链路描述与 run-batch.js makeWaitAnyDone/checkNeedsInput 及 server.cjs parseSubagentNeedsInput/logSubagentNeedsInput 逐条核实一致。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/docs/features/auto-decision.md"
+        ]
+      }
     },
     {
       "id": "T2-009",
@@ -135,11 +183,17 @@
       "prompt": "更新 docs/features/init.md（任务 ID：T2-009）。\n\n改动（对照 src/cli/init.js、src/lib/profile.js、src/templates/ 核实）：\n1. .awf 模板精简：骨架模板移到 src/templates 根（awf-README.md、awf-config.json、CLAUDE.md.template），去掉旧 TEMPLATE.md 堆；.awf 运行时目录结构以 src/templates/awf-README.md 为准。\n2. 新增 awf-config.json：run.agents 四级配额（max/maxModules/maxPerModule/maxPerFeature），默认 max:1（单 agent）。init 生成 .awf/config.json。\n3. 项目级 .mcp.json 注入：installProjectMcp（幂等合并，只刷新 awf-* server 绝对路径，保留项目已有 server）— run 时也做。\n4. settings 插件注册迁移：本地注入 plugin/settings.json → .claude/settings.json（plugin 注册，非 exec 安装）。\n5. CLI 命令全景：awf init/plan/run/plugin/server/open/attach 7 个（awf.js 核实）。\n\n自查：模板文件名、流程与 src/cli/init.js、src/templates 一致。",
       "wbsRef": "W2-009",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/features/init.md"
       ],
-      "acceptance": "init.md 反映模板精简（src/templates 根 + awf-config.json + CLAUDE.md.template）+ 项目级 .mcp.json 注入 + settings 插件注册迁移 + 7 CLI 命令"
+      "acceptance": "init.md 反映模板精简（src/templates 根 + awf-config.json + CLAUDE.md.template）+ 项目级 .mcp.json 注入 + settings 插件注册迁移 + 7 CLI 命令",
+      "exec": {
+        "result": "已重写 docs/features/init.md 对齐当前实现：(1) .awf 精简骨架 — 废弃 src/templates/awf/ 整目录复制与 TEMPLATE.md 堆，改为 ensureSkeleton 程序化生成（mkdir 运行时目录 + 缺失补复制 awf-README.md/awf-config.json/state.template.json），目录结构以 src/templates/awf-README.md 为准；(2) 新增 awf-config.json 章节 — run.agents 四级配额 max/maxModules/maxPerModule/maxPerFeature 默认 1（单 agent），init 生成 .awf/config.json；(3) 项目级 .mcp.json 章节 — installProjectMcp 幂等合并只刷新 awf-* server 绝对路径、保留已有 server，注明 init（经 pluginCommand install）与 run（startSession）均执行；(4) settings 插件注册迁移 — 明确本地注入 plugin/settings.json → .claude/settings.json 为 plugin 注册而非 exec 安装；(5) 新增 CLI 命令全景表 — awf init/plan/run/plugin/server/open/attach 共 7 个（含选项，核对 src/awf.js）。同时更新输入输出表、文件系统操作表、函数清单与依赖表，移除已不存在的 mergeMissing、fs.cp 整目录复制等过时描述。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/docs/features/init.md"
+        ]
+      }
     },
     {
       "id": "T2-010",
@@ -148,7 +202,7 @@
       "prompt": "批量修正 7 篇 features 文档的过时源码路径引用（任务 ID：T2-010）。只改路径，不改内容实质。文件：docs/features/{plan,tmux-session,oneshot,run-logger,cli-aux,eval-design,version-prompt}.md。\n\n已知路径迁移（逐一 grep 验证后修正）：\n1. MCP server 路径：src/mcp/awf-state/server.cjs → plugin/core/mcp/awf-state/server.cjs；awf-session、awf-oneshot 同理（plugin/core/mcp/ 下）。\n2. hooks 路径：src/server/hooks/settings.json → plugin/core/hooks/hooks.json。\n3. 各文档提到的其他源码文件：对照实际路径修正（如 src/cli/plugin.js、server.js、open.js、attach.js 已是根级，确认即可）。\n\n自查：每篇文档所有源码路径 test -e 存在；无残留 src/mcp 或 src/server/hooks 引用。",
       "wbsRef": "W2-010",
       "deps": [],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "docs/features/plan.md",
         "docs/features/tmux-session.md",
@@ -158,7 +212,16 @@
         "docs/features/eval-design.md",
         "docs/features/version-prompt.md"
       ],
-      "acceptance": "plan/tmux-session/oneshot/run-logger/cli-aux/eval-design/version-prompt 七篇中所有源码路径引用修正后均存在（test -e 通过）"
+      "acceptance": "plan/tmux-session/oneshot/run-logger/cli-aux/eval-design/version-prompt 七篇中所有源码路径引用修正后均存在（test -e 通过）",
+      "exec": {
+        "result": "修正 4 篇 features 文档的过时源码路径引用：tmux-session.md/oneshot.md 的 MCP server 路径 src/mcp/* → plugin/core/mcp/*；cli-aux.md 将 server.js/open.js/attach.js 补全为 src/cli/ 前缀；version-prompt.md 的 src/cli/version-prompt.js 修正为实际文件 src/lib/version.js。run-logger.md/plan.md/eval-design.md 核验无需修改。自查：7 篇无 src/mcp 或 src/server/hooks 残留，全部源码路径 test -e 通过。",
+        "files": [
+          "docs/features/tmux-session.md",
+          "docs/features/oneshot.md",
+          "docs/features/cli-aux.md",
+          "docs/features/version-prompt.md"
+        ]
+      }
     },
     {
       "id": "T2-011",
@@ -178,7 +241,7 @@
         "T2-009",
         "T2-010"
       ],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "CLAUDE.md",
         "plugin/README.md",
@@ -197,7 +260,13 @@
         "docs/features/eval-design.md",
         "docs/features/version-prompt.md"
       ],
-      "acceptance": "审查报告落盘 .awf/reports/review/；抽查确认 CLAUDE.md hooks=7、run.md 含 runBatchLoop、state.md 含 awf_task_complete、server.md 含 SubagentStop 落账、plugin README 为双插件结构、architecture-notes 含滑动窗口决策；无关键遗漏"
+      "acceptance": "审查报告落盘 .awf/reports/review/；抽查确认 CLAUDE.md hooks=7、run.md 含 runBatchLoop、state.md 含 awf_task_complete、server.md 含 SubagentStop 落账、plugin README 为双插件结构、architecture-notes 含滑动窗口决策；无关键遗漏",
+      "exec": {
+        "result": "审查完成，判定 changes_requested（阻断项 2 个）。审查报告已落盘 .awf/reports/review/review-t2-011-2026-08-28.md。逐项核对源码后结论如下：① 数量一致性 FAIL — plugin/README.md L50/L53/L127 写 awf-state=17 tools、awf-session=4 tools，源码实际 18/5（grep 3 个 server.cjs 核实，CLAUDE.md/state.md 均正确），需改回 18/5；② 路径真实性 FAIL — src/cli/auto-selector.js 不存在（autoSelect 实际定义于 src/lib/session/client.js L136），run.md L292 与 auto-decision.md L3/L42/L300 四处引用失效，需改为 src/lib/session/client.js；③ 流程准确性 PASS（CLAUDE.md/run.md 含单多 agent 分流+滑动窗口+SubagentStop 落账+M5 决策上抛，常量与 run-batch.js 一致）；④ 结构真实性 PASS（plugin README 双插件目录树与 find plugin 一致、architecture-notes 滑动窗口决策、init.md 模板精简+installProjectMcp、state.md 含 awf_task_complete/state.lock/filesConflict 均核验）；⑤ 无矛盾残留 FAIL（由①引致）。次要问题 3 项：plugin/README.md prompts.json 描述缺 task-settle/context-check/subagent-dispatch；CLAUDE.md 技能表漏 awf-plan-level；architecture-notes L54 引用不存在的 w-design/w-ui。范围外残留提示：hooks.test.md 等 .test 文档与 bootstrap.md 仍引用 src/mcp、src/server/hooks/settings.json 及 5 hooks，建议后续单独跟进。已按协议不自改文档，具体修复要求见报告。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/.awf/reports/review/review-t2-011-2026-08-28.md"
+        ]
+      }
     },
     {
       "id": "T2-012",
@@ -208,7 +277,7 @@
       "deps": [
         "T2-011"
       ],
-      "status": "pending",
+      "status": "done",
       "plannedFiles": [
         "CLAUDE.md",
         "plugin/README.md",
@@ -227,7 +296,13 @@
         "docs/features/eval-design.md",
         "docs/features/version-prompt.md"
       ],
-      "acceptance": "测试报告落盘 .awf/reports/test/；全部文档引用的路径存在性检查通过（无残留失效引用）"
+      "acceptance": "测试报告落盘 .awf/reports/test/；全部文档引用的路径存在性检查通过（无残留失效引用）",
+      "exec": {
+        "result": "文档有效性测试门禁执行完成（判定 fail，报告已落盘）。报告：/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/.awf/reports/test/test-t2-012-2026-08-28.md。四项测试：①路径存在性 FAIL — 2 处失效源码路径引用：auto-decision.md L3/L42/L300 与 run.md L292 引用不存在的 src/cli/auto-selector.js（实际 autoSelect/waitForReady 在 src/lib/session/client.js L136）；eval-design.md L349 引用不存在的 scripts/eval-runner.js（实际 scripts/eval.sh → tests/eval/run-eval.mjs）。②命令存在性 PASS — awf init/plan/run/plugin/server/open/attach 7 个全部与 src/awf.js 注册一致。③工具存在性 FAIL（名称 24/24 真实，数量不一致）— plugin/README.md L50/L53/L127 写 awf-state=17、awf-session=4，源码实际 18/5。④残留检查 PASS（受测 16 篇零 src/mcp 或 src/server/hooks 残留；bootstrap.md 与 5 个 .test.md 有范围外残留，建议单独跟进）。次要问题：run-logger.md 日志命名公式 {version}.log 与实现 {version}-{ts}.log 不符。修复要求见报告第三、四节。",
+        "files": [
+          "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/.awf/reports/test/test-t2-012-2026-08-28.md"
+        ]
+      }
     }
   ],
   "wbs": [
@@ -343,7 +418,7 @@
       ]
     }
   ],
-  "lastUpdated": "2026-08-27T10:37:42.740Z",
+  "lastUpdated": "2026-08-28T12:26:30.113Z",
   "plan": {
     "summary": "文档与代码同步：多 Agent 滑动窗口改造后核心+模块文档全面更新",
     "reqDoc": ".awf/plan/discussion/doc-sync-scope.md",

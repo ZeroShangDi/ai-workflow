@@ -3,3 +3,8 @@ sandbox/
 .awf/context/
 .awf/plan/
 .awf/logs/
+.awf/reports/
+.awf/versions/
+.awf/run-settings.json
+# 项目级 .mcp.json 是绝对路径（机器相关），不入库；本地由 init/installProjectMcp 生成
+/.mcp.json
