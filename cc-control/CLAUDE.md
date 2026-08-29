@@ -25,9 +25,10 @@ cc-control/
     core/                  #   引擎层插件 ai-workflow-core：MCP + hooks + 运行态命令技能（跨领域通用）
       plugin.json          #     插件声明（含 hooks）
       .mcp.json            #     3 个 MCP server 声明（相对路径）
-      hooks/hooks.json     #     5 个 hooks
+      hooks/hooks.json     #     7 个 hooks（3 状态 + SubagentStart/Stop 落账 + Pre/PostToolUse）
       commands/            #     slash commands（w-start/pause/monitor）
       skills/              #     skills（awf-run-* 运行态 + awf-skill/awf-state）
+      agents/              #     子 Agent 定义（awf-worker.md — 滑动窗口执行单元，RESULT/NEEDS_INPUT 输出协议）
       mcp/                 #     MCP server 实现（state/session/oneshot + state 模板）
     plugin-code/           #   领域层插件 ai-workflow-code：编程命令 + 技能
       commands/            #     slash commands（w-plan* 规划 + w-dev/debug/review/test/doc/commit/ui-*）
@@ -52,33 +53,42 @@ cc-control/
 ```bash
 awf init          # 初始化 .awf/ 目录 + 安装插件
 awf plan "需求"    # 交互式规划 → 产出 .awf/state.json
-awf run           # 自主执行：遍历任务，逐阶段推进
+awf run           # 自主执行：单/多 agent 分流，滑动窗口调度
 ```
 
 `awf run` 内部：
 ```
-CLI 读取 .awf/state.json
+CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
   → 启动 HTTP Session Server (:8787)
   → 创建 tmux session（bootstrap.sh 只启动 claude；插件/hooks/MCP 由 .claude/settings.json 注册加载）
-  → 对每个 task 按复杂度执行阶段链：
-      simple:  DEV → COMMIT
-      medium:  DEV → TEST → COMMIT
-      complex: DEV → DOCS → REVIEW → TEST → COMMIT
-      ↑                           ↓
-      └── DEBUG（按需）───────────┘
+  → 按 run.agents.max 分流（src/cli/run.js）：
+      max=1（默认）→ runLoop：逐任务按复杂度执行阶段链
+        simple:  DEV → COMMIT
+        medium:  DEV → TEST → COMMIT
+        complex: DEV → DOCS → REVIEW → TEST → COMMIT
+        ↑                           ↓
+        └── DEBUG（按需）───────────┘
+      max>1 → runBatchLoop（src/cli/run-batch.js + src/cli/scheduler.js）：
+        滑动窗口调度，CLI 拥有调度权：
+          就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（doc/commit）
+          → 主会话按 subagent-dispatch 派生后台子 Agent（awf-worker）执行
+          → 子 Agent 结束 → SubagentStop hook 解析 RESULT → 原子落账（awf_task_complete）
+          → CLI 轮询 state 检测完成 → 补位，直到全部完成
   → FINISH 收尾
 ```
 
 阶段驱动关键设计：
-- **每个阶段前**，CLI 通过 `claude -p` 生成优化后的 prompt，再发往 tmux session
-- **Session Server** 通过 Claude Code Hooks（`SessionStart`/`Stop` → ready，`UserPromptSubmit` → busy）感知状态
+- **单 agent（runLoop）**：每个阶段前，CLI 通过 `claude -p` 生成优化后的 prompt，再发往 tmux session
+- **多 agent（runBatchLoop）**：CLI 拥有调度权，经 plugin-bridge `subagentDispatch` 生成派发 prompt，主会话派生后台子 Agent 并行执行；子 Agent 禁写 state、只输出 RESULT/NEEDS_INPUT
+- **Session Server** 通过 Claude Code Hooks（`SessionStart`/`Stop` → ready，`UserPromptSubmit` → busy）感知状态；`SubagentStart/Stop` 感知子 Agent 生命周期，`PreToolUse(AskUserQuestion)` 感知决策请求
 - **阶段间上下文天然断裂** — 每个阶段的 prompt 重新构造，不依赖上一阶段对话历史
-- **AI 通过 MCP tools 更新 state.json**（`awf_task_status`、`awf_task_result`、`awf_phase` 等），不再需要 curl
+- **AI 通过 MCP tools 更新 state.json**（`awf_task_status`、`awf_task_result`、`awf_phase`、`awf_task_complete` 等），不再需要 curl
 
 ## 架构原则
 
 - **插件改动，CLI 零感知** — 提示词由插件声明（`plugin/plugin-code/prompts.json`），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件模板里）。插件改名/改命令，CLI 无需改动。
 - **插件耦合收敛** — cli 与插件的必要耦合集中在 `src/lib/plugin-bridge.js`（插件边界唯一模块），cli 只负责调用/中央调度。
+- **CLI 拥有调度权** — 多 agent 下由 CLI（`src/cli/scheduler.js` 就绪池 + 配额 + plannedFiles 冲突）决定派发，子 Agent 无调度权：禁写 state、只回吐 `RESULT`/`NEEDS_INPUT`。落账原子化走 `awf_task_complete`（一次提交 status+result+files+commits，避免中间态）；需用户决策时子 Agent 以 `NEEDS_INPUT` 上抛，CLI 检测到决策挂起则暂停补位，等主 Agent AskUserQuestion 解决后恢复。
 
 ## Development workflow state machine
 
@@ -179,7 +189,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 
 ## MCP Tools（3 个 Server）
 
-### awf-state（17 tools）— 状态 CRUD，直接文件 I/O
+### awf-state（18 tools）— 状态 CRUD，直接文件 I/O
 
 | Tool | 用途 |
 |------|------|
@@ -187,6 +197,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 | `awf_task_status` | 更新任务状态（pending/active/done/blocked） |
 | `awf_task_result` | 记录执行结果和产出文件 |
 | `awf_task_commit` | 追加 commit 记录 |
+| `awf_task_complete` | 原子完成一个任务：一次提交 status + result + files + commits（替代多次 status/result/commit 调用，避免落账中间态）；status 缺省 done |
 | `awf_task_create` | 创建任务 |
 | `awf_task_update` | 更新任务字段 |
 | `awf_task_delete` | 删除任务 |
@@ -201,7 +212,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 | `awf_mode` | 设置运行模式（idle/plan/run） |
 | `awf_version` | 更新 state.json 版本号 |
 
-### awf-session（4 tools）— tmux 生命周期观测
+### awf-session（5 tools）— tmux 生命周期观测
 
 | Tool | 用途 |
 |------|------|
@@ -209,6 +220,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 | `awf_capture_pane` | 抓取 tmux pane 内容 |
 | `awf_await_choice` | 通知 CLI 需要用户做选择 |
 | `awf_await_input` | 通知 CLI 需要用户自由输入 |
+| `awf_context_ready` | 通知 CLI：上下文压缩快照已就绪（已按 code-context-onboard 写入 .awf/context/handoff.md）；CLI 将 /clear 并注入快照给下一任务，须在写完快照后调用 |
 
 ### awf-oneshot（1 tool）— 无状态 LLM 调用
 
@@ -224,7 +236,8 @@ awf init                  # 初始化项目
 awf plan "需求描述"        # 规划
 awf run                   # 执行（--auto 跳过等待，--local 跳过 one-shot）
 awf server start          # 启动 Session Server
-awf attach                # 附加到 tmux session
+awf open dashboard        # 打开可视化页面（dashboard / tree / ui）
+awf attach                # 附加到 tmux session 观看实时对话
 
 # 开发
 npm test                  # 跑测试
@@ -245,24 +258,29 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 
 | 文件 | 角色 |
 |------|------|
-| `src/awf.js` | CLI 入口，命令路由 |
-| `src/cli/run.js` | `awf run` 主循环 |
+| `src/awf.js` | CLI 入口，命令路由（7 命令：init/plan/run/plugin/server/open/attach） |
+| `src/cli/run.js` | `awf run` 主循环 — 单/多 agent 分流（run.agents.max>1 → runBatchLoop，否则 runLoop）+ 阶段链 + 决策处理 |
+| `src/cli/run-batch.js` | 滑动窗口执行入口（max>1）— subagentDispatch 派发 + 轮询 state 完成感知 + 落账失败补发 + NEEDS_INPUT 决策上抛挂起 |
+| `src/cli/scheduler.js` | 滑动窗口调度器（纯逻辑）— 就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（doc/commit）+ 补位循环 |
 | `src/cli/init.js` | `awf init` — 前置检查 + 本地注册插件 + 工作区初始化 |
 | `src/cli/plugin.js` | 插件管理 — 本地注入 / 全局 claude plugin install |
-| `src/lib/profile.js` | 本地注册实现（settings.json 注入/清理） |
-| `src/lib/state.js` | state.json 读写 |
+| `src/lib/profile.js` | 本地注册实现（settings.json 注入/清理）+ installProjectMcp |
+| `src/lib/state.js` | state.json 读写 + 就绪池/scope/文件冲突（peekReadyTasks/buildScopeIndex/filesConflict/EXCLUSIVE_KINDS） |
+| `src/lib/messaging.js` | inbox socket 注入（NDJSON）— 向主会话投递消息（crossSessionInbound:accept 前提） |
 | `src/lib/paths.js` | 路径解析 |
-| `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词，cli 零感知 |
-| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan 入口 start/resume/default + 任务收尾 wrapup），runtime 指令由插件声明 |
+| `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词（taskWrapup/taskSettle/contextCheck/subagentDispatch），cli 零感知 |
+| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + subagent-dispatch），runtime 指令由插件声明 |
+| `plugin/core/agents/awf-worker.md` | 子 Agent 身份化定义 — 滑动窗口执行单元：禁写 state、禁提问、RESULT/NEEDS_INPUT 最后一行输出协议 |
+| `src/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ docs 配置 |
+| `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额，awf run 读取（init 从模板生成） |
 | `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
-| `scripts/render-config.mjs` | 从 plugin/config.json 渲染 5 个插件注册文件；`--workdir` 模式供独立沙箱渲染 |
-| `scripts/render-config.mjs` | 从 plugin/config.json 渲染 5 个插件注册文件 + 沙箱文件 |
+| `scripts/render-config.mjs` | 从 plugin/config.json 渲染 5 个插件注册文件 + 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
 | `plugin/config.json` | ★ 唯一配置源（port / marketplace / mcpServers / hooks） |
 | `plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
-| `plugin/core/hooks/hooks.json` | 引擎层插件 hooks（5 个，端口从 config 注入） |
-| `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 17 个 tools，直接文件 I/O |
-| `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 4 个 tools |
+| `plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |
+| `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 18 个 tools，直接文件 I/O |
+| `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 5 个 tools |
 | `plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
 | `plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |

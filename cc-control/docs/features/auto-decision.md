@@ -1,6 +1,7 @@
 # 自动决策模块 — 需求文档
 
-> 源码文件：`src/cli/auto-selector.js` + `src/server/server.cjs`（decision 相关路由）
+> 源码文件：`src/cli/auto-selector.js` + `src/cli/run.js`（handleDecision）+ `src/server/server.cjs`（decision 相关路由 + needs-input 日志）
+> 多 agent 决策上抛另涉：`src/cli/run-batch.js`（checkNeedsInput 挂起）+ `plugin/core/agents/awf-worker.md`（NEEDS_INPUT 协议）→ 见 §5
 
 ---
 
@@ -32,6 +33,9 @@ AI (Claude Code)                  Session Server               CLI (awf run)
      ├───────────────────────────────►│                          │
      │                                │  setDecision({answered}) │
 ```
+
+> 上图是**单 agent 自动决策闭环**（主会话 AskUserQuestion → PreToolUse 捕获 → CLI autoSelect 兜底）。
+> **多 agent 滑动窗口**的决策上抛链路（NEEDS_INPUT 协议 → server 日志 → CLI 挂起暂停补位 → 主 Agent 透传提问）见 §5。
 
 ---
 
@@ -198,7 +202,100 @@ CLI 轮询此端点，发现 `decisionPending` 非空时调用 `handleDecision`�
 ```
 ---
 
-## 5. 依赖
+## 5. 多 agent 决策上抛（M5）
+
+多 agent 滑动窗口（`run.agents.max > 1`）下，子 Agent（awf-worker）是后台执行单元，**禁止调用任何交互工具**（AskUserQuestion / awf_await_choice / awf_await_input）。遇真正需用户决策时，用 `NEEDS_INPUT` 输出协议上抛，由主 Agent 原生 AskUserQuestion 透传给用户，用户回答后恢复子 Agent。
+
+### 5.1 子 Agent 侧 — NEEDS_INPUT 输出协议
+
+`plugin/core/agents/awf-worker.md` 定义子 Agent 输出协议：
+
+- 禁止写 state（只能 `awf_read_state`）；禁止提问（不调 AskUserQuestion / awf_await_choice / awf_await_input）。
+- 有歧义按最佳判断执行；真需用户决策时，**最后一行**输出：
+
+```
+NEEDS_INPUT: {"taskId": "<任务ID>", "question": "<问题>", "options": ["<选项>"], "context": "<背景>"}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `taskId` | string | 是 | 派发给该子 Agent 的任务 ID |
+| `question` | string | 是 | 待决策问题 |
+| `options` | string[] | 否 | 候选选项 |
+| `context` | string | 否 | 附加上下文 |
+
+与 RESULT 关键区别：**NEEDS_INPUT 不落账** —— 不写 state，任务状态保持等待；等决策解决后主 Agent 恢复该子 Agent 继续。
+
+### 5.2 Server 侧 — 记录 needs-input 日志
+
+`SubagentStop` hook（server.cjs）：
+
+1. 优先解析 `last_assistant_message` 中的 NEEDS_INPUT（`parseSubagentNeedsInput`，正则 `/NEEDS_INPUT:\s*(\{[\s\S]*\})/`）。
+2. 命中 → `logSubagentNeedsInput` 追加 `.awf/logs/subagent-needs-input.jsonl`：
+
+```json
+{"ts":"<ISO>","agentId":"<session_id>","taskId":"T2","question":"...","options":["A","B"],"context":null}
+```
+
+3. **不**走 `settleSubagent`（不写 state），任务保持原状态 —— 与 RESULT 落账互斥。
+4. 未命中 NEEDS_INPUT → 才走 RESULT 落账 / 失败补发（既有逻辑）。
+
+### 5.3 CLI 侧 — checkNeedsInput 挂起 + 暂停补位
+
+`src/cli/run-batch.js` `makeWaitAnyDone`：
+
+- 维护 `lastNeedsTs`（已处理记录游标）+ `pendingNeeds`（Map&lt;taskId, true&gt;）。
+- `checkNeedsInput()`：读 needs-input.jsonl，跳过 `ts <= lastNeedsTs` 的旧记录；新记录有 taskId → `pendingNeeds.set(taskId, true)`，告警「任务 X 需决策…暂停补位等待主 Agent 提问」。
+- 等待循环每轮：
+  1. `getStatus()` 取 `decisionPending`；
+  2. `dp && !dp.answered` → `handleDecision(dp)` → continue（决策处理期间阻塞调度器 = 暂停补位，处理完恢复）；
+  3. 检测 running 中 done/blocked；
+  4. `checkNeedsInput()`；
+  5. `suspended = pendingNeeds.size > 0 && !!dp && !dp.answered` → 有未决 NEEDS_INPUT 且主 Agent 正 AskUserQuestion → 返回 `{done, suspended}` → 调度器不再派发新任务；
+  6. 否则补发失败记录（resendPending）→ 超时检查 → sleep。
+
+恢复：AskUserQuestion 结束（用户回答或 autoSelect 兜底）→ dp.answered / 清空 → 下轮 `suspended` 解除 → 恢复补位。
+
+### 5.4 主 Agent 侧 — AskUserQuestion 透传 + 子 Agent 恢复
+
+1. 主 Agent 看到子 Agent 的 NEEDS_INPUT → 原生 AskUserQuestion 向用户提问。
+2. PreToolUse hook 透传：`setDecision({type, multiSelect, question, options, header, source:'AskUserQuestion'})`。
+3. 用户回答：
+   - 原生 UI 回答 → PostToolUse hook → `dp.answered=true` → CLI 跳过 autoSelect；
+   - 兜底：CLI `handleDecision` → `autoSelect`（5s 选第一项）→ `POST /respond`。
+4. 主 Agent 拿到回答 → SendMessage 恢复子 Agent（附回答 + 继续指令）。
+5. 子 Agent 继续执行 → 最后一行 RESULT → SubagentStop → `settleSubagent` 写 state → CLI 检测 done → 补位。
+
+### 5.5 与单 agent 决策（autoSelect / awf_await_choice）的关系
+
+| 维度 | 单 agent（runLoop） | 多 agent（runBatchLoop） |
+|------|--------------------|--------------------------|
+| 提问来源 | 主会话 AI 直接提问 | 子 Agent 用 NEEDS_INPUT 协议上抛 |
+| 上抛方式 | AskUserQuestion（hook 捕获）或 awf_await_choice / awf_await_input（→ `/choice` `/ask`） | 主 Agent **用原生 AskUserQuestion**（PreToolUse hook 透传），**不用** awf_await_choice |
+| Server 记录 | decisionPending（`/hook` PreToolUse 或 `/choice` `/ask` 置位） | decisionPending + `.awf/logs/subagent-needs-input.jsonl` |
+| CLI 处理 | handleDecision → autoSelect / readline | checkNeedsInput → pendingNeeds → suspended 暂停补位；handleDecision → autoSelect 兜底 |
+| 汇聚点 | decisionPending → `POST /respond` → tmux submit | 同左 |
+
+两条链路最终都收敛到 `decisionPending → POST /respond → submit(value)`；区别在提问来源与 CLI 侧是否挂起补位。
+
+### 5.6 完整链路时序
+
+```
+1. 子 Agent 遇决策 → 最后一行 NEEDS_INPUT → 结束回合（SubagentStop）
+2. Server: parseSubagentNeedsInput → logSubagentNeedsInput → .awf/logs/subagent-needs-input.jsonl（不落账）
+3. CLI: checkNeedsInput() → pendingNeeds.set(taskId, true) → 告警「暂停补位等待主 Agent 提问」
+4. 主 Agent 看到 NEEDS_INPUT → 原生 AskUserQuestion → PreToolUse hook → setDecision(source:'AskUserQuestion')
+5. CLI poll /status → dp && !dp.answered
+   ├─ 用户原生 UI 回答 → PostToolUse → dp.answered=true → CLI 跳过 autoSelect
+   └─ 兜底：handleDecision → autoSelect(5s 选第一项) → POST /respond → submit(value)
+6. suspended = pendingNeeds.size>0 && dp && !dp.answered → 调度器暂停派发（决策解决后解除）
+7. 主 Agent 拿到回答 → SendMessage 恢复子 Agent（附回答 + 继续指令）
+8. 子 Agent 继续 → 最后一行 RESULT → SubagentStop → settleSubagent 写 state → CLI 检测 done → 补位
+```
+
+---
+
+## 6. 依赖
 
 ### auto-selector.js
 

@@ -1,6 +1,6 @@
 # awf version-prompt — 需求文档
 
-> 源码文件：`src/cli/version-prompt.js`
+> 源码文件：`src/lib/version.js`
 
 ## 功能描述
 

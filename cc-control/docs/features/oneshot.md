@@ -1,6 +1,6 @@
 # 单次会话调用模块 — 需求文档
 
-> 源码文件：`src/mcp/awf-oneshot/server.cjs`
+> 源码文件：`plugin/core/mcp/awf-oneshot/server.cjs`
 
 ---
 

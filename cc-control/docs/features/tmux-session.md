@@ -1,6 +1,6 @@
 # tmux & Session 管理模块 — 需求文档
 
-> 源码文件：`src/server/tmux.cjs` + `src/mcp/awf-session/server.cjs`
+> 源码文件：`src/server/tmux.cjs` + `plugin/core/mcp/awf-session/server.cjs`
 
 ---
 

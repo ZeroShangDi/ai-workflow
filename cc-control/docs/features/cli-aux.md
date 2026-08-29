@@ -1,6 +1,6 @@
 # awf plugin / server / open / attach — 需求文档
 
-> 源码文件：`src/cli/plugin.js`, `server.js`, `open.js`, `attach.js`
+> 源码文件：`src/cli/plugin.js`, `src/cli/server.js`, `src/cli/open.js`, `src/cli/attach.js`
 
 ---
 

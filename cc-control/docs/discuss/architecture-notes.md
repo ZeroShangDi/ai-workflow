@@ -20,17 +20,21 @@
 
 awf 现阶段走**单 Agent 阶段驱动**模型（PLAN → DESIGN → CODE → REVIEW → TEST → COMMIT → FINISH），但这不代表架构哲学上否定多 Agent。选择单 Agent 先跑通闭环是务实的工程决策：
 
+> **补注（2026-08-27）**：多 Agent 已实现——`awf run` 支持滑动窗口并行执行（单 tmux + 原生子 Agent + CLI 中央调度），调度路线从最初的**批次屏障**修正为**滑动窗口**。单 Agent 仍是默认形态（`run.agents` 默认 `max: 1` = 零变化）。详见「多 Agent 滑动窗口决策（2026-08）」。
+
 - 单 Agent 多轮对话保留完整上下文，REVIEW 阶段能回溯 DEV 阶段的决策过程
 - 通过 Hook（`SessionStart`/`Stop`）+ tmux-http 注入按键，实现持久会话的状态感知
 - 通过 `/w-prompt` 的 one-shot 智能提示词生成，每一阶段可以重新聚焦注意力
 
 ### 多 Agent 路线的设计原则
 
-未来引入多 Agent 时遵守以下约束：
+> **状态（2026-08-27）**：本条为早期设想，已被实现部分推翻/修正——见「多 Agent 滑动窗口决策（2026-08）」。
 
-1. **并行任务必须无关联** — 有依赖的任务并行会导致协调复杂度快速攀升，且需要 Agent 之间共享上下文，这恰是多 Agent 模型最不可靠的部分
-2. **调度 Agent + 多 tmux session** — 并行时多开 tmux session，而非在一个 session 内多 pane 共享上下文
-3. **git worktree 隔离** — 借鉴 Loop Orchestrator 的做法，每个并行 Agent 在自己的 worktree + branch 上工作，完成后通过 review gate 合并，避免工作区冲突
+引入多 Agent 时曾设想遵守以下约束：
+
+1. **并行任务必须无关联** — 有依赖的任务并行会导致协调复杂度快速攀升，且需要 Agent 之间共享上下文，这恰是多 Agent 模型最不可靠的部分。✅ **已保留**：滑动窗口按 deps 门禁图 + `plannedFiles` 冲突过滤，保证并行任务互不关联
+2. **调度 Agent + 多 tmux session** — 并行时多开 tmux session，而非在一个 session 内多 pane 共享上下文。❌ **未采用**：改为单 tmux + 原生子 Agent 并发（方案 C，CLI 中央调度）
+3. **git worktree 隔离** — 借鉴 Loop Orchestrator 的做法，每个并行 Agent 在自己的 worktree + branch 上工作，完成后通过 review gate 合并，避免工作区冲突。❌ **未采用**：改为 `plannedFiles` 文件集冲突过滤，冲突任务串行化
 
 ### 值得借鉴的外部设计
 
@@ -46,7 +50,7 @@ awf 现阶段走**单 Agent 阶段驱动**模型（PLAN → DESIGN → CODE → 
 以下能力是 tmux AI Agent 生态中其他工具不具备的：
 
 1. **全生命周期覆盖** — 从需求对齐（交互式 Q&A）→ UI 设计（三选一 + Figma 双向）→ 开发 → 审查 → 测试 → 提交 → 里程碑收尾，而非仅覆盖编码环节
-2. **方法论内置** — 12 个命令 + 9 个 skill 不只是工具，是一套可复现的开发方法论（721 测试金字塔、约定式提交、WBS 分解、Issue 升级机制）
+2. **方法论内置** — 16 个命令 + 31 个 skill（双插件：core 4 命令 + 7 skill，plugin-code 12 命令 + 24 skill）不只是工具，是一套可复现的开发方法论（721 测试金字塔、约定式提交、WBS 分解、Issue 升级机制）
 3. **Figma 双向集成** — `w-design` 和 `w-ui` 打通设计到代码的自动化链路
 4. **PC 控制层** — VM 控制（Parallels Desktop）+ 浏览器自动化，可操控完整桌面环境
 5. **中英双语** — 命令和 skill 同时支持中文和英文
@@ -63,6 +67,27 @@ awf run
 ```
 
 tmux、HTTP server、plugin 配置等基础设施对用户透明，体验上不逊于 Tmux-AI-Team 的 `source bashrc` 方式，且 npm 分发更标准化。
+
+---
+
+## 多 Agent 滑动窗口决策（2026-08）
+
+> 参考：[multi-agent-mode.md](multi-agent-mode.md)（方案 C 定稿）、[multi-agent-sliding-window.md](multi-agent-sliding-window.md)（滑动窗口定稿 + 实证记录）、`plugin/core/agents/awf-worker.md`（执行单元身份）。
+
+### 决策路径
+
+1. **方案 C 定稿（2026-08-26）** — 多 Agent 实现方案三选一，最终定稿 **C = 单 tmux + 原生子 Agent + CLI 中央调度**：保留单会话、低基础设施改动，同时 DAG / 门禁 / 配额 / 并发策略全部由 CLI 决定。**关键澄清：「调用原生子 Agent」≠「调度权交给 AI」**——子 Agent 只是执行载体，调度权仍在 CLI。
+2. **批次屏障被用户否定（2026-08-26）** — 第一版调度用批次屏障（整批结束才下一批），用户明确否定，期望**滑动窗口**（动态补位、维持满并发；配额是硬上限而非目标）。
+3. **滑动窗口定稿（2026-08-27，实证 + 全真 eval 验证）** — inbox socket 派发 + runScheduler 就绪池 / 配额 / plannedFiles 冲突 + SubagentStop 落账 + M5 决策上抛。
+
+### 关键设计
+
+- **CLI 拥有调度权** — 主 Agent 不负责滑动窗口；CLI 只通知主 Agent「生成子 Agent」（经 inbox socket 注入派生指令），就绪池 + 配额 + 补位循环都在 CLI（`src/cli/scheduler.js` / `run-batch.js`），完成后即时补位。
+- **子 Agent 禁写 state** — awf-worker 身份硬约束：只调 `awf_read_state` 读上下文，绝不允许调用任何写工具；state.json 由主会话 / CLI 更新。
+- **落账原子化** — awf-state 新增 `awf_task_complete`（一次提交 status+result+files+commits），CLI / MCP 共用 `.awf/state.lock` 文件锁，防并发写丢更新。
+- **完成感知** — 子 Agent 结束输出固定格式 `RESULT: {...}`，`SubagentStop` hook 解析 `last_assistant_message` 落账；解析失败走补发安全网（主 Agent SendMessage 恢复子 Agent 补齐字段）。
+- **M5 决策上抛** — 子 Agent 遇需决策输出 `NEEDS_INPUT: {...}` 上抛主 Agent，主 Agent 统一 `AskUserQuestion` / `awf_await_choice|input` 问用户，子 Agent 不直接提问。
+- **派发通道** — inbox socket（官方 messaging 通道）注入派生指令；socket 内部开关实证失效，当前降级 tmux `/send` 补位。
 
 ---
 
