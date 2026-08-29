@@ -228,6 +228,59 @@ export function isMilestoneDone(state) {
   return tasks.length > 0 && tasks.every((t) => t.status === 'done');
 }
 
+// ── 门禁闭环 ──
+
+/** 门禁复审最大轮次（超过则保持 blocked，需人工介入） */
+export const MAX_RECHECK = 3;
+
+/**
+ * 门禁任务 fail → 派生修复任务 + 回退门禁待复审。
+ * 纯 mutate state，不写盘——由调用方（gate-fix.handleGateCompletion）负责 load/save。
+ *
+ * 不派生的条件：非门禁 / 非 blocked / 无 verdict / verdict pass / 达轮次上限。
+ *
+ * @param {object} state
+ * @param {object} gateTask 刚完成的门禁任务（kind=review/test）
+ * @returns {string|null} 新修复任务 id（不派生则 null）
+ */
+export function spawnGateFixTask(state, gateTask) {
+  if (!gateTask) return null;
+  if (gateTask.kind !== 'review' && gateTask.kind !== 'test') return null;
+  if (gateTask.status !== 'blocked') return null;
+  const v = gateTask.exec?.verdict;
+  if (!v || v.level === 'pass') return null; // 无 verdict 视为旧协议/卡住，不派生
+  if ((gateTask.exec?.recheck || 0) >= MAX_RECHECK) return null; // 轮次上限，保持 blocked
+
+  const recheck = (gateTask.exec?.recheck || 0) + 1;
+  const fixId = `${gateTask.id}-F${recheck}`;
+  const reportPath = (gateTask.exec?.files || []).find((f) => f.startsWith('.awf/reports/')) || '';
+
+  const fix = {
+    id: fixId,
+    kind: 'dev',
+    title: `修复 ${gateTask.title} 发现的问题（第 ${recheck} 轮）`,
+    status: 'pending', // 必须 pending 才进 peekReadyTasks 就绪池
+    deps: [...(gateTask.deps || [])], // 复制原产物依赖，保证产物就绪后才修
+    plannedFiles: [], // 保守串行：无文件声明不与其他任务并行
+    prompt: [
+      `门禁 ${gateTask.id} 判定 ${v.level}，请阅读报告并修复发现的问题：`,
+      reportPath ? `报告：${reportPath}` : '',
+      `判定结论：${v.conclusion || ''}`,
+      gateTask.acceptance ? `验收标准：${gateTask.acceptance}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  };
+  if (gateTask.acceptance) fix.acceptance = gateTask.acceptance;
+
+  state.tasks.push(fix);
+  gateTask.status = 'pending'; // 回退门禁待复审
+  gateTask.deps = [...(gateTask.deps || []), fixId]; // deps 追加修复任务，复审时就绪
+  gateTask.exec = gateTask.exec || {};
+  gateTask.exec.recheck = recheck; // 保留 verdict
+  return fixId;
+}
+
 // ── 快照备份 ──
 
 /**

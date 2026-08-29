@@ -21,6 +21,14 @@ RESULT: {"taskId": "<任务ID>", "status": "done", "result": "<完成说明>", "
 ```
 status 可选 `done | blocked | failed`；blocked/failed 时在 result 说明原因。**taskId 必须是派发给你的任务 ID（Agent 工具 prompt 中声明的）**，绝不可编造或改写。
 
+**门禁任务（kind=review/test）专用 verdict 旁挂字段**：判定结果结构化落在 `verdict`，供 CLI 派生修复/复审闭环。
+```
+RESULT: {"taskId": "<任务ID>", "status": "done|failed", "verdict": {"level": "pass|changes_requested|fail", "conclusion": "<判定摘要>"}, "result": "<门禁结论文本>", "files": ["<报告路径>"]}
+```
+- `level`：`pass`（通过）/ `changes_requested`（修改后重审）/ `fail`（打回重做 / 失败）。三态与 awf-run-review / awf-run-test 技能一致。
+- 非 pass（changes_requested / fail）必须 `status:"failed"`（映射为 blocked 终态）+ 带 `verdict`；pass 用 `status:"done"` + `verdict.level:"pass"`。
+- 报告路径须写入 `files`（CLI 据此指引修复任务阅读报告）。
+
 **需决策**：
 ```
 NEEDS_INPUT: {"taskId": "<任务ID>", "question": "<问题>", "options": ["<选项>"], "context": "<背景>"}

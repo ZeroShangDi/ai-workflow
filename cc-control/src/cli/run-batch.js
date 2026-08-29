@@ -17,6 +17,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { loadState, backupState } from '../lib/state.js';
 import { runScheduler } from './scheduler.js';
+import { handleGateCompletion } from './gate-fix.js';
 import { subagentDispatch } from '../lib/plugin-bridge.js';
 import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
 import { handleDecision } from './run.js';
@@ -153,6 +154,8 @@ export async function runBatchLoop(projectRoot, cfg) {
     cfg,
     dispatcher,
     waitAnyDone: makeWaitAnyDone(projectRoot, dispatcher),
+    // 门禁闭环：门禁任务（review/test）blocked + verdict 非 pass → 派生修复任务 + 回退复审
+    onTaskComplete: (id, task) => handleGateCompletion(projectRoot, id, task),
   });
 
   backupState(projectRoot);

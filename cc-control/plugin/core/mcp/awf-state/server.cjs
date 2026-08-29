@@ -114,6 +114,7 @@ const TOOLS = [
         status: { type: 'string', enum: ['done', 'blocked'], description: '最终状态（默认 done）' },
         result: { type: 'string', description: '执行结果描述（exec.result）' },
         files: { type: 'array', items: { type: 'string' }, description: '产出文件路径列表（exec.files）' },
+        verdict: { type: 'object', description: '门禁判定结果（写进 exec.verdict，如 { level: "pass|changes_requested|fail", conclusion: "..." }）' },
         commits: { type: 'array', items: { type: 'object', properties: { hash: { type: 'string' }, message: { type: 'string' } }, required: ['hash', 'message'] }, description: 'commit 记录列表' },
         blockedReason: { type: 'string', description: 'status=blocked 时的原因说明' },
       },
@@ -380,6 +381,7 @@ const handlers = {
           if (!t.exec) t.exec = {};
           if (args.result !== undefined) t.exec.result = args.result;
           if (args.files) t.exec.files = args.files;
+          if (args.verdict !== undefined) t.exec.verdict = args.verdict;
           if (args.commits) {
             if (!t.commits) t.commits = [];
             t.commits.push(...args.commits);

@@ -181,8 +181,28 @@ while (true)
   2. running.size === 0 → 结束（池空或无可派）
   3. waitAnyDone(running) → 等至少一个完成（容忍延迟，不依赖即时信号）
   4. 释放完成的 running 任务（按 scope 递减 perModule/perFeature/activeModules 计数）
-  5. 池刷新：重读 state，新就绪任务（依赖链/门禁转换）加入池 + 重算 scope
+  5. `onTaskComplete(id, task)`：门禁闭环钩子（`src/cli/gate-fix.js`）——阻塞完成时派生修复 / 回退复审（await，须在池刷新前落盘）
+  6. 池刷新：重读 state，新就绪任务（依赖链/门禁转换）加入池 + 重算 scope
 ```
+
+### 门禁闭环（fail → 派生修复 → 复审）
+
+门禁任务（kind=review/test）输出结构化 verdict（`exec.verdict`，见 awf-worker.md / awf-run-review / awf-run-test 技能）：
+
+```
+门禁完成（RESULT status=failed + verdict）
+  → settleSubagent 落账（status=blocked + exec.verdict）
+  → onTaskComplete → handleGateCompletion（gate-fix.js）
+      → spawnGateFixTask（state.js）：
+          - 派生修复任务 ${id}-F${n}（kind=dev，deps=门禁原deps，plannedFiles=[] 保守串行）
+          - 门禁回退 pending，deps 追加修复任务，exec.recheck++
+      → saveState → 池刷新自动纳入修复任务
+  → 修复 done → 门禁就绪 → 复审 → pass→done / fail→再派生（上限 MAX_RECHECK=3）
+```
+
+- 无 verdict 的门禁 blocked 不派生（视为旧协议 / 卡住，需人工介入）。
+- 轮次达上限保持 blocked，CLI 告警「需人工介入」。
+- 单 agent `runLoop` 同构生效（`src/cli/run.js`）：执行完门禁任务后检测 blocked + verdict 非 pass → 同一 `handleGateCompletion`。
 
 ---
 

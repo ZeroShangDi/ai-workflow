@@ -147,7 +147,8 @@ export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, 
     for (const id of done) {
       const s = scope.get(id) || {};
       const task = running.remove(id, s);
-      if (onTaskComplete) onTaskComplete(id, task);
+      // await：门禁闭环钩子（gate-fix）同步改盘，须在池刷新前完成，派生修复任务才能进就绪池
+      if (onTaskComplete) await onTaskComplete(id, task);
     }
 
     // 池刷新：落账后可能有新就绪任务（依赖链/门禁转换），重读 state 加入池 + 重算 scope

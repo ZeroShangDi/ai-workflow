@@ -106,7 +106,7 @@ CLI（`saveState`）与 MCP（`writeState`）可能并发写同一 `state.json`�
 | `awf_task_status` | `id, status` | 更新 `task.status`，id 不存在→error |
 | `awf_task_result` | `id` | 写入 `task.exec.result` 和 `task.exec.files`，id 不存在→error |
 | `awf_task_commit` | `id, hash, message` | 追加 `task.commits[]`，id 不存在→error |
-| `awf_task_complete` | `id` | 原子完成一个任务：一次提交 status + exec.result + exec.files + commits（替代多次 status/result/commit 调用，避免落账中间态）。status 缺省 `done`，可选 `blocked`（写 blockedReason）；id 不存在→error |
+| `awf_task_complete` | `id` | 原子完成一个任务：一次提交 status + exec.result + exec.files + commits + verdict（替代多次 status/result/commit 调用，避免落账中间态）。status 缺省 `done`，可选 `blocked`（写 blockedReason）；`verdict`（可选 object）写 `exec.verdict`（门禁判定，如 `{ level: "pass|changes_requested|fail", conclusion: "..." }`）；id 不存在→error |
 | `awf_task_create` | `id, title, prompt` | 创建任务，id 重复→error，默认 status=pending、kind=dev；支持 kind（dev/review/test/doc，门禁任务必须标注）与 plannedFiles（规划改动文件，多 agent 冲突过滤用） |
 | `awf_task_update` | `id` | 只更新提供的字段（title/kind/plannedFiles/prompt/wbsRef/deps/acceptance，undefined 不覆盖），id 不存在→error |
 | `awf_task_delete` | `id` | `splice` 删除，id 不存在→error |
@@ -181,7 +181,12 @@ CLI（`saveState`）与 MCP（`writeState`）可能并发写同一 `state.json`�
       "plannedFiles": ["src/util/a.js"],  // 规划改动文件（相对路径，冲突过滤用）
       "exec": {                 // awf_task_result / awf_task_complete 写入
         "result": "...",
-        "files": ["..."]
+        "files": ["..."],
+        "verdict": {            // 门禁任务（review/test）判定，CLI 据 level!=='pass' 派生修复
+          "level": "changes_requested", // pass | changes_requested | fail
+          "conclusion": "..."
+        },
+        "recheck": 1            // 门禁复审轮次（spawnGateFixTask 递增，上限 MAX_RECHECK=3）
       },
       "commits": [              // awf_task_commit / awf_task_complete 写入
         { "hash": "abc1234", "message": "feat: ..." }

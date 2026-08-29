@@ -4,6 +4,8 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { runScheduler } from '../../src/cli/scheduler.js';
+import { handleGateCompletion } from '../../src/cli/gate-fix.js';
+import { MAX_RECHECK } from '../../src/lib/state.js';
 
 // scheduler 用真实 loadState 读 .awf/state.json；dispatcher/waitAnyDone 为注入接口。
 // waitAnyDone 的 mock 在每次返回前把「已完成任务」标 done 落盘，模拟真实落账 → 池刷新。
@@ -174,5 +176,102 @@ describe('runScheduler — 滑动窗口核心（纯逻辑）', () => {
 
     expect(dispatched).toBe(3);
     expect(sent).toEqual(['T1', 'T3', 'T2']); // 挂起期间 T2 未被派发（暂停补位），解决后才派
+  });
+
+  it('TC-S7: 门禁闭环——门禁 fail 落账 → 派生修复任务自动补位 → 复审 pass → done', async () => {
+    writeState(tmpDir, [
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
+      { id: 'R1', kind: 'review', title: '审查 T1', plannedFiles: [], status: 'pending', deps: ['T1'] },
+    ]);
+
+    // 模拟子 Agent 真实落账：T1 done；R1 首次执行 → blocked + verdict fail；
+    // 复审（exec.recheck>=1）→ done + verdict pass；R1-F1（派生修复）→ done
+    const completionSteps = [['T1'], ['R1'], ['R1-F1'], ['R1']];
+    const waitAnyDone = async () => {
+      const done = completionSteps.shift() || [];
+      const s = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));
+      for (const id of done) {
+        const t = s.tasks.find((x) => x.id === id);
+        if (!t) continue;
+        if (id === 'R1') {
+          const isFinal = (t.exec?.recheck || 0) >= 1; // 有 recheck → 修复已派发过 → 本轮是复审
+          t.status = isFinal ? 'done' : 'blocked';
+          t.exec = t.exec || {};
+          t.exec.verdict = isFinal ? { level: 'pass', conclusion: '复审通过' } : { level: 'fail', conclusion: '方向性错误' };
+          t.exec.files = ['.awf/reports/review/review-r1.md'];
+        } else {
+          t.status = 'done';
+        }
+      }
+      fs.writeFileSync(path.join(tmpDir, '.awf', 'state.json'), JSON.stringify(s));
+      return { done, suspended: false };
+    };
+
+    const { dispatched } = await runScheduler({
+      projectRoot: tmpDir,
+      cfg: CFG({ max: 1 }),
+      dispatcher,
+      waitAnyDone,
+      // 真实门禁闭环钩子（非 mock）：blocked + verdict fail → 派生修复 + 回退复审
+      onTaskComplete: async (id, task) => { await handleGateCompletion(tmpDir, id, task); },
+    });
+
+    // 完整闭环派发序列：产物 → 门禁 → 自动派生修复 → 修复完成 → 门禁复审
+    expect(sent).toEqual(['T1', 'R1', 'R1-F1', 'R1']);
+    expect(dispatched).toBe(4);
+
+    const final = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));
+    expect(final.tasks.find((t) => t.id === 'R1').status).toBe('done'); // 复审通过，闭环收敛
+    expect(final.tasks.some((t) => t.id === 'R1-F1')).toBe(true);      // 修复任务真实派生
+    expect(final.tasks.find((t) => t.id === 'R1').exec.recheck).toBe(1);
+  });
+
+  it('TC-S8: 门禁闭环达轮次上限——修复任务持续派生到 MAX_RECHECK 后停', async () => {
+    writeState(tmpDir, [
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
+      { id: 'R1', kind: 'review', title: '审查 T1', plannedFiles: [], status: 'pending', deps: ['T1'] },
+    ]);
+
+    // 每次门禁执行都 fail（复审也 fail）→ 调度器不断派生修复 → 第 4 次门禁执行达上限 → 停。
+    // 完成序列（8 步）：T1, R1(blocked)→F1, F1, R1(blocked)→F2, F2, R1(blocked)→F3, F3, R1(blocked→上限)
+    const steps = [
+      ['T1'], ['R1'], ['R1-F1'], ['R1'], ['R1-F2'], ['R1'], ['R1-F3'], ['R1'],
+    ];
+
+    let i = 0;
+    const stepWait = async () => {
+      if (i >= steps.length) throw new Error('completion steps exhausted — 调度序列与预期不符');
+      const done = steps[i];
+      i++;
+      const s = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));
+      for (const id of done) {
+        const t = s.tasks.find((x) => x.id === id);
+        if (!t) continue;
+        if (id === 'R1') {
+          t.status = 'blocked'; // 门禁每次执行都 fail
+          t.exec = t.exec || {};
+          t.exec.verdict = { level: 'fail', conclusion: '仍失败' };
+          t.exec.files = ['.awf/reports/review/review-r1.md'];
+        } else {
+          t.status = 'done'; // 产物 / 修复任务正常完成
+        }
+      }
+      fs.writeFileSync(path.join(tmpDir, '.awf', 'state.json'), JSON.stringify(s));
+      return { done, suspended: false };
+    };
+
+    const { dispatched } = await runScheduler({
+      projectRoot: tmpDir,
+      cfg: CFG({ max: 1 }),
+      dispatcher,
+      waitAnyDone: stepWait,
+      onTaskComplete: async (id, task) => { await handleGateCompletion(tmpDir, id, task); },
+    });
+
+    // T1 + R1×4 + F1/F2/F3 = 8 次派发；第 4 次 R1 达上限不再派生
+    expect(dispatched).toBe(8);
+    const final = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));
+    expect(final.tasks.filter((t) => t.id.startsWith('R1-F'))).toHaveLength(MAX_RECHECK);
+    expect(final.tasks.find((t) => t.id === 'R1').status).toBe('blocked'); // 达上限保持 blocked
   });
 });

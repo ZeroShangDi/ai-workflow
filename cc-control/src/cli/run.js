@@ -6,6 +6,7 @@ import { taskWrapup, taskSettle, contextCheck } from '../lib/plugin-bridge.js';
 import { installProjectMcp } from '../lib/profile.js';
 import { loadState, findNextTask, backupState, saveState } from '../lib/state.js';
 import { loadRunConfig } from '../lib/run-config.js';
+import { handleGateCompletion } from './gate-fix.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, sendCmd, getContextReady, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
 import { logSection, logStep } from '../lib/ui/log.js';
@@ -196,6 +197,14 @@ async function runLoop(projectRoot) {
       }
     } else {
       consecutiveTimeouts = 0;
+    }
+
+    // 门禁闭环：刚执行的门禁任务（review/test）blocked + verdict 非 pass
+    // → 派生修复任务 + 回退复审（handleGateCompletion 内部重载 state 判定）
+    const executed = currentState?.tasks?.find((t) => t.id === nextTask.id);
+    if (executed && (executed.kind === 'review' || executed.kind === 'test') && executed.status === 'blocked') {
+      await handleGateCompletion(projectRoot, nextTask.id, executed);
+      currentState = loadState(projectRoot); // 已改盘（门禁回退 pending + 新修复任务），重载使 findNextTask 纳入
     }
   }
 

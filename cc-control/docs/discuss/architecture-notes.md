@@ -91,6 +91,28 @@ tmux、HTTP server、plugin 配置等基础设施对用户透明，体验上不�
 
 ---
 
+## 门禁闭环决策（2026-08-29）
+
+> 触发：T2-011（review）/ T2-012（test）门禁判定 `changes_requested`/`fail`，报告落盘后任务被标 `done`，发现从未被处理（人工补修复后复盘）。根因：**门禁判定存在报告自由文本里，调度器不解析，fail 与 pass 走同一条 done 路径，永不派生修复任务**。
+
+### 决策
+
+1. **verdict 结构化** — 门禁任务（kind=review/test）RESULT 旁挂 `verdict: { level: "pass|changes_requested|fail", conclusion }`，`settleSubagent` / `awf_task_complete` 落 `exec.verdict`；非 pass 必须 `status:"failed"`（映射 blocked 终态）。
+2. **fail → 自动派生修复 + 复审闭环** — CLI 检测「blocked + verdict 非 pass」→ `spawnGateFixTask`（state.js 纯函数）派生修复任务（kind=dev，deps=门禁原deps，plannedFiles=[] 保守串行）→ 门禁回退 pending + deps 追加修复任务 → 修复完成门禁重新就绪复审，直至 pass。
+3. **轮次上限 `MAX_RECHECK = 3`** — 达上限保持 blocked，CLI 告警「需人工介入」，防死循环烧 token。
+4. **单/多 agent 双路径同构** — 多 agent 走 `runScheduler.onTaskComplete`（await 在池刷新前落盘）；单 agent 走 `runLoop` 执行后检测，共用 `handleGateCompletion`（gate-fix.js）。
+5. **无 verdict 不派生** — 旧协议 / 卡住的 blocked 门禁视为无法自动闭环，保持 blocked 需人工介入（保守）。
+
+### 依赖无死锁验证
+
+`F1.deps = 门禁原deps`（均为 done）→ F1 立即就绪；F1 done → 门禁 `deps = 原deps + F1` 全 done → 门禁重新就绪复审。修复任务 plannedFiles=[] → 保守串行不与任何任务并行。
+
+### 人工流程对应
+
+修复任务 prompt 引用报告路径（`exec.files` 中 `.awf/reports/` 项）+ verdict.conclusion + 继承验收标准——子 Agent / 主会话直接读报告定向修复，不复述判定。
+
+---
+
 ## 阶段内上下文管理：自动 Checkpoint 与主动压缩（2026-07-17）
 
 ### 问题

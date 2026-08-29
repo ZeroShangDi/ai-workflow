@@ -80,6 +80,7 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
 阶段驱动关键设计：
 - **单 agent（runLoop）**：每个阶段前，CLI 通过 `claude -p` 生成优化后的 prompt，再发往 tmux session
 - **多 agent（runBatchLoop）**：CLI 拥有调度权，经 plugin-bridge `subagentDispatch` 生成派发 prompt，主会话派生后台子 Agent 并行执行；子 Agent 禁写 state、只输出 RESULT/NEEDS_INPUT
+- **门禁闭环**：门禁任务（kind=review/test）输出结构化 verdict（`exec.verdict`，见 awf-worker.md）；CLI 检测「blocked + verdict 非 pass」→ 自动派生修复任务（kind=dev）+ 门禁回退 pending 待复审，直至 pass 或达轮次上限（MAX_RECHECK=3），单/多 agent 双路径均生效
 - **Session Server** 通过 Claude Code Hooks（`SessionStart`/`Stop` → ready，`UserPromptSubmit` → busy）感知状态；`SubagentStart/Stop` 感知子 Agent 生命周期，`PreToolUse(AskUserQuestion)` 感知决策请求
 - **阶段间上下文天然断裂** — 每个阶段的 prompt 重新构造，不依赖上一阶段对话历史
 - **AI 通过 MCP tools 更新 state.json**（`awf_task_status`、`awf_task_result`、`awf_phase`、`awf_task_complete` 等），不再需要 curl
@@ -198,7 +199,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 | `awf_task_status` | 更新任务状态（pending/active/done/blocked） |
 | `awf_task_result` | 记录执行结果和产出文件 |
 | `awf_task_commit` | 追加 commit 记录 |
-| `awf_task_complete` | 原子完成一个任务：一次提交 status + result + files + commits（替代多次 status/result/commit 调用，避免落账中间态）；status 缺省 done |
+| `awf_task_complete` | 原子完成一个任务：一次提交 status + result + files + commits + verdict（替代多次 status/result/commit 调用，避免落账中间态）；status 缺省 done |
 | `awf_task_create` | 创建任务 |
 | `awf_task_update` | 更新任务字段 |
 | `awf_task_delete` | 删除任务 |

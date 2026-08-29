@@ -14,6 +14,7 @@ const m = vi.hoisted(() => ({
   mockLoadState: vi.fn(() => null),
   mockGetStatus: vi.fn(),
   mockHandleDecision: vi.fn(),
+  mockHandleGateCompletion: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../../src/lib/plugin-bridge.js', () => ({ subagentDispatch: m.mockSubagentDispatch }));
@@ -24,6 +25,7 @@ vi.mock('../../src/lib/state.js', () => ({
 }));
 vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
 vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
+vi.mock('../../src/cli/gate-fix.js', () => ({ handleGateCompletion: m.mockHandleGateCompletion }));
 
 import { runBatchLoop } from '../../src/cli/run-batch.js';
 
@@ -133,5 +135,20 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     });
     await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
     expect(captured).toBeTypeOf('function');
+  });
+
+  it('TC-H: onTaskComplete 接线到 handleGateCompletion（门禁闭环钩子）', async () => {
+    let captured;
+    m.mockRunScheduler.mockImplementation(async ({ onTaskComplete }) => {
+      captured = onTaskComplete;
+      return { dispatched: 0 };
+    });
+    await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
+    expect(captured).toBeTypeOf('function');
+
+    // 触发完成回调：门禁任务 blocked → handleGateCompletion 被调用（projectRoot/id/task 透传）
+    const gateTask = { id: 'R1', kind: 'review', status: 'blocked', exec: { verdict: { level: 'fail' } } };
+    await captured('R1', gateTask);
+    expect(m.mockHandleGateCompletion).toHaveBeenCalledWith('/tmp/proj', 'R1', gateTask);
   });
 });

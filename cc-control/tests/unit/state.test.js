@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { loadState, saveState, findNextTask, getCurrentPhase, isMilestoneDone, selectReadyBatch } from '../../src/lib/state.js';
+import { loadState, saveState, findNextTask, getCurrentPhase, isMilestoneDone, selectReadyBatch, spawnGateFixTask, MAX_RECHECK } from '../../src/lib/state.js';
 
 describe('state.js — CLI', () => {
   let tmpDir;
@@ -320,6 +320,76 @@ describe('state.js — CLI', () => {
       };
       // T1 目录 src/util/ 与 T2 冲突；T3 独立
       expect(selectReadyBatch(state, { agents: { max: 3 } }).map(t => t.id)).toEqual(['T1', 'T3']);
+    });
+  });
+
+  // ── spawnGateFixTask（门禁闭环）──
+
+  describe('spawnGateFixTask', () => {
+    const gateBase = {
+      id: 'R1', kind: 'review', title: '审查 T1', status: 'blocked',
+      deps: ['T1'],
+      exec: { verdict: { level: 'changes_requested', conclusion: '2 处失效引用' }, files: ['.awf/reports/review/review-r1.md'] },
+    };
+
+    it('TC-G1: blocked + verdict 非 pass → 派生修复任务 + 回退门禁待复审', () => {
+      const state = { tasks: [{ ...gateBase }] };
+      const fixId = spawnGateFixTask(state, state.tasks[0]);
+      expect(fixId).toBe('R1-F1');
+      const fix = state.tasks.find((t) => t.id === 'R1-F1');
+      expect(fix.kind).toBe('dev');
+      expect(fix.status).toBe('pending');                     // 必须 pending 才进就绪池
+      expect(fix.deps).toEqual(['T1']);                       // 复制原产物依赖
+      expect(fix.plannedFiles).toEqual([]);                   // 保守串行
+      expect(fix.prompt).toContain('.awf/reports/review/review-r1.md'); // 报告路径入 prompt
+      expect(fix.prompt).toContain('changes_requested');      // verdict.conclusion 入 prompt
+      // 门禁回退
+      const gate = state.tasks.find((t) => t.id === 'R1');
+      expect(gate.status).toBe('pending');
+      expect(gate.deps).toEqual(['T1', 'R1-F1']);
+      expect(gate.exec.recheck).toBe(1);
+      expect(gate.exec.verdict).toEqual(gateBase.exec.verdict); // verdict 保留
+    });
+
+    it('TC-G2: verdict pass → 不派生', () => {
+      const state = { tasks: [{ ...gateBase, exec: { verdict: { level: 'pass', conclusion: 'ok' } } }] };
+      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+      expect(state.tasks.length).toBe(1);
+    });
+
+    it('TC-G3: 无 verdict → 不派生（旧协议/卡住）', () => {
+      const state = { tasks: [{ ...gateBase, exec: { result: 'x' } }] };
+      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+    });
+
+    it('TC-G4: 非 blocked → 不派生', () => {
+      const state = { tasks: [{ ...gateBase, status: 'done' }] };
+      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+    });
+
+    it('TC-G5: 非门禁 kind → 不派生', () => {
+      const state = { tasks: [{ ...gateBase, kind: 'dev' }] };
+      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+    });
+
+    it('TC-G6: 达轮次上限 → 返回 null（保持 blocked）', () => {
+      const state = { tasks: [{ ...gateBase, exec: { ...gateBase.exec, recheck: MAX_RECHECK } }] };
+      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+      expect(state.tasks[0].status).toBe('blocked');
+    });
+
+    it('TC-G7: 第二轮派生 id 递增为 -F2，deps 追加到 F1，recheck=2', () => {
+      const state = {
+        tasks: [
+          { ...gateBase, deps: ['T1', 'R1-F1'], exec: { ...gateBase.exec, recheck: 1 } },
+          { id: 'R1-F1', kind: 'dev', status: 'done', deps: ['T1'] },
+        ],
+      };
+      const gate = state.tasks.find((t) => t.id === 'R1');
+      expect(spawnGateFixTask(state, gate)).toBe('R1-F2');
+      expect(state.tasks.find((t) => t.id === 'R1').deps).toEqual(['T1', 'R1-F1', 'R1-F2']);
+      expect(state.tasks.find((t) => t.id === 'R1').exec.recheck).toBe(2);
+      expect(state.tasks.some((t) => t.id === 'R1-F2')).toBe(true);
     });
   });
 });

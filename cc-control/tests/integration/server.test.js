@@ -632,6 +632,23 @@ describe('/hook 事件', () => {
     // 落账成功 → 不写失败记录（不再触发补发）
     expect(fs.existsSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'))).toBe(false);
   });
+
+  it('TC45: RESULT 带 verdict → 落账写 exec.verdict（门禁闭环依据）', async () => {
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', kind: 'review', status: 'pending' }],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-g' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-g',
+      last_assistant_message: 'RESULT: {"taskId": "T1", "status": "failed", "verdict": {"level": "fail", "conclusion": "方向性错误"}, "result": "门禁 FAIL", "files": [".awf/reports/review/review-r1.md"]}',
+    });
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('blocked'); // failed → blocked 终态
+    expect(s.tasks[0].exec.verdict).toEqual({ level: 'fail', conclusion: '方向性错误' });
+    expect(s.tasks[0].exec.result).toBe('门禁 FAIL');
+    expect(s.tasks[0].exec.files).toEqual(['.awf/reports/review/review-r1.md']);
+  });
 });
 
 // ─────────────────────────────────────────────
