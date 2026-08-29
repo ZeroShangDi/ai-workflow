@@ -73,6 +73,14 @@ function logSubagentNeedsInput(body, needs) {
   }
 }
 
+/** 每次 run 启动清空驱动 CLI 补发/决策的日志，避免跨 run 残留触发伪补发。
+ *  仅清驱动类日志（failed/needs）；subagent-events.jsonl 是纯观测日志，保留便于取证。 */
+function resetRunLogs() {
+  for (const p of [SUBAGENT_FAILED_LOG, SUBAGENT_NEEDS_LOG]) {
+    try { fs.writeFileSync(p, ''); } catch { /* 目录未创建/无权限时忽略 */ }
+  }
+}
+
 // ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
 // 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
 const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
@@ -101,27 +109,29 @@ function parseSubagentResult(body) {
   if (!m) return null;
   try {
     const r = JSON.parse(m[1]);
-    if (r && typeof r.taskId === 'string' && (r.status === 'done' || r.status === 'blocked')) return r;
+    if (r && typeof r.taskId === 'string' && (r.status === 'done' || r.status === 'blocked' || r.status === 'failed' || r.status === 'fail')) return r;
   } catch { /* 解析失败 */ }
   return null;
 }
 
-/** SubagentStop 落账：写 state（task status + exec.result/files/commits）；返回 { ok, taskId?, reason? } */
+/** SubagentStop 落账：写 state（task status + exec.result/files/commits）；返回 { ok, taskId?, reason?, recoverable? } */
 function settleSubagent(body) {
   const result = parseSubagentResult(body);
   if (!result) return { ok: false, reason: 'no valid RESULT in last_assistant_message' };
   return withStateLock(() => {
     let s;
-    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, reason: 'state.json unreadable' }; }
+    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, reason: 'state.json unreadable', recoverable: false }; }
     const task = (s.tasks || []).find((t) => t.id === result.taskId);
     if (!task) return { ok: false, reason: `task ${result.taskId} not found` };
     // 指向已完成/已阻塞任务 → 拒绝：RESULT taskId 可能错写（如 X1 子 Agent 误写成已 done 的 T3），
-    // 否则落账"假成功"（错标已有任务），真实任务永不落账且不触发补发
+    // 否则落账"假成功"（错标已有任务），真实任务永不落账且不触发补发。
+    // recoverable:false → 良性（phantom 先落账/重复 Stop），不写失败记录、不触发 CLI 补发
     if (task.status === 'done' || task.status === 'blocked') {
-      return { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）` };
+      return { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）`, recoverable: false };
     }
     if (!task.exec) task.exec = {};
-    task.status = result.status;
+    // failed/fail 是协议允许的终态（awf-worker.md: done|blocked|failed），但调度只认 blocked 为终态，映射之
+    task.status = (result.status === 'failed' || result.status === 'fail') ? 'blocked' : result.status;
     if (result.result !== undefined) task.exec.result = result.result;
     if (result.files) task.exec.files = result.files;
     if (result.commits) { task.commits = task.commits || []; task.commits.push(...result.commits); }
@@ -272,28 +282,35 @@ const server = http.createServer(async (req, res) => {
         logger.captureFromTranscript();
       }
     } else if (event === 'SubagentStart') {
-      // 只观测，不驱动主闩锁
-      const key = body.session_id || body.agent_id || 'unknown';
+      // 只观测，不驱动主闩锁。以 agent_id 键控（子 agent 共享父会话 session_id，用它做 key 会塌缩成一个）
+      const key = body.agent_id || body.session_id || 'unknown';
       agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
       logSubagentEvent(event, body);
     } else if (event === 'SubagentStop') {
-      const key = body.session_id || body.agent_id || 'unknown';
+      const key = body.agent_id || body.session_id || 'unknown';
       const a = agents.get(key);
       if (a) a.status = 'stopped';
       logSubagentEvent(event, body);
-      // 决策上抛优先：NEEDS_INPUT → 写记录（不落账，任务等待；CLI 暂停补位、主 Agent 原生 AskUserQuestion）
-      const needs = parseSubagentNeedsInput(body);
-      if (needs) {
-        logSubagentNeedsInput(body, needs);
-        console.log(`[subagent-needs] ${needs.taskId}: ${needs.question.slice(0, 40)}`);
+      // 未跟踪的 Stop（无 SubagentStart：伪事件/非本 run 派发）仅观测，不落账、不写失败记录 ——
+      // 否则会为不存在的子 Agent 生成失败记录 → CLI 补发到幽灵 agent，反复 RESET/等待
+      if (!a) {
+        console.log(`[subagent-stop] skip untracked agent ${key} (no SubagentStart)`);
       } else {
-        // 落账：解析 RESULT → 写 state；失败记录（CLI 据此补发）
-        const settled = settleSubagent(body);
-        if (!settled.ok) {
-          console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
-          logSubagentFailure(body, settled);
+        // 决策上抛优先：NEEDS_INPUT → 写记录（不落账，任务等待；CLI 暂停补位、主 Agent 原生 AskUserQuestion）
+        const needs = parseSubagentNeedsInput(body);
+        if (needs) {
+          logSubagentNeedsInput(body, needs);
+          console.log(`[subagent-needs] ${needs.taskId}: ${needs.question.slice(0, 40)}`);
         } else {
-          console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
+          // 落账：解析 RESULT → 写 state；失败记录（CLI 据此补发）
+          const settled = settleSubagent(body);
+          if (!settled.ok) {
+            console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
+            // recoverable:false = 良性（already done / state 不可读），不触发补发
+            if (settled.recoverable !== false) logSubagentFailure(body, settled);
+          } else {
+            console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
+          }
         }
       }
     }
@@ -491,6 +508,7 @@ const server = http.createServer(async (req, res) => {
 
 // ---- lifecycle: CLI 以子进程方式运行；测试中可显式 start/stop ----
 function start(port = PORT) {
+  resetRunLogs();
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
@@ -536,6 +554,7 @@ module.exports = {
 };
 
 if (require.main === module) {
+  resetRunLogs();
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
   });

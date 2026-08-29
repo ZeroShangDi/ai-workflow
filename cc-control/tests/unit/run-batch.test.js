@@ -80,12 +80,14 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
       return { dispatched: 0 };
     });
     m.mockHttpPostJson.mockResolvedValue({ ok: true });
+    // 先清残留：cursor 初始化必须看到空日志（跨次运行幂等，避免历史记录抬高游标跳过本条）
+    const failedLog = '/tmp/proj/.awf/logs/subagent-failed.jsonl';
+    fs.rmSync(failedLog, { force: true });
+    fs.mkdirSync(path.dirname(failedLog), { recursive: true });
     await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
 
-    // 预置失败记录（server 落账失败时写入的）
-    const failedLog = '/tmp/proj/.awf/logs/subagent-failed.jsonl';
-    fs.mkdirSync(path.dirname(failedLog), { recursive: true });
-    fs.writeFileSync(failedLog, JSON.stringify({ ts: '2026-01-01T00:00:00.000Z', agentId: 'agent-bad', reason: 'task T999 not found', resultTaskId: 'T999' }) + '\n');
+    // 预置失败记录（server 落账失败时写入的）——用当前时间，保证 > 起始游标 0
+    fs.writeFileSync(failedLog, JSON.stringify({ ts: new Date().toISOString(), agentId: 'agent-bad', reason: 'task T999 not found', resultTaskId: 'T999' }) + '\n');
 
     // 驱动 waitAnyDone：先无完成（触发补发检测），后 T1 完成（返回）
     m.mockLoadState

@@ -10,7 +10,8 @@
 //      跨回合运行，并发由子 Agent 维持。
 // 落账：子 Agent 结束 → SubagentStop hook → server 解析 last_assistant_message 的 RESULT → 写 state
 // 完成感知：CLI 轮询 state 检测运行中任务 done/blocked（容忍延迟）
-// 补发：hook 落账失败（缺字段）→ 预留 SendMessage 恢复子 Agent 补齐（后续实现）
+// 补发：hook 落账失败 → 读 subagent-failed.jsonl → SendMessage 恢复子 Agent 补齐 RESULT
+// 决策上抛：NEEDS_INPUT → 读 subagent-needs-input.jsonl → 标记挂起，暂停补位等主 Agent 问用户
 
 import path from 'node:path';
 import fs from 'node:fs';
@@ -26,12 +27,27 @@ const POLL_MS = 2000;
 const WAIT_TIMEOUT_MS = 15 * 60 * 1000; // 单轮等待上限 15min，超时中断暴露问题
 const RESEND_MAX = 2; // 单个子 Agent 落账补发上限
 
+/** 读取日志中已有记录的最大 ts（毫秒）；文件不存在/空 → 0。起始游标取此值，
+ *  跳过历史残留（此前 run 未清干净 / server 未清空），避免整段重放触发伪补发。 */
+function maxTsFromLog(logPath) {
+  let max = 0;
+  let raw;
+  try { raw = fs.readFileSync(logPath, 'utf-8'); } catch { return 0; }
+  for (const line of raw.trim().split('\n').filter(Boolean)) {
+    try {
+      const t = new Date(JSON.parse(line).ts).getTime();
+      if (Number.isFinite(t) && t > max) max = t;
+    } catch { /* 跳过坏行 */ }
+  }
+  return max;
+}
+
 /** 轮询 state 检测完成 + 落账失败补发 + 决策上抛挂起（NEEDS_INPUT 未解决 → suspended） */
 function makeWaitAnyDone(projectRoot, dispatcher) {
   const failedLog = path.join(projectRoot, '.awf', 'logs', 'subagent-failed.jsonl');
   const needsLog = path.join(projectRoot, '.awf', 'logs', 'subagent-needs-input.jsonl');
-  let lastFailedTs = 0; // 上次处理的失败记录时间
-  let lastNeedsTs = 0;  // 上次处理的决策上抛记录时间
+  let lastFailedTs = maxTsFromLog(failedLog); // 上次处理的失败记录时间（毫秒游标）
+  let lastNeedsTs = maxTsFromLog(needsLog);   // 上次处理的决策上抛记录时间（毫秒游标）
   const resendCount = new Map(); // agentId -> 已补发次数
   const pendingNeeds = new Map(); // taskId -> true（决策挂起中）
   let resending = false;
@@ -44,8 +60,9 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
       try { raw = fs.readFileSync(failedLog, 'utf-8'); } catch { return; }
       for (const line of raw.trim().split('\n').filter(Boolean)) {
         const rec = JSON.parse(line);
-        if (!rec.ts || rec.ts <= lastFailedTs) continue;
-        lastFailedTs = rec.ts;
+        const recTs = rec.ts ? new Date(rec.ts).getTime() : NaN;
+        if (!Number.isFinite(recTs) || recTs <= lastFailedTs) continue;
+        lastFailedTs = recTs;
         const agentId = rec.agentId;
         const count = resendCount.get(agentId) || 0;
         if (count >= RESEND_MAX) {
@@ -70,8 +87,9 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
     try { raw = fs.readFileSync(needsLog, 'utf-8'); } catch { return; }
     for (const line of raw.trim().split('\n').filter(Boolean)) {
       const rec = JSON.parse(line);
-      if (!rec.ts || rec.ts <= lastNeedsTs) continue;
-      lastNeedsTs = rec.ts;
+      const recTs = rec.ts ? new Date(rec.ts).getTime() : NaN;
+      if (!Number.isFinite(recTs) || recTs <= lastNeedsTs) continue;
+      lastNeedsTs = recTs;
       if (rec.taskId) {
         pendingNeeds.set(rec.taskId, true);
         logStep('', 'warn', `任务 ${rec.taskId} 需决策（${rec.question.slice(0, 40)}...），暂停补位等待主 Agent 提问`);
