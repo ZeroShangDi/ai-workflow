@@ -12,6 +12,7 @@
  *   4. 播种 state.json（等于 plan 的产物，用例自备，避免交互式 plan）
  *   5. awf run（真实：spawn server + tmux + claude，逐任务执行）
  *   6. 评分：state.json 任务 done + exec.result 非空 + 产物文件存在 + 校验命令退出码 0
+ *   7. 沙箱与日志默认全部保留（含通过用例的 eval.log），便于复盘/排查；--clean 可自动清理成功用例
  */
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -30,7 +31,7 @@ const RUN_TIMEOUT_MS = Number(process.env.AWF_EVAL_TIMEOUT_MS || 15 * 60 * 1000)
 
 const args = process.argv.slice(2);
 const listOnly = args.includes('--list');
-const keep = args.includes('--keep');
+const clean = args.includes('--clean'); // --clean: 成功用例自动清理沙箱（默认保留沙箱与日志）
 const onlyIdx = args.indexOf('--only');
 const only = onlyIdx !== -1 ? args[onlyIdx + 1] : null;
 
@@ -266,7 +267,8 @@ function printResult(r) {
   for (const ch of r.checks) {
     console.log(`    ${ch.ok ? '  ✔' : '  ✘'} ${ch.msg}`);
   }
-  if (!r.ok) console.log(`    日志: ${r.logPath}`);
+  console.log(`    沙箱: ${r.sandbox}`);
+  console.log(`    日志: ${r.logPath}`);
 }
 
 // ── main ──
@@ -293,9 +295,9 @@ async function main() {
     const r = await runCase(c);
     results.push(r);
     printResult(r);
-    if (!keep && r.sandbox && fs.existsSync(r.sandbox)) {
-      // 保留日志目录供失败排查；成功用例默认清理沙箱
-      if (r.ok) fs.rmSync(r.sandbox, { recursive: true, force: true });
+    if (clean && r.ok && r.sandbox && fs.existsSync(r.sandbox)) {
+      // 默认保留沙箱与完整运行日志（eval.log），通过也保留，便于复盘/排查
+      fs.rmSync(r.sandbox, { recursive: true, force: true });
     }
   }
 
