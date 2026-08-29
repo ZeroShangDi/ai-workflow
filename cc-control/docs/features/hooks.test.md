@@ -1,19 +1,19 @@
 # CC Hooks 模块 — 测试用例文档
 
 > 对应需求文档：`docs/features/hooks.md`
-> 源码文件：`src/server/hooks/settings.json` + `src/server/server.cjs` 的 `/hook` 路由
+> 源码文件：`plugin/config.json`（hooks 段，`__PORT__` 占位，render-config.mjs 渲染为 `plugin/core/hooks/hooks.json`）+ `src/server/server.cjs` 的 `/hook` 路由
 > 测试文件：`tests/unit/hooks.test.js`
 
 ---
 
 ## 测试场景总览
 
-### settings.json 结构验证 — 5 个 TC
+### config.json hooks 结构验证 — 5 个 TC
 
 | # | 场景 | 类别 |
 |---|------|------|
 | 1 | 文件存在且为合法 JSON | 存在性 |
-| 2 | 包含 5 个 Hook 事件键 | 结构 |
+| 2 | 包含 7 个 Hook 事件键 | 结构 |
 | 3 | 每个 Hook 的 curl 命令完整性 | 结构 |
 | 4 | `__PORT__` 占位符存在 | 模板 |
 | 5 | PreToolUse matcher 为 "AskUserQuestion" | 结构 |
@@ -57,7 +57,7 @@
 
 **前置条件**：项目目录
 
-**执行**：`JSON.parse(fs.readFileSync('src/server/hooks/settings.json'))`
+**执行**：`JSON.parse(fs.readFileSync('plugin/config.json'))`
 
 **断言**：
 - 文件存在
@@ -66,9 +66,9 @@
 
 ---
 
-### TC2: 包含 5 个 Hook 事件键
+### TC2: 包含 7 个 Hook 事件键
 
-**前置条件**：settings.json 已解析
+**前置条件**：config.json 已解析
 
 **执行**：检查 `Object.keys(config.hooks)`
 
@@ -76,22 +76,23 @@
 - 包含 `SessionStart`
 - 包含 `UserPromptSubmit`
 - 包含 `Stop`
+- 包含 `SubagentStart`
+- 包含 `SubagentStop`
 - 包含 `PreToolUse`
 - 包含 `PostToolUse`
-- 恰好 5 个键
+- 恰好 7 个键
 
 ---
 
 ### TC3: 每个 Hook 的 curl 命令完整性
 
-**前置条件**：settings.json 已解析
+**前置条件**：config.json 已解析
 
-**执行**：遍历 5 个 hook，检查每个 hook 的 command 字符串
+**执行**：遍历 7 个 hook，检查每个 hook 的 command 字符串
 
 **断言**（每个 hook）：
 - 包含 `curl`
 - 包含 `http://127.0.0.1:__PORT__/hook`
-- 包含 `-X POST` 或 `POST`
 - 包含 `>/dev/null 2>&1`
 - 第一个 hooks 数组至少 1 个元素
 - 每个 hook 配置的 type 为 `"command"`
@@ -112,13 +113,13 @@
 
 ### TC5: PreToolUse matcher 为 "AskUserQuestion"
 
-**前置条件**：settings.json 已解析
+**前置条件**：config.json 已解析
 
 **执行**：检查 `config.hooks.PreToolUse[0].matcher`
 
 **断言**：
 - matcher 值为 `"AskUserQuestion"`
-- 其他 4 个 hook 无 matcher 字段或 matcher 为 undefined
+- 其他 hook 无 matcher 字段或 matcher 为 undefined（SessionStart/UserPromptSubmit/Stop/PostToolUse）
 
 ---
 
@@ -299,38 +300,40 @@ POST /hook {
 
 ---
 
-### TC18: SessionStart curl 命令格式验证
+### TC18: SessionStart curl 命令格式验证（透传 stdin）
 
-**前置条件**：读取 settings.json
+**前置条件**：读取 config.json
 
-**执行**：提取 `hooks.SessionStart[0].hooks[0].command`
+**执行**：提取 `config.hooks.SessionStart[0].hooks[0].command`
 
 **断言**：
-- 以 `curl` 开头
+- 包含 `curl`
 - 包含 `-X POST`
-- 包含 `-d '{"event":"SessionStart"}'`（硬编码 JSON）
-- 以 `|| true` 结尾
-- 不包含 `-d @-`（不从 stdin 读取）
+- 包含 `?event=SessionStart`
+- 包含 `-d @-`（透传原始 payload，server 据此记录 mainSessionId）
+- 包含 `sh -c '`
+- 以 `; exit 0` 结尾
 
 ---
 
 ### TC19: Stop curl 使用 `-d @-`
 
-**前置条件**：读取 settings.json
+**前置条件**：读取 config.json
 
-**执行**：提取 `hooks.Stop[0].hooks[0].command`
+**执行**：提取 `config.hooks.Stop[0].hooks[0].command`
 
 **断言**：
-- 包含 `-d @-`（从 stdin 读取 body）
+- 包含 `-d @-`（透传 session_id，子 agent Stop 不误翻主闩锁）
 - event 通过 query string `?event=Stop` 传递
+- 包含 `sh -c '` + `; exit 0`
 
 ---
 
 ### TC20: PreToolUse curl 使用 `sh -c` + `exit 0`
 
-**前置条件**：读取 settings.json
+**前置条件**：读取 config.json
 
-**执行**：提取 `hooks.PreToolUse[0].hooks[0].command`
+**执行**：提取 `config.hooks.PreToolUse[0].hooks[0].command`
 
 **断言**：
 - 以 `sh -c '` 开头
@@ -341,15 +344,14 @@ POST /hook {
 
 ### TC21: 所有 curl 都有 `-m 2` 和容错
 
-**前置条件**：读取 settings.json
+**前置条件**：读取 config.json
 
-**执行**：检查 5 个 hook 的 command 字符串
+**执行**：检查全部 7 个 hook 的 command 字符串
 
 **断言**：
 - 每个 command 包含 `-m 2`（2 秒超时）
 - 每个 command 包含 `>/dev/null 2>&1`
-- SessionStart/UserPromptSubmit/Stop/PostToolUse 以 `|| true` 结尾
-- PreToolUse 以 `; exit 0` 结尾（等效容错）
+- 容错统一：透传类（SessionStart/UserPromptSubmit/Stop/SubagentStart/SubagentStop/PreToolUse）以 `; exit 0` 结尾，PostToolUse 以 `|| true` 结尾
 
 ---
 
@@ -357,7 +359,7 @@ POST /hook {
 
 | 模块 | 方式 | 说明 |
 |------|------|------|
-| settings.json | 直接读取文件 | 不用 mock，验证静态结构 |
+| config.json | 直接读取文件 | 不用 mock，验证静态结构 |
 | /hook 路由 | 启动 HTTP server 或直接测试 handler | mock tmuxlib + logger + state 变量 |
 | tmuxlib | `vi.mock` | hasSession 返回 true |
 | run-logger | `vi.mock` | 验证 resetTranscript/captureFromTranscript 调用 |

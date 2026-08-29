@@ -440,5 +440,5 @@
 | `node:http` | `vi.mock` + 可控响应 | 模拟所有 HTTP 端点（/status, /send, /respond） |
 | `./paths.js` | `vi.mock` | 返回固定路径 |
 | `./state.js` | `vi.mock` | `loadState` 返回预制 state，控制任务完成状态变化 |
-| `./auto-selector.js` | `vi.mock` | 返回固定选择结果 |
+| `../lib/session/client.js`（autoSelect） | `vi.mock` | 返回固定选择结果 |
 | `node:readline` | `vi.mock` | 模拟用户输入，避免阻塞 |

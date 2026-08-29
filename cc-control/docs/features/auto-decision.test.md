@@ -1,14 +1,14 @@
 # 自动决策模块 — 测试用例文档
 
 > 对应需求文档：`docs/features/auto-decision.md`
-> 源码文件：`src/cli/auto-selector.js` + `src/server/server.cjs`（/hook, /choice, /ask, /respond, /status）
+> 源码文件：`src/lib/session/client.js`（autoSelect / waitForReady）+ `src/server/server.cjs`（/hook, /choice, /ask, /respond, /status）
 > 测试文件：`tests/unit/auto-selector.test.js` + `tests/integration/decision.test.js`
 
 ---
 
 ## 测试场景总览
 
-### auto-selector.js — 4 个 TC
+### src/lib/session/client.js（autoSelect / waitForReady）— 4 个 TC
 
 | # | 场景 | 类别 |
 |---|------|------|
@@ -503,7 +503,7 @@ POST /hook {
 
 | 模块 | 方式 | 说明 |
 |------|------|------|
-| auto-selector | `vi.useFakeTimers` | 控制 5 秒超时，加快测试 |
+| autoSelect / waitForReady | `vi.useFakeTimers` | 控制 5 秒超时，加快测试 |
 | server 状态机 | 直接操作 setDecision/clearDecision/setReady/setBusy/waitReady | 导出函数进行单元测试 |
 | server 路由 | 启动真实 HTTP server 或直接调用 handler | 集成测试用 supertest 风格（http.request） |
 | tmuxlib | `vi.mock` | mock hasSession、sendText、sendEnter |

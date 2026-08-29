@@ -154,6 +154,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 ### plugin-code 插件（plugin/plugin-code/skills/，命名空间 `ai-workflow-code`）
 
 **Plan 阶段（awf-plan-*）**
+- **`awf-plan-level`** — 术语与级别规范：全项目统一的层级定义（生态/系统/项目/模块/功能/任务）+ 核心术语
 - **`awf-plan-norm`** — 需求规范化：原始需求 → 结构化目标/边界/场景/验收标准
 - **`awf-plan-wbs`** — 生成 WBS 空间树（任务拆分）
 - **`awf-plan-tasks`** — 生成任务列表（插入门禁任务）

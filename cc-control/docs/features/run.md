@@ -292,7 +292,7 @@ while (true)
 | `./plugin-bridge.js` (`subagentDispatch`, `taskWrapup`, `taskSettle`, `contextCheck`) | 插件声明提示词读取与占位符填充 |
 | `./scheduler.js` (`runScheduler`) | 滑动窗口调度器（纯逻辑） |
 | `./run-batch.js` (`runBatchLoop`) | 滑动窗口集成（派发 / 完成感知 / 补发 / 决策挂起） |
-| `./auto-selector.js` / `./session/client.js` (`autoSelect`, `waitForReady`) | AskUserQuestion 自动选择、就绪等待 |
+| `../lib/session/client.js` (`autoSelect`, `waitForReady`) | AskUserQuestion 自动选择、就绪等待 |
 | `./profile.js` (`installProjectMcp`) | 项目级 .mcp.json 幂等合并 |
 | `process.env.CC_SESSION` | tmux session 名称（默认 `cc`） |
 | `.awf/logs/subagent-failed.jsonl` | 落账失败记录（CLI 据此补发） |

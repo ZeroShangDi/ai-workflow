@@ -1,7 +1,7 @@
 # tmux & Session 管理模块 — 测试用例文档
 
 > 对应需求文档：`docs/features/tmux-session.md`
-> 源码文件：`src/server/tmux.cjs` + `src/mcp/awf-session/server.cjs`
+> 源码文件：`src/server/tmux.cjs` + `plugin/core/mcp/awf-session/server.cjs`
 > 测试文件：`tests/unit/tmux.test.js` + `tests/integration/awf-session.test.js`
 
 ---

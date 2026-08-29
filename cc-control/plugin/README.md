@@ -47,17 +47,17 @@ plugin/
 │   │   ├── awf-skill/SKILL.md
 │   │   └── awf-state/SKILL.md
 │   └── mcp/                    #   MCP server 实现
-│       ├── awf-state/          #     17 tools，直接文件 I/O
+│       ├── awf-state/          #     18 tools，直接文件 I/O
 │       │   ├── server.cjs
 │       │   └── state.template.json
-│       ├── awf-session/        #     4 tools（tmux 生命周期观测）
+│       ├── awf-session/        #     5 tools（tmux 生命周期观测）
 │       │   └── server.cjs
 │       └── awf-oneshot/        #     1 tool（无状态 LLM 调用）
 │           └── server.cjs
 │
 └── plugin-code/                # 编程层插件 ai-workflow-code
     ├── plugin.json             #   插件声明（无 hooks 字段）
-    ├── prompts.json            #   插件声明提示词模板（plan 入口 + 任务收尾 wrapup）
+    ├── prompts.json            #   插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + batch-*/subagent-dispatch）
     ├── commands/               #   编程领域 slash commands
     │   ├── w-plan.md           #     主规划流程
     │   ├── w-plan-check.md     #     CLI plan 门禁检查
@@ -124,7 +124,7 @@ plugin/
 
 ### core — 引擎层（ai-workflow-core）
 
-- **MCP 3 server**：`awf-state`（17 tools，状态 CRUD）、`awf-session`（4 tools，tmux 观测）、`awf-oneshot`（1 tool，无状态 LLM）
+- **MCP 3 server**：`awf-state`（18 tools，状态 CRUD）、`awf-session`（5 tools，tmux 观测）、`awf-oneshot`（1 tool，无状态 LLM）
 - **7 hooks**：`SessionStart` / `UserPromptSubmit` / `Stop` / `SubagentStart` / `SubagentStop` / `PreToolUse`（matcher: AskUserQuestion）/ `PostToolUse`，全部上报 HTTP Session Server
 - **运行态命令**：`w-start` / `w-pause` / `w-monitor` / `w-state`
 - **运行态技能**：`awf-run-decision` / `awf-run-error` / `awf-run-reset` / `awf-run-review` / `awf-run-test` / `awf-skill` / `awf-state`
@@ -133,7 +133,7 @@ plugin/
 ### plugin-code — 编程层（ai-workflow-code）
 
 - **命令**：`w-plan*` 规划四连（plan/check/wbs/tasks）+ `w-dev` / `w-debug` / `w-review` / `w-test` / `w-doc` / `w-commit` / `w-ui-design` / `w-ui-code`
-- **提示词模板**：`prompts.json` 声明 plan 入口（start/resume/default）与任务收尾 wrapup，runtime 指令由插件声明
+- **提示词模板**：`prompts.json` 声明 plan 入口（start/resume/default）与任务收尾 wrapup/settle、context-check、subagent-dispatch，runtime 指令由插件声明
 - **技能**：`awf-plan-*` 规划五技能 + `code-dev-*` 开发九技能 + `code-review-*` 审查四技能 + `code-test-case` + 通用（`code-context-onboard` / `code-ask-question` / `code-commit-gitflow` / `code-doc` / `code-retro-point`）
 
 ## awf-worker 子 Agent

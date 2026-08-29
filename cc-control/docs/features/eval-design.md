@@ -346,5 +346,5 @@ Phase 3（远期）：持续测评平台
 | 本设计文档 | `docs/features/eval-design.md` | 测评方案 |
 | 实验结果 | `docs/features/eval-results.json` | 45 次实验的原始数据 |
 | HTML 报告 | `docs/features/eval-report.html` | 可视化对比报告 |
-| 采集脚本 | `scripts/eval-runner.js` | 自动化执行 + 采集 |
+| 采集脚本 | `scripts/eval.sh` → `tests/eval/run-eval.mjs` | 自动化执行 + 采集 |
 | Task Prompts | `tests/fixtures/eval-tasks/` | 15 个标准化任务 prompt |

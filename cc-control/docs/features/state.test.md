@@ -1,7 +1,7 @@
 # State 管理模块 — 测试用例文档
 
 > 对应需求文档：`docs/features/state.md`
-> 源码文件：`src/cli/state.js` + `src/mcp/awf-state/server.cjs`
+> 源码文件：`src/lib/state.js` + `plugin/core/mcp/awf-state/server.cjs`
 > 测试文件：`tests/unit/state.test.js` + `tests/integration/awf-state.test.js`
 
 ---

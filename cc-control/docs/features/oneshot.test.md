@@ -1,7 +1,7 @@
 # 单次会话调用模块 — 测试用例文档
 
 > 对应需求文档：`docs/features/oneshot.md`
-> 源码文件：`src/mcp/awf-oneshot/server.cjs`
+> 源码文件：`plugin/core/mcp/awf-oneshot/server.cjs`
 > 测试文件：`tests/integration/awf-oneshot.test.js`
 
 ---

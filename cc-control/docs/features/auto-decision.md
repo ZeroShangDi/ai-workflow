@@ -1,6 +1,6 @@
 # 自动决策模块 — 需求文档
 
-> 源码文件：`src/cli/auto-selector.js` + `src/cli/run.js`（handleDecision）+ `src/server/server.cjs`（decision 相关路由 + needs-input 日志）
+> 源码文件：`src/lib/session/client.js`（autoSelect / waitForReady）+ `src/cli/run.js`（handleDecision）+ `src/server/server.cjs`（decision 相关路由 + needs-input 日志）
 > 多 agent 决策上抛另涉：`src/cli/run-batch.js`（checkNeedsInput 挂起）+ `plugin/core/agents/awf-worker.md`（NEEDS_INPUT 协议）→ 见 §5
 
 ---
@@ -39,7 +39,7 @@ AI (Claude Code)                  Session Server               CLI (awf run)
 
 ---
 
-## 1. auto-selector.js
+## 1. autoSelect（src/lib/session/client.js）
 
 ### 功能描述
 
@@ -297,7 +297,7 @@ NEEDS_INPUT: {"taskId": "<任务ID>", "question": "<问题>", "options": ["<选�
 
 ## 6. 依赖
 
-### auto-selector.js
+### src/lib/session/client.js（autoSelect / waitForReady）
 
 | 模块 | 用途 |
 |------|------|
