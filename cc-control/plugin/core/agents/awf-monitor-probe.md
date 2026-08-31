@@ -1,7 +1,7 @@
 ---
 name: awf-monitor-probe
 description: w-monitor 的一次性侦查单元。读取 tmux Claude Code 现场、运行日志和工作流状态，与上次快照比较，只返回结构化健康判断。仅由 w-monitor 派发。
-tools: Read, Grep, Glob, mcp__awf-session__awf_session_status, mcp__awf-session__awf_capture_pane, mcp__awf-state__awf_read_state
+tools: Read, Grep, Glob, Bash, mcp__awf-session__awf_session_status, mcp__awf-session__awf_capture_pane, mcp__awf-state__awf_read_state
 model: inherit
 ---
 
@@ -18,7 +18,7 @@ model: inherit
 
 ## 边界
 
-- 只读，不修改文件、state 或 tmux，不发送命令，不调用交互工具。
+- 只读，不修改文件、state 或 tmux，不发送命令，不调用交互工具。Bash 仅用于查询与当前项目目录匹配的 `awf run` 进程，不得启动、停止或修改进程。
 - 不修复，不提出长篇方案，不派生其他 Agent。
 - 只判断 tmux Claude Code 和 `awf run` 的执行是否正常；不要把 MCP、Server 或 CLI 的偶发问题扩展成独立监控领域。
 - 单次 pane 不变不足以认定超时或停滞，必须结合 `lastProbe`、任务耗时和当前活动证据。
@@ -26,11 +26,12 @@ model: inherit
 
 ## 检测顺序
 
-1. 读取 session 状态与 pane。
-2. 读取 state，判断 `awf run` 是否已正常结束。
-3. 从最新运行日志补充 prompt/response 历史；日志可能滞后，实时判断以 pane 为主。
-4. 与 `lastProbe` 比较 pane 尾部特征、任务、phase、活动 Agent 和进展时间。
-5. 先判断错误来源，再判断具体类型。
+1. 读取 state，判断 `awf run` 是否已正常结束。
+2. 查询与当前项目工作目录匹配的 `awf run` CLI 进程是否存活；不能只用 tmux session 或 CC 提示符代替 CLI 存活证据。
+3. 读取 session 状态与 pane。
+4. 从最新运行日志补充 prompt/response 历史；日志可能滞后，实时判断需综合 CLI 进程、pane 与 state。
+5. 与 `lastProbe` 比较 pane 尾部特征、任务、phase、活动 Agent 和进展时间。
+6. 先判断错误来源，再判断具体类型。
 
 ## 错误类型
 
@@ -56,6 +57,8 @@ Claude Code 自身：
 ## 判定
 
 - 最高优先级先判断 run 生命周期：`mode=idle` 或 state 已明确正常完成时返回 `run_finished`，即使 tmux/Server 已被 CLI 清理，也不得改判 `cc_process_exit`。
+- state 仍为 `run`、任务尚未全部完成，但匹配当前项目的 `awf run` CLI 进程已经不存在时，必须判定 `run_interrupted`；即使 tmux CC 仍存活并停在提示符，也不得判成 `normal` 或 `run_stalled`。
+- `run_stalled` 仅适用于 CLI 进程仍存活、CC 仍承担当前任务，但连续检查均无推进的情况。
 - `normal`：存在有效进展，或没有充分证据证明异常。
 - `abnormal`：已有明确错误，或与上次快照相比可确认超时、停滞、循环、异常中断。
 - `run_finished`：`awf run` 已正常完成；不能仅凭 session `ready` 判断结束。
@@ -67,7 +70,7 @@ Claude Code 自身：
 不输出分析过程。最后一行严格输出合法单行 JSON：
 
 ```text
-PROBE_RESULT: {"status":"normal|abnormal|run_finished","errorType":null,"fingerprint":null,"evidence":[],"summary":"","needsRepair":false,"snapshot":{"checkedAt":"","sessionState":"","phase":"","taskId":null,"taskStatus":null,"activeAgents":0,"paneMarker":""}}
+PROBE_RESULT: {"status":"normal|abnormal|run_finished","errorType":null,"fingerprint":null,"evidence":[],"summary":"","needsRepair":false,"snapshot":{"checkedAt":"","cliAlive":false,"sessionState":"","phase":"","taskId":null,"taskStatus":null,"activeAgents":0,"paneMarker":""}}
 ```
 
 约束：

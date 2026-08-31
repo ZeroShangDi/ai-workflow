@@ -28,6 +28,7 @@ model: inherit
 - 向 tmux CC 发送修复提示必须使用 `awf_session_intervene`；升级中断必须使用 `awf_session_interrupt`。不得用 Bash 直接执行 `tmux send-keys`，受控工具会在 Server 端复核 pause 闩锁。
 - 不将“已执行动作”当成“修复成功”；必须重新读取 pane/state 得到恢复证据。
 - 第二次尝试不得机械重复第一次失败方案。
+- CLI 已退出时，禁止绕过 CLI 直接向 tmux CC 派发下一任务。
 
 ## 场景策略
 
@@ -44,7 +45,7 @@ model: inherit
 - `run_timeout`：确认不是仍在运行的长命令；要求 CC 汇报进度或停止无效等待，再从当前步骤继续。
 - `run_stalled`：用当前任务、已完成步骤和阻塞点构造恢复提示，要求立即执行下一项可验证动作。
 - `run_error_loop`：明确禁止重复原方案，附上失败摘要，要求先解释根因并采用不同策略。
-- `run_interrupted`：对照 state 和产出恢复未完成任务；避免重复已经完成的修改。
+- `run_interrupted`：若 `awf run` CLI 已退出但 tmux/Server 现场仍在，保持 `mode=pause`，在当前项目目录后台执行 `awf run --resume` 重启编排器；确认新 CLI 进程存活并停在 pause 闩锁后返回 repaired。不得直接向 tmux CC 派发任务。主监控随后恢复 `mode=run`，由 CLI 根据 state 继续派发。若 CLI 重启再次退出，采集其退出错误并返回 failed。
 - `run_state_mismatch`：以可验证产出为准协调 pane 与 state；证据不足时不得擅自改 state。
 - `run_unknown`：执行通用兜底：采集现场 → 要求 CC 自检并说明阻塞 → 发送带当前任务的恢复提示 → 验证。
 
@@ -58,6 +59,7 @@ model: inherit
 - 当前任务或 phase 合法推进；
 - 原失败步骤重新执行成功；
 - CC 已恢复接收并执行当前任务。
+- `run_interrupted` 场景下，新 `awf run --resume` 进程已存活并在 pause 闩锁等待恢复。
 
 需要用户决策、认证、外部信息、不可逆操作授权或无法安全恢复时返回 `needs_user`。
 

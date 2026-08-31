@@ -76,11 +76,13 @@ Claude Code 自身异常采用保守恢复，优先保留现场与当前任务�
 - `run_timeout`：任务超过合理时间且相对上次侦查没有进展。
 - `run_stalled`：CC 仍存活，但 pane、任务、Agent 或阶段均未推进。
 - `run_error_loop`：同一错误、失败命令或无效策略重复出现。
-- `run_interrupted`：任务或 run 在未完成、未结算时意外停止。
+- `run_interrupted`：`awf run` CLI 在任务未全部完成时异常退出；tmux CC 仍在提示符不代表 CLI 存活。
 - `run_state_mismatch`：state 与 pane 中的实际执行结果明显不一致。
 - `run_unknown`：已确认不正常，但无法归入以上类型。
 
 具体策略由 `awf-monitor-repair` 维护。所有未识别异常必须进入 `run_unknown` 通用兜底，不得因缺少场景而放弃处理。
+
+分类优先级：正常完成 → CLI 异常退出（`run_interrupted`）→ CC 自身异常 → CLI 存活时的任务异常。只有确认 CLI 仍存活时，才能使用 `run_timeout` 或 `run_stalled`。`run_interrupted` 的修复必须重启 CLI，禁止直接向 tmux CC 派发下一任务。
 
 ## 侦查返回协议
 

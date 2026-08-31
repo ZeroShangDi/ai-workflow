@@ -222,6 +222,31 @@ describe('runCommand', () => {
     expect(mockSetWorkflowMode).toHaveBeenLastCalledWith('/tmp/mock-cwd', 'idle');
   });
 
+  it('TC2b-1: --resume 重启暂停中的 CLI 时保留 pause 闩锁', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    mockLoadState.mockReturnValue(stateWith({ mode: 'pause', currentState: 'FINISH' }));
+    mockFindNextTask.mockReturnValue(null);
+    httpState.statusResponse = JSON.stringify({
+      state: 'ready', projectRoot: '/tmp/mock-cwd',
+    });
+    mockExecSync.mockImplementation((cmd) => (
+      cmd.startsWith('tmux display-message') ? '/tmp/mock-cwd\n' : Buffer.from('')
+    ));
+
+    const promise = runCommand(undefined, { resume: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    expect(mockSetWorkflowMode).not.toHaveBeenCalledWith('/tmp/mock-cwd', 'run');
+    expect(mockExecSync.mock.calls.some(([cmd]) => (
+      cmd === 'tmux display-message -p -t cc "#{pane_current_path}"'
+    ))).toBe(true);
+  });
+
   it('TC2c: 调度异常时保留 mode=run 和运行现场', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);

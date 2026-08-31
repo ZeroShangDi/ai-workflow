@@ -177,6 +177,7 @@ describe('路由', () => {
     expect(res.body.state).toBe('ready');
     expect(res.body.session).toBe(true);
     expect(res.body.decisionPending).toBeNull();
+    expect(res.body.projectRoot).toBe(projectWithState);
   });
 
   it('TC9: GET /status?snapshot=true → 包含 snapshot', async () => {

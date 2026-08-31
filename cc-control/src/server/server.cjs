@@ -395,7 +395,7 @@ const server = http.createServer(async (req, res) => {
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
     const out = {
-      ok: true, state, session: tmuxlib.hasSession(), decisionPending, contextReady,
+      ok: true, state, session: tmuxlib.hasSession(), projectRoot: PROJECT_ROOT, decisionPending, contextReady,
       mainSessionId,
       activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
     };

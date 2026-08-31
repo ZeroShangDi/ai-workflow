@@ -35,7 +35,10 @@ export async function runCommand(task, options) {
 
   // awf run 是运行模式的真实入口；不要依赖 tmux 内的 slash command 再补写 mode，
   // 否则外部监控在首个 prompt 前无法可靠识别 run 已启动。
-  if (state.mode !== 'run') {
+  // w-monitor 可在 pause 闩锁保持期间用 --resume 重启异常退出的 CLI。
+  // 此时必须保留 pause，等监控验证 CLI 已重新驻留后再显式恢复为 run。
+  const preservePause = options?.resume && state.mode === 'pause';
+  if (state.mode !== 'run' && !preservePause) {
     if (!setWorkflowMode(projectRoot, 'run')) {
       throw new Error('无法将工作流 mode 设置为 run');
     }
@@ -68,6 +71,7 @@ export async function runCommand(task, options) {
     bootstrapScript: paths.bootstrapScript,
     projectRoot: paths.projectRoot,
     workDir: projectRoot,
+    reuseExisting: !!options?.resume,
   });
 
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
@@ -102,18 +106,25 @@ export async function runCommand(task, options) {
 // ── Session 环境管理 ──
 
 /** 启动 Session Server + tmux session 两个基础设施 */
-async function startSession({ serverScript, bootstrapScript, projectRoot, workDir, sessionName = 'cc' }) {
+async function startSession({ serverScript, bootstrapScript, projectRoot, workDir, sessionName = 'cc', reuseExisting = false }) {
   // 项目级 .mcp.json 是 MCP 工具可用的必要条件（enabled-only 插件注册下插件 .mcp.json 不暴露工具）
   // 幂等合并：只刷新 awf-* server 的绝对路径，保留项目已有 server
   const m = installProjectMcp(workDir, projectRoot, SERVER_PORT);
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
-  await ensureServer(serverScript, projectRoot, workDir);
+  await ensureServer(serverScript, projectRoot, workDir, reuseExisting);
   await writeRunSettings(workDir, projectRoot);
-  await ensureSession(bootstrapScript, workDir, sessionName);
+  await ensureSession(bootstrapScript, workDir, sessionName, reuseExisting);
 }
 
 /** 确保 Session Server 已启动，先释放旧端口再 spawn */
-async function ensureServer(serverScript, projectRoot, workDir) {
+async function ensureServer(serverScript, projectRoot, workDir, reuseExisting = false) {
+  if (reuseExisting) {
+    const existing = await getStatus(SERVER_PORT);
+    if (existing?.state && existing.projectRoot === workDir) {
+      logStep('tmux-http', 'ok', '复用现有服务');
+      return;
+    }
+  }
   try { execSync(`lsof -ti:${SERVER_PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   await sleep(300);
 
@@ -133,8 +144,20 @@ async function ensureServer(serverScript, projectRoot, workDir) {
   throw new Error('Session Server 启动超时');
 }
 
-/** 确保 tmux session 存在，先杀旧再 bootstrap 重建 */
-async function ensureSession(bootstrapScript, workDir, sessionName) {
+/** 确保 tmux session 存在；resume 时优先复用现场，否则重建 */
+async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false) {
+  if (reuseExisting) {
+    try {
+      const sessionCwd = execSync(
+        `tmux display-message -p -t ${sessionName} "#{pane_current_path}"`,
+        { encoding: 'utf8' },
+      ).trim();
+      if (path.resolve(sessionCwd) === path.resolve(workDir)) {
+        logStep('session', 'ok', `${sessionName} → 复用现有会话`);
+        return;
+      }
+    } catch {}
+  }
   try { execSync(`tmux kill-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   execSync(`bash "${bootstrapScript}"`, {
     stdio: 'ignore', cwd: workDir,
