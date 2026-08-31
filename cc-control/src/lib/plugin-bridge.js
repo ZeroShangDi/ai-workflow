@@ -80,6 +80,15 @@ export function contextCheck(usage) {
 }
 
 /**
+ * 门禁修复任务 prompt — 由插件模板声明命令与结构，CLI 只填充任务 ID 与修复目标
+ * @param {{ fixId: string, fixTarget: string }} params - fixId 如 'R1-F1'；fixTarget 为具体修复目标描述
+ * @returns {Promise<string>}
+ */
+export function gateFixPrompt({ fixId, fixTarget }) {
+  return resolvePrompt('gate-fix', { fixId, fixTarget });
+}
+
+/**
  * 批次派发 prompt — 主 Agent 并行派生子 Agent 执行一个任务批次
  * @param {{ batchId: string, tasks: Array<{ taskId: string, title: string, kind: string, prompt: string }> }} opts
  * @returns {Promise<string>}

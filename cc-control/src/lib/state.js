@@ -252,29 +252,40 @@ export function isMilestoneDone(state) {
 export const MAX_RECHECK = 3;
 
 /**
- * 门禁任务 fail → 派生修复任务 + 回退门禁待复审。
- * 纯 mutate state，不写盘——由调用方（gate-fix.handleGateCompletion）负责 load/save。
+ * 计算门禁修复任务的下一轮元数据：recheck 序号 + 派生任务 id。
+ * 与 spawnGateFixTask 共用同一组判定（null = 不可派生）。
+ * 调用方先取此元数据构建 prompt，再传给 spawnGateFixTask，保证 fixId 一致。
  *
- * 不派生的条件：非门禁 / 非 blocked / 无 verdict / verdict pass / 达轮次上限。
- *
- * @param {object} state
- * @param {object} gateTask 刚完成的门禁任务（kind=review/test）
- * @returns {string|null} 新修复任务 id（不派生则 null）
+ * @param {object} gateTask 门禁任务（kind=review/test）
+ * @returns {{ recheck: number, fixId: string } | null}
  */
-export function spawnGateFixTask(state, gateTask) {
+export function gateFixMeta(gateTask) {
   if (!gateTask) return null;
   if (gateTask.kind !== 'review' && gateTask.kind !== 'test') return null;
   if (gateTask.status !== 'blocked') return null;
   const v = gateTask.exec?.verdict;
   if (!v || v.level === 'pass') return null; // 无 verdict 视为旧协议/卡住，不派生
   if ((gateTask.exec?.recheck || 0) >= MAX_RECHECK) return null; // 轮次上限，保持 blocked
-
   const recheck = (gateTask.exec?.recheck || 0) + 1;
-  const fixId = `${gateTask.id}-F${recheck}`;
-  const reportPath = (gateTask.exec?.files || []).find((f) => f.startsWith('.awf/reports/')) || '';
-  const fixTarget = reportPath
-    ? `修复门禁 ${gateTask.id} 报告 ${reportPath} 中列出的全部问题。`
-    : `修复门禁 ${gateTask.id} 判定中列出的问题：${v.conclusion || v.level}。`;
+  return { recheck, fixId: `${gateTask.id}-F${recheck}` };
+}
+
+/**
+ * 门禁任务 fail → 派生修复任务 + 回退门禁待复审。
+ * 纯 mutate state，不写盘——由调用方（gate-fix.handleGateCompletion）负责 load/save。
+ *
+ * 不派生的条件：非门禁 / 非 blocked / 无 verdict / verdict pass / 达轮次上限。
+ * prompt 由调用方经插件模板生成后传入（gateFixMeta 取 fixId 保证一致），本函数不硬编码命令。
+ *
+ * @param {object} state
+ * @param {object} gateTask 刚完成的门禁任务（kind=review/test）
+ * @param {string} prompt 已生成的修复任务执行提示词
+ * @returns {string|null} 新修复任务 id（不派生则 null）
+ */
+export function spawnGateFixTask(state, gateTask, prompt) {
+  const meta = gateFixMeta(gateTask);
+  if (!meta) return null;
+  const { recheck, fixId } = meta;
 
   const fix = {
     id: fixId,
@@ -285,7 +296,7 @@ export function spawnGateFixTask(state, gateTask) {
     plannedFiles: [], // 保守串行：无文件声明不与其他任务并行
     constraints: [],
     acceptance: gateTask.acceptance || `门禁 ${gateTask.id} 复审通过`,
-    prompt: `/ai-workflow-code:w-dev ${fixId}\n\n${fixTarget}`,
+    prompt,
   };
 
   state.tasks.push(fix);

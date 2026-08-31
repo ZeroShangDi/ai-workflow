@@ -40,13 +40,17 @@ const PROMPTS = {
     prompt: '请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。只派生一个且只派生一次，严禁重复派发同一任务、严禁派生其他任务。子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』）：{taskPrompt}。【决策上抛】若子 Agent 返回 NEEDS_INPUT，你必须用 AskUserQuestion 问用户，获答后 SendMessage 恢复子 Agent。',
     description: '滑动窗口单任务派发',
   },
+  'gate-fix': {
+    prompt: '/ai-workflow-code:w-dev {fixId}\n\n{fixTarget}',
+    description: '门禁 fail 派生修复任务的执行提示词（命令 + 任务 ID + 修复目标，由 CLI 填充）',
+  },
 };
 
 vi.mock('../../src/lib/paths.js', () => ({
   getPaths: vi.fn(() => ({ projectRoot: FAKE_ROOT })),
 }));
 
-import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck, batchDispatch, batchReconcile, subagentDispatch } from '../../src/lib/plugin-bridge.js';
+import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck, batchDispatch, batchReconcile, subagentDispatch, gateFixPrompt } from '../../src/lib/plugin-bridge.js';
 
 beforeAll(async () => {
   const dir = path.join(FAKE_ROOT, 'plugin', 'plugin-code');
@@ -137,5 +141,12 @@ describe('subagentDispatch — 滑动窗口单任务派发', () => {
     expect(res).toContain('NEEDS_INPUT'); // 决策上抛协议
     expect(res).toContain('AskUserQuestion'); // 主 Agent 收到 NEEDS_INPUT 必须问用户
     expect(res).toContain('审查 math');
+  });
+});
+
+describe('gateFixPrompt — 门禁修复任务提示词（命令由插件模板声明）', () => {
+  it('填充 fixId + fixTarget，命令字符串来自模板而非 CLI', async () => {
+    const res = await gateFixPrompt({ fixId: 'R1-F1', fixTarget: '修复门禁 R1 报告 x.md 中列出的全部问题。' });
+    expect(res).toBe('/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 x.md 中列出的全部问题。');
   });
 });

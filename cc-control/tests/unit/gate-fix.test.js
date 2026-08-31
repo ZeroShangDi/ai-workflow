@@ -43,6 +43,10 @@ describe('gate-fix.js — handleGateCompletion（门禁闭环钩子）', () => {
     expect(g.status).toBe('pending');
     expect(g.deps).toEqual(['T1', 'R1-F1']);
     expect(g.exec.recheck).toBe(1);
+    // prompt 经插件模板（gate-fix）生成，命令来自模板而非 CLI 硬编码
+    expect(s.tasks.find((t) => t.id === 'R1-F1').prompt).toBe(
+      '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 .awf/reports/review/review-r1.md 中列出的全部问题。',
+    );
   });
 
   it('TC-H2: 非门禁 kind → no-op', async () => {

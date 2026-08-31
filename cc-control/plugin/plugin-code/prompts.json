@@ -34,5 +34,9 @@
   "subagent-dispatch": {
     "prompt": "请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。\n你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n【严格约束】只派生一个子 Agent，且只派生一次，严禁重复派发同一任务、严禁派生其他任务。其他任务由 CLI 另行下发。\n子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』；RESULT / NEEDS_INPUT 输出格式已固化在 awf-worker 身份）：\n{taskPrompt}\n\n【决策上抛】若子 Agent 返回 NEEDS_INPUT（最后一行 `NEEDS_INPUT: {json}`），你必须立即用 AskUserQuestion 问用户（question/options 用子 Agent 给出的），获答后用 SendMessage 恢复该子 Agent 告知答案，让它继续完成。不要自己猜测关键决策。",
     "description": "滑动窗口单任务派发（主 Agent 用插件内置 ai-workflow-core:awf-worker 派生；约束身份化 + 决策上抛时主 Agent AskUserQuestion）"
+  },
+  "gate-fix": {
+    "prompt": "/ai-workflow-code:w-dev {fixId}\n\n{fixTarget}",
+    "description": "门禁 fail 派生修复任务的执行提示词（命令 + 任务 ID + 修复目标，由 CLI 填充）"
   }
 }

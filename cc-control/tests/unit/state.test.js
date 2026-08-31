@@ -334,7 +334,8 @@ describe('state.js — CLI', () => {
 
     it('TC-G1: blocked + verdict 非 pass → 派生修复任务 + 回退门禁待复审', () => {
       const state = { tasks: [{ ...gateBase }] };
-      const fixId = spawnGateFixTask(state, state.tasks[0]);
+      const prompt = '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 .awf/reports/review/review-r1.md 中列出的全部问题。';
+      const fixId = spawnGateFixTask(state, state.tasks[0], prompt);
       expect(fixId).toBe('R1-F1');
       const fix = state.tasks.find((t) => t.id === 'R1-F1');
       expect(fix.kind).toBe('dev');
@@ -343,9 +344,7 @@ describe('state.js — CLI', () => {
       expect(fix.plannedFiles).toEqual([]);                   // 保守串行
       expect(fix.constraints).toEqual([]);
       expect(fix.acceptance).toBe('门禁 R1 复审通过');
-      expect(fix.prompt).toBe(
-        '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 .awf/reports/review/review-r1.md 中列出的全部问题。',
-      );
+      expect(fix.prompt).toBe(prompt);                        // 原样使用调用方传入的提示词（插件模板生成）
       // 门禁回退
       const gate = state.tasks.find((t) => t.id === 'R1');
       expect(gate.status).toBe('pending');
@@ -356,28 +355,28 @@ describe('state.js — CLI', () => {
 
     it('TC-G2: verdict pass → 不派生', () => {
       const state = { tasks: [{ ...gateBase, exec: { verdict: { level: 'pass', conclusion: 'ok' } } }] };
-      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+      expect(spawnGateFixTask(state, state.tasks[0], 'prompt')).toBeNull();
       expect(state.tasks.length).toBe(1);
     });
 
     it('TC-G3: 无 verdict → 不派生（旧协议/卡住）', () => {
       const state = { tasks: [{ ...gateBase, exec: { result: 'x' } }] };
-      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+      expect(spawnGateFixTask(state, state.tasks[0], 'prompt')).toBeNull();
     });
 
     it('TC-G4: 非 blocked → 不派生', () => {
       const state = { tasks: [{ ...gateBase, status: 'done' }] };
-      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+      expect(spawnGateFixTask(state, state.tasks[0], 'prompt')).toBeNull();
     });
 
     it('TC-G5: 非门禁 kind → 不派生', () => {
       const state = { tasks: [{ ...gateBase, kind: 'dev' }] };
-      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+      expect(spawnGateFixTask(state, state.tasks[0], 'prompt')).toBeNull();
     });
 
     it('TC-G6: 达轮次上限 → 返回 null（保持 blocked）', () => {
       const state = { tasks: [{ ...gateBase, exec: { ...gateBase.exec, recheck: MAX_RECHECK } }] };
-      expect(spawnGateFixTask(state, state.tasks[0])).toBeNull();
+      expect(spawnGateFixTask(state, state.tasks[0], 'prompt')).toBeNull();
       expect(state.tasks[0].status).toBe('blocked');
     });
 
@@ -389,20 +388,18 @@ describe('state.js — CLI', () => {
         ],
       };
       const gate = state.tasks.find((t) => t.id === 'R1');
-      expect(spawnGateFixTask(state, gate)).toBe('R1-F2');
+      expect(spawnGateFixTask(state, gate, 'prompt')).toBe('R1-F2');
       expect(state.tasks.find((t) => t.id === 'R1').deps).toEqual(['T1', 'R1-F1', 'R1-F2']);
       expect(state.tasks.find((t) => t.id === 'R1').exec.recheck).toBe(2);
       expect(state.tasks.some((t) => t.id === 'R1-F2')).toBe(true);
     });
 
-    it('TC-G8: 无报告时使用门禁结论生成精简修复目标', () => {
+    it('TC-G8: 传入提示词原样落盘（prompt 由 gate-fix 经插件模板生成后传入）', () => {
       const state = {
         tasks: [{ ...gateBase, exec: { verdict: gateBase.exec.verdict, files: [] } }],
       };
-      spawnGateFixTask(state, state.tasks[0]);
-      expect(state.tasks.find((t) => t.id === 'R1-F1').prompt).toBe(
-        '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 判定中列出的问题：2 处失效引用。',
-      );
+      spawnGateFixTask(state, state.tasks[0], 'prompt');
+      expect(state.tasks.find((t) => t.id === 'R1-F1').prompt).toBe('prompt');
     });
   });
 });
