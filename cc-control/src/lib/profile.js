@@ -104,7 +104,8 @@ function readTemplate(pkgRoot) {
 export function installProjectMcp(projectRoot, repoRoot, port) {
   let mcpServers;
   try {
-    ({ mcpServers } = projectMcpJson(repoRoot, port));
+    // 相对 projectRoot 输出，自托管时即 `plugin/core/...`，与仓库提交版一致
+    ({ mcpServers } = projectMcpJson(repoRoot, port, projectRoot));
   } catch (err) {
     if (err.code === 'ENOENT') return { written: false, path: null, servers: [], error: 'plugin/config.json 缺失，跳过项目 MCP 注册' };
     throw err;

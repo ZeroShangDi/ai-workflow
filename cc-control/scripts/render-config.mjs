@@ -83,7 +83,7 @@ function main() {
   const { marketplace, mcpServers, hooks } = config;
 
   if (workdir) {
-    // 模式 2：沙箱文件（手动渲染）— projectDir 用字面 workdir，端口用 --port
+    // 模式 2：沙箱文件（手动渲染）— projectDir 用字面 workdir（独立沙箱，server 在 repoRoot 内 → 绝对路径），端口用 --port
     write(path.join(workdir, '.claude', 'settings.json'), renderHooksFile(hooks, port));
     write(
       path.join(workdir, '.mcp.json'),
