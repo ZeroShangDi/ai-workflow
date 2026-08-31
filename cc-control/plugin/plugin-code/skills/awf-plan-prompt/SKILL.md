@@ -34,7 +34,7 @@ description: >
 示例：
 
 ```text
-/ai-workflow-code:w-dev T2-001
+/ai-workflow-code:w-dev T1-001
 
 实现登录表单的邮箱密码登录与错误提示。
 ```
