@@ -355,6 +355,9 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
   it('TC24: awf_mode 设置运行模式', async () => {
     await client.callTool('awf_mode', { mode: 'run' });
     expect(readState(tmpDir).mode).toBe('run');
+
+    await client.callTool('awf_mode', { mode: 'pause' });
+    expect(readState(tmpDir).mode).toBe('pause');
   });
 
   it('TC25: awf_version 设置版本号', async () => {

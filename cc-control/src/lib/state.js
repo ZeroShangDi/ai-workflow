@@ -51,6 +51,24 @@ export function saveState(projectRoot, state) {
   });
 }
 
+/** 原子更新工作流 mode；读取锁内最新 state，避免用旧任务快照覆盖并发落账。 */
+export function setWorkflowMode(projectRoot, mode) {
+  const filePath = path.join(projectRoot, STATE_FILE);
+  const lockPath = path.join(projectRoot, '.awf', 'state.lock');
+  return withStateLock(lockPath, () => {
+    let state;
+    try {
+      state = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    } catch {
+      return false;
+    }
+    state.mode = mode;
+    state.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+    return true;
+  });
+}
+
 // ── 任务查询 ──
 
 /** 获取当前工作流阶段 */

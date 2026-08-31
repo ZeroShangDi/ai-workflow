@@ -335,6 +335,39 @@ describe('/stop', () => {
   });
 });
 
+describe('w-monitor 受控介入', () => {
+  const statePath = path.join(projectWithState, '.awf', 'state.json');
+
+  beforeEach(() => {
+    fs.writeFileSync(statePath, JSON.stringify({ mode: 'run', currentState: 'CODE', tasks: [] }));
+  });
+
+  it('未 pause 时拒绝自动介入', async () => {
+    const res = await api('POST', '/intervene', { text: '继续', reason: 'test' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('mode=pause');
+    expect(m.tmux.sendText).not.toHaveBeenCalled();
+  });
+
+  it('pause 后允许在 busy 状态发送修复提示', async () => {
+    fs.writeFileSync(statePath, JSON.stringify({ mode: 'pause', currentState: 'CODE', tasks: [] }));
+    server.setBusy();
+    const res = await api('POST', '/intervene', { text: '检查错误后继续', reason: 'run_task_error' });
+    expect(res.status).toBe(200);
+    expect(m.tmux.sendText).toHaveBeenCalledWith('检查错误后继续');
+    expect(m.logger.logPrompt).toHaveBeenCalledWith(expect.stringContaining('run_task_error'));
+  });
+
+  it('自动中断同样要求 pause', async () => {
+    let res = await api('POST', '/intervene/interrupt', { reason: 'stuck' });
+    expect(res.status).toBe(409);
+    fs.writeFileSync(statePath, JSON.stringify({ mode: 'pause', currentState: 'CODE', tasks: [] }));
+    res = await api('POST', '/intervene/interrupt', { reason: 'stuck' });
+    expect(res.status).toBe(200);
+    expect(m.tmux.sendCtrlC).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ─────────────────────────────────────────────
 // 状态机（TC21–TC27）
 // ─────────────────────────────────────────────
@@ -490,12 +523,25 @@ describe('/hook 事件', () => {
     expect(server._getState().activeAgents).toBe(0);
   });
 
-  it('TC37: /status 暴露 mainSessionId 与 activeAgents', async () => {
+  it('TC37: /status 隔离非主会话子 Agent', async () => {
     await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
     await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-sub' });
     const res = await api('GET', '/status');
     expect(res.body.mainSessionId).toBe('sess-main');
-    expect(res.body.activeAgents).toBe(1);
+    expect(res.body.activeAgents).toBe(0);
+  });
+
+  it('TC37b: 外部监控子 Agent 不进入 worker 失败补发链路', async () => {
+    const failedLog = path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl');
+    fs.rmSync(failedLog, { force: true });
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-monitor', agent_id: 'probe-1' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-monitor', agent_id: 'probe-1',
+      last_assistant_message: 'PROBE_RESULT: {"status":"normal"}',
+    });
+    expect(fs.existsSync(failedLog)).toBe(false);
+    expect(server._getState().activeAgents).toBe(0);
   });
 
   // ── M2+: SubagentStop 落账（解析 last_assistant_message 的 RESULT → 写 state）──

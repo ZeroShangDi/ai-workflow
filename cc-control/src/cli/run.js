@@ -4,8 +4,9 @@ import path from 'node:path';
 import { getPaths } from '../lib/paths.js';
 import { taskWrapup, taskSettle, contextCheck } from '../lib/plugin-bridge.js';
 import { installProjectMcp } from '../lib/profile.js';
-import { loadState, findNextTask, backupState, saveState } from '../lib/state.js';
+import { loadState, findNextTask, backupState, saveState, setWorkflowMode } from '../lib/state.js';
 import { loadRunConfig } from '../lib/run-config.js';
+import { waitWhilePaused } from '../lib/pause.js';
 import { handleGateCompletion } from './gate-fix.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, sendCmd, getContextReady, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
@@ -30,6 +31,14 @@ export async function runCommand(task, options) {
   if (!state) {
     console.log(`${RED}  未找到 .awf/state.json，请先执行 awf plan${RESET}\n`);
     process.exit(1);
+  }
+
+  // awf run 是运行模式的真实入口；不要依赖 tmux 内的 slash command 再补写 mode，
+  // 否则外部监控在首个 prompt 前无法可靠识别 run 已启动。
+  if (state.mode !== 'run') {
+    if (!setWorkflowMode(projectRoot, 'run')) {
+      throw new Error('无法将工作流 mode 设置为 run');
+    }
   }
 
   // 信号清理
@@ -67,6 +76,7 @@ export async function runCommand(task, options) {
 
   // 2. 任务循环（单/多 agent 分流）
   //    单 agent（run.agents.max === 1，默认）→ 原 runLoop，多 agent 代码不参与，切换零风险
+  let runCompleted = false;
   try {
     const cfg = loadRunConfig(projectRoot);
     if (cfg.agents.max > 1) {
@@ -75,8 +85,17 @@ export async function runCommand(task, options) {
     } else {
       await runLoop(projectRoot);
     }
+    // 仅正常返回才标 idle。异常抛出时保留 run，供 w-monitor 识别异常而非误报正常结束。
+    if (!setWorkflowMode(projectRoot, 'idle')) {
+      throw new Error('工作流已完成，但无法将 mode 设置为 idle；保留运行现场');
+    }
+    runCompleted = true;
   } finally {
-    doCleanup();
+    if (runCompleted) {
+      doCleanup();
+    } else {
+      console.log(`${YELLOW}  运行异常退出：保留 tmux 与 Session Server 现场，供 w-monitor 诊断${RESET}`);
+    }
   }
 }
 
@@ -169,6 +188,11 @@ async function runLoop(projectRoot) {
   let consecutiveTimeouts = 0;
 
   while (currentState && currentState.currentState !== 'FINISH') {
+    // 外部监控/人工介入闩锁：恢复为 run 前不选择、不派发下一任务。
+    const resumed = await waitWhilePaused(projectRoot);
+    // 仅在确实暂停过时重载，正常路径不增加 state 读取，也避免使用暂停前快照。
+    if (resumed) currentState = loadState(projectRoot);
+    if (!currentState || currentState.currentState === 'FINISH') break;
     const nextTask = findNextTask(currentState);
     if (!nextTask) break;
 
@@ -223,8 +247,10 @@ async function executeTask(prompt, taskId, projectRoot) {
 
   const spin = createSpinner('executing...');
   try {
-    await waitForReady({ onDecision: handleDecision });
+    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
     spin.stop();
+    // 任务执行期间可能被 w-monitor 暂停；暂停时不得进入收尾追问或推进下一任务。
+    await waitWhilePaused(projectRoot);
     if (!taskId) { console.log(`     ${GREEN}✔ done${RESET}`); return 'done'; }
     return await settleTask(taskId, projectRoot);
   } catch (err) {
@@ -250,7 +276,7 @@ async function settleTask(taskId, projectRoot) {
   if (checkTaskDone(taskId, projectRoot)) { console.log(`     ${GREEN}✔ done${RESET}`); return 'done'; }
 
   logStep('', 'warn', `任务 ${taskId} 未标记 done，补发收尾 prompt`);
-  await sendPrompt(await taskWrapup(taskId));
+  await sendPrompt(await taskWrapup(taskId), projectRoot);
   if (checkTaskDone(taskId, projectRoot)) {
     logStep('', 'ok', `收尾 prompt 已生效`);
     console.log(`     ${GREEN}✔ done${RESET}`);
@@ -259,7 +285,7 @@ async function settleTask(taskId, projectRoot) {
 
   for (let round = 1; round <= MAX_SETTLE_ROUNDS; round++) {
     logStep('', 'warn', `任务 ${taskId} 仍为 pending，追问（第 ${round}/${MAX_SETTLE_ROUNDS} 轮）`);
-    await sendPrompt(await taskSettle(taskId));
+    await sendPrompt(await taskSettle(taskId), projectRoot);
     if (checkTaskDone(taskId, projectRoot)) {
       logStep('', 'ok', `任务 ${taskId} 已完成`);
       console.log(`     ${GREEN}✔ done${RESET}`);
@@ -277,9 +303,12 @@ async function settleTask(taskId, projectRoot) {
 }
 
 /** 发送 prompt 并等待 ready；超时忽略（由上层回查 state 决定下一步） */
-export async function sendPrompt(text) {
+export async function sendPrompt(text, projectRoot = process.cwd()) {
+  await waitWhilePaused(projectRoot);
   await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
-  try { await waitForReady({ onDecision: handleDecision }); } catch { /* 超时忽略 */ }
+  try {
+    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
+  } catch { /* 超时忽略 */ }
 }
 
 /**
@@ -310,7 +339,7 @@ export async function maybeCompactContext(taskPrompt, taskIndex, projectRoot) {
 
   // 第二层（AI）：占用 ≥ 阈值（上下文接近上限）或无实测（statusline 未配置，回退自估算）
   //   → 注入实测百分比，让 AI 结合对话实际与下个任务体量精确判断
-  await sendPrompt(await contextCheck(formatContextUsage(pct)));
+  await sendPrompt(await contextCheck(formatContextUsage(pct)), projectRoot);
 
   // 查就绪标记（一次性消费）— 未触发 → 原样执行
   const ready = await getContextReady(SERVER_PORT);

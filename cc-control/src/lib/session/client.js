@@ -92,13 +92,19 @@ export function getContextReady(port = SERVER_PORT) {
  *
  * 期间自动检测 decisionPending，调用 onDecision 回调处理，避免死锁。
  * 若未提供 onDecision，使用内置 autoSelect（等 5s 默认选第一项）。
+ * whilePaused 可注入外部 pause 闩锁；暂停耗时不计入 ready 超时，且暂停期间不处理决策。
  */
-export function waitForReady({ onDecision, port = SERVER_PORT } = {}) {
+export function waitForReady({ onDecision, whilePaused, port = SERVER_PORT } = {}) {
   return new Promise((resolve, reject) => {
-    const start = Date.now();
+    let start = Date.now();
     let lastDecision = null;
 
     async function poll() {
+      if (whilePaused) {
+        const pauseStarted = Date.now();
+        await whilePaused();
+        start += Date.now() - pauseStarted;
+      }
       if (Date.now() - start >= READY_TIMEOUT) {
         return reject(new Error('等待 Claude Code 就绪超时'));
       }

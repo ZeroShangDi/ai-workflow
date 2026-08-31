@@ -28,7 +28,9 @@ plugin/
 │   ├── hooks/
 │   │   └── hooks.json          #   7 个 hooks（SessionStart/UserPromptSubmit/Stop/SubagentStart/SubagentStop/PreToolUse/PostToolUse）
 │   ├── agents/
-│   │   └── awf-worker.md       #   滑动窗口执行单元子 Agent（禁写 state，RESULT/NEEDS_INPUT 协议）
+│   │   ├── awf-worker.md       #   滑动窗口执行单元子 Agent（禁写 state，RESULT/NEEDS_INPUT 协议）
+│   │   ├── awf-monitor-probe.md  # w-monitor 一次性侦查 Agent（只读、PROBE_RESULT 协议）
+│   │   └── awf-monitor-repair.md # w-monitor 一次性修复 Agent（单次修复、REPAIR_RESULT 协议）
 │   ├── commands/               #   运行态 slash commands
 │   │   ├── w-start.md
 │   │   ├── w-pause.md
@@ -50,7 +52,7 @@ plugin/
 │       ├── awf-state/          #     18 tools，直接文件 I/O
 │       │   ├── server.cjs
 │       │   └── state.template.json
-│       ├── awf-session/        #     5 tools（tmux 生命周期观测）
+│       ├── awf-session/        #     7 tools（tmux 生命周期观测 + pause 闩锁保护的修复介入）
 │       │   └── server.cjs
 │       └── awf-oneshot/        #     1 tool（无状态 LLM 调用）
 │           └── server.cjs
@@ -124,7 +126,7 @@ plugin/
 
 ### core — 引擎层（ai-workflow-core）
 
-- **MCP 3 server**：`awf-state`（18 tools，状态 CRUD）、`awf-session`（5 tools，tmux 观测）、`awf-oneshot`（1 tool，无状态 LLM）
+- **MCP 3 server**：`awf-state`（18 tools，状态 CRUD）、`awf-session`（7 tools，tmux 观测 + 受控介入）、`awf-oneshot`（1 tool，无状态 LLM）
 - **7 hooks**：`SessionStart` / `UserPromptSubmit` / `Stop` / `SubagentStart` / `SubagentStop` / `PreToolUse`（matcher: AskUserQuestion）/ `PostToolUse`，全部上报 HTTP Session Server
 - **运行态命令**：`w-start` / `w-pause` / `w-monitor` / `w-state`
 - **运行态技能**：`awf-run-decision` / `awf-run-error` / `awf-run-reset` / `awf-run-review` / `awf-run-test` / `awf-skill` / `awf-state`
@@ -144,6 +146,12 @@ plugin/
 - **禁写 state** — 只能调 `awf_read_state` 读取上下文；禁止任何写工具（`awf_task_status` / `awf_task_result` / `awf_task_commit` / `awf_task_create` 等），state.json 由主会话 / CLI 更新
 - **禁提问** — 不调用交互工具；有歧义按最佳判断执行，遇真正需用户决策用 `NEEDS_INPUT` 上抛
 - **结构化输出协议** — 完成时输出 `RESULT: {"taskId", "status", "result", "files"}`（status 取 `done | blocked | failed`）；需决策时输出 `NEEDS_INPUT: {"taskId", "question", "options", "context"}`。taskId 必须使用派发时的任务 ID，不得编造
+
+## w-monitor 子 Agents
+
+- **awf-monitor-probe**：每 3 分钟由 `w-monitor` 新建一次，自行读取 tmux pane、运行日志和 state，与上次紧凑快照比较，只读并返回 `PROBE_RESULT`
+- **awf-monitor-repair**：异常确认且 CLI 已暂停后由 `w-monitor` 新建，一次只执行一次场景修复，验证后返回 `REPAIR_RESULT`
+- **上下文隔离**：主监控不读取完整 pane；现场、错误堆栈和修复推理随子 Agent 结束释放，主监控只保留结构化摘要、异常指纹和修复次数
 
 ## 安装
 

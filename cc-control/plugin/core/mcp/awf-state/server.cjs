@@ -18,9 +18,8 @@ function readState() {
   return JSON.parse(raw);
 }
 
-// state 写锁：CLI(saveState) 与 MCP(writeState) 可能并发写，用 .awf/state.lock
-// 原子创建（O_EXCL）串行化写操作，避免整文件覆写撕裂 / 竞态。读改写丢更新由
-// 写者收敛（多 agent 下主 Agent 独写）兜底。
+// state 写锁：CLI 与 MCP 共用 .awf/state.lock。所有 MCP 变更必须把完整的
+// read → mutate → write 放在锁内，避免 pause 与任务落账相互覆盖。
 function syncSleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -43,9 +42,7 @@ function withStateLock(fn) {
 
 function writeState(s) {
   s.lastUpdated = new Date().toISOString();
-  withStateLock(() => {
-    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
-  });
+  fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
 }
 
 function textResult(obj) {
@@ -250,11 +247,11 @@ const TOOLS = [
   },
   {
     name: 'awf_mode',
-    description: '设置工作流运行模式。可选: idle | plan | run',
+    description: '设置工作流运行模式。可选: idle | plan | run | pause。pause 会让 CLI 停止派发和收尾，恢复为 run 后自动继续',
     inputSchema: {
       type: 'object',
       properties: {
-        mode: { type: 'string', enum: ['idle', 'plan', 'run'], description: '运行模式' },
+        mode: { type: 'string', enum: ['idle', 'plan', 'run', 'pause'], description: '运行模式' },
       },
       required: ['mode'],
     },
@@ -335,7 +332,8 @@ const handlers = {
         return textResult(s);
       }
 
-      // all other tools: read → mutate → write
+      // all other tools: lock 内完成 read → mutate → write
+      return withStateLock(() => {
       const s = readState();
 
       // tasks live at root ("s.tasks")
@@ -509,6 +507,7 @@ const handlers = {
       writeState(s);
       logStderr(`${name} ${args.id || args.phase || ''} -> ok`);
       return textResult({ ok: true, tool: name });
+      });
     } catch (err) {
       return textResult({ ok: false, error: err.message });
     }

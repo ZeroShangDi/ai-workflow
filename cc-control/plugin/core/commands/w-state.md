@@ -98,7 +98,7 @@
 
 ### awf_mode
 设置工作流运行模式
-- `mode` (enum, 必填) — `idle` | `plan` | `run`
+- `mode` (enum, 必填) — `idle` | `plan` | `run` | `pause`
 
 ## 执行流程
 

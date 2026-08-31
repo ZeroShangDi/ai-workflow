@@ -29,7 +29,7 @@ description: >
 | `awf_milestone_update` | 更新里程碑状态 |
 | `awf_milestone_create` | 创建里程碑 |
 | `awf_milestone_delete` | 删除里程碑 |
-| `awf_mode` | 设置运行模式（idle/plan/run） |
+| `awf_mode` | 设置运行模式（idle/plan/run/pause） |
 | `awf_version` | 更新 state.json 版本号 |
 
 ### 使用原则

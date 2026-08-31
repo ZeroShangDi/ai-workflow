@@ -233,6 +233,18 @@ function send(res, code, obj) {
   res.end(body);
 }
 
+/** 自动介入只允许在 CLI pause 闩锁已生效后执行。 */
+function requirePaused(res) {
+  try {
+    const s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
+    if (s.mode === 'pause') return true;
+    send(res, 409, { ok: false, error: `intervention requires mode=pause (current: ${s.mode || 'unknown'})` });
+  } catch (e) {
+    send(res, 409, { ok: false, error: `intervention requires readable paused state: ${e.message}` });
+  }
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
@@ -283,15 +295,24 @@ const server = http.createServer(async (req, res) => {
         logger.captureFromTranscript();
       }
     } else if (event === 'SubagentStart') {
-      // 只观测，不驱动主闩锁。以 agent_id 键控（子 agent 共享父会话 session_id，用它做 key 会塌缩成一个）
-      const key = body.agent_id || body.session_id || 'unknown';
-      agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
       logSubagentEvent(event, body);
+      // 只接纳 tmux 主会话派生的 worker。外部 w-monitor 会话的 probe/repair 也会上报
+      // Subagent hooks，但绝不能进入 worker 落账/补发链路。
+      if (mainSessionId && body.session_id && body.session_id !== mainSessionId) {
+        console.log(`[subagent-start] skip external session ${body.session_id}`);
+      } else {
+        // 只观测，不驱动主闩锁。以 agent_id 键控（子 agent 共享父会话 session_id，用它做 key 会塌缩成一个）
+        const key = body.agent_id || body.session_id || 'unknown';
+        agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
+      }
     } else if (event === 'SubagentStop') {
       const key = body.agent_id || body.session_id || 'unknown';
-      const a = agents.get(key);
-      if (a) a.status = 'stopped';
       logSubagentEvent(event, body);
+      if (mainSessionId && body.session_id && body.session_id !== mainSessionId) {
+        console.log(`[subagent-stop] skip external session ${body.session_id}`);
+      } else {
+        const a = agents.get(key);
+        if (a) a.status = 'stopped';
       // 未跟踪的 Stop（无 SubagentStart：伪事件/非本 run 派发）仅观测，不落账、不写失败记录 ——
       // 否则会为不存在的子 Agent 生成失败记录 → CLI 补发到幽灵 agent，反复 RESET/等待
       if (!a) {
@@ -313,6 +334,7 @@ const server = http.createServer(async (req, res) => {
             console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
           }
         }
+      }
       }
     }
 
@@ -454,6 +476,36 @@ const server = http.createServer(async (req, res) => {
     if (fallbackTimer) clearTimeout(fallbackTimer);
     fallbackTimer = setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
     return send(res, 200, { ok: true, sent: body.cmd });
+  }
+
+  // w-monitor 受控介入：允许在 busy 时排队发送恢复提示，但必须先暂停 CLI 编排。
+  if (req.method === 'POST' && pathname === '/intervene') {
+    const body = await readJson(req);
+    if (!body || typeof body.text !== 'string' || body.text.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {text: non-empty string, reason?: string}' });
+    }
+    if (!requirePaused(res)) return;
+    if (!tmuxlib.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    }
+    logger.logPrompt(`[w-monitor intervention] ${body.reason || 'unspecified'}\n${body.text}`);
+    setBusy();
+    await submit(body.text);
+    return send(res, 200, { ok: true, sent: body.text, intervention: true });
+  }
+
+  // w-monitor 升级中断：与 dashboard 的人工 /stop 分离，自动调用必须受 pause 闩锁保护。
+  if (req.method === 'POST' && pathname === '/intervene/interrupt') {
+    const body = (await readJson(req)) || {};
+    if (!requirePaused(res)) return;
+    if (!tmuxlib.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    }
+    tmuxlib.sendCtrlC();
+    clearDecision();
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    fallbackTimer = setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
+    return send(res, 200, { ok: true, interrupted: true, reason: body.reason || null });
   }
 
   // 中断当前正在运行的 Claude 流（等价于交互式 Ctrl+C）
