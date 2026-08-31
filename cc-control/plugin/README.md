@@ -46,6 +46,7 @@ plugin/
 │   │   ├── awf-run-reset/SKILL.md
 │   │   ├── awf-run-review/SKILL.md
 │   │   ├── awf-run-test/SKILL.md
+│   │   ├── awf-task-context/SKILL.md
 │   │   ├── awf-skill/SKILL.md
 │   │   └── awf-state/SKILL.md
 │   └── mcp/                    #   MCP server 实现
@@ -129,7 +130,7 @@ plugin/
 - **MCP 3 server**：`awf-state`（18 tools，状态 CRUD）、`awf-session`（7 tools，tmux 观测 + 受控介入）、`awf-oneshot`（1 tool，无状态 LLM）
 - **7 hooks**：`SessionStart` / `UserPromptSubmit` / `Stop` / `SubagentStart` / `SubagentStop` / `PreToolUse`（matcher: AskUserQuestion）/ `PostToolUse`，全部上报 HTTP Session Server
 - **运行态命令**：`w-start` / `w-pause` / `w-monitor` / `w-state`
-- **运行态技能**：`awf-run-decision` / `awf-run-error` / `awf-run-reset` / `awf-run-review` / `awf-run-test` / `awf-skill` / `awf-state`
+- **运行态技能**：`awf-run-decision` / `awf-run-error` / `awf-run-reset` / `awf-run-review` / `awf-run-test` / `awf-task-context` / `awf-skill` / `awf-state`
 - **子 Agent**：`agents/awf-worker.md`（见下）
 
 ### plugin-code — 编程层（ai-workflow-code）

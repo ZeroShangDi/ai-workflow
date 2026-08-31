@@ -4,6 +4,7 @@
 
 ## 关联 Skill
 
+- **awf-task-context** — 统一读取并应用任务结构化字段
 - **code-review-quality** — 代码质量
 - **code-review-security** — 安全漏洞检查
 - **code-review-performance** — 性能分析
@@ -16,6 +17,8 @@
 3. 性能 — N+1、内存泄漏、不必要的重渲染
 4. 可维护性 — 命名、结构、重复代码
 5. 规范 — 是否符合 code-dev-* 系列定义的规则
+
+输入含 task ID 时，先按 awf-task-context 确定审查目标、范围、硬约束和通过条件。
 
 ## 审查输出
 

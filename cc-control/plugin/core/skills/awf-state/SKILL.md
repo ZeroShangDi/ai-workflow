@@ -48,7 +48,7 @@ description: >
 
 | 字段 | 说明 |
 |------|------|
-| `id` / `title` / `wbsRef` / `deps` / `acceptance` / `prompt` | 规划时写入（见 awf-plan-tasks） |
+| `id` / `title` / `kind` / `wbsRef` / `deps` / `plannedFiles` / `constraints` / `acceptance` / `prompt` | 规划时写入（见 awf-plan-tasks） |
 | `status` | `pending` / `active` / `done` / `blocked` |
 | `exec.result` / `exec.files` | 运行时写入（CODE 阶段） |
 | `commits[]` | 运行时写入（COMMIT 阶段） |

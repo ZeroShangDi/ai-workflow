@@ -4,6 +4,7 @@
 
 ## 关联 Skill
 
+- **awf-task-context** — 统一读取并应用任务结构化字段
 - **code-dev-rule** — 开发原则
 - **code-dev-cto** — 技术选项
 - **code-dev-design** — 设计模式（样式/函数/组件/代码组织/第三方依赖）
@@ -16,7 +17,7 @@
 
 ## 执行流程
 
-1. 读取当前 task 的执行提示词（awf-plan-prompt 产物）
+1. 输入含 task ID 时，先按 awf-task-context 获取目标、范围、约束和验收；普通交互调用直接使用用户目标
 2. 探索相关代码上下文
 3. 按设计方案实现
 4. 自检 / lint / 构建验证
