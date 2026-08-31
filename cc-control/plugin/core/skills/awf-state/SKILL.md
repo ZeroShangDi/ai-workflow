@@ -29,7 +29,7 @@ description: >
 | `awf_milestone_update` | 更新里程碑状态 |
 | `awf_milestone_create` | 创建里程碑 |
 | `awf_milestone_delete` | 删除里程碑 |
-| `awf_mode` | 设置运行模式（idle/plan/run） |
+| `awf_mode` | 设置运行模式（idle/plan/run/pause） |
 | `awf_version` | 更新 state.json 版本号 |
 
 ### 使用原则
@@ -48,7 +48,7 @@ description: >
 
 | 字段 | 说明 |
 |------|------|
-| `id` / `title` / `wbsRef` / `deps` / `acceptance` / `prompt` | 规划时写入（见 awf-plan-tasks） |
+| `id` / `title` / `kind` / `wbsRef` / `deps` / `plannedFiles` / `constraints` / `acceptance` / `prompt` | 规划时写入（见 awf-plan-tasks） |
 | `status` | `pending` / `active` / `done` / `blocked` |
 | `exec.result` / `exec.files` | 运行时写入（CODE 阶段） |
 | `commits[]` | 运行时写入（COMMIT 阶段） |

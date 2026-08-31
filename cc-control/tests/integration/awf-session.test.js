@@ -98,6 +98,23 @@ describe('awf-session MCP tools', () => {
     expect(requests).toHaveLength(0); // 未发任何 HTTP 请求
   });
 
+  it('TC10b: awf_session_intervene → POST /intervene', async () => {
+    const result = await mod.handlers['tools/call']({
+      name: 'awf_session_intervene', arguments: { text: '请从当前任务继续', reason: 'run_stalled' },
+    });
+    expect(result.content[0].text).toContain('"ok": true');
+    expect(requests[0].url).toBe('/intervene');
+    expect(JSON.parse(requests[0].body)).toEqual({ text: '请从当前任务继续', reason: 'run_stalled' });
+  });
+
+  it('TC10c: awf_session_interrupt → POST /intervene/interrupt', async () => {
+    await mod.handlers['tools/call']({
+      name: 'awf_session_interrupt', arguments: { reason: '温和介入无效' },
+    });
+    expect(requests[0].url).toBe('/intervene/interrupt');
+    expect(JSON.parse(requests[0].body)).toEqual({ reason: '温和介入无效' });
+  });
+
   it('TC11: awf_await_choice 正常 → POST /choice', async () => {
     const result = await mod.handlers['tools/call']({
       name: 'awf_await_choice',
@@ -209,10 +226,10 @@ describe('JSON-RPC 协议', () => {
     expect(sent.result.serverInfo.name).toBe('awf-session-mcp');
   });
 
-  it('TC22: tools/list 返回 5 个 tools', async () => {
+  it('TC22: tools/list 返回 7 个 tools', async () => {
     const sent = await callRpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const names = sent.result.tools.map((t) => t.name);
-    expect(names).toEqual(['awf_session_status', 'awf_capture_pane', 'awf_await_choice', 'awf_await_input', 'awf_context_ready']);
+    expect(names).toEqual(['awf_session_status', 'awf_capture_pane', 'awf_session_intervene', 'awf_session_interrupt', 'awf_await_choice', 'awf_await_input', 'awf_context_ready']);
     for (const t of sent.result.tools) {
       expect(t).toHaveProperty('name');
       expect(t).toHaveProperty('description');

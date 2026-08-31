@@ -18,9 +18,8 @@ function readState() {
   return JSON.parse(raw);
 }
 
-// state 写锁：CLI(saveState) 与 MCP(writeState) 可能并发写，用 .awf/state.lock
-// 原子创建（O_EXCL）串行化写操作，避免整文件覆写撕裂 / 竞态。读改写丢更新由
-// 写者收敛（多 agent 下主 Agent 独写）兜底。
+// state 写锁：CLI 与 MCP 共用 .awf/state.lock。所有 MCP 变更必须把完整的
+// read → mutate → write 放在锁内，避免 pause 与任务落账相互覆盖。
 function syncSleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -43,9 +42,7 @@ function withStateLock(fn) {
 
 function writeState(s) {
   s.lastUpdated = new Date().toISOString();
-  withStateLock(() => {
-    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
-  });
+  fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
 }
 
 function textResult(obj) {
@@ -129,9 +126,10 @@ const TOOLS = [
       properties: {
         id: { type: 'string', description: '任务 ID（唯一）' },
         title: { type: 'string', description: '任务名（一句话）' },
-        kind: { type: 'string', enum: ['dev', 'review', 'test', 'doc'], description: '任务类型（默认 dev）。门禁任务必须标注：review=审查门禁 / test=测试门禁 / doc=文档门禁' },
+        kind: { type: 'string', enum: ['dev', 'debug', 'review', 'test', 'doc', 'commit', 'ui-design', 'ui-code'], description: '任务类型（默认 dev），用于选择对应自定义命令；review/test/doc 为门禁类型' },
         plannedFiles: { type: 'array', items: { type: 'string' }, description: '规划改动文件（相对路径；多 agent 并行按此做冲突过滤，缺失则保守串行）' },
-        prompt: { type: 'string', description: '执行提示词（命令 + 上下文）' },
+        constraints: { type: 'array', items: { type: 'string' }, description: '任务专属硬约束列表；通用执行规则不应重复写入' },
+        prompt: { type: 'string', description: '精简执行提示词（命令 + task ID + 具体要做什么）；不得复制其他结构化字段' },
         wbsRef: { type: 'string', description: '关联的 WBS ID' },
         deps: { type: 'array', items: { type: 'string' }, description: '依赖任务 ID 列表' },
         acceptance: { type: 'string', description: '可验证的完成条件' },
@@ -147,8 +145,9 @@ const TOOLS = [
       properties: {
         id: { type: 'string', description: '任务 ID' },
         title: { type: 'string', description: '新的任务名' },
-        kind: { type: 'string', enum: ['dev', 'review', 'test', 'doc'], description: '新的任务类型' },
+        kind: { type: 'string', enum: ['dev', 'debug', 'review', 'test', 'doc', 'commit', 'ui-design', 'ui-code'], description: '新的任务类型' },
         plannedFiles: { type: 'array', items: { type: 'string' }, description: '新的规划改动文件列表' },
+        constraints: { type: 'array', items: { type: 'string' }, description: '新的任务专属硬约束列表' },
         prompt: { type: 'string', description: '新的执行提示词' },
         wbsRef: { type: 'string', description: '新的 WBS 引用' },
         deps: { type: 'array', items: { type: 'string' }, description: '新的依赖列表' },
@@ -250,11 +249,11 @@ const TOOLS = [
   },
   {
     name: 'awf_mode',
-    description: '设置工作流运行模式。可选: idle | plan | run',
+    description: '设置工作流运行模式。可选: idle | plan | run | pause。pause 会让 CLI 停止派发和收尾，恢复为 run 后自动继续',
     inputSchema: {
       type: 'object',
       properties: {
-        mode: { type: 'string', enum: ['idle', 'plan', 'run'], description: '运行模式' },
+        mode: { type: 'string', enum: ['idle', 'plan', 'run', 'pause'], description: '运行模式' },
       },
       required: ['mode'],
     },
@@ -335,7 +334,8 @@ const handlers = {
         return textResult(s);
       }
 
-      // all other tools: read → mutate → write
+      // all other tools: lock 内完成 read → mutate → write
+      return withStateLock(() => {
       const s = readState();
 
       // tasks live at root ("s.tasks")
@@ -402,7 +402,8 @@ const handlers = {
           taskList.push({
             id: args.id, title: args.title, kind: args.kind || 'dev', prompt: args.prompt,
             wbsRef: args.wbsRef, deps: args.deps || [], status: 'pending',
-            plannedFiles: args.plannedFiles,
+            plannedFiles: args.plannedFiles || [],
+            constraints: args.constraints || [],
             acceptance: args.acceptance,
           });
           break;
@@ -413,6 +414,7 @@ const handlers = {
           if (args.title !== undefined) t.title = args.title;
           if (args.kind !== undefined) t.kind = args.kind;
           if (args.plannedFiles !== undefined) t.plannedFiles = args.plannedFiles;
+          if (args.constraints !== undefined) t.constraints = args.constraints;
           if (args.prompt !== undefined) t.prompt = args.prompt;
           if (args.wbsRef !== undefined) t.wbsRef = args.wbsRef;
           if (args.deps !== undefined) t.deps = args.deps;
@@ -509,6 +511,7 @@ const handlers = {
       writeState(s);
       logStderr(`${name} ${args.id || args.phase || ''} -> ok`);
       return textResult({ ok: true, tool: name });
+      });
     } catch (err) {
       return textResult({ ok: false, error: err.message });
     }

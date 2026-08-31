@@ -1,6 +1,6 @@
 # w-start
 
-标记 state.json 进入 awf 对应运行模式（plan / run），作为 awf run 的入口触发点。
+标记 state.json 进入 awf 对应运行模式（plan / run）。CLI 的 `awf run` 会在启动环境前直接设置 `mode=run`；本命令用于 Claude Code 内部入口或人工恢复。
 
 ## 执行流程
 
@@ -12,5 +12,5 @@
 
 ## 关联
 
-- 触发时机：用户执行 `awf plan` 或 `awf run` 时由 CLI 调用
+- 触发时机：Claude Code 内部模式切换或人工恢复；`awf run` 的初始切换由 CLI 直接完成
 - 后续步骤：w-pause（暂停）/ 阶段循环（run 模式）

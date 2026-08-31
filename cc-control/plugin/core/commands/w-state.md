@@ -34,15 +34,16 @@
 创建新任务
 - `id` (string, 必填) — 唯一任务 ID
 - `title` (string, 必填) — 任务名（一句话）
-- `prompt` (string, 必填) — 执行提示词（命令 + 上下文）
+- `prompt` (string, 必填) — 精简执行提示词（命令 + task ID + 具体要做什么）
 - `wbsRef` (string, 可选) — 关联 WBS ID
 - `deps` (string[], 可选) — 依赖任务 ID 列表
+- `constraints` (string[], 可选) — 任务专属硬约束；通用规则不重复写入
 - `acceptance` (string, 可选) — 可验证的完成条件
 
 ### awf_task_update
 更新任务字段（只更新提供的字段）
 - `id` (string, 必填) — 任务 ID
-- `title`, `prompt`, `wbsRef`, `deps`, `acceptance` (可选)
+- `title`, `prompt`, `wbsRef`, `deps`, `constraints`, `acceptance` (可选)
 
 ### awf_task_delete
 删除任务
@@ -98,7 +99,7 @@
 
 ### awf_mode
 设置工作流运行模式
-- `mode` (enum, 必填) — `idle` | `plan` | `run`
+- `mode` (enum, 必填) — `idle` | `plan` | `run` | `pause`
 
 ## 执行流程
 

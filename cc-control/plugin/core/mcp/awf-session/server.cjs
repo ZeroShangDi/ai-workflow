@@ -79,6 +79,29 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'awf_session_intervene',
+    description: 'w-monitor 在 CLI 已 pause 后向 tmux Claude Code 发送修复提示。Server 会强制校验 mode=pause；允许 busy 时排队发送',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '发送给 tmux Claude Code 的恢复/修复提示' },
+        reason: { type: 'string', description: '本次介入原因，用于日志' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'awf_session_interrupt',
+    description: 'w-monitor 在 CLI 已 pause 后中断 tmux Claude Code 当前响应（Ctrl-C）。仅作升级修复，Server 会强制校验 mode=pause',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: '必须说明为什么温和介入不足' },
+      },
+      required: ['reason'],
+    },
+  },
+  {
     name: 'awf_await_choice',
     description: '通知 CLI 当前需要用户做选择（如选项列表、yes/no）。CLI 会展示问题+选项并等待用户输入',
     inputSchema: {
@@ -146,6 +169,18 @@ const handlers = {
         }
         case 'awf_capture_pane': {
           return textResult(capturePane());
+        }
+        case 'awf_session_intervene': {
+          if (!args || typeof args.text !== 'string' || !args.text.length) {
+            return textResult({ ok: false, error: 'text is required' });
+          }
+          return textResult(await httpPost('/intervene', JSON.stringify({ text: args.text, reason: args.reason })));
+        }
+        case 'awf_session_interrupt': {
+          if (!args || typeof args.reason !== 'string' || !args.reason.length) {
+            return textResult({ ok: false, error: 'reason is required' });
+          }
+          return textResult(await httpPost('/intervene/interrupt', JSON.stringify({ reason: args.reason })));
         }
         case 'awf_await_choice': {
           logStderr(`await_choice: ${args.question}`);

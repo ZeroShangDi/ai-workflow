@@ -1,87 +1,60 @@
 ---
 name: awf-plan-prompt
 description: >
-  执行提示词生成 — 按任务类型（阶段）匹配对应命令，为每个任务填入自包含执行提示词。
-  触发条件：plan 阶段生成任务时，作为 awf-plan-tasks 的子步骤。
+  生成任务执行提示词。触发条件：plan 阶段生成 tasks 时。提示词只包含命令、task ID 和具体目标；范围、约束、验收、依赖保留在任务结构化字段中。
 ---
 
-# 执行提示词生成
+# 任务提示词生成
 
-心法：执行提示词 = 命令（看任务类型）+ 自包含上下文（能冷启动）。
+任务 prompt 的唯一内容职责是说明：**这次具体要做什么。**
 
-删掉命令，AI 不知道该跑哪个阶段；删掉上下文，阶段断裂时 AI 冷启动失败。
+范围、约束、验收和依赖已经有结构化字段，由对应自定义命令通过 `awf-task-context` 统一处理，不得复制进 prompt。
 
-## 任务类型 → 命令
+## kind → 命令
 
-每个任务一个类型，类型对应一个命令：
+| kind | 命令 |
+|------|------|
+| `dev` | `/ai-workflow-code:w-dev` |
+| `debug` | `/ai-workflow-code:w-debug` |
+| `review` | `/ai-workflow-code:w-review` |
+| `test` | `/ai-workflow-code:w-test` |
+| `doc` | `/ai-workflow-code:w-doc` |
+| `commit` | `/ai-workflow-code:w-commit` |
+| `ui-design` | `/ai-workflow-code:w-ui-design` |
+| `ui-code` | `/ai-workflow-code:w-ui-code` |
 
-| 任务类型 | 命令 |
-|---------|------|
-| 设计 | /ai-workflow-code:w-ui-design |
-| UI 实现 | /ai-workflow-code:w-ui-code |
-| 开发 | /ai-workflow-code:w-dev |
-| 调试 | /ai-workflow-code:w-debug |
-| 审查 | /ai-workflow-code:w-review |
-| 测试 | /ai-workflow-code:w-test |
-| 文档 | /ai-workflow-code:w-doc |
-| 提交 | /ai-workflow-code:w-commit |
+## 固定格式
 
-## 提示词结构
+```text
+/<命令> <taskId>
 
-每个任务的执行提示词 = 命令 + 上下文，按此顺序。上下文用 XML 标签包裹，AI 对标签的遵从度高于裸文本编号：
-
-1. **命令** — 按任务类型查上表，放最前
-2. `<task>` — 要做什么、为什么做
-3. `<context>` — 前序任务（deps）完成了什么、产出了什么
-4. `<constraints>` — 框架、库、模式约束
-5. `<files>` — 涉及的文件路径（AI 动手前先读这些文件）
-6. `<acceptance>` — 验收标准，写成可判定的断言（给定输入 → 预期输出），/ai-workflow-code:w-test 可直接对照验证
-7. `<risks>` — 已知的坑
-
-## 示例
-
-开发任务（登录表单）：
-
-```
-/ai-workflow-code:w-dev
-<task>
-在 src/components/LoginForm.vue 实现邮箱+密码登录表单。
-</task>
-<context>
-T2-001 已封装登录 API（src/api/auth.ts 的 login()）。
-</context>
-<constraints>
-Vue 3 + TypeScript，复用现有表单校验规则。
-</constraints>
-<files>
-src/components/LoginForm.vue、src/api/auth.ts（先读再写）。
-</files>
-<acceptance>
-login(email, password) 对合法邮箱返回 token，对非法邮箱返回 ValidationError；表单错误提示正确渲染。
-</acceptance>
-<risks>
-密码框显示/隐藏切换，注意 autocomplete 属性。
-</risks>
+<具体要做什么>
 ```
 
-## 风格铁律
+示例：
 
-生成提示词时的 9 条风格约束（从用户 2039 条提示词蒸馏）：
+```text
+/ai-workflow-code:w-dev T2-001
 
-1. **场景 + 约束 + 参考** — 先说场景，再说限制，最后给参照物
-2. **具体不抽象** — 说文件路径不说"相关文件"，说组件名不说"对应模块"
-3. **先列边界再动手** — 明确告诉 AI 哪些不能动
-4. **一个 prompt 一个任务** — 不把多个独立需求塞进同一个 prompt
-5. **互斥/对比显式标注** — "A 和 B 互斥"、"只有 X 应该 Y"
-6. **调试类带排除项** — 告诉 AI 已排除了什么、怀疑什么
-7. **中文为主，技术名词保留英文** — "检查下 hover 时的 quickAskRatio 计算结果"
-8. **不废话** — 去掉"请你帮我"、"麻烦你"，直接说事
-9. **简洁不啰嗦（弱限制）** — 只说做什么、边界在哪，怎么做到是模型的事。不强制，但生成完问自己：有没有可以删掉而不影响意思的句子
+实现登录表单的邮箱密码登录与错误提示。
+```
 
-## 原则
+## 正文规则
 
-- **上下文自包含**：不依赖上一阶段对话历史，AI 能冷启动
-- **命令看类型**：按表查，不手动拼
-- **精准不冗余**：只写这个任务需要的，Claude 已会的开发细节不写
-- **范围对齐**：合并任务时 `<task>` 与 `<acceptance>` 覆盖全部合并子项 —— 把每个子项写进 `<acceptance>` 的断言清单，AI 才不会只做一半
-- **风险预警**：已知的坑提前标注，避免重复踩
+- 用一句或少量几句直接描述目标结果，通常不超过 200 个中文字符。
+- 只保留任务独有、会影响“做什么”的信息。
+- 多个不可分割的子目标可用简短列表；不要扩写实施步骤。
+- `title` 用于列表扫描，`prompt` 应比 title 更具体，但不重复任务元数据。
+
+prompt 中禁止出现：
+
+- `plannedFiles` 已表达的文件范围
+- `constraints` 已表达的硬约束
+- `acceptance` 已表达的完成条件或自查清单
+- `deps`、前序任务结果或计划时猜测的上下文
+- 通用探索、编码、测试、工具调用和任务收尾流程
+- “逐项核实”“不要照抄”“完成后自查”等跨任务通用要求
+- hooks 数量、工具数量等会随源码变化的事实快照
+- XML 标签或固定空章节
+
+若一句话无法精确表达目标，应优先完善任务拆分或结构化字段，而不是把 prompt 扩写成需求文档。

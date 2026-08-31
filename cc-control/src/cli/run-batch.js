@@ -22,6 +22,7 @@ import { subagentDispatch } from '../lib/plugin-bridge.js';
 import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
 import { handleDecision } from './run.js';
 import { logStep } from '../lib/ui/log.js';
+import { waitWhilePaused } from '../lib/pause.js';
 import { GREEN, RESET } from '../lib/ui/colors.js';
 
 const POLL_MS = 2000;
@@ -99,8 +100,12 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
   }
 
   return async (running) => {
-    const deadline = Date.now() + WAIT_TIMEOUT_MS;
+    let deadline = Date.now() + WAIT_TIMEOUT_MS;
     for (;;) {
+      // 暂停期间不处理完成落账、决策或补发，避免恢复修复尚未验证时继续推进编排。
+      const pauseStarted = Date.now();
+      await waitWhilePaused(projectRoot);
+      deadline += Date.now() - pauseStarted;
       // 响应主 Agent 决策（AskUserQuestion 原生上抛）：hook → server decisionPending → 本层处理 → /respond。
       // 决策处理期间阻塞 = 调度器不返回 = 暂停补位；处理完（AskUserQuestion 结束）恢复。
       const status = await getStatus(SERVER_PORT);
@@ -134,6 +139,7 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
 export async function runBatchLoop(projectRoot, cfg) {
   const dispatcher = {
     async send(task) {
+      await waitWhilePaused(projectRoot);
       const prompt = await subagentDispatch({
         taskId: task.id,
         taskPrompt: task.prompt || task.title || '',
@@ -144,6 +150,7 @@ export async function runBatchLoop(projectRoot, cfg) {
       logStep('', 'ok', `派发 ${task.id}`);
     },
     async sendRaw(text) {
+      await waitWhilePaused(projectRoot);
       const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
       if (!resp?.ok) throw new Error(`补发失败: ${resp?.error || 'unknown'}`);
     },

@@ -7,11 +7,15 @@ const { mockFindNextTask, mockLoadState } = vi.hoisted(() => ({
   mockLoadState: vi.fn(() => null),
 }));
 
+const mockSaveState = vi.hoisted(() => vi.fn());
+const mockSetWorkflowMode = vi.hoisted(() => vi.fn(() => true));
+
 vi.mock('../../src/lib/state.js', () => ({
   loadState: mockLoadState,
   findNextTask: mockFindNextTask,
   backupState: vi.fn(),
-  saveState: vi.fn(),
+  saveState: mockSaveState,
+  setWorkflowMode: mockSetWorkflowMode,
 }));
 
 vi.mock('../../src/lib/session/client.js', async (importOriginal) => {
@@ -40,6 +44,10 @@ vi.mock('../../src/lib/plugin-bridge.js', () => ({
   taskWrapup: vi.fn((taskId) => `用 awf_task_status 标记 ${taskId} done。用 awf_task_result 记录 ${taskId} 的执行结果。只做这两步。`),
   taskSettle: vi.fn((taskId) => `任务 ${taskId} 尚未标记 done，请明确状态三选一。`),
   contextCheck: vi.fn(() => '【上下文检查】只判断不工作'),
+}));
+
+vi.mock('../../src/lib/pause.js', () => ({
+  waitWhilePaused: vi.fn(() => Promise.resolve()),
 }));
 
 import { taskWrapup, taskSettle, contextCheck } from '../../src/lib/plugin-bridge.js';
@@ -143,6 +151,9 @@ describe('runCommand', () => {
 
     mockLoadState.mockReset();
     mockFindNextTask.mockReset();
+    mockSaveState.mockReset();
+    mockSetWorkflowMode.mockReset();
+    mockSetWorkflowMode.mockReturnValue(true);
     mockReadFile.mockReset();
     mockReadFile.mockRejectedValue(new Error('ENOENT'));
     mockMkdir.mockReset();
@@ -192,6 +203,85 @@ describe('runCommand', () => {
     vi.useRealTimers();
 
     expect(mockLoadState).toHaveBeenCalled();
+  });
+
+  it('TC2b: awf run 启动前将 mode 切换为 run', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    const state = stateWith({ mode: 'plan', currentState: 'FINISH' });
+    mockLoadState.mockReturnValue(state);
+    mockFindNextTask.mockReturnValue(null);
+
+    const promise = runCommand(undefined, {});
+    await vi.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    expect(mockSetWorkflowMode).toHaveBeenNthCalledWith(1, '/tmp/mock-cwd', 'run');
+    expect(mockSetWorkflowMode).toHaveBeenLastCalledWith('/tmp/mock-cwd', 'idle');
+  });
+
+  it('TC2b-1: --resume 重启暂停中的 CLI 时保留 pause 闩锁', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    mockLoadState.mockReturnValue(stateWith({ mode: 'pause', currentState: 'FINISH' }));
+    mockFindNextTask.mockReturnValue(null);
+    httpState.statusResponse = JSON.stringify({
+      state: 'ready', projectRoot: '/tmp/mock-cwd',
+    });
+    mockExecSync.mockImplementation((cmd) => (
+      cmd.startsWith('tmux display-message') ? '/tmp/mock-cwd\n' : Buffer.from('')
+    ));
+
+    const promise = runCommand(undefined, { resume: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2000);
+    await promise;
+
+    expect(mockSetWorkflowMode).not.toHaveBeenCalledWith('/tmp/mock-cwd', 'run');
+    expect(mockExecSync.mock.calls.some(([cmd]) => (
+      cmd === 'tmux display-message -p -t cc "#{pane_current_path}"'
+    ))).toBe(true);
+  });
+
+  it('TC2c: 调度异常时保留 mode=run 和运行现场', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    const task = { id: 'T1', title: 't1', status: 'pending', prompt: 'p' };
+    mockLoadState.mockReturnValue(stateWith({ mode: 'run', tasks: [task] }));
+    mockFindNextTask.mockImplementation(() => { throw new Error('scheduler failed'); });
+
+    const promise = runCommand(undefined, {});
+    const rejected = expect(promise).rejects.toThrow('scheduler failed');
+    await vi.advanceTimersByTimeAsync(2000);
+    await rejected;
+
+    expect(mockSetWorkflowMode).not.toHaveBeenCalledWith('/tmp/mock-cwd', 'idle');
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('服务已关闭'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
+  });
+
+  it('TC2d: 正常完成但 idle 写入失败时保留现场', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    mockLoadState.mockReturnValue(stateWith({ mode: 'run', currentState: 'FINISH' }));
+    mockFindNextTask.mockReturnValue(null);
+    mockSetWorkflowMode.mockReturnValue(false);
+
+    const promise = runCommand(undefined, {});
+    const rejected = expect(promise).rejects.toThrow('无法将 mode 设置为 idle');
+    await vi.advanceTimersByTimeAsync(2000);
+    await rejected;
+
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('服务已关闭'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
   });
 
   // ── TC10 ──

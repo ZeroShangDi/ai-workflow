@@ -341,8 +341,11 @@ describe('state.js — CLI', () => {
       expect(fix.status).toBe('pending');                     // 必须 pending 才进就绪池
       expect(fix.deps).toEqual(['T1']);                       // 复制原产物依赖
       expect(fix.plannedFiles).toEqual([]);                   // 保守串行
-      expect(fix.prompt).toContain('.awf/reports/review/review-r1.md'); // 报告路径入 prompt
-      expect(fix.prompt).toContain('changes_requested');      // verdict.conclusion 入 prompt
+      expect(fix.constraints).toEqual([]);
+      expect(fix.acceptance).toBe('门禁 R1 复审通过');
+      expect(fix.prompt).toBe(
+        '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 .awf/reports/review/review-r1.md 中列出的全部问题。',
+      );
       // 门禁回退
       const gate = state.tasks.find((t) => t.id === 'R1');
       expect(gate.status).toBe('pending');
@@ -390,6 +393,16 @@ describe('state.js — CLI', () => {
       expect(state.tasks.find((t) => t.id === 'R1').deps).toEqual(['T1', 'R1-F1', 'R1-F2']);
       expect(state.tasks.find((t) => t.id === 'R1').exec.recheck).toBe(2);
       expect(state.tasks.some((t) => t.id === 'R1-F2')).toBe(true);
+    });
+
+    it('TC-G8: 无报告时使用门禁结论生成精简修复目标', () => {
+      const state = {
+        tasks: [{ ...gateBase, exec: { verdict: gateBase.exec.verdict, files: [] } }],
+      };
+      spawnGateFixTask(state, state.tasks[0]);
+      expect(state.tasks.find((t) => t.id === 'R1-F1').prompt).toBe(
+        '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 判定中列出的问题：2 处失效引用。',
+      );
     });
   });
 });

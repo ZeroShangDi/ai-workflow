@@ -4,6 +4,7 @@
 
 ## 关联 Skill
 
+- **awf-task-context** — 输入含 task ID 时统一读取任务范围、约束和验收
 - **code-commit-gitflow** — git 使用说明 + 版本管理
 
 ## 硬性规则

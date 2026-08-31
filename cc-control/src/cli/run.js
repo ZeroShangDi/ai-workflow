@@ -4,8 +4,9 @@ import path from 'node:path';
 import { getPaths } from '../lib/paths.js';
 import { taskWrapup, taskSettle, contextCheck } from '../lib/plugin-bridge.js';
 import { installProjectMcp } from '../lib/profile.js';
-import { loadState, findNextTask, backupState, saveState } from '../lib/state.js';
+import { loadState, findNextTask, backupState, saveState, setWorkflowMode } from '../lib/state.js';
 import { loadRunConfig } from '../lib/run-config.js';
+import { waitWhilePaused } from '../lib/pause.js';
 import { handleGateCompletion } from './gate-fix.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, sendCmd, getContextReady, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
@@ -30,6 +31,17 @@ export async function runCommand(task, options) {
   if (!state) {
     console.log(`${RED}  未找到 .awf/state.json，请先执行 awf plan${RESET}\n`);
     process.exit(1);
+  }
+
+  // awf run 是运行模式的真实入口；不要依赖 tmux 内的 slash command 再补写 mode，
+  // 否则外部监控在首个 prompt 前无法可靠识别 run 已启动。
+  // w-monitor 可在 pause 闩锁保持期间用 --resume 重启异常退出的 CLI。
+  // 此时必须保留 pause，等监控验证 CLI 已重新驻留后再显式恢复为 run。
+  const preservePause = options?.resume && state.mode === 'pause';
+  if (state.mode !== 'run' && !preservePause) {
+    if (!setWorkflowMode(projectRoot, 'run')) {
+      throw new Error('无法将工作流 mode 设置为 run');
+    }
   }
 
   // 信号清理
@@ -59,6 +71,7 @@ export async function runCommand(task, options) {
     bootstrapScript: paths.bootstrapScript,
     projectRoot: paths.projectRoot,
     workDir: projectRoot,
+    reuseExisting: !!options?.resume,
   });
 
   spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
@@ -67,6 +80,7 @@ export async function runCommand(task, options) {
 
   // 2. 任务循环（单/多 agent 分流）
   //    单 agent（run.agents.max === 1，默认）→ 原 runLoop，多 agent 代码不参与，切换零风险
+  let runCompleted = false;
   try {
     const cfg = loadRunConfig(projectRoot);
     if (cfg.agents.max > 1) {
@@ -75,26 +89,42 @@ export async function runCommand(task, options) {
     } else {
       await runLoop(projectRoot);
     }
+    // 仅正常返回才标 idle。异常抛出时保留 run，供 w-monitor 识别异常而非误报正常结束。
+    if (!setWorkflowMode(projectRoot, 'idle')) {
+      throw new Error('工作流已完成，但无法将 mode 设置为 idle；保留运行现场');
+    }
+    runCompleted = true;
   } finally {
-    doCleanup();
+    if (runCompleted) {
+      doCleanup();
+    } else {
+      console.log(`${YELLOW}  运行异常退出：保留 tmux 与 Session Server 现场，供 w-monitor 诊断${RESET}`);
+    }
   }
 }
 
 // ── Session 环境管理 ──
 
 /** 启动 Session Server + tmux session 两个基础设施 */
-async function startSession({ serverScript, bootstrapScript, projectRoot, workDir, sessionName = 'cc' }) {
+async function startSession({ serverScript, bootstrapScript, projectRoot, workDir, sessionName = 'cc', reuseExisting = false }) {
   // 项目级 .mcp.json 是 MCP 工具可用的必要条件（enabled-only 插件注册下插件 .mcp.json 不暴露工具）
   // 幂等合并：只刷新 awf-* server 的绝对路径，保留项目已有 server
   const m = installProjectMcp(workDir, projectRoot, SERVER_PORT);
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
-  await ensureServer(serverScript, projectRoot, workDir);
+  await ensureServer(serverScript, projectRoot, workDir, reuseExisting);
   await writeRunSettings(workDir, projectRoot);
-  await ensureSession(bootstrapScript, workDir, sessionName);
+  await ensureSession(bootstrapScript, workDir, sessionName, reuseExisting);
 }
 
 /** 确保 Session Server 已启动，先释放旧端口再 spawn */
-async function ensureServer(serverScript, projectRoot, workDir) {
+async function ensureServer(serverScript, projectRoot, workDir, reuseExisting = false) {
+  if (reuseExisting) {
+    const existing = await getStatus(SERVER_PORT);
+    if (existing?.state && existing.projectRoot === workDir) {
+      logStep('tmux-http', 'ok', '复用现有服务');
+      return;
+    }
+  }
   try { execSync(`lsof -ti:${SERVER_PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   await sleep(300);
 
@@ -114,8 +144,20 @@ async function ensureServer(serverScript, projectRoot, workDir) {
   throw new Error('Session Server 启动超时');
 }
 
-/** 确保 tmux session 存在，先杀旧再 bootstrap 重建 */
-async function ensureSession(bootstrapScript, workDir, sessionName) {
+/** 确保 tmux session 存在；resume 时优先复用现场，否则重建 */
+async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false) {
+  if (reuseExisting) {
+    try {
+      const sessionCwd = execSync(
+        `tmux display-message -p -t ${sessionName} "#{pane_current_path}"`,
+        { encoding: 'utf8' },
+      ).trim();
+      if (path.resolve(sessionCwd) === path.resolve(workDir)) {
+        logStep('session', 'ok', `${sessionName} → 复用现有会话`);
+        return;
+      }
+    } catch {}
+  }
   try { execSync(`tmux kill-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   execSync(`bash "${bootstrapScript}"`, {
     stdio: 'ignore', cwd: workDir,
@@ -169,6 +211,11 @@ async function runLoop(projectRoot) {
   let consecutiveTimeouts = 0;
 
   while (currentState && currentState.currentState !== 'FINISH') {
+    // 外部监控/人工介入闩锁：恢复为 run 前不选择、不派发下一任务。
+    const resumed = await waitWhilePaused(projectRoot);
+    // 仅在确实暂停过时重载，正常路径不增加 state 读取，也避免使用暂停前快照。
+    if (resumed) currentState = loadState(projectRoot);
+    if (!currentState || currentState.currentState === 'FINISH') break;
     const nextTask = findNextTask(currentState);
     if (!nextTask) break;
 
@@ -223,8 +270,10 @@ async function executeTask(prompt, taskId, projectRoot) {
 
   const spin = createSpinner('executing...');
   try {
-    await waitForReady({ onDecision: handleDecision });
+    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
     spin.stop();
+    // 任务执行期间可能被 w-monitor 暂停；暂停时不得进入收尾追问或推进下一任务。
+    await waitWhilePaused(projectRoot);
     if (!taskId) { console.log(`     ${GREEN}✔ done${RESET}`); return 'done'; }
     return await settleTask(taskId, projectRoot);
   } catch (err) {
@@ -250,7 +299,7 @@ async function settleTask(taskId, projectRoot) {
   if (checkTaskDone(taskId, projectRoot)) { console.log(`     ${GREEN}✔ done${RESET}`); return 'done'; }
 
   logStep('', 'warn', `任务 ${taskId} 未标记 done，补发收尾 prompt`);
-  await sendPrompt(await taskWrapup(taskId));
+  await sendPrompt(await taskWrapup(taskId), projectRoot);
   if (checkTaskDone(taskId, projectRoot)) {
     logStep('', 'ok', `收尾 prompt 已生效`);
     console.log(`     ${GREEN}✔ done${RESET}`);
@@ -259,7 +308,7 @@ async function settleTask(taskId, projectRoot) {
 
   for (let round = 1; round <= MAX_SETTLE_ROUNDS; round++) {
     logStep('', 'warn', `任务 ${taskId} 仍为 pending，追问（第 ${round}/${MAX_SETTLE_ROUNDS} 轮）`);
-    await sendPrompt(await taskSettle(taskId));
+    await sendPrompt(await taskSettle(taskId), projectRoot);
     if (checkTaskDone(taskId, projectRoot)) {
       logStep('', 'ok', `任务 ${taskId} 已完成`);
       console.log(`     ${GREEN}✔ done${RESET}`);
@@ -277,9 +326,12 @@ async function settleTask(taskId, projectRoot) {
 }
 
 /** 发送 prompt 并等待 ready；超时忽略（由上层回查 state 决定下一步） */
-export async function sendPrompt(text) {
+export async function sendPrompt(text, projectRoot = process.cwd()) {
+  await waitWhilePaused(projectRoot);
   await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
-  try { await waitForReady({ onDecision: handleDecision }); } catch { /* 超时忽略 */ }
+  try {
+    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
+  } catch { /* 超时忽略 */ }
 }
 
 /**
@@ -310,7 +362,7 @@ export async function maybeCompactContext(taskPrompt, taskIndex, projectRoot) {
 
   // 第二层（AI）：占用 ≥ 阈值（上下文接近上限）或无实测（statusline 未配置，回退自估算）
   //   → 注入实测百分比，让 AI 结合对话实际与下个任务体量精确判断
-  await sendPrompt(await contextCheck(formatContextUsage(pct)));
+  await sendPrompt(await contextCheck(formatContextUsage(pct)), projectRoot);
 
   // 查就绪标记（一次性消费）— 未触发 → 原样执行
   const ready = await getContextReady(SERVER_PORT);

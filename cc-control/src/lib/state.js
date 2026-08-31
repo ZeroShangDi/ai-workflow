@@ -51,6 +51,24 @@ export function saveState(projectRoot, state) {
   });
 }
 
+/** 原子更新工作流 mode；读取锁内最新 state，避免用旧任务快照覆盖并发落账。 */
+export function setWorkflowMode(projectRoot, mode) {
+  const filePath = path.join(projectRoot, STATE_FILE);
+  const lockPath = path.join(projectRoot, '.awf', 'state.lock');
+  return withStateLock(lockPath, () => {
+    let state;
+    try {
+      state = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    } catch {
+      return false;
+    }
+    state.mode = mode;
+    state.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+    return true;
+  });
+}
+
 // ── 任务查询 ──
 
 /** 获取当前工作流阶段 */
@@ -254,6 +272,9 @@ export function spawnGateFixTask(state, gateTask) {
   const recheck = (gateTask.exec?.recheck || 0) + 1;
   const fixId = `${gateTask.id}-F${recheck}`;
   const reportPath = (gateTask.exec?.files || []).find((f) => f.startsWith('.awf/reports/')) || '';
+  const fixTarget = reportPath
+    ? `修复门禁 ${gateTask.id} 报告 ${reportPath} 中列出的全部问题。`
+    : `修复门禁 ${gateTask.id} 判定中列出的问题：${v.conclusion || v.level}。`;
 
   const fix = {
     id: fixId,
@@ -262,16 +283,10 @@ export function spawnGateFixTask(state, gateTask) {
     status: 'pending', // 必须 pending 才进 peekReadyTasks 就绪池
     deps: [...(gateTask.deps || [])], // 复制原产物依赖，保证产物就绪后才修
     plannedFiles: [], // 保守串行：无文件声明不与其他任务并行
-    prompt: [
-      `门禁 ${gateTask.id} 判定 ${v.level}，请阅读报告并修复发现的问题：`,
-      reportPath ? `报告：${reportPath}` : '',
-      `判定结论：${v.conclusion || ''}`,
-      gateTask.acceptance ? `验收标准：${gateTask.acceptance}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    constraints: [],
+    acceptance: gateTask.acceptance || `门禁 ${gateTask.id} 复审通过`,
+    prompt: `/ai-workflow-code:w-dev ${fixId}\n\n${fixTarget}`,
   };
-  if (gateTask.acceptance) fix.acceptance = gateTask.acceptance;
 
   state.tasks.push(fix);
   gateTask.status = 'pending'; // 回退门禁待复审

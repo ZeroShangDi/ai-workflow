@@ -15,6 +15,7 @@ const m = vi.hoisted(() => ({
   mockGetStatus: vi.fn(),
   mockHandleDecision: vi.fn(),
   mockHandleGateCompletion: vi.fn(() => Promise.resolve()),
+  mockWaitWhilePaused: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../../src/lib/plugin-bridge.js', () => ({ subagentDispatch: m.mockSubagentDispatch }));
@@ -26,6 +27,7 @@ vi.mock('../../src/lib/state.js', () => ({
 vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
 vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
 vi.mock('../../src/cli/gate-fix.js', () => ({ handleGateCompletion: m.mockHandleGateCompletion }));
+vi.mock('../../src/lib/pause.js', () => ({ waitWhilePaused: m.mockWaitWhilePaused }));
 
 import { runBatchLoop } from '../../src/cli/run-batch.js';
 
@@ -58,6 +60,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
 
     await captured.send({ id: 'T1', title: '做任务', prompt: 'do it' });
+    expect(m.mockWaitWhilePaused).toHaveBeenCalledWith('/tmp/proj');
     expect(m.mockSubagentDispatch).toHaveBeenCalledWith({ taskId: 'T1', taskPrompt: 'do it' });
     expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/send', { text: 'DISPATCH_PROMPT' });
   });

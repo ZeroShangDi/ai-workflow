@@ -42,19 +42,24 @@ description: >
   "status": "pending",
   "deps": ["T1-002"],
   "plannedFiles": ["src/a.js", "src/a.test.js"],
+  "constraints": ["不得改变现有公开 API"],
   "acceptance": "可验证的完成条件",
   "prompt": "执行提示词（由 awf-plan-prompt 生成）"
 }
 ```
 
-**`kind`（任务类型）**：调度器据此识别门禁层级（CLI 只读结构化字段，不解析 prompt 命令）。取值：
+**`kind`（任务类型）**：用于选择对应自定义命令，调度器也据此识别门禁层级（CLI 不解析 prompt）。取值：
 
 | kind | 含义 |
 |------|------|
 | `dev` | 普通开发任务（默认） |
+| `debug` | 缺陷定位与修复任务 |
 | `review` | 审查门禁（功能级，deps = 该功能下全部叶子任务） |
 | `test` | 测试门禁（模块级，deps = 该模块下全部任务 + 审查） |
 | `doc` | 文档门禁（全局，deps = 全部任务） |
+| `commit` | 提交任务 |
+| `ui-design` | UI 原型设计任务 |
+| `ui-code` | UI 静态实现任务 |
 
 普通任务不填则默认为 `dev`。门禁任务必须显式标注 kind（见下方「门禁任务」表）。
 
@@ -65,9 +70,15 @@ description: >
 - 只读门禁（review/doc）可不声明；测试门禁（test）若写独立 test 文件，可声明 `test/` 目录。
 - 目录前缀即冲突：`src/util/` 与 `src/util/math.js` 视为冲突。
 
+**`constraints`（任务专属硬约束）**：只记录会改变该任务实现选择、且无法由其他结构化字段表达的限制，例如”不得改变公开 API””必须兼容 Node 18”。类型为 `string[]`，无约束时使用空数组。
+
+- 通用开发规范、工具调用步骤、收尾流程不属于任务约束，由对应自定义命令统一处理。
+- 文件范围写入 `plannedFiles`，完成条件写入 `acceptance`，不要在 `constraints` 中重复。
+- `prompt` 只描述具体要做什么，禁止复制 `plannedFiles`、`constraints`、`acceptance` 或 `deps`。
+
 id 遵循编号规范 `{前缀}{编号}-{序号}`（见 w-plan 的编号规范章节 + awf-plan-level 的「级别↔编号」表）：`T`=任务，**编号=语义层级自下而上（任务=1、功能=2、模块=3、项目=4）**，创建任务时按语义直接定级。`wbsRef` 指向同编号的 WBS 节点（`W{编号}-{序号}`），dev 叶子任务 `T1-{序号}` 与 WBS 叶子 `W1-{序号}` 序号对齐便于溯源。**门禁任务编号=被管辖节点编号**（审查管功能=2、测试管模块=3、文档管项目=4），**序号=被管辖节点序号对齐**（见下方「门禁任务」表）。
 
-**`title` vs `prompt`**：`title` 给人看（任务列表扫描，一句话）；`prompt` 给 AI 看（执行指令，自包含，由 awf-plan-prompt 生成）。
+**`title` vs `prompt`**：`title` 给人扫描任务列表；`prompt` 由 awf-plan-prompt 生成，只包含命令、task ID 和比 title 更具体的任务目标。其他字段由自定义命令处理。
 
 ## 任务运行时扩展
 
@@ -107,7 +118,7 @@ pending → active → done
 
 | 阶段 | 读 | 写 |
 |------|-----|-----|
-| PLAN | — | `id`, `title`, `kind`, `plannedFiles`, `prompt`, `wbsRef`, `deps`, `acceptance`, `status = "pending"` |
+| PLAN | — | `id`, `title`, `kind`, `plannedFiles`, `constraints`, `prompt`, `wbsRef`, `deps`, `acceptance`, `status = "pending"` |
 | CODE | `id`, `title`, `prompt`, `deps`, `status` | `status`, `exec.result`, `exec.files` |
 | REVIEW | `title`, `exec.result`, `exec.files` | 不直接写 task |
 | TEST | `title`, `exec.result`, `acceptance` | 不直接写 task |
@@ -180,6 +191,6 @@ tasks 是 WBS 的派生叶子，落盘时**只增删改 `tasks` 数组**：
 
 - **依赖链明确**：每个任务知道它在谁之后（deps）、谁在它之后（被依赖它的任务）
 - **验收可验证**：是/否可判断，不含"完善""优化"等模糊词
-- **提示词随任务**：每个任务（含门禁）带有自包含执行上下文（由 awf-plan-prompt 生成），阶段断裂时 AI 能冷启动
+- **提示词只写目标**：每个任务（含门禁）的 prompt 只描述具体要做什么，结构化上下文由对应命令处理
 - **门禁是任务不是检查**：门禁作为正式 task 落盘，参与状态流转，靠 deps 保证时序
 - **粒度看复杂度**：合并/拆分依据三维复杂度判定（见「粒度判定」），不机械按域合并、也不机械保留颗粒度

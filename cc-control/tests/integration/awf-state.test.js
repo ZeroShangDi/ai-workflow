@@ -265,17 +265,27 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
   });
 
   it('TC16: awf_task_create 正常创建（默认值）', async () => {
-    const res = await client.callTool('awf_task_create', { id: 'T3', title: '新任务', prompt: '做某事' });
+    const res = await client.callTool('awf_task_create', {
+      id: 'T3', title: '新任务', prompt: '做某事', constraints: ['不得改变公开 API'],
+    });
     expect(res).toEqual({ ok: true, tool: 'awf_task_create' });
 
     const s = readState(tmpDir);
     const t3 = s.tasks.find((t) => t.id === 'T3');
     expect(t3).toMatchObject({
       id: 'T3', title: '新任务', prompt: '做某事',
-      status: 'pending', deps: [],
+      status: 'pending', deps: [], plannedFiles: [], constraints: ['不得改变公开 API'],
     });
     expect(t3.wbsRef).toBeUndefined(); // 未提供时为 undefined（JSON 序列化丢弃）
     expect(s.tasks).toHaveLength(3);
+  });
+
+  it('TC16b: awf_task_create 支持完整 kind 枚举', async () => {
+    const tools = await client.toolsList();
+    const create = tools.find((t) => t.name === 'awf_task_create');
+    expect(create.inputSchema.properties.kind.enum).toEqual([
+      'dev', 'debug', 'review', 'test', 'doc', 'commit', 'ui-design', 'ui-code',
+    ]);
   });
 
   it('TC17: awf_task_create id 重复 → ok:false', async () => {
@@ -288,12 +298,15 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
   });
 
   it('TC18: awf_task_update 部分字段更新', async () => {
-    const res = await client.callTool('awf_task_update', { id: 'T1', title: 'new title' });
+    const res = await client.callTool('awf_task_update', {
+      id: 'T1', title: 'new title', constraints: ['保持向后兼容'],
+    });
     expect(res.ok).toBe(true);
 
     const t1 = readState(tmpDir).tasks.find((t) => t.id === 'T1');
     expect(t1.title).toBe('new title');
     expect(t1.prompt).toBe('p1'); // 未传不更新
+    expect(t1.constraints).toEqual(['保持向后兼容']);
   });
 
   it('TC19: awf_task_delete 正常删除', async () => {
@@ -355,6 +368,9 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
   it('TC24: awf_mode 设置运行模式', async () => {
     await client.callTool('awf_mode', { mode: 'run' });
     expect(readState(tmpDir).mode).toBe('run');
+
+    await client.callTool('awf_mode', { mode: 'pause' });
+    expect(readState(tmpDir).mode).toBe('pause');
   });
 
   it('TC25: awf_version 设置版本号', async () => {
