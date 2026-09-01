@@ -69,6 +69,26 @@ export function setWorkflowMode(projectRoot, mode) {
   });
 }
 
+/** 派发成功后将任务标记为执行中，保留其他 Agent 的并发落账。 */
+export function markTaskActive(projectRoot, taskId) {
+  const filePath = path.join(projectRoot, STATE_FILE);
+  const lockPath = path.join(projectRoot, '.awf', 'state.lock');
+  return withStateLock(lockPath, () => {
+    let state;
+    try {
+      state = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    } catch {
+      return false;
+    }
+    const task = state.tasks?.find((item) => item.id === taskId);
+    if (!task || task.status !== 'pending') return false;
+    task.status = 'active';
+    state.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+    return true;
+  });
+}
+
 // ── 任务查询 ──
 
 /** 获取当前工作流阶段 */

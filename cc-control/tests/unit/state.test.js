@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { loadState, saveState, findNextTask, getCurrentPhase, isMilestoneDone, selectReadyBatch, spawnGateFixTask, MAX_RECHECK } from '../../src/lib/state.js';
+import { loadState, saveState, markTaskActive, findNextTask, getCurrentPhase, isMilestoneDone, selectReadyBatch, spawnGateFixTask, MAX_RECHECK } from '../../src/lib/state.js';
 
 describe('state.js — CLI', () => {
   let tmpDir;
@@ -92,6 +92,30 @@ describe('state.js — CLI', () => {
       // state.json 正常写入
       const content = JSON.parse(fs.readFileSync(path.join(tmpDir, '.awf', 'state.json'), 'utf-8'));
       expect(content.mode).toBe('idle');
+    });
+  });
+
+  describe('markTaskActive', () => {
+    it('将 pending 任务原子标为 active，且不影响其他任务', () => {
+      saveState(tmpDir, {
+        tasks: [
+          { id: 'T1', status: 'pending' },
+          { id: 'T2', status: 'done' },
+        ],
+      });
+
+      expect(markTaskActive(tmpDir, 'T1')).toBe(true);
+      expect(loadState(tmpDir).tasks).toEqual([
+        { id: 'T1', status: 'active' },
+        { id: 'T2', status: 'done' },
+      ]);
+    });
+
+    it('不覆盖已进入终态的任务', () => {
+      saveState(tmpDir, { tasks: [{ id: 'T1', status: 'done' }] });
+
+      expect(markTaskActive(tmpDir, 'T1')).toBe(false);
+      expect(loadState(tmpDir).tasks[0].status).toBe('done');
     });
   });
 

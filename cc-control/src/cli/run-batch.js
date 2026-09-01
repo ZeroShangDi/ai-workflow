@@ -15,13 +15,13 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
-import { loadState, backupState } from '../lib/state.js';
+import { loadState, backupState, markTaskActive } from '../lib/state.js';
 import { runScheduler } from './scheduler.js';
 import { handleGateCompletion } from './gate-fix.js';
 import { subagentDispatch } from '../lib/plugin-bridge.js';
 import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
 import { handleDecision } from './run.js';
-import { logStep } from '../lib/ui/log.js';
+import { logStep, logTask } from '../lib/ui/log.js';
 import { waitWhilePaused } from '../lib/pause.js';
 import { GREEN, RESET } from '../lib/ui/colors.js';
 
@@ -142,12 +142,14 @@ export async function runBatchLoop(projectRoot, cfg) {
       await waitWhilePaused(projectRoot);
       const prompt = await subagentDispatch({
         taskId: task.id,
+        taskTitle: task.title || '',
         taskPrompt: task.prompt || task.title || '',
       });
       // 经 Session Server /send（tmux）注入：主会话收到指令 → 派生后台子 Agent → 回合结束
       const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
       if (!resp?.ok) throw new Error(`派发 ${task.id} 失败: ${resp?.error || 'unknown'}`);
-      logStep('', 'ok', `派发 ${task.id}`);
+      markTaskActive(projectRoot, task.id);
+      logTask(task.id, task.title, 'active');
     },
     async sendRaw(text) {
       await waitWhilePaused(projectRoot);
@@ -162,7 +164,13 @@ export async function runBatchLoop(projectRoot, cfg) {
     dispatcher,
     waitAnyDone: makeWaitAnyDone(projectRoot, dispatcher),
     // 门禁闭环：门禁任务（review/test）blocked + verdict 非 pass → 派生修复任务 + 回退复审
-    onTaskComplete: (id, task) => handleGateCompletion(projectRoot, id, task),
+    onTaskComplete: async (id, task) => {
+      const settled = loadState(projectRoot)?.tasks?.find((item) => item.id === id);
+      const title = settled?.title || task.title || '未命名任务';
+      const status = settled?.status || task.status;
+      logTask(id, title, status === 'done' ? 'done' : 'blocked');
+      await handleGateCompletion(projectRoot, id, settled || task);
+    },
   });
 
   backupState(projectRoot);

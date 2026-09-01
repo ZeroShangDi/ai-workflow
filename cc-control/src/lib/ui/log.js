@@ -1,4 +1,4 @@
-import { DIM, GREEN, YELLOW, RED, RESET } from './colors.js';
+import { CYAN, DIM, GREEN, YELLOW, RED, RESET } from './colors.js';
 
 const LABEL_W = 16;
 
@@ -29,6 +29,22 @@ export function logStep(label, status, msg) {
       break;
     case 'error':
       console.log(`${prefix}${RED}✘ ${msg}${RESET}`);
+      break;
+  }
+}
+
+/** 多 Agent 任务状态行：用前置图标表现同一任务的生命周期。 */
+export function logTask(taskId, title, status) {
+  const task = `${DIM}[${taskId}]${RESET} ${title || '未命名任务'}`;
+  switch (status) {
+    case 'active':
+      console.log(`     ${CYAN}●${RESET} ${task}`);
+      break;
+    case 'done':
+      console.log(`     ${GREEN}✓${RESET} ${task}`);
+      break;
+    case 'blocked':
+      console.log(`     ${YELLOW}⚠${RESET} ${task}`);
       break;
   }
 }

@@ -221,7 +221,7 @@ async function runLoop(projectRoot) {
 
     const idx = allTasks.findIndex(t => t.id === nextTask.id) + 1;
     logBanner(`任务 ${idx}/${total}: ${nextTask.title}`);
-    logPrompt(nextTask.prompt || nextTask.title || '');
+    logPrompt(nextTask.title || '', nextTask.prompt || nextTask.title || '');
 
     // 任务前上下文检查：AI 按 code-context-onboard 判断是否需压缩，需要则 /clear 后注入快照
     const taskPrompt = nextTask.prompt || nextTask.title || '';
@@ -494,7 +494,10 @@ export async function handleDecision(d) {
 // ── 输出辅助 ──
 
 /** 完整显示 prompt（多行，保留 XML 标签结构） */
-export function logPrompt(prompt) {
+export function logPrompt(title, prompt) {
+  if (title) {
+    console.log(`     ${DIM}title${RESET} ${title}`);
+  }
   const lines = prompt.split('\n');
   console.log(`     ${DIM}prompt (${lines.length} 行 · ${prompt.length} 字符)${RESET}`);
   for (const line of lines) {

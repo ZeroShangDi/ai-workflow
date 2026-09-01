@@ -350,6 +350,29 @@ describe('runCommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，即将重试'));
   });
 
+  it('TC12b: 单 agent 输出显式 title 字段', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    const tasks = [{ id: 'T1', title: '实现登录', status: 'pending', prompt: '补齐登录流程与测试' }];
+    mockLoadState
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValueOnce(stateWith({ tasks }))
+      .mockReturnValue(stateWith({ tasks: tasksDone(tasks), currentState: 'FINISH' }));
+    mockFindNextTask
+      .mockReturnValueOnce(tasks[0])
+      .mockReturnValue(null);
+
+    const promise = runCommand(undefined, {});
+    await vi.advanceTimersByTimeAsync(5000);
+    await promise;
+    vi.useRealTimers();
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('title'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('实现登录'));
+  });
+
   // ── TC3 ──
 
   it('TC3: ensureServer 成功启动', async () => {

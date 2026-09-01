@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   mockSubagentDispatch: vi.fn(),
   mockSleep: vi.fn(() => Promise.resolve()),
   mockBackupState: vi.fn(),
+  mockMarkTaskActive: vi.fn(),
   mockLoadState: vi.fn(() => null),
   mockGetStatus: vi.fn(),
   mockHandleDecision: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('../../src/lib/session/client.js', () => ({ httpPostJson: m.mockHttpPost
 vi.mock('../../src/lib/state.js', () => ({
   loadState: m.mockLoadState,
   backupState: m.mockBackupState,
+  markTaskActive: m.mockMarkTaskActive,
 }));
 vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
 vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
@@ -33,6 +35,7 @@ import { runBatchLoop } from '../../src/cli/run-batch.js';
 
 describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
   beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
     for (const k of Object.keys(m)) m[k].mockReset();
     m.mockSleep.mockImplementation(() => Promise.resolve());
     m.mockLoadState.mockReturnValue(null);
@@ -61,8 +64,11 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
 
     await captured.send({ id: 'T1', title: '做任务', prompt: 'do it' });
     expect(m.mockWaitWhilePaused).toHaveBeenCalledWith('/tmp/proj');
-    expect(m.mockSubagentDispatch).toHaveBeenCalledWith({ taskId: 'T1', taskPrompt: 'do it' });
+    expect(m.mockSubagentDispatch).toHaveBeenCalledWith({ taskId: 'T1', taskTitle: '做任务', taskPrompt: 'do it' });
     expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/send', { text: 'DISPATCH_PROMPT' });
+    expect(m.mockMarkTaskActive).toHaveBeenCalledWith('/tmp/proj', 'T1');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[T1]'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('做任务'));
   });
 
   it('TC-D: dispatcher.send 派发失败（/send 非 ok）→ 抛错', async () => {
@@ -153,5 +159,19 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     const gateTask = { id: 'R1', kind: 'review', status: 'blocked', exec: { verdict: { level: 'fail' } } };
     await captured('R1', gateTask);
     expect(m.mockHandleGateCompletion).toHaveBeenCalledWith('/tmp/proj', 'R1', gateTask);
+  });
+
+  it('TC-I: 任务落账后输出完成状态与标题', async () => {
+    let captured;
+    m.mockRunScheduler.mockImplementation(async ({ onTaskComplete }) => {
+      captured = onTaskComplete;
+      return { dispatched: 0 };
+    });
+    m.mockLoadState.mockReturnValue({ tasks: [{ id: 'T1', title: '实现登录', status: 'done' }] });
+    await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
+
+    await captured('T1', { id: 'T1', title: '旧标题', status: 'active' });
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[T1]'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('实现登录'));
   });
 });
