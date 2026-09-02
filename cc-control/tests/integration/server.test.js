@@ -40,8 +40,10 @@ class MockRunLogger {
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-server-test-'));
 const projectWithState = path.join(TMP, 'with-state');
 const projectNoState = path.join(TMP, 'no-state');
+const fakeHome = path.join(TMP, 'home');
 fs.mkdirSync(path.join(projectWithState, '.awf'), { recursive: true });
 fs.mkdirSync(path.join(projectNoState, '.awf'), { recursive: true });
+fs.mkdirSync(fakeHome, { recursive: true });
 fs.writeFileSync(
   path.join(projectWithState, '.awf', 'state.json'),
   JSON.stringify({ mode: 'run', version: '0.1.0', currentState: 'CODE', tasks: [{ id: 'T1', status: 'done' }] }),
@@ -61,6 +63,7 @@ process.env.CC_PROJECT = projectWithState;
 process.env.CC_READY_TIMEOUT_MS = '300';   // 加速 waitReady 超时路径
 process.env.CC_ENTER_DELAY_MS = '0';       // submit 不等待
 process.env.CC_LOCAL_CMD_MS = '60';        // /cmd fallback
+process.env.HOME = fakeHome;
 global.__CC_TMUX__ = m.tmux;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 
@@ -180,6 +183,45 @@ describe('路由', () => {
     expect(res.body.session).toBe(true);
     expect(res.body.decisionPending).toBeNull();
     expect(res.body.projectRoot).toBe(projectWithState);
+  });
+
+  it('TC8b: GET /awf/metrics → 返回运行指标', async () => {
+    const slug = projectWithState.replace(/\//g, '-');
+    const transcriptDir = path.join(fakeHome, '.claude', 'projects', slug);
+    fs.mkdirSync(transcriptDir, { recursive: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'context', 'usage.json'), JSON.stringify({
+      used_percentage: 62,
+      remaining_percentage: 38,
+      context_window_size: 200000,
+      total_input_tokens: 124000,
+      updatedAt: '2026-09-02T00:00:00.000Z',
+    }));
+    fs.writeFileSync(path.join(transcriptDir, 'sess-main.jsonl'), [
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'u1',
+        timestamp: new Date(Date.now() - 5000).toISOString(),
+        message: {
+          id: 'm1',
+          usage: { input_tokens: 120, output_tokens: 30, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 },
+        },
+      }),
+      JSON.stringify({
+        type: 'cost-state',
+        startTime: Date.now() - 20000,
+      }),
+    ].join('\n'));
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    const res = await api('GET', '/awf/metrics');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.metrics.agentMode).toBe('single');
+    expect(res.body.metrics.tokens.total).toBe(150);
+    expect(res.body.metrics.tokens.output).toBe(30);
+    expect(res.body.metrics.tokens.coverage).toBe('exact');
+    expect(res.body.metrics.context.usedPercentage).toBe(62);
+    expect(res.body.metrics.outputSpeed.currentTokensPerSecond).toBeGreaterThan(0);
+    expect(res.body.metrics.elapsedMs).toBeGreaterThan(0);
   });
 
   it('TC9: GET /status?snapshot=true → 包含 snapshot', async () => {
@@ -727,30 +769,26 @@ describe('dashboard.html', () => {
     }
   });
 
-  it('TC35: PHASES 数组含 7 个权威阶段', () => {
-    const match = html.match(/const PHASES = \[([^\]]*)\]/);
-    expect(match).not.toBeNull();
-    const phases = match[1].split(',').map((s) => s.trim().replace(/'/g, ''));
-    expect(phases).toEqual(['PLAN', 'DESIGN', 'CODE', 'REVIEW', 'TEST', 'COMMIT', 'FINISH']);
-    expect(phases).toHaveLength(7);
+  it('TC35: phaseChain 已改为 metrics strip', () => {
+    expect(html).toContain("const mr = await fetch('/awf/metrics')");
+    expect(html).toContain('function renderMetrics(metrics)');
+    expect(html).toContain("metricCard('总 Token'");
+    expect(html).toContain("metricCard('输出速度'");
+    expect(html).toContain("metricCard('上下文'");
+    expect(html).toContain("metricCard('总耗时'");
   });
 
-  it('TC36: canon 函数逻辑（DEBUG/DOCS/DEV 归一化到 CODE）', () => {
-    const match = html.match(/function canon\(p\) \{([\s\S]*?)\n\}/);
-    expect(match).not.toBeNull();
-    const canon = new Function('p', match[1]);
-    expect(canon('CODE')).toBe('CODE');
-    expect(canon('DEBUG')).toBe('CODE');
-    expect(canon('DOCS')).toBe('CODE');
-    expect(canon('DEV')).toBe('CODE');
-    expect(canon('PLAN')).toBe('PLAN');
-    expect(canon('REVIEW')).toBe('REVIEW');
-    expect(canon('IDLE')).toBe('IDLE');
+  it('TC36: metrics 渲染包含格式化函数', () => {
+    expect(html).toContain('function formatCompactNumber(value)');
+    expect(html).toContain('function formatSpeed(value)');
+    expect(html).toContain('function formatElapsed(ms)');
+    expect(html).toContain('function formatContext(metrics)');
   });
 
   it('TC37: refresh 行为（fetch 调用 + 离线处理 + 去重 + setInterval）', () => {
     // 静态分析 refresh() 源码中的关键行为
     expect(html).toContain("const sr = await fetch('/awf/state')");
+    expect(html).toContain("const mr = await fetch('/awf/metrics')");
     expect(html).toContain("const ssr = await fetch('/status?snapshot=true')");
     expect(html).toContain("textContent = '离线'");
     expect(html).toContain('ss.snapshot !== lastSnapshot');

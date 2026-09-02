@@ -7,6 +7,7 @@ const path = require('path');
 // 生产环境不设置 global.__CC_TMUX__/__CC_RUNLOGGER__，回落到真实模块。
 const tmuxlib = global.__CC_TMUX__ || require('./tmux.cjs');
 const { RunLogger } = global.__CC_RUNLOGGER__ || require('./run-logger.cjs');
+const { readRunMetrics, resetRunMeta, updateRunMeta } = require('../lib/run-metrics.cjs');
 
 const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
 const logger = new RunLogger(PROJECT_ROOT);
@@ -151,6 +152,19 @@ const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);
 // dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
 const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
+let metricsCache = { at: 0, value: null };
+
+function getMetricsSnapshot() {
+  if (Date.now() - metricsCache.at < 1000 && metricsCache.value) return metricsCache.value;
+  metricsCache = {
+    at: Date.now(),
+    value: readRunMetrics(PROJECT_ROOT, {
+      mainSessionId,
+      activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
+    }),
+  };
+  return metricsCache.value;
+}
 
 // ---- ready/busy state machine, driven by Claude Code hooks ----
 let state = 'ready'; // 'ready' | 'busy'
@@ -285,6 +299,14 @@ const server = http.createServer(async (req, res) => {
 
     if (event === 'SessionStart') {
       if (body.session_id && !mainSessionId) mainSessionId = body.session_id;
+      updateRunMeta(PROJECT_ROOT, (meta) => ({
+        ...meta,
+        projectRoot: PROJECT_ROOT,
+        startedAt: meta.startedAt || new Date().toISOString(),
+        endedAt: null,
+        mainSessionId: body.session_id || meta.mainSessionId || null,
+        updatedAt: new Date().toISOString(),
+      }));
       setReady();
       logger.resetTranscript();
     } else if (event === 'UserPromptSubmit') {
@@ -306,6 +328,23 @@ const server = http.createServer(async (req, res) => {
         // 只观测，不驱动主闩锁。以 agent_id 键控（子 agent 共享父会话 session_id，用它做 key 会塌缩成一个）
         const key = body.agent_id || body.session_id || 'unknown';
         agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
+        updateRunMeta(PROJECT_ROOT, (meta) => ({
+          ...meta,
+          projectRoot: PROJECT_ROOT,
+          subagents: {
+            ...(meta.subagents || {}),
+            [key]: {
+              ...(meta.subagents || {})[key],
+              agentId: key,
+              sessionId: body.session_id || null,
+              status: 'running',
+              startedAt: ((meta.subagents || {})[key] || {}).startedAt || new Date().toISOString(),
+              stoppedAt: null,
+              transcriptPath: body.agent_transcript_path || ((meta.subagents || {})[key] || {}).transcriptPath || null,
+            },
+          },
+          updatedAt: new Date().toISOString(),
+        }));
       }
     } else if (event === 'SubagentStop') {
       const key = body.agent_id || body.session_id || 'unknown';
@@ -315,6 +354,23 @@ const server = http.createServer(async (req, res) => {
       } else {
         const a = agents.get(key);
         if (a) a.status = 'stopped';
+        updateRunMeta(PROJECT_ROOT, (meta) => ({
+          ...meta,
+          projectRoot: PROJECT_ROOT,
+          subagents: {
+            ...(meta.subagents || {}),
+            [key]: {
+              ...(meta.subagents || {})[key],
+              agentId: key,
+              sessionId: body.session_id || ((meta.subagents || {})[key] || {}).sessionId || null,
+              status: 'stopped',
+              startedAt: ((meta.subagents || {})[key] || {}).startedAt || new Date().toISOString(),
+              stoppedAt: new Date().toISOString(),
+              transcriptPath: body.agent_transcript_path || ((meta.subagents || {})[key] || {}).transcriptPath || null,
+            },
+          },
+          updatedAt: new Date().toISOString(),
+        }));
       // 未跟踪的 Stop（无 SubagentStart：伪事件/非本 run 派发）仅观测，不落账、不写失败记录 ——
       // 否则会为不存在的子 Agent 生成失败记录 → CLI 补发到幽灵 agent，反复 RESET/等待
       if (!a) {
@@ -395,6 +451,10 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return send(res, 404, { ok: false, error: `state.json not found at ${statePath}` });
     }
+  }
+
+  if (req.method === 'GET' && pathname === '/awf/metrics') {
+    return send(res, 200, { ok: true, metrics: getMetricsSnapshot() });
   }
 
   // ---- status ----
@@ -567,6 +627,8 @@ const server = http.createServer(async (req, res) => {
 // ---- lifecycle: CLI 以子进程方式运行；测试中可显式 start/stop ----
 function start(port = PORT) {
   resetRunLogs();
+  resetRunMeta(PROJECT_ROOT);
+  metricsCache = { at: 0, value: null };
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
@@ -604,6 +666,8 @@ function _resetForTest() {
   contextReady = false;
   mainSessionId = null;
   agents.clear();
+  metricsCache = { at: 0, value: null };
+  resetRunMeta(PROJECT_ROOT);
 }
 
 module.exports = {
@@ -613,6 +677,7 @@ module.exports = {
 
 if (require.main === module) {
   resetRunLogs();
+  resetRunMeta(PROJECT_ROOT);
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
   });
