@@ -150,18 +150,15 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通�
 
 ```
 logs/
-└── 2026-07-31-143052/      # 运行时间戳
-    ├── run.log             #   完整终端输出
-    ├── phases.json         #   阶段执行记录
-    ├── errors.json         #   错误/异常汇总
-    └── metrics.json        #   耗时/token/轮次等指标
+└── 0.1.3-2026-07-31T14-30-52/  # 运行版本与启动时间
+    ├── main.log                 # 主 Agent 可读日志
+    └── agents/                  # 每个子 Agent 的可读日志
+        └── T1--agent-id.log
 ```
 
-**目录命名**：`YYYY-MM-DD-HHmmss`（启动时间）
+**目录命名**：`{version}-YYYY-MM-DDTHH-mm-ss`（运行版本与启动时间）
 
 | 文件 | 内容 |
 |------|------|
-| `run.log` | stdout + stderr 完整输出 |
-| `phases.json` | 各阶段起止时间、状态、产出 |
-| `errors.json` | 异常堆栈、上下文、恢复动作 |
-| `metrics.json` | 总耗时、token 消耗、对话轮次、任务数 |
+| `main.log` | 主 Agent 的可读提示词与回答日志 |
+| `agents/<taskId>--<agentId>.log` | 对应子 Agent 的时间顺序可读日志；重试会保留独立文件 |

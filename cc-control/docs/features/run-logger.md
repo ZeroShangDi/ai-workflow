@@ -6,7 +6,7 @@
 
 ## 功能描述
 
-RunLogger 是 `awf run` 的运行日志记录器，在 Session Server 启动时初始化，将每次 prompt 和 AI 回复写入 `.awf/logs/{version}-{ts}.log`，并通过增量读取 Claude Code transcript JSONL 自动捕获 assistant 响应。
+RunLogger 是 `awf run` 的运行日志记录器，在 Session Server 启动时初始化。每次运行创建 `.awf/logs/{version}-{ts}/` 目录，保存主 Agent 与每个子 Agent 的可读 `.log`；Claude 的 JSONL transcript 仅作为转换输入，不会落入运行目录。
 
 ---
 
@@ -54,10 +54,12 @@ RunLogger
 ### 日志文件命名
 
 ```
-{projectRoot}/.awf/logs/{version}-{ts}.log
+{projectRoot}/.awf/logs/{version}-{ts}/
+  main.log
+  agents/{taskId}--{agentId}.log
 ```
 
-例：`.awf/logs/0.1.3-2026-08-28T12-15-08.log`
+例：`.awf/logs/0.1.3-2026-08-28T12-15-08/main.log`
 
 ### 日志头格式
 

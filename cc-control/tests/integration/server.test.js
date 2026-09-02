@@ -18,6 +18,7 @@ const m = {
   logger: {
     resetTranscript: vi.fn(),
     captureFromTranscript: vi.fn(),
+    captureSubagentTranscript: vi.fn(),
     logChoice: vi.fn(),
     logPrompt: vi.fn(),
   },
@@ -29,6 +30,7 @@ class MockRunLogger {
   get path() { return ''; }
   resetTranscript() { m.logger.resetTranscript(); }
   captureFromTranscript() { m.logger.captureFromTranscript(); }
+  captureSubagentTranscript(...args) { m.logger.captureSubagentTranscript(...args); }
   logChoice(...args) { m.logger.logChoice(...args); }
   logPrompt(...args) { m.logger.logPrompt(...args); }
 }
@@ -559,6 +561,9 @@ describe('/hook 事件', () => {
     const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
     expect(s.tasks[0].status).toBe('done');
     expect(s.tasks[0].exec).toEqual(expect.objectContaining({ result: '做完了', files: ['a.js'] }));
+    expect(m.logger.captureSubagentTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ agent_id: 'agent-1' }), 'T1', 'agent-1',
+    );
   });
 
   it('TC39: SubagentStop 无有效 RESULT → 不落账 + 写失败记录（可恢复，CLI 补发依据）', async () => {

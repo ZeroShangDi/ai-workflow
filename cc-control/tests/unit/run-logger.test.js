@@ -50,10 +50,12 @@ describe('RunLogger', () => {
     const logger = new RunLogger(tmpDir);
 
     expect(logger.enabled).toBe(true);
-    expect(logger.path).toMatch(/\.awf\/logs\/0\.1\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$/);
+    expect(logger.dir).toMatch(/\.awf\/logs\/0\.1\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+    expect(logger.path).toMatch(/\.awf\/logs\/0\.1\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\/main\.log$/);
 
     // 日志目录已创建
     expect(fs.existsSync(path.join(awfDir, 'logs'))).toBe(true);
+    expect(fs.existsSync(path.join(logger.dir, 'agents'))).toBe(true);
 
     // 日志文件包含头部
     const logContent = fs.readFileSync(logger.path, 'utf-8');
@@ -229,7 +231,7 @@ describe('RunLogger', () => {
 
     const logger = new RunLogger(tmpDir);
 
-    expect(logger.path).toMatch(/1\.0\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$/);
+    expect(logger.path).toMatch(/1\.0\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\/main\.log$/);
     const content = fs.readFileSync(logger.path, 'utf-8');
     expect(content).toContain('version: 1.0.0');
   });
@@ -303,5 +305,19 @@ describe('RunLogger', () => {
     logger.resetTranscript();
     logger.captureFromTranscript();
     expect(fs.readFileSync(logger.path, 'utf-8')).not.toContain('stale');
+  });
+
+  it('TC21: 将子 Agent transcript 转为可读 log', () => {
+    const logger = makeLogger();
+    const agentSource = path.join(tmpDir, 'agent.jsonl');
+    fs.writeFileSync(agentSource, assistantLine('subagent transcript') + '\n');
+    logger.captureSubagentTranscript({ agent_transcript_path: agentSource }, 'T1', 'agent/one');
+
+    const log = fs.readFileSync(path.join(logger.dir, 'agents', 'T1--agent_one.log'), 'utf-8');
+    expect(log).toContain('=== AWF Subagent Log ===');
+    expect(log).toContain('task: T1');
+    expect(log).toContain('[--:--:--] 回答');
+    expect(log).toContain('subagent transcript');
+    expect(fs.existsSync(path.join(logger.dir, 'main.jsonl'))).toBe(false);
   });
 });

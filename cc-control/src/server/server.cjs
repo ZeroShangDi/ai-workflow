@@ -10,7 +10,7 @@ const { RunLogger } = global.__CC_RUNLOGGER__ || require('./run-logger.cjs');
 
 const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
 const logger = new RunLogger(PROJECT_ROOT);
-if (logger.enabled) console.log(`[server] run log: ${logger.path}`);
+if (logger.enabled) console.log(`[server] run logs: ${logger.dir}`);
 
 // ---- subagent 事件日志：SubagentStart/Stop 的完整 payload 追加写入（实证/观测用）----
 const SUBAGENT_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-events.jsonl');
@@ -322,6 +322,9 @@ const server = http.createServer(async (req, res) => {
       } else {
         // 决策上抛优先：NEEDS_INPUT → 写记录（不落账，任务等待；CLI 暂停补位、主 Agent 原生 AskUserQuestion）
         const needs = parseSubagentNeedsInput(body);
+        const result = needs ? null : parseSubagentResult(body);
+        // 子 Agent 的完整对话只在其 Stop hook 中可可靠定位；按 taskId/agentId 归档。
+        logger.captureSubagentTranscript(body, needs?.taskId || result?.taskId, key);
         if (needs) {
           logSubagentNeedsInput(body, needs);
           console.log(`[subagent-needs] ${needs.taskId}: ${needs.question.slice(0, 40)}`);

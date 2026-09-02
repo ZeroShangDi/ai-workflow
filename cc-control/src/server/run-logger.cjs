@@ -8,6 +8,7 @@ const SEP = '─'.repeat(60) + '\n';
 class RunLogger {
   constructor(projectRoot) {
     this._projectRoot = projectRoot || null;
+    this._runDir = null;
     this._logPath = null;
     this._transcriptFile = null;
     this._transcriptPos = 0;
@@ -28,7 +29,9 @@ class RunLogger {
     fs.mkdirSync(dir, { recursive: true });
 
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    this._logPath = path.join(dir, `${version}-${ts}.log`);
+    this._runDir = path.join(dir, `${version}-${ts}`);
+    fs.mkdirSync(path.join(this._runDir, 'agents'), { recursive: true });
+    this._logPath = path.join(this._runDir, 'main.log');
 
     const header = [
       '=== AWF Run Log ===\n',
@@ -59,6 +62,10 @@ class RunLogger {
 
   get path() {
     return this._logPath;
+  }
+
+  get dir() {
+    return this._runDir;
   }
 
   logPrompt(text) {
@@ -118,6 +125,27 @@ class RunLogger {
     }
   }
 
+  /** 将子 Agent transcript 转为人可读日志；taskId + agentId 保留重试链路。 */
+  captureSubagentTranscript(body, taskId, agentId) {
+    if (!this._runDir) return;
+    const source = body?.agent_transcript_path;
+    if (!source || !fs.existsSync(source)) return;
+    const safe = (value, fallback) => String(value || fallback).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const file = `${safe(taskId, 'unknown')}--${safe(agentId, 'agent')}.log`;
+    const header = [
+      '=== AWF Subagent Log ===\n',
+      `task: ${taskId || 'unknown'}\n`,
+      `agent: ${agentId || 'unknown'}\n`,
+      `captured: ${new Date().toISOString()}\n`,
+      '\n',
+    ].join('');
+    try {
+      fs.writeFileSync(path.join(this._runDir, 'agents', file), header + this._renderTranscript(source));
+    } catch (err) {
+      console.error(`[run-logger] transcript render error: ${err.message}`);
+    }
+  }
+
   _findTranscriptFile() {
     const slug = (this._projectRoot || process.cwd()).replace(/\//g, '-');
     const dir = path.join(os.homedir(), '.claude', 'projects', slug);
@@ -129,6 +157,29 @@ class RunLogger {
     if (files.length === 0) return null;
     if (this._sessionStartTime && files[0].mtime < this._sessionStartTime) return null;
     return path.join(dir, files[0].name);
+  }
+
+  _renderTranscript(source) {
+    const records = [];
+    for (const line of fs.readFileSync(source, 'utf-8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line);
+        const role = entry.type === 'assistant' ? '回答' : entry.type === 'user' ? '提示词' : null;
+        if (!role) continue;
+        const content = entry.message?.content;
+        const blocks = Array.isArray(content) ? content : [{ type: 'text', text: content }];
+        const parts = [];
+        for (const block of blocks) {
+          if (block?.type === 'text' && block.text) parts.push(block.text);
+          if (block?.type === 'tool_use') parts.push(`调用工具: ${block.name}\n${JSON.stringify(block.input || {}, null, 2)}`);
+        }
+        if (parts.length === 0) continue;
+        const time = typeof entry.timestamp === 'string' ? entry.timestamp.slice(11, 19) : '--:--:--';
+        records.push(`[${time}] ${role}\n${parts.join('\n')}\n`);
+      } catch { /* 跳过非 JSONL 或不含可读内容的记录 */ }
+    }
+    return records.join('\n');
   }
 
   // ---- internal ----
