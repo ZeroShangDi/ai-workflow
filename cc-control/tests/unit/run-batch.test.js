@@ -17,6 +17,8 @@ const m = vi.hoisted(() => ({
   mockHandleDecision: vi.fn(),
   mockHandleGateCompletion: vi.fn(() => Promise.resolve()),
   mockWaitWhilePaused: vi.fn(() => Promise.resolve()),
+  mockTaskListUpdate: vi.fn(),
+  mockTaskListStop: vi.fn(),
 }));
 
 vi.mock('../../src/lib/plugin-bridge.js', () => ({ subagentDispatch: m.mockSubagentDispatch }));
@@ -30,6 +32,13 @@ vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: m.mockRunScheduler 
 vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
 vi.mock('../../src/cli/gate-fix.js', () => ({ handleGateCompletion: m.mockHandleGateCompletion }));
 vi.mock('../../src/lib/pause.js', () => ({ waitWhilePaused: m.mockWaitWhilePaused }));
+vi.mock('../../src/lib/ui/task-list.js', () => ({
+  createTaskList: () => ({
+    update: m.mockTaskListUpdate,
+    stop: m.mockTaskListStop,
+    log: (write) => write(),
+  }),
+}));
 
 import { runBatchLoop } from '../../src/cli/run-batch.js';
 
@@ -67,8 +76,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     expect(m.mockSubagentDispatch).toHaveBeenCalledWith({ taskId: 'T1', taskTitle: '做任务', taskPrompt: 'do it' });
     expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/send', { text: 'DISPATCH_PROMPT' });
     expect(m.mockMarkTaskActive).toHaveBeenCalledWith('/tmp/proj', 'T1');
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[T1]'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('做任务'));
+    expect(m.mockTaskListUpdate).toHaveBeenCalledWith('T1', '做任务', 'active');
   });
 
   it('TC-D: dispatcher.send 派发失败（/send 非 ok）→ 抛错', async () => {
@@ -171,7 +179,6 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
 
     await captured('T1', { id: 'T1', title: '旧标题', status: 'active' });
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[T1]'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('实现登录'));
+    expect(m.mockTaskListUpdate).toHaveBeenCalledWith('T1', '实现登录', 'done');
   });
 });

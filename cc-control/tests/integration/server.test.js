@@ -558,7 +558,7 @@ describe('/hook 事件', () => {
     });
     const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
     expect(s.tasks[0].status).toBe('done');
-    expect(s.tasks[0].exec).toEqual({ result: '做完了', files: ['a.js'] });
+    expect(s.tasks[0].exec).toEqual(expect.objectContaining({ result: '做完了', files: ['a.js'] }));
   });
 
   it('TC39: SubagentStop 无有效 RESULT → 不落账 + 写失败记录（可恢复，CLI 补发依据）', async () => {

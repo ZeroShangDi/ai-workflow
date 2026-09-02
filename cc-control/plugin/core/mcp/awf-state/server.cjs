@@ -353,7 +353,20 @@ const handlers = {
         case 'awf_task_status': {
           const t = tasks.find(t => t.id == args.id);
           if (!t) return textResult({ ok: false, error: `task ${args.id} not found` });
+          const previousStatus = t.status;
           t.status = args.status;
+          t.exec = t.exec || {};
+          if (args.status === 'active') {
+            if (previousStatus !== 'active' || !t.exec.startedAt) {
+              t.exec.startedAt = new Date().toISOString();
+              delete t.exec.completedAt;
+            }
+          } else if (args.status === 'done' || args.status === 'blocked') {
+            t.exec.completedAt = new Date().toISOString();
+          } else if (args.status === 'pending') {
+            delete t.exec.startedAt;
+            delete t.exec.completedAt;
+          }
           break;
         }
         case 'awf_task_result': {
@@ -392,6 +405,7 @@ const handlers = {
             delete t.blockedReason;
           }
           t.status = status;
+          t.exec.completedAt = new Date().toISOString();
           break;
         }
         case 'awf_task_create': {

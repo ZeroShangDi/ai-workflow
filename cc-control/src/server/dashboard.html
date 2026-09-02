@@ -55,6 +55,7 @@
   .task-item .name.done { text-decoration:line-through; color:var(--dim); }
   .task-item .name.blocked { color:var(--danger); }
   .task-item .deps { font-size:11px; color:var(--dim); }
+  .task-item .duration { font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums; }
   .task-item.current { background:rgba(88,166,255,.08); border:1px solid rgba(88,166,255,.2); }
   .tasks .empty { color:var(--dim); font-style:italic; padding:4px 10px; }
 
@@ -221,6 +222,7 @@ function renderState(state) {
     div.innerHTML = `<span class="icon ${cls}">${icon}</span>
       <div class="info">
         <span class="name ${cls}">[${t.id}] ${t.title || t.desc || t.id}</span>
+        ${taskDuration(t) ? '<span class="duration">耗时 ' + taskDuration(t) + '</span>' : ''}
         ${t.deps && t.deps.length ? '<span class="deps">← [' + t.deps.join(',') + ']</span>' : ''}
       </div>`;
     list.appendChild(div);
@@ -237,6 +239,19 @@ function renderState(state) {
     return `<div class="phase-step ${cls}"><span class="dot"></span>${label}</div>` +
       (i < PHASES.length - 1 ? '<span class="phase-arrow">→</span>' : '');
   }).join('');
+}
+
+function taskDuration(task) {
+  const started = Date.parse(task.exec && task.exec.startedAt);
+  if (!Number.isFinite(started)) return '';
+  const completed = Date.parse(task.exec && task.exec.completedAt);
+  const seconds = Math.max(0, Math.floor(((Number.isFinite(completed) ? completed : Date.now()) - started) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  if (hours) return hours + 'h ' + String(minutes).padStart(2, '0') + 'm ' + String(rest).padStart(2, '0') + 's';
+  if (minutes) return minutes + 'm ' + String(rest).padStart(2, '0') + 's';
+  return rest + 's';
 }
 
 function renderDecision(d) {

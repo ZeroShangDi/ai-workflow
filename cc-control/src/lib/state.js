@@ -83,6 +83,9 @@ export function markTaskActive(projectRoot, taskId) {
     const task = state.tasks?.find((item) => item.id === taskId);
     if (!task || task.status !== 'pending') return false;
     task.status = 'active';
+    task.exec = task.exec || {};
+    task.exec.startedAt = new Date().toISOString();
+    delete task.exec.completedAt;
     state.lastUpdated = new Date().toISOString();
     fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
     return true;
@@ -323,6 +326,8 @@ export function spawnGateFixTask(state, gateTask, prompt) {
   gateTask.status = 'pending'; // 回退门禁待复审
   gateTask.deps = [...(gateTask.deps || []), fixId]; // deps 追加修复任务，复审时就绪
   gateTask.exec = gateTask.exec || {};
+  delete gateTask.exec.startedAt;
+  delete gateTask.exec.completedAt;
   gateTask.exec.recheck = recheck; // 保留 verdict
   return fixId;
 }

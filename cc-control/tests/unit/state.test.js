@@ -106,7 +106,7 @@ describe('state.js — CLI', () => {
 
       expect(markTaskActive(tmpDir, 'T1')).toBe(true);
       expect(loadState(tmpDir).tasks).toEqual([
-        { id: 'T1', status: 'active' },
+        { id: 'T1', status: 'active', exec: { startedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) } },
         { id: 'T2', status: 'done' },
       ]);
     });

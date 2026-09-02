@@ -132,6 +132,7 @@ function settleSubagent(body) {
     if (!task.exec) task.exec = {};
     // failed/fail 是协议允许的终态（awf-worker.md: done|blocked|failed），但调度只认 blocked 为终态，映射之
     task.status = (result.status === 'failed' || result.status === 'fail') ? 'blocked' : result.status;
+    task.exec.completedAt = new Date().toISOString();
     if (result.result !== undefined) task.exec.result = result.result;
     if (result.files) task.exec.files = result.files;
     if (result.verdict !== undefined) task.exec.verdict = result.verdict;

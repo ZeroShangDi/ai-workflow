@@ -192,6 +192,7 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
 
     const s = readState(tmpDir);
     expect(s.tasks.find((t) => t.id === 'T1').status).toBe('active');
+    expect(s.tasks.find((t) => t.id === 'T1').exec.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(s.tasks.find((t) => t.id === 'T2').status).toBe('pending');
     expect(s.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
@@ -233,7 +234,10 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
 
     const t1 = readState(tmpDir).tasks.find((t) => t.id === 'T1');
     expect(t1.status).toBe('done');
-    expect(t1.exec).toEqual({ result: '完成', files: ['a.js', 'b.js'] });
+    expect(t1.exec).toEqual(expect.objectContaining({
+      result: '完成', files: ['a.js', 'b.js'],
+      completedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    }));
     expect(t1.commits).toEqual([
       { hash: 'abc1234', message: 'feat: x' },
       { hash: 'def5678', message: 'fix: y' },

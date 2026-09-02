@@ -21,7 +21,8 @@ import { handleGateCompletion } from './gate-fix.js';
 import { subagentDispatch } from '../lib/plugin-bridge.js';
 import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
 import { handleDecision } from './run.js';
-import { logStep, logTask } from '../lib/ui/log.js';
+import { logStep } from '../lib/ui/log.js';
+import { createTaskList } from '../lib/ui/task-list.js';
 import { waitWhilePaused } from '../lib/pause.js';
 import { GREEN, RESET } from '../lib/ui/colors.js';
 
@@ -45,7 +46,7 @@ function maxTsFromLog(logPath) {
 }
 
 /** 轮询 state 检测完成 + 落账失败补发 + 决策上抛挂起（NEEDS_INPUT 未解决 → suspended） */
-function makeWaitAnyDone(projectRoot, dispatcher) {
+function makeWaitAnyDone(projectRoot, dispatcher, taskList) {
   const failedLog = path.join(projectRoot, '.awf', 'logs', 'subagent-failed.jsonl');
   const needsLog = path.join(projectRoot, '.awf', 'logs', 'subagent-needs-input.jsonl');
   let lastFailedTs = maxTsFromLog(failedLog); // 上次处理的失败记录时间（毫秒游标）
@@ -68,16 +69,16 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
         const agentId = rec.agentId;
         const count = resendCount.get(agentId) || 0;
         if (count >= RESEND_MAX) {
-          logStep('', 'error', `子 Agent ${agentId} 落账补发超限（${RESEND_MAX} 次），跳过`);
+          taskList.log(() => logStep('', 'error', `子 Agent ${agentId} 落账补发超限（${RESEND_MAX} 次），跳过`));
           continue;
         }
         resendCount.set(agentId, count + 1);
-        logStep('', 'warn', `子 Agent ${agentId} 落账失败（${rec.reason}），补发要求补齐 RESULT`);
+        taskList.log(() => logStep('', 'warn', `子 Agent ${agentId} 落账失败（${rec.reason}），补发要求补齐 RESULT`));
         const prompt = `子 Agent ${agentId} 的 RESULT 输出无效（${rec.reason}）。请用 SendMessage（to=该子 Agent）恢复它，要求它重新以最后一行 \`RESULT: {...}\` 输出正确结果，taskId 必须是派发给它的任务 ID。不要自己执行任务。`;
         await dispatcher.sendRaw(prompt);
       }
     } catch (e) {
-      logStep('', 'error', `补发检测失败: ${e.message}`);
+      taskList.log(() => logStep('', 'error', `补发检测失败: ${e.message}`));
     } finally {
       resending = false;
     }
@@ -94,7 +95,7 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
       lastNeedsTs = recTs;
       if (rec.taskId) {
         pendingNeeds.set(rec.taskId, true);
-        logStep('', 'warn', `任务 ${rec.taskId} 需决策（${rec.question.slice(0, 40)}...），暂停补位等待主 Agent 提问`);
+        taskList.log(() => logStep('', 'warn', `任务 ${rec.taskId} 需决策（${rec.question.slice(0, 40)}...），暂停补位等待主 Agent 提问`));
       }
     }
   }
@@ -137,6 +138,7 @@ function makeWaitAnyDone(projectRoot, dispatcher) {
  * @param {{ agents: object }} cfg
  */
 export async function runBatchLoop(projectRoot, cfg) {
+  const taskList = createTaskList();
   const dispatcher = {
     async send(task) {
       await waitWhilePaused(projectRoot);
@@ -149,7 +151,7 @@ export async function runBatchLoop(projectRoot, cfg) {
       const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
       if (!resp?.ok) throw new Error(`派发 ${task.id} 失败: ${resp?.error || 'unknown'}`);
       markTaskActive(projectRoot, task.id);
-      logTask(task.id, task.title, 'active');
+      taskList.update(task.id, task.title, 'active');
     },
     async sendRaw(text) {
       await waitWhilePaused(projectRoot);
@@ -158,20 +160,25 @@ export async function runBatchLoop(projectRoot, cfg) {
     },
   };
 
-  const { dispatched } = await runScheduler({
-    projectRoot,
-    cfg,
-    dispatcher,
-    waitAnyDone: makeWaitAnyDone(projectRoot, dispatcher),
-    // 门禁闭环：门禁任务（review/test）blocked + verdict 非 pass → 派生修复任务 + 回退复审
-    onTaskComplete: async (id, task) => {
-      const settled = loadState(projectRoot)?.tasks?.find((item) => item.id === id);
-      const title = settled?.title || task.title || '未命名任务';
-      const status = settled?.status || task.status;
-      logTask(id, title, status === 'done' ? 'done' : 'blocked');
-      await handleGateCompletion(projectRoot, id, settled || task);
-    },
-  });
+  let dispatched;
+  try {
+    ({ dispatched } = await runScheduler({
+      projectRoot,
+      cfg,
+      dispatcher,
+      waitAnyDone: makeWaitAnyDone(projectRoot, dispatcher, taskList),
+      // 门禁闭环：门禁任务（review/test）blocked + verdict 非 pass → 派生修复任务 + 回退复审
+      onTaskComplete: async (id, task) => {
+        const settled = loadState(projectRoot)?.tasks?.find((item) => item.id === id);
+        const title = settled?.title || task.title || '未命名任务';
+        const status = settled?.status || task.status;
+        taskList.update(id, title, status === 'done' ? 'done' : 'blocked');
+        await handleGateCompletion(projectRoot, id, settled || task);
+      },
+    }));
+  } finally {
+    taskList.stop();
+  }
 
   backupState(projectRoot);
   console.log('');
