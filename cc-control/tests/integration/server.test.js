@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const diagnosisLib = require('../../src/lib/run-diagnosis.cjs');
 
 // ── mocks：注入到 server.cjs（原生 require 的 CJS 依赖无法用 vi.mock 拦截）──
 
@@ -22,6 +26,12 @@ const m = {
     logChoice: vi.fn(),
     logPrompt: vi.fn(),
   },
+  diagnose: vi.fn(async () => ({
+    ok: true,
+    diagnosis: {
+      severity: 'watch', summary: '输出吞吐偏低，需要观察等待时间。', findings: [], dataGaps: ['未采集模型流式首 token 时间'],
+    },
+  })),
 };
 
 class MockRunLogger {
@@ -66,9 +76,11 @@ process.env.CC_LOCAL_CMD_MS = '60';        // /cmd fallback
 process.env.HOME = fakeHome;
 global.__CC_TMUX__ = m.tmux;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
+global.__CC_RUN_DIAGNOSIS__ = { ...diagnosisLib, diagnoseWithClaude: m.diagnose };
 
 const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
 const DASHBOARD_PATH = fileURLToPath(new URL('../../src/server/dashboard.html', import.meta.url));
+const DIAGNOSTICS_PATH = fileURLToPath(new URL('../../src/server/diagnostics.html', import.meta.url));
 
 let server;
 let api;
@@ -102,6 +114,7 @@ afterAll(async () => {
   await server?.stop();
   delete global.__CC_TMUX__;
   delete global.__CC_RUNLOGGER__;
+  delete global.__CC_RUN_DIAGNOSIS__;
   delete process.env.CC_HTML_DIR;
   for (const k of ['CC_PROJECT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_LOCAL_CMD_MS']) {
     delete process.env[k];
@@ -115,6 +128,7 @@ beforeEach(() => {
   m.tmux.hasSession.mockReturnValue(true);
   process.env.CC_PROJECT = projectWithState;
   delete process.env.CC_HTML_DIR;
+  fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'run-diagnosis.json'), { force: true });
 });
 
 // ─────────────────────────────────────────────
@@ -150,6 +164,13 @@ describe('路由', () => {
     expect(res.status).toBe(200);
     expect(res.contentType).toContain('text/html');
     expect(res.text).toContain('cc-control');
+  });
+
+  it('TC4b: GET /diagnostics → 返回诊断页', async () => {
+    const res = await api('GET', '/diagnostics');
+    expect(res.status).toBe(200);
+    expect(res.contentType).toContain('text/html');
+    expect(res.text).toContain('本次运行诊断');
   });
 
   it('TC5: GET /ui → 不存在 → 500', async () => {
@@ -189,6 +210,7 @@ describe('路由', () => {
     const slug = projectWithState.replace(/\//g, '-');
     const transcriptDir = path.join(fakeHome, '.claude', 'projects', slug);
     fs.mkdirSync(transcriptDir, { recursive: true });
+    fs.mkdirSync(path.join(projectWithState, '.awf', 'context'), { recursive: true });
     fs.writeFileSync(path.join(projectWithState, '.awf', 'context', 'usage.json'), JSON.stringify({
       used_percentage: 62,
       remaining_percentage: 38,
@@ -222,6 +244,38 @@ describe('路由', () => {
     expect(res.body.metrics.context.usedPercentage).toBe(62);
     expect(res.body.metrics.outputSpeed.currentTokensPerSecond).toBeGreaterThan(0);
     expect(res.body.metrics.elapsedMs).toBeGreaterThan(0);
+  });
+
+  it('TC8c: GET /awf/diagnostics → 未诊断时返回 null', async () => {
+    const res = await api('GET', '/awf/diagnostics');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, diagnosis: null });
+  });
+
+  it('TC8d: POST /awf/diagnostics → 独立 AI 诊断并持久化结果', async () => {
+    const res = await api('POST', '/awf/diagnostics');
+    expect(res.status).toBe(202);
+    expect(res.body.diagnosis.status).toBe('running');
+    await sleep(0);
+    const saved = await api('GET', '/awf/diagnostics');
+    expect(m.diagnose).toHaveBeenCalledTimes(1);
+    expect(saved.body.diagnosis.status).toBe('complete');
+    expect(saved.body.diagnosis.diagnosis.summary).toContain('输出吞吐偏低');
+  });
+
+  it('TC8e: 诊断期间的隔离会话不能重置主会话', async () => {
+    let finishDiagnosis;
+    m.diagnose.mockImplementationOnce(() => new Promise((resolve) => { finishDiagnosis = resolve; }));
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    const requested = await api('POST', '/awf/diagnostics');
+    expect(requested.status).toBe(202);
+
+    const foreign = await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-diagnosis' });
+    expect(foreign.status).toBe(200);
+    expect(server._getState().mainSessionId).toBe('sess-main');
+
+    finishDiagnosis({ ok: true, diagnosis: { severity: 'healthy', summary: '正常。', findings: [], dataGaps: [] } });
+    await sleep(0);
   });
 
   it('TC9: GET /status?snapshot=true → 包含 snapshot', async () => {
@@ -773,9 +827,24 @@ describe('dashboard.html', () => {
     expect(html).toContain("const mr = await fetch('/awf/metrics')");
     expect(html).toContain('function renderMetrics(metrics)');
     expect(html).toContain("metricCard('总 Token'");
+    expect(html).toContain("metricCard('输出 Token'");
     expect(html).toContain("metricCard('输出速度'");
     expect(html).toContain("metricCard('上下文'");
     expect(html).toContain("metricCard('总耗时'");
+  });
+
+  it('TC38: 总览提供独立诊断入口', () => {
+    const html = fs.readFileSync(DASHBOARD_PATH, 'utf8');
+    expect(html).toContain('diagnoseBtn');
+    expect(html).toContain("fetch('/awf/diagnostics', { method: 'POST' })");
+    expect(html).toContain('href="/diagnostics"');
+  });
+
+  it('TC39: 诊断页请求指标与诊断结果', () => {
+    const html = fs.readFileSync(DIAGNOSTICS_PATH, 'utf8');
+    expect(html).toContain("fetch('/awf/metrics')");
+    expect(html).toContain("fetch('/awf/diagnostics')");
+    expect(html).toContain('AI 诊断结论');
   });
 
   it('TC36: metrics 渲染包含格式化函数', () => {

@@ -7,7 +7,10 @@ const path = require('path');
 // 生产环境不设置 global.__CC_TMUX__/__CC_RUNLOGGER__，回落到真实模块。
 const tmuxlib = global.__CC_TMUX__ || require('./tmux.cjs');
 const { RunLogger } = global.__CC_RUNLOGGER__ || require('./run-logger.cjs');
-const { readRunMetrics, resetRunMeta, updateRunMeta } = require('../lib/run-metrics.cjs');
+const { readRunMetrics, readRunMeta, resetRunMeta, updateRunMeta } = require('../lib/run-metrics.cjs');
+const {
+  buildDiagnosisPrompt, diagnoseWithClaude, readDiagnosis, writeDiagnosis,
+} = global.__CC_RUN_DIAGNOSIS__ || require('../lib/run-diagnosis.cjs');
 
 const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
 const logger = new RunLogger(PROJECT_ROOT);
@@ -78,7 +81,7 @@ function logSubagentNeedsInput(body, needs) {
  *  仅清驱动类日志（failed/needs）；subagent-events.jsonl 是纯观测日志，保留便于取证。 */
 function resetRunLogs() {
   for (const p of [SUBAGENT_FAILED_LOG, SUBAGENT_NEEDS_LOG]) {
-    try { fs.writeFileSync(p, ''); } catch { /* 目录未创建/无权限时忽略 */ }
+    try { fs.rmSync(p, { force: true }); } catch { /* 无权限时忽略 */ }
   }
 }
 
@@ -153,8 +156,10 @@ const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 30000
 // dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
 const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
 let metricsCache = { at: 0, value: null };
+let diagnosisInFlight = false;
 
 function getMetricsSnapshot() {
+  reconcileDiagnosisSession();
   if (Date.now() - metricsCache.at < 1000 && metricsCache.value) return metricsCache.value;
   metricsCache = {
     at: Date.now(),
@@ -166,13 +171,88 @@ function getMetricsSnapshot() {
   return metricsCache.value;
 }
 
+function reconcileDiagnosisSession() {
+  const record = readDiagnosis(PROJECT_ROOT);
+  const snapshot = record?.status === 'running' ? record.metrics : null;
+  const snapshotSessionId = snapshot?.sources?.mainSessionId;
+  if (!snapshotSessionId || snapshotSessionId === mainSessionId) return;
+
+  const meta = readRunMeta(PROJECT_ROOT);
+  const existingSubagents = meta.subagents || {};
+  const restoredSubagents = Object.keys(existingSubagents).length > 0 ? existingSubagents : Object.fromEntries(
+    (snapshot.sources.transcriptPaths || [])
+      .filter((transcriptPath) => transcriptPath !== snapshot.sources.mainTranscriptPath)
+      .map((transcriptPath) => {
+        const agentId = path.basename(transcriptPath, '.jsonl');
+        return [agentId, { agentId, status: 'unknown', transcriptPath }];
+      }),
+  );
+  mainSessionId = snapshotSessionId;
+  updateRunMeta(PROJECT_ROOT, (current) => ({
+    ...current,
+    projectRoot: PROJECT_ROOT,
+    startedAt: snapshot.startedAt || current.startedAt || null,
+    mainSessionId: snapshotSessionId,
+    subagents: restoredSubagents,
+    updatedAt: new Date().toISOString(),
+  }));
+  metricsCache = { at: 0, value: null };
+  console.log('[diagnosis] restored main session from diagnostic snapshot');
+}
+
+function readProjectState() {
+  try {
+    return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+async function startRunDiagnosis() {
+  if (diagnosisInFlight) return { ok: false, error: 'diagnosis already running' };
+
+  const metrics = getMetricsSnapshot();
+  const stateSnapshot = readProjectState();
+  const pending = writeDiagnosis(PROJECT_ROOT, {
+    status: 'running',
+    requestedAt: new Date().toISOString(),
+    metrics,
+    state: stateSnapshot,
+    runMeta: readRunMeta(PROJECT_ROOT),
+  });
+  diagnosisInFlight = true;
+
+  Promise.resolve(diagnoseWithClaude(buildDiagnosisPrompt(metrics, stateSnapshot), PROJECT_ROOT))
+    .then((result) => {
+      writeDiagnosis(PROJECT_ROOT, {
+        ...pending,
+        status: result.ok ? 'complete' : 'failed',
+        completedAt: new Date().toISOString(),
+        diagnosis: result.diagnosis || null,
+        error: result.ok ? null : result.error || 'unknown diagnosis error',
+      });
+    })
+    .catch((error) => {
+      writeDiagnosis(PROJECT_ROOT, {
+        ...pending,
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        diagnosis: null,
+        error: error.message,
+      });
+    })
+    .finally(() => { diagnosisInFlight = false; });
+
+  return { ok: true, diagnosis: pending };
+}
+
 // ---- ready/busy state machine, driven by Claude Code hooks ----
 let state = 'ready'; // 'ready' | 'busy'
 let decisionPending = null; // null | { type: 'choice'|'text', question: string, options?: string[] }
 let waiters = [];
 let fallbackTimer = null; // /cmd /respond 的兜底恢复定时器（测试中需可清除）
 let contextReady = false; // awf_context_ready 置位，CLI 一次性消费后 /clear
-let mainSessionId = null; // 主 Claude 会话的 session_id（SessionStart 透传 payload 记录）
+let mainSessionId = readRunMeta(PROJECT_ROOT).mainSessionId || null; // 主 Claude 会话的 session_id（SessionStart 透传 payload 记录）
 const agents = new Map(); // 子 agent 观测: key(session_id/agent_id) → { sessionId, status, startedAt }
 
 /** 是否为影响主 ready/busy 的会话：mainSessionId 未记录或 payload 无 session_id 时向后兼容，全接受 */
@@ -282,6 +362,16 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.method === 'GET' && pathname === '/diagnostics') {
+    try {
+      const html = fs.readFileSync(htmlDir() + '/diagnostics.html');
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    } catch {
+      return send(res, 500, { ok: false, error: 'diagnostics.html not found' });
+    }
+  }
+
   if (req.method === 'GET' && pathname === '/ui') {
     try {
       const html = fs.readFileSync(htmlDir() + '/ui.html');
@@ -298,7 +388,16 @@ const server = http.createServer(async (req, res) => {
     const event = body.event || url.searchParams.get('event');
 
     if (event === 'SessionStart') {
-      if (body.session_id && !mainSessionId) mainSessionId = body.session_id;
+      if (diagnosisInFlight && body.session_id && body.session_id !== mainSessionId) {
+        console.log(`[diagnosis] ignored isolated SessionStart ${body.session_id}`);
+        return send(res, 200, { ok: true, event: event || null, state });
+      }
+      if (body.session_id && body.session_id !== mainSessionId) {
+        resetRunLogs();
+        resetRunMeta(PROJECT_ROOT);
+        metricsCache = { at: 0, value: null };
+      }
+      if (body.session_id) mainSessionId = body.session_id;
       updateRunMeta(PROJECT_ROOT, (meta) => ({
         ...meta,
         projectRoot: PROJECT_ROOT,
@@ -455,6 +554,15 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && pathname === '/awf/metrics') {
     return send(res, 200, { ok: true, metrics: getMetricsSnapshot() });
+  }
+
+  if (req.method === 'GET' && pathname === '/awf/diagnostics') {
+    return send(res, 200, { ok: true, diagnosis: readDiagnosis(PROJECT_ROOT) });
+  }
+
+  if (req.method === 'POST' && pathname === '/awf/diagnostics') {
+    const result = await startRunDiagnosis();
+    return send(res, result.ok ? 202 : 409, result);
   }
 
   // ---- status ----
@@ -627,7 +735,6 @@ const server = http.createServer(async (req, res) => {
 // ---- lifecycle: CLI 以子进程方式运行；测试中可显式 start/stop ----
 function start(port = PORT) {
   resetRunLogs();
-  resetRunMeta(PROJECT_ROOT);
   metricsCache = { at: 0, value: null };
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -668,6 +775,7 @@ function _resetForTest() {
   agents.clear();
   metricsCache = { at: 0, value: null };
   resetRunMeta(PROJECT_ROOT);
+  diagnosisInFlight = false;
 }
 
 module.exports = {
@@ -677,7 +785,6 @@ module.exports = {
 
 if (require.main === module) {
   resetRunLogs();
-  resetRunMeta(PROJECT_ROOT);
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
   });
