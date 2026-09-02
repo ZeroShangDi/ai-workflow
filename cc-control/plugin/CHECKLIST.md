@@ -64,6 +64,8 @@
 - [x] code-review-quality — 代码质量
 - [x] code-review-security — 安全漏洞检查
 - [x] code-review-simplify — 代码简化
+- [x] code-architecture — 变化轴识别与重构时机判断
+- [x] code-review-architecture — 变更传播与架构边界审查
 - [x] code-test-case — AI 生成测试用例
 - [x] awf-plan-norm — 需求规范化
 - [x] awf-plan-prompt — 执行提示词生成

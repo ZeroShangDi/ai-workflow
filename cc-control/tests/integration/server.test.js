@@ -688,13 +688,14 @@ describe('/hook 事件', () => {
     await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-g' });
     await api('POST', '/hook', {
       event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-g',
-      last_assistant_message: 'RESULT: {"taskId": "T1", "status": "failed", "verdict": {"level": "fail", "conclusion": "方向性错误"}, "result": "门禁 FAIL", "files": [".awf/reports/review/review-r1.md"]}',
+      last_assistant_message: 'RESULT: {"taskId": "T1", "status": "failed", "verdict": {"level": "fail", "conclusion": "方向性错误"}, "architecture": {"changeAxis": "场景策略", "boundary": "ScenePolicy", "path": "refactor-then-change", "boundaryChanged": true, "note": "UI 中存在重复判断"}, "result": "门禁 FAIL", "files": [".awf/reports/review/review-r1.md"]}',
     });
     const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
     expect(s.tasks[0].status).toBe('blocked'); // failed → blocked 终态
     expect(s.tasks[0].exec.verdict).toEqual({ level: 'fail', conclusion: '方向性错误' });
     expect(s.tasks[0].exec.result).toBe('门禁 FAIL');
     expect(s.tasks[0].exec.files).toEqual(['.awf/reports/review/review-r1.md']);
+    expect(s.tasks[0].exec.architecture).toEqual(expect.objectContaining({ boundary: 'ScenePolicy', path: 'refactor-then-change' }));
   });
 });
 

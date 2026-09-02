@@ -7,6 +7,9 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 ```
 .awf/
 ├── state.json              # 当前运行时状态（awf run 读写）
+├── context/
+│   ├── architecture.md     # 项目架构事实、模块职责和扩展方式
+│   └── handoff.md          # 上下文压缩时生成的会话接力快照
 ├── versions/               # 版本归档
 │   └── v0.1.x/state.json   #   各版本的完整状态快照
 ├── issues/                 # Issue 跟踪（等价于 GitHub Issues）
@@ -24,6 +27,12 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 └── logs/                   # awf run 全量运行日志
     └── YYYY-MM-DD-HHmmss/  #   按运行时间分目录
 ```
+
+---
+
+## context/ — 跨任务工程上下文
+
+`architecture.md` 保存已经由代码或团队决策确认的架构事实，供不同任务和 Agent 复用。只有模块职责、依赖方向或公共扩展方式真正变化时更新，不记录任务流水账。`handoff.md` 是上下文压缩时生成的临时接力快照。
 
 ---
 

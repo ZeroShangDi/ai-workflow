@@ -12,7 +12,7 @@
     "description": "awf plan 无描述时的默认入口提示词"
   },
   "task-wrapup": {
-    "prompt": "任务 {taskId} 的执行提示词已处理。请按当前真实状态收尾：\n- 已完成 → awf_task_status 标记 {taskId} done + awf_task_result 记录结果\n- 未完成 → 继续完成工作，不要标记 done",
+    "prompt": "任务 {taskId} 的执行提示词已处理。请按当前真实状态收尾：\n- 已完成 → 用 awf_task_complete 原子记录 {taskId} 的 done、result、files 和 architecture\n- 未完成 → 继续完成工作，不要标记 done",
     "description": "任务未标记 done 时补发的收尾 prompt（按真实状态收尾，未完成不标 done）"
   },
   "task-settle": {
@@ -24,7 +24,7 @@
     "description": "每个任务执行前的上下文压缩检查（引导 AI 按 code-context-onboard 判断是否需要压缩）"
   },
   "batch-dispatch": {
-    "prompt": "批次执行（多 agent 并行）：\n\n本批次编号：{batchId}\n待执行任务（每个都必须执行，禁止合并/替换/跳过/新增）：\n{tasks}\n\n执行要求：\n1. 在同一轮内并行调用原生 Agent 工具，为批次内每个任务派生一个子 Agent（一条消息内多个 Agent 调用 → 并行启动）。\n2. 每个子 Agent 只执行分配给它的任务提示词；子 Agent 不得写 .awf/state.json、不得调用任务状态 MCP 写接口、不得直接 AskUserQuestion。\n3. 子 Agent 返回固定形状结果：{ taskId, status: succeeded|blocked|needs_input, result, files, tests, commits }。\n4. 等所有子 Agent 全部返回，不得后台遗留。\n5. 用 awf-state MCP 逐任务原子落账：awf_task_complete（一次提交 status + result + files + commits，勿拆成多次 status/result/commit 调用）。\n6. 有子 Agent 返回 needs_input → 汇总问题，经 awf_await_choice / awf_await_input 询问用户，获答后继续完成该任务。\n7. 全部落账完成后结束本轮。",
+    "prompt": "批次执行（多 agent 并行）：\n\n本批次编号：{batchId}\n待执行任务（每个都必须执行，禁止合并/替换/跳过/新增）：\n{tasks}\n\n执行要求：\n1. 在同一轮内并行调用原生 Agent 工具，为批次内每个任务派生一个子 Agent（一条消息内多个 Agent 调用 → 并行启动）。\n2. 每个子 Agent 只执行分配给它的任务提示词；子 Agent 不得写 .awf/state.json、不得调用任务状态 MCP 写接口、不得直接 AskUserQuestion。\n3. dev 子 Agent 应用 code-architecture，review 子 Agent 应用 code-review-architecture；结果包含 architecture 判断。\n4. 等所有子 Agent 全部返回，不得后台遗留。\n5. 用 awf-state MCP 逐任务原子落账：awf_task_complete（一次提交 status + result + files + commits + architecture，勿拆成多次调用）。\n6. 有子 Agent 返回 needs_input → 汇总问题，经 awf_await_choice / awf_await_input 询问用户，获答后继续完成该任务。\n7. 全部落账完成后结束本轮。",
     "description": "多任务批次派发（主 Agent 并行派生子 Agent 执行，聚合落账；子 Agent 只执行、由主 Agent 独写 state）"
   },
   "batch-reconcile": {
@@ -32,7 +32,7 @@
     "description": "批次收尾 reconcile prompt（主 Agent 补落账未完成的任务，不重做）"
   },
   "subagent-dispatch": {
-    "prompt": "请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。\n任务标题：{taskTitle}\n你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n【严格约束】只派生一个子 Agent，且只派生一次，严禁重复派发同一任务、严禁派生其他任务。其他任务由 CLI 另行下发。\n子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』；RESULT / NEEDS_INPUT 输出格式已固化在 awf-worker 身份）：\n{taskPrompt}\n\n【决策上抛】若子 Agent 返回 NEEDS_INPUT（最后一行 `NEEDS_INPUT: {json}`），你必须立即用 AskUserQuestion 问用户（question/options 用子 Agent 给出的），获答后用 SendMessage 恢复该子 Agent 告知答案，让它继续完成。不要自己猜测关键决策。",
+    "prompt": "请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。\n任务标题：{taskTitle}\n你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n【严格约束】只派生一个子 Agent，且只派生一次，严禁重复派发同一任务、严禁派生其他任务。其他任务由 CLI 另行下发。\n子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』；RESULT / NEEDS_INPUT 输出格式已固化在 awf-worker 身份；dev 必须应用 code-architecture，review 必须应用 code-review-architecture）：\n{taskPrompt}\n\n【决策上抛】若子 Agent 返回 NEEDS_INPUT（最后一行 `NEEDS_INPUT: {json}`），你必须立即用 AskUserQuestion 问用户（question/options 用子 Agent 给出的），获答后用 SendMessage 恢复该子 Agent 告知答案，让它继续完成。不要自己猜测关键决策。",
     "description": "滑动窗口单任务派发（主 Agent 用插件内置 ai-workflow-core:awf-worker 派生；约束身份化 + 决策上抛时主 Agent AskUserQuestion）"
   },
   "gate-fix": {

@@ -56,6 +56,22 @@ describe('gate-fix.js — handleGateCompletion（门禁闭环钩子）', () => {
     expect(s.tasks).toHaveLength(1); // 无派生、无改动
   });
 
+  it('架构门禁失败 → 修复任务携带变化轴、期望边界与修复方向', async () => {
+    const architecture = {
+      changeAxis: '场景策略', boundary: 'ScenePolicy', path: 'refactor-then-change',
+      boundaryChanged: true, note: '移除 UI 中重复的场景判断',
+    };
+    const architectureGate = gate({ exec: { ...gate().exec, architecture } });
+    writeState([architectureGate, { id: 'T1', kind: 'dev', status: 'done' }]);
+
+    await handleGateCompletion(tmpDir, 'R1', architectureGate);
+
+    const fix = readState().tasks.find((t) => t.id === 'R1-F1');
+    expect(fix.prompt).toContain('变化轴=场景策略');
+    expect(fix.prompt).toContain('期望边界=ScenePolicy');
+    expect(fix.prompt).toContain('移除 UI 中重复的场景判断');
+  });
+
   it('TC-H3: 非 blocked → no-op（幂等：重复触发同 id）', async () => {
     writeState([gate({ status: 'pending' })]);
     await handleGateCompletion(tmpDir, 'R1', gate({ status: 'pending' }));

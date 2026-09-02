@@ -84,7 +84,7 @@ async function initWorkspace(paths, force, version) {
 
   const ensureSkeleton = async () => {
     // 目录结构（bugs/issues/decisions/logs/reports/versions）
-    const dirs = ['bugs', 'issues', 'decisions', 'logs', 'reports/lint', 'reports/test', 'reports/review', 'reports/perf', 'reports/summary', 'versions'];
+    const dirs = ['bugs', 'issues', 'decisions', 'context', 'logs', 'reports/lint', 'reports/test', 'reports/review', 'reports/perf', 'reports/summary', 'versions'];
     await fs.mkdir(awfDir, { recursive: true });
     for (const d of dirs) await fs.mkdir(path.join(awfDir, d), { recursive: true });
     // README / config：缺失时复制模板（不覆盖用户改过的）
@@ -93,6 +93,11 @@ async function initWorkspace(paths, force, version) {
     }
     if (!await fs.stat(path.join(awfDir, 'config.json')).catch(() => null)) {
       await fs.copyFile(path.join(tplDir, 'awf-config.json'), path.join(awfDir, 'config.json'));
+    }
+    if (!await fs.stat(path.join(awfDir, 'context', 'architecture.md')).catch(() => null)) {
+      try {
+        await fs.copyFile(path.join(tplDir, 'architecture.md'), path.join(awfDir, 'context', 'architecture.md'));
+      } catch { /* 兼容旧安装包缺少模板 */ }
     }
     await copyStateTemplate(awfDir);
     await replaceVersion(awfDir, version);

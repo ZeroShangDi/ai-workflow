@@ -106,6 +106,8 @@ plugin/
         ├── code-review-performance/SKILL.md
         ├── code-review-security/SKILL.md
         ├── code-review-simplify/SKILL.md
+        ├── code-architecture/SKILL.md
+        ├── code-review-architecture/SKILL.md
         └── code-test-case/SKILL.md
 ```
 
@@ -137,7 +139,7 @@ plugin/
 
 - **命令**：`w-plan*` 规划四连（plan/check/wbs/tasks）+ `w-dev` / `w-debug` / `w-review` / `w-test` / `w-doc` / `w-commit` / `w-ui-design` / `w-ui-code`
 - **提示词模板**：`prompts.json` 声明 plan 入口（start/resume/default）与任务收尾 wrapup/settle、context-check、subagent-dispatch，runtime 指令由插件声明
-- **技能**：`awf-plan-*` 规划五技能 + `code-dev-*` 开发九技能 + `code-review-*` 审查四技能 + `code-test-case` + 通用（`code-context-onboard` / `code-ask-question` / `code-commit-gitflow` / `code-doc` / `code-retro-point`）
+- **技能**：`awf-plan-*` 规划技能 + `code-dev-*` 开发技能 + `code-architecture` 架构决策 + `code-review-*` 多维审查（含架构审查）+ `code-test-case` + 通用上下文/提交/文档技能
 
 ## awf-worker 子 Agent
 

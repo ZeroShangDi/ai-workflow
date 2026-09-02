@@ -37,7 +37,7 @@ const PROMPTS = {
     description: '批次收尾 reconcile prompt',
   },
   'subagent-dispatch': {
-    prompt: '请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。任务标题：{taskTitle}。只派生一个且只派生一次，严禁重复派发同一任务、严禁派生其他任务。子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』）：{taskPrompt}。【决策上抛】若子 Agent 返回 NEEDS_INPUT，你必须用 AskUserQuestion 问用户，获答后 SendMessage 恢复子 Agent。',
+    prompt: '请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。任务标题：{taskTitle}。只派生一个且只派生一次，严禁重复派发同一任务、严禁派生其他任务。子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』；dev 必须应用 code-architecture，review 必须应用 code-review-architecture）：{taskPrompt}。【决策上抛】若子 Agent 返回 NEEDS_INPUT，你必须用 AskUserQuestion 问用户，获答后 SendMessage 恢复子 Agent。',
     description: '滑动窗口单任务派发',
   },
   'gate-fix': {
@@ -141,6 +141,8 @@ describe('subagentDispatch — 滑动窗口单任务派发', () => {
     expect(res).toContain('你的任务 ID 是 R1'); // 子 Agent prompt 开头声明任务 ID 防错写
     expect(res).toContain('NEEDS_INPUT'); // 决策上抛协议
     expect(res).toContain('AskUserQuestion'); // 主 Agent 收到 NEEDS_INPUT 必须问用户
+    expect(res).toContain('code-architecture');
+    expect(res).toContain('code-review-architecture');
     expect(res).toContain('审查 math');
   });
 });

@@ -37,10 +37,14 @@ export async function handleGateCompletion(projectRoot, id, task) {
   if (!meta) return;
 
   const v = gate.exec?.verdict;
+  const architecture = gate.exec?.architecture;
   const reportPath = (gate.exec?.files || []).find((f) => f.startsWith('.awf/reports/')) || '';
-  const fixTarget = reportPath
+  let fixTarget = reportPath
     ? `修复门禁 ${gate.id} 报告 ${reportPath} 中列出的全部问题。`
     : `修复门禁 ${gate.id} 判定中列出的问题：${v?.conclusion || v?.level}。`;
+  if (architecture?.note || architecture?.boundary) {
+    fixTarget += ` 架构修复要求：变化轴=${architecture.changeAxis || '未说明'}；期望边界=${architecture.boundary || '未说明'}；路径=${architecture.path || '未说明'}；${architecture.note || ''}`;
+  }
   const prompt = await gateFixPrompt({ fixId: meta.fixId, fixTarget });
 
   const fixId = spawnGateFixTask(state, gate, prompt);

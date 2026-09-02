@@ -103,7 +103,7 @@ const TOOLS = [
   },
   {
     name: 'awf_task_complete',
-    description: '原子完成一个任务：一次提交 status + result + files + commits（替代多次 awf_task_status/result/commit 调用，避免落账中间态）。status 缺省 done',
+    description: '原子完成一个任务：一次提交 status + result + files + commits + architecture（替代多次写入，避免落账中间态）。status 缺省 done',
     inputSchema: {
       type: 'object',
       properties: {
@@ -112,6 +112,7 @@ const TOOLS = [
         result: { type: 'string', description: '执行结果描述（exec.result）' },
         files: { type: 'array', items: { type: 'string' }, description: '产出文件路径列表（exec.files）' },
         verdict: { type: 'object', description: '门禁判定结果（写进 exec.verdict，如 { level: "pass|changes_requested|fail", conclusion: "..." }）' },
+        architecture: { type: 'object', description: '本次架构判断或审查结论（写进 exec.architecture）' },
         commits: { type: 'array', items: { type: 'object', properties: { hash: { type: 'string' }, message: { type: 'string' } }, required: ['hash', 'message'] }, description: 'commit 记录列表' },
         blockedReason: { type: 'string', description: 'status=blocked 时的原因说明' },
       },
@@ -395,6 +396,7 @@ const handlers = {
           if (args.result !== undefined) t.exec.result = args.result;
           if (args.files) t.exec.files = args.files;
           if (args.verdict !== undefined) t.exec.verdict = args.verdict;
+          if (args.architecture !== undefined) t.exec.architecture = args.architecture;
           if (args.commits) {
             if (!t.commits) t.commits = [];
             t.commits.push(...args.commits);

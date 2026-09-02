@@ -153,7 +153,7 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
   it('E2E-2: 未标 done → 补发 wrapup → 生效', async () => {
     writeState(baseState([task('T1', 'do task one')]));
     promptHandler = (text) => {
-      if (text.includes('收尾') && text.includes('awf_task_status')) markDone('T1');
+      if (text.includes('收尾') && text.includes('awf_task_complete')) markDone('T1');
       server.setReady();
     };
 
@@ -165,7 +165,7 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
     const prompts = sentPrompts();
     expect(prompts).toHaveLength(2);
     expect(prompts[0]).toBe('do task one');
-    expect(prompts[1]).toContain('awf_task_status');
+    expect(prompts[1]).toContain('awf_task_complete');
     expect(prompts[1]).toContain('T1');
   }, 20000);
 

@@ -228,6 +228,7 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
   it('TC33: awf_task_complete 一次原子提交 done + result + files + commits', async () => {
     const res = await client.callTool('awf_task_complete', {
       id: 'T1', status: 'done', result: '完成', files: ['a.js', 'b.js'],
+      architecture: { changeAxis: '场景策略', boundary: 'ScenePolicy', path: 'extend', boundaryChanged: false },
       commits: [{ hash: 'abc1234', message: 'feat: x' }, { hash: 'def5678', message: 'fix: y' }],
     });
     expect(res.ok).toBe(true);
@@ -237,6 +238,7 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(t1.exec).toEqual(expect.objectContaining({
       result: '完成', files: ['a.js', 'b.js'],
       completedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      architecture: { changeAxis: '场景策略', boundary: 'ScenePolicy', path: 'extend', boundaryChanged: false },
     }));
     expect(t1.commits).toEqual([
       { hash: 'abc1234', message: 'feat: x' },

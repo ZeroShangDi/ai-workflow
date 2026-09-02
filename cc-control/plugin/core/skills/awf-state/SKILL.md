@@ -51,6 +51,7 @@ description: >
 | `id` / `title` / `kind` / `wbsRef` / `deps` / `plannedFiles` / `constraints` / `acceptance` / `prompt` | 规划时写入（见 awf-plan-tasks） |
 | `status` | `pending` / `active` / `done` / `blocked` |
 | `exec.result` / `exec.files` | 运行时写入（CODE 阶段） |
+| `exec.architecture` | 开发路径判断或架构审查结论（变化轴、权威边界、路径、关键取舍） |
 | `commits[]` | 运行时写入（COMMIT 阶段） |
 
 任务数组位置：根级 `tasks`。

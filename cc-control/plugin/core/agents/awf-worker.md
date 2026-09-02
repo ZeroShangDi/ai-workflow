@@ -17,13 +17,13 @@ model: inherit
 
 **完成**：
 ```
-RESULT: {"taskId": "<任务ID>", "status": "done", "result": "<完成说明>", "files": ["<产出路径>"]}
+RESULT: {"taskId": "<任务ID>", "status": "done", "result": "<完成说明>", "files": ["<产出路径>"], "architecture": {"changeAxis": "<变化轴>", "boundary": "<权威边界>", "path": "extend|refactor-then-change", "boundaryChanged": false, "note": "<关键取舍>"}}
 ```
 status 可选 `done | blocked | failed`；blocked/failed 时在 result 说明原因。**taskId 必须是派发给你的任务 ID（Agent 工具 prompt 中声明的）**，绝不可编造或改写。
 
 **门禁任务（kind=review/test）专用 verdict 旁挂字段**：判定结果结构化落在 `verdict`，供 CLI 派生修复/复审闭环。
 ```
-RESULT: {"taskId": "<任务ID>", "status": "done|failed", "verdict": {"level": "pass|changes_requested|fail", "conclusion": "<判定摘要>"}, "result": "<门禁结论文本>", "files": ["<报告路径>"]}
+RESULT: {"taskId": "<任务ID>", "status": "done|failed", "verdict": {"level": "pass|changes_requested|fail", "conclusion": "<判定摘要>"}, "result": "<门禁结论文本>", "files": ["<报告路径>"], "architecture": {"changeAxis": "<变化轴>", "boundary": "<期望边界>", "path": "refactor-then-change|split", "boundaryChanged": true, "note": "<证据与修复方向>"}}
 ```
 - `level`：`pass`（通过）/ `changes_requested`（修改后重审）/ `fail`（打回重做 / 失败）。三态与 awf-run-review / awf-run-test 技能一致。
 - 非 pass（changes_requested / fail）必须 `status:"failed"`（映射为 blocked 终态）+ 带 `verdict`；pass 用 `status:"done"` + `verdict.level:"pass"`。
@@ -37,5 +37,7 @@ options 可选。遇真正需要用户决策时用此上抛，不自行猜测关
 
 ## 行为
 
+- dev 任务必须应用 `code-architecture`：探索后先判断实现路径，首个纵向切片后复查；需要 `split` 时用 NEEDS_INPUT 上抛。
+- review 任务必须应用 `code-review-architecture`，从完整 diff 审查变化传播；架构问题进入 verdict，不降级为可选建议。
 - 直接执行，不解释计划；不复述已知信息；优先结构化输出。
 - 完成任务即停，不等待、不轮询、不自行派生其他子 Agent。

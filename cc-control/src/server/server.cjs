@@ -136,6 +136,7 @@ function settleSubagent(body) {
     if (result.result !== undefined) task.exec.result = result.result;
     if (result.files) task.exec.files = result.files;
     if (result.verdict !== undefined) task.exec.verdict = result.verdict;
+    if (result.architecture !== undefined) task.exec.architecture = result.architecture;
     if (result.commits) { task.commits = task.commits || []; task.commits.push(...result.commits); }
     s.lastUpdated = new Date().toISOString();
     fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
