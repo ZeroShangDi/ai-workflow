@@ -159,4 +159,39 @@ describe('run-metrics', () => {
     expect(metrics.tokens.coverage).toBe('partial');
     expect(metrics.tokens.missingSubagentTranscripts).toBe(1);
   });
+
+  it('已结束运行：使用结束时间固定总耗时和平均输出速度', () => {
+    const projectRoot = path.join(tmpRoot, 'project-finished');
+    const slug = projectRoot.replace(/\//g, '-');
+    const startedAt = '2026-09-02T11:58:00.000Z';
+    const endedAt = '2026-09-02T11:59:30.000Z';
+
+    writeJson(path.join(projectRoot, '.awf', 'state.json'), {
+      mode: 'idle',
+      lastUpdated: endedAt,
+      tasks: [],
+    });
+    writeJson(path.join(projectRoot, '.awf', 'config.json'), { run: { agents: { max: 1 } } });
+    resetRunMeta(projectRoot);
+    updateRunMeta(projectRoot, (meta) => ({ ...meta, startedAt, mainSessionId: 'sess-finished' }));
+    writeJsonl(path.join(homeDir, '.claude', 'projects', slug, 'sess-finished.jsonl'), [
+      {
+        type: 'assistant',
+        uuid: 'u-finished',
+        timestamp: '2026-09-02T11:59:00.000Z',
+        message: {
+          id: 'm-finished',
+          usage: { input_tokens: 100, output_tokens: 90, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+      },
+    ]);
+
+    const metrics = readRunMetrics(projectRoot, {
+      nowMs: Date.parse('2026-09-02T12:10:00.000Z'),
+    });
+
+    expect(metrics.endedAt).toBe(endedAt);
+    expect(metrics.elapsedMs).toBe(90000);
+    expect(metrics.outputSpeed.averageTokensPerSecond).toBe(1);
+  });
 });

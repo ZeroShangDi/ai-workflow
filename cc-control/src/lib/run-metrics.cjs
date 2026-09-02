@@ -168,6 +168,16 @@ function deriveStartedAtMs(meta, state, aggregate) {
   return null;
 }
 
+function deriveEndedAtMs(meta, state) {
+  const fromMeta = parseTimestamp(meta.endedAt);
+  if (fromMeta) return fromMeta;
+
+  // AWF persists the final state timestamp even when the process has exited.
+  if (state?.mode === 'idle') return parseTimestamp(state.lastUpdated);
+
+  return null;
+}
+
 function readRunMetrics(projectRoot, runtime = {}) {
   const nowMs = typeof runtime.nowMs === 'number' ? runtime.nowMs : Date.now();
   const state = readJson(path.join(projectRoot, '.awf', 'state.json')) || {};
@@ -222,7 +232,9 @@ function readRunMetrics(projectRoot, runtime = {}) {
   }
 
   const startedAtMs = deriveStartedAtMs(meta, state, aggregate);
-  const elapsedMs = startedAtMs ? Math.max(0, nowMs - startedAtMs) : null;
+  const endedAtMs = deriveEndedAtMs(meta, state);
+  const observedAtMs = endedAtMs || nowMs;
+  const elapsedMs = startedAtMs ? Math.max(0, observedAtMs - startedAtMs) : null;
   const recentObservedSeconds = aggregate.recentOldestTs
     ? Math.max(1, Math.round((nowMs - aggregate.recentOldestTs) / 1000))
     : null;
@@ -251,6 +263,7 @@ function readRunMetrics(projectRoot, runtime = {}) {
     activeAgents,
     maxAgents,
     startedAt: startedAtMs ? new Date(startedAtMs).toISOString() : null,
+    endedAt: endedAtMs ? new Date(endedAtMs).toISOString() : null,
     elapsedMs,
     tokens: {
       total: aggregate.inputTokens + aggregate.outputTokens,
