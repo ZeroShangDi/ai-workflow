@@ -122,8 +122,8 @@ export function findNextTask(state) {
 
 // ── 多 agent 批次选择 ──
 
-/** 独占任务类型：doc/commit 必须单独成批，不与其他任务并行 */
-export const EXCLUSIVE_KINDS = new Set(['doc', 'commit']);
+/** 独占任务类型：commit 会改变共享仓库状态，必须单独成批。 */
+export const EXCLUSIVE_KINDS = new Set(['commit']);
 
 /**
  * 静态作用域索引：taskId → { featureId, moduleId }
@@ -202,7 +202,7 @@ export function peekReadyTasks(state) {
  *
  * 规则：
  * 1. ready 集合 = pending 且 deps 全部 done
- * 2. doc/commit 独占成批（优先返回，不与任何任务并行）
+ * 2. commit 独占成批（优先返回，不与任何任务并行）；doc 按 plannedFiles 正常判定并行
  * 3. 四级配额 greedy 打包：max 总并发 / maxModules 活跃模块 / maxPerModule 每模块任务 / maxPerFeature 每功能任务
  *
  * @param {object} state

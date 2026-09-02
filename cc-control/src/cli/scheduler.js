@@ -77,14 +77,14 @@ function filesConflictWithRunning(task, running) {
   return false;
 }
 
-/** 独占任务（doc/commit）：不与任何任务并行 */
+/** 独占任务（commit）：会改变共享仓库状态，不与任何任务并行 */
 function isExclusive(task) {
   return EXCLUSIVE_KINDS.has(task.kind || 'dev');
 }
 
 /** 从池里取第一个满足「配额 + 文件冲突 + 独占」约束的任务；无可派 → null */
 function pickFromPool(pool, running, quota, scope) {
-  // 独占任务（doc/commit）运行中 → 禁止派发任何其他任务（独占不与任何并行）
+  // 独占任务（commit）运行中 → 禁止派发任何其他任务
   const exclusiveRunning = [...running.taskIds()].some((id) => isExclusive(running.getTask(id)));
   if (exclusiveRunning) return null;
 

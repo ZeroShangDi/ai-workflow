@@ -127,7 +127,7 @@ const TOOLS = [
       properties: {
         id: { type: 'string', description: '任务 ID（唯一）' },
         title: { type: 'string', description: '任务名（一句话）' },
-        kind: { type: 'string', enum: ['dev', 'debug', 'review', 'test', 'doc', 'commit', 'ui-design', 'ui-code'], description: '任务类型（默认 dev），用于选择对应自定义命令；review/test/doc 为门禁类型' },
+        kind: { type: 'string', enum: ['dev', 'debug', 'review', 'test', 'doc', 'commit', 'ui-design', 'ui-code'], description: '任务类型（默认 dev）；T1 doc 为文档产出，T4 doc 为项目文档门禁' },
         plannedFiles: { type: 'array', items: { type: 'string' }, description: '规划改动文件（相对路径；多 agent 并行按此做冲突过滤，缺失则保守串行）' },
         constraints: { type: 'array', items: { type: 'string' }, description: '任务专属硬约束列表；通用执行规则不应重复写入' },
         prompt: { type: 'string', description: '精简执行提示词（命令 + task ID + 具体要做什么）；不得复制其他结构化字段' },
@@ -414,6 +414,22 @@ const handlers = {
           const taskList = ensureTasks();
           if (taskList.find(t => t.id == args.id)) {
             return textResult({ ok: false, error: `task ${args.id} already exists` });
+          }
+          if (args.kind === 'doc') {
+            const isOutput = /^T1-/.test(args.id);
+            const isProjectGate = /^T4-/.test(args.id);
+            if (!isOutput && !isProjectGate) {
+              return textResult({ ok: false, error: 'doc task id must be T1-* (document output) or T4-* (project documentation gate)' });
+            }
+            if (isProjectGate) {
+              if (!/^W4-/.test(args.wbsRef || '')) {
+                return textResult({ ok: false, error: 'T4 documentation gate requires a W4-* wbsRef' });
+              }
+              const duplicateGate = taskList.find(t => /^T4-/.test(t.id) && t.wbsRef === args.wbsRef);
+              if (duplicateGate) {
+                return textResult({ ok: false, error: `project ${args.wbsRef} already has documentation gate ${duplicateGate.id}` });
+              }
+            }
           }
           taskList.push({
             id: args.id, title: args.title, kind: args.kind || 'dev', prompt: args.prompt,

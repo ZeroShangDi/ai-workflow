@@ -58,7 +58,7 @@ plan 已生成门禁图（普通任务 → review gate → test gate，以 `deps
 ### 批次选择（CLI 确定性 greedy）
 
 1. ready 集合 = `pending` 且 `deps` 全部 `done`
-2. `doc` / `commit` 独占成批
+2. `commit` 独占成批；`doc` 在目标文件不冲突时允许并行，缺失 `plannedFiles` 时保守串行
 3. 四级配额打包：`max` / `maxModules` / `maxPerModule` / `maxPerFeature`（保持 state 原始顺序，确定性）
 4. 无 ready → 区分「全部完成」与「DAG 死锁」
 

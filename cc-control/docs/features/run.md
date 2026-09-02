@@ -168,7 +168,8 @@ CLI 拥有调度权（`src/cli/scheduler.js`），与单 agent `runLoop` 完全�
 
 ### 独占 / 保守串行
 
-- **独占任务**：`EXCLUSIVE_KINDS = new Set(['doc', 'commit'])`（`src/lib/state.js`）——不与任何任务并行；运行中有独占任务时禁止派发任何其他任务。
+- **独占任务**：`EXCLUSIVE_KINDS = new Set(['commit'])`（`src/lib/state.js`）——提交会改变共享仓库状态，不与任何任务并行。
+- **文档任务**：`doc` 不再无条件独占；声明了互不冲突的 `plannedFiles` 时按普通任务并行，缺失目标文件时仍保守串行。
 - **保守串行**：缺失 plannedFiles 且非 `review` 的任务无法判定冲突面，仅在无其他运行中时单独派发；`review` 只读审查天然无写冲突，无需文件声明即可并行。
 
 ### 补位循环

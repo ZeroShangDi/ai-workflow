@@ -223,14 +223,17 @@ describe('state.js — CLI', () => {
       expect(selectReadyBatch(state).map(t => t.id)).toEqual(['T1']);
     });
 
-    it('TC-B3: doc 独占成批（优先返回，不与其他 ready 任务并行）', () => {
+    it('TC-B3: doc 按 plannedFiles 参与普通并行，commit 仍独占', () => {
       const state = {
         tasks: [
-          { id: 'T1', status: 'pending' },
-          { id: 'D1', kind: 'doc', status: 'pending' },
+          { id: 'D1', kind: 'doc', status: 'pending', plannedFiles: ['docs/a.md'] },
+          { id: 'D2', kind: 'doc', status: 'pending', plannedFiles: ['docs/b.md'] },
         ],
       };
-      expect(selectReadyBatch(state, { agents: { max: 9 } }).map(t => t.id)).toEqual(['D1']);
+      expect(selectReadyBatch(state, { agents: { max: 9 } }).map(t => t.id)).toEqual(['D1', 'D2']);
+
+      const withCommit = { tasks: [...state.tasks, { id: 'C1', kind: 'commit', status: 'pending' }] };
+      expect(selectReadyBatch(withCommit, { agents: { max: 9 } }).map(t => t.id)).toEqual(['C1']);
     });
 
     it('TC-B4: maxPerFeature=1 → 功能内串行，跨功能并行', () => {

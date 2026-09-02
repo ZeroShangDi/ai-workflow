@@ -43,7 +43,7 @@ State 管理分为两层：
 | `buildScopeIndex(tasks)` | 静态作用域索引：taskId → `{ featureId, moduleId }`。review gate 的 deps 内任务归该 feature（featureId=review gate id），test gate 的 deps 内任务归该 module（moduleId=test gate id）；doc gate（deps=全部任务）不参与 |
 | `filesConflict(a, b)` | plannedFiles 冲突判定：路径精确相同，或一方是另一方的目录前缀（如 `src/util/` vs `src/util/math.js`） |
 | `peekReadyTasks(state)` | 所有就绪任务（pending 且 deps 全 done），保持 state 原始顺序。不做配额/文件冲突/独占过滤——由滑动窗口调度器运行时判断 |
-| `selectReadyBatch(state, config)` | 确定性 greedy 选一批可并行任务：doc/commit 独占成批优先；四级配额（max / maxModules / maxPerModule / maxPerFeature）打包；plannedFiles 冲突过滤；缺失 plannedFiles 且非 review 的任务不进并行批次 |
+| `selectReadyBatch(state, config)` | 确定性 greedy 选一批可并行任务：commit 独占成批优先；doc 按 plannedFiles 参与普通并行；四级配额（max / maxModules / maxPerModule / maxPerFeature）打包；plannedFiles 冲突过滤；缺失 plannedFiles 且非 review 的任务不进并行批次 |
 
 ---
 

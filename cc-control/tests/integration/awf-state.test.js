@@ -303,6 +303,31 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(readState(tmpDir)).toEqual(before);
   });
 
+  it('TC17b: 文档产出用 T1；同一 W4 只允许一个 T4 文档门禁', async () => {
+    const output = await client.callTool('awf_task_create', {
+      id: 'T1-900', title: '生成 A 文档', kind: 'doc', prompt: '/w-doc T1-900',
+      plannedFiles: ['docs/a.md'],
+    });
+    expect(output.ok).toBe(true);
+
+    const badLevel = await client.callTool('awf_task_create', {
+      id: 'T2-900', title: '错误定级文档', kind: 'doc', prompt: '/w-doc T2-900',
+    });
+    expect(badLevel.ok).toBe(false);
+    expect(badLevel.error).toContain('T1-*');
+
+    const gate = await client.callTool('awf_task_create', {
+      id: 'T4-001', title: '项目文档门禁', kind: 'doc', prompt: '/w-doc T4-001', wbsRef: 'W4-001',
+    });
+    expect(gate.ok).toBe(true);
+
+    const duplicate = await client.callTool('awf_task_create', {
+      id: 'T4-002', title: '重复项目文档门禁', kind: 'doc', prompt: '/w-doc T4-002', wbsRef: 'W4-001',
+    });
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.error).toContain('already has documentation gate T4-001');
+  });
+
   it('TC18: awf_task_update 部分字段更新', async () => {
     const res = await client.callTool('awf_task_update', {
       id: 'T1', title: 'new title', constraints: ['保持向后兼容'],

@@ -70,7 +70,7 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
         └── DEBUG（按需）───────────┘
       max>1 → runBatchLoop（src/cli/run-batch.js + src/cli/scheduler.js）：
         滑动窗口调度，CLI 拥有调度权：
-          就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（doc/commit）
+          就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（commit）
           → 主会话按 subagent-dispatch 派生后台子 Agent（awf-worker）执行
           → 子 Agent 结束 → SubagentStop hook 解析 RESULT → 原子落账（awf_task_complete）
           → CLI 轮询 state 检测完成 → 补位，直到全部完成
@@ -263,7 +263,7 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `src/awf.js` | CLI 入口，命令路由（7 命令：init/plan/run/plugin/server/open/attach） |
 | `src/cli/run.js` | `awf run` 主循环 — 单/多 agent 分流（run.agents.max>1 → runBatchLoop，否则 runLoop）+ 阶段链 + 决策处理 |
 | `src/cli/run-batch.js` | 滑动窗口执行入口（max>1）— subagentDispatch 派发 + 轮询 state 完成感知 + 落账失败补发 + NEEDS_INPUT 决策上抛挂起 |
-| `src/cli/scheduler.js` | 滑动窗口调度器（纯逻辑）— 就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（doc/commit）+ 补位循环 |
+| `src/cli/scheduler.js` | 滑动窗口调度器（纯逻辑）— 就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（commit）+ 补位循环；doc 目标文件不冲突时可并行 |
 | `src/cli/init.js` | `awf init` — 前置检查 + 本地注册插件 + 工作区初始化 |
 | `src/cli/plugin.js` | 插件管理 — 本地注入 / 全局 claude plugin install |
 | `src/lib/profile.js` | 本地注册实现（settings.json 注入/清理）+ installProjectMcp |

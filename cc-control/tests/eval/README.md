@@ -74,7 +74,7 @@ node tests/eval/run-eval.mjs --keep
 
 | 用例 | 配置 | 验证点 |
 |------|------|--------|
-| `multi-agent-parallel` | `max=9, maxModules=2, maxPerModule=2, maxPerFeature=1` | 4 dev 并发 → 4 review 并行 → 2 test 并行 → doc 独占；批次 banner + marker 时间跨度 |
+| `multi-agent-parallel` | `max=9, maxModules=2, maxPerModule=2, maxPerFeature=1` | 4 dev 并发 → 4 review 并行 → 2 test 并行；doc 按 plannedFiles 判定并行，commit 独占；批次 banner + marker 时间跨度 |
 | `multi-agent-serial-baseline` | `max=1`（同任务集，extends） | 单 agent 串行也能完成同一任务集；与并行用例对比耗时/批次数 |
 
 跑对照：`npm run eval -- --only multi-agent-parallel` 与 `npm run eval -- --only multi-agent-serial-baseline`，比较两例日志中批次数与总耗时。

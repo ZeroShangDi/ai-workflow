@@ -121,21 +121,28 @@ describe('runScheduler — 滑动窗口核心（纯逻辑）', () => {
     expect(sent).toEqual(['T1', 'T2']); // 同文件冲突 → 串行
   });
 
-  it('TC-S5: doc 独占——不与任何任务并行', async () => {
+  it('TC-S5: plannedFiles 不冲突的 doc 任务并行派发', async () => {
     writeState(tmpDir, [
-      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
-      { id: 'D1', kind: 'doc', plannedFiles: ['README.md'], status: 'pending', deps: [] },
+      { id: 'D1', kind: 'doc', plannedFiles: ['docs/a.md'], status: 'pending', deps: [] },
+      { id: 'D2', kind: 'doc', plannedFiles: ['docs/b.md'], status: 'pending', deps: [] },
+      { id: 'D3', kind: 'doc', plannedFiles: ['docs/c.md'], status: 'pending', deps: [] },
     ]);
+
+    let firstRunning;
+    const waitAnyDone = async (running) => {
+      firstRunning ||= running.taskIds();
+      return makeWaitAnyDone([firstRunning])(running);
+    };
 
     const { dispatched } = await runScheduler({
       projectRoot: tmpDir,
-      cfg: CFG({ max: 2 }),
+      cfg: CFG({ max: 3 }),
       dispatcher,
-      waitAnyDone: makeWaitAnyDone([['T1'], ['D1']]),
+      waitAnyDone,
     });
 
-    expect(dispatched).toBe(2);
-    expect(sent).toEqual(['T1', 'D1']); // D1 单独（T1 完成后）
+    expect(dispatched).toBe(3);
+    expect(firstRunning).toEqual(['D1', 'D2', 'D3']);
   });
 
   it('TC-S6: 缺失 plannedFiles 保守串行——一次一个', async () => {
