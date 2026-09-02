@@ -18,7 +18,9 @@ export function formatDuration(ms) {
  */
 export function createTaskList({ output = process.stdout, intervalMs = 80 } = {}) {
   const tasks = new Map();
-  const interactive = Boolean(output.isTTY);
+  // eval 需要捕获 awf run 的输出再透传到真实终端，子进程 stdout 会变成 pipe。
+  // 仅由 eval 显式置位时仍启用重绘，普通重定向维持静态事件日志。
+  const interactive = Boolean(output.isTTY || process.env.AWF_TASK_LIST_INTERACTIVE === '1');
   let frame = 0;
   let renderedLines = 0;
   let timer = null;

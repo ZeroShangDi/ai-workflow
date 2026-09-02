@@ -140,7 +140,7 @@
     ],
     "markerFiles": ["eval-marker/T1.done", "eval-marker/T2.done", "eval-marker/T3.done", "eval-marker/T4.done"],
     "markerSpanMs": 90000,
-    "logContain": ["派发 T1", "派发 T2", "派发 T3", "派发 T4"],
+    "logContain": ["[T1]", "[T2]", "[T3]", "[T4]"],
     "fileContain": [
       { "file": ".awf/logs/subagent-needs-input.jsonl", "contains": ["T1", "实现风格"] }
     ],

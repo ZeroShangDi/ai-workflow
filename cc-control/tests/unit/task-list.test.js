@@ -42,4 +42,23 @@ describe('createTaskList', () => {
     expect(first).toContain('⠋');
     expect(second).toContain('⠙');
   });
+
+  it('eval 透传环境即使 stdout 为 pipe 也启用动态重绘', () => {
+    vi.useFakeTimers();
+    const output = { isTTY: false, write: vi.fn() };
+    const previous = process.env.AWF_TASK_LIST_INTERACTIVE;
+    process.env.AWF_TASK_LIST_INTERACTIVE = '1';
+    const list = createTaskList({ output, intervalMs: 80 });
+
+    list.update('T1', 'eval 任务', 'active');
+    vi.advanceTimersByTime(80);
+    list.stop();
+
+    if (previous === undefined) delete process.env.AWF_TASK_LIST_INTERACTIVE;
+    else process.env.AWF_TASK_LIST_INTERACTIVE = previous;
+    vi.useRealTimers();
+
+    expect(output.write).toHaveBeenCalledWith(expect.stringContaining('⠙'));
+    expect(output.write).toHaveBeenCalledWith(expect.stringContaining('\x1b[1A'));
+  });
 });

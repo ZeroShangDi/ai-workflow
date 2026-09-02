@@ -26,6 +26,8 @@ const CASES_DIR = path.join(ROOT, 'tests', 'eval', 'cases');
 const SANDBOX_ROOT = path.join(ROOT, 'sandbox', 'eval');
 
 const RUN_TIMEOUT_MS = Number(process.env.AWF_EVAL_TIMEOUT_MS || 15 * 60 * 1000);
+const TASK_ICONS = new Set(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏', '✓', '⚠']);
+const TASK_PROGRESS_LOG_MS = 60 * 1000;
 
 // ── 参数解析 ──
 
@@ -105,16 +107,19 @@ function selectCases(all) {
 
 // ── 子进程执行 ──
 
-function runCmd(cmd, argsArr, { cwd, timeoutMs = RUN_TIMEOUT_MS, logStream } = {}) {
+function runCmd(cmd, argsArr, { cwd, timeoutMs = RUN_TIMEOUT_MS, logStream, teeOutput = false, onOutput } = {}) {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, argsArr, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
-    if (logStream) {
-      proc.stdout.on('data', (c) => logStream.write(c));
-      proc.stderr.on('data', (c) => logStream.write(c));
-    } else {
-      proc.stdout.on('data', (c) => process.stdout.write(c));
-      proc.stderr.on('data', (c) => process.stderr.write(c));
-    }
+    const env = teeOutput
+      ? { ...process.env, AWF_TASK_LIST_INTERACTIVE: '1' }
+      : process.env;
+    const proc = spawn(cmd, argsArr, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
+    const forward = (stream) => (chunk) => {
+      logStream?.write(chunk);
+      onOutput?.(chunk, stream === process.stderr ? 'stderr' : 'stdout');
+      if (teeOutput || !logStream) stream.write(chunk);
+    };
+    proc.stdout.on('data', forward(process.stdout));
+    proc.stderr.on('data', forward(process.stderr));
     let timedOut = false;
     const kill = setTimeout(() => {
       timedOut = true;
@@ -125,6 +130,40 @@ function runCmd(cmd, argsArr, { cwd, timeoutMs = RUN_TIMEOUT_MS, logStream } = {
     proc.on('close', (code) => { clearTimeout(kill); resolve({ code: code ?? -1, timedOut }); });
     proc.on('error', (err) => { clearTimeout(kill); logStream?.write(`spawn error: ${err.message}\n`); resolve({ code: -1, timedOut: false }); });
   });
+}
+
+/** 从 TTY 重绘输出中仅提取状态变化，避免 eval.log 被 spinner 帧与控制码淹没。 */
+function createTaskEventRecorder(logStream) {
+  const states = new Map();
+  let pending = '';
+  return (chunk) => {
+    pending += String(chunk)
+      .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+      .replace(/\r/g, '');
+    const lines = pending.split('\n');
+    pending = lines.pop();
+    for (const raw of lines) {
+      const line = raw.trim();
+      const match = line.match(/^(.?)\s+\[([^\]]+)\]\s+(.+?)\s+((?:(?:\d+h )?(?:\d+m )?)\d+s)$/);
+      if (!match || !TASK_ICONS.has(match[1])) continue;
+      const [, icon, id, title, elapsed] = match;
+      const status = icon === '✓' ? 'done' : icon === '⚠' ? 'blocked' : 'active';
+      const elapsedMs = durationToMs(elapsed);
+      const previous = states.get(id);
+      const statusChanged = previous?.status !== status;
+      const progressDue = status === 'active' && elapsedMs - (previous?.elapsedMs ?? 0) >= TASK_PROGRESS_LOG_MS;
+      if (previous && !statusChanged && !progressDue) continue;
+      states.set(id, { status, elapsedMs });
+      const stableIcon = status === 'done' ? '✓' : status === 'blocked' ? '⚠' : '●';
+      const ts = new Date().toISOString().slice(11, 19);
+      logStream.write(`[${ts}] ${stableIcon} [${id}] ${title} · ${elapsed}\n`);
+    }
+  };
+}
+
+function durationToMs(text) {
+  const units = [...text.matchAll(/(\d+)(h|m|s)/g)];
+  return units.reduce((total, [, value, unit]) => total + Number(value) * ({ h: 3600000, m: 60000, s: 1000 }[unit]), 0);
 }
 
 function writeFile(p, content) {
@@ -222,10 +261,13 @@ async function runCase(c) {
 
   const logPath = path.join(sandbox, 'eval.log');
   const log = fs.createWriteStream(logPath);
+  log.write(`=== AWF Eval Log ===\ncase: ${c.id}\nstarted: ${new Date().toISOString()}\n\n`);
+  const initLog = fs.createWriteStream(path.join(sandbox, 'init.log'));
 
   // 1. init
-  const initRes = await runCmd(process.execPath, [AWF, 'init'], { cwd: sandbox, logStream: log });
+  const initRes = await runCmd(process.execPath, [AWF, 'init'], { cwd: sandbox, logStream: initLog });
   if (initRes.timedOut || initRes.code !== 0) {
+    initLog.end();
     log.end();
     const msg = initRes.timedOut ? 'awf init 超时' : `awf init 失败（exit ${initRes.code}）`;
     return { id: c.id, name: c.name, ok: false, checks: [{ ok: false, msg }], sandbox, logPath };
@@ -239,7 +281,14 @@ async function runCase(c) {
   }
 
   // 3. run
-  const runRes = await runCmd(process.execPath, [AWF, 'run'], { cwd: sandbox, logStream: log });
+  console.log(`\n▸ awf run · ${c.id}（实时 CLI 输出）\n`);
+  const recordTaskEvent = createTaskEventRecorder(log);
+  const runRes = await runCmd(process.execPath, [AWF, 'run'], {
+    cwd: sandbox,
+    teeOutput: true,
+    onOutput: recordTaskEvent,
+  });
+  initLog.end();
   log.end();
   if (runRes.timedOut || runRes.code !== 0) {
     const msg = runRes.timedOut ? 'awf run 超时' : `awf run 失败（exit ${runRes.code}）`;

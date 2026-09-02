@@ -28,6 +28,9 @@ npm run eval
 # 单个用例
 npm run eval -- --only hello-sum
 
+# 单个多 agent 用例（awf run 的 CLI 输出会实时显示，并同时写入 eval.log）
+node tests/eval/run-eval.mjs --only multi-agent-parallel
+
 # 列出所有用例（不运行）
 node tests/eval/run-eval.mjs --list
 
@@ -54,7 +57,7 @@ node tests/eval/run-eval.mjs --keep
     "files": ["src/sum.js"],              // 必须存在的产物（含多 agent 的 eval-marker/<taskId>.done）
     "verify": ["node", "--test"],         // 校验命令，退出码 0 = 通过
     "tasksDone": true,                    // 所有任务 status=done 且 exec.result 非空
-    "logContain": ["批次 B1 (4): T1, T2, T3, T4"],  // 可选：eval.log 必须含的批次派发标记（多 agent 并行证据）
+    "logContain": ["[T1]", "[T2]"],                 // 可选：eval.log 必须含的任务状态事件（多 agent 派发证据）
     "markerFiles": ["eval-marker/T1.done"],          // 可选：并行证据——这些文件 mtime 跨度 < markerSpanMs 才算并行
     "markerSpanMs": 90000
   }
@@ -67,7 +70,7 @@ node tests/eval/run-eval.mjs --keep
 2. **产物存在** — `expected.files` 列出的文件落盘
 3. **校验通过** — `expected.verify` 命令退出码 0
 4. **多 agent 并行证据**（仅多 agent 用例）：
-   - `logContain` — eval.log 含「批次 B1 (N): …」派发标记，证明 CLI 按批次屏障整批派发（而非逐任务串行）
+   - `logContain` — eval.log 含任务状态事件（如 `● [T1]`），证明 CLI 已派发对应任务
    - `markerSpanMs` — 各任务 marker 文件写入时间跨度上限，证明子任务几乎同时落盘（真并行）；串行执行会因任务依次完成而远超阈值
 
 ## 多 agent 用例速查
