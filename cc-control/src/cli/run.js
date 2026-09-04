@@ -83,7 +83,10 @@ export async function runCommand(task, options) {
   let runCompleted = false;
   try {
     const cfg = loadRunConfig(projectRoot);
-    if (cfg.agents.max > 1) {
+    // 默认保持单 Agent；只有显式 --multi-agent 才启用批次调度。
+    // 并发配额仍由 .awf/config.json 控制，若配置仍为默认 max:1，开关提供最低 2 路并发。
+    if (options?.multiAgent) {
+      if (cfg.agents.max <= 1) cfg.agents.max = 2;
       const { runBatchLoop } = await import('./run-batch.js');
       await runBatchLoop(projectRoot, cfg);
     } else {

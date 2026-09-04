@@ -34,6 +34,7 @@ program
   .option('-a, --auto', '全自动模式，不暂停等待确认')
   .option('-r, --resume', '从上次中断处恢复')
   .option('-l, --local', '使用本地提示词模板，跳过 AI 智能生成')
+  .option('--multi-agent', '启用多 Agent 并行执行（默认单 Agent）')
   .action(runCommand);
 
 // === 辅助命令 ===
