@@ -36,6 +36,7 @@ const listOnly = args.includes('--list');
 const clean = args.includes('--clean'); // --clean: 成功用例自动清理沙箱（默认保留沙箱与日志）
 const onlyIdx = args.indexOf('--only');
 const only = onlyIdx !== -1 ? args[onlyIdx + 1] : null;
+const multiAgent = args.includes('--multi-agent');
 
 // ── 前置检查 ──
 
@@ -64,13 +65,17 @@ function loadCases() {
   const raw = [];
   for (const entry of fs.readdirSync(CASES_DIR)) {
     const caseDir = path.join(CASES_DIR, entry);
-    const caseFile = path.join(caseDir, 'case.json');
-    if (!fs.existsSync(caseFile)) continue;
-    try {
-      raw.push({ dir: caseDir, ...JSON.parse(fs.readFileSync(caseFile, 'utf-8')) });
-    } catch (err) {
-      console.error(`✘ 解析 ${caseFile} 失败: ${err.message}`);
-      process.exit(1);
+    if (!fs.statSync(caseDir).isDirectory()) continue;
+    const caseFiles = fs.readdirSync(caseDir)
+      .filter((name) => /^case(?:-[a-z0-9-]+)?\.json$/i.test(name))
+      .map((name) => path.join(caseDir, name));
+    for (const caseFile of caseFiles) {
+      try {
+        raw.push({ dir: caseDir, caseFile, ...JSON.parse(fs.readFileSync(caseFile, 'utf-8')) });
+      } catch (err) {
+        console.error(`✘ 解析 ${caseFile} 失败: ${err.message}`);
+        process.exit(1);
+      }
     }
   }
   // extends：从另一个 case 继承（seed 顶层合并 / config·files·expected 全量覆盖），供对照用例复用任务集
@@ -80,7 +85,7 @@ function loadCases() {
     const parent = byId.get(c.extends);
     if (!parent) { console.error(`✘ case '${c.id}' extends 未找到: ${c.extends}`); process.exit(1); }
     const rp = resolveCase(parent);
-    return {
+    const resolved = {
       ...rp,
       ...c,
       seed: { ...rp.seed, ...(c.seed || {}) },
@@ -88,6 +93,13 @@ function loadCases() {
       config: c.config ?? rp.config,
       expected: c.expected ?? rp.expected,
     };
+    if (c.promptOverrides) {
+      resolved.seed.tasks = (resolved.seed.tasks || []).map((task) => ({
+        ...task,
+        prompt: c.promptOverrides[task.id] ?? task.prompt,
+      }));
+    }
+    return resolved;
   };
   return raw.map(resolveCase);
 }
@@ -246,6 +258,81 @@ async function runVerify(sandbox, verify) {
   return code;
 }
 
+function collectExecutionMetrics({ sandbox, seed, executionStartedAt, executionEndedAt }) {
+  const metrics = {
+    executionDurationMs: executionEndedAt - executionStartedAt,
+    taskPromptChars: (seed.tasks || []).reduce((n, task) => n + (task.prompt?.length || 0), 0),
+    modelCalls: 0,
+    tokens: { input: 0, cacheCreation: 0, cacheRead: 0, output: 0 },
+    stages: {},
+  };
+  const eventsFile = path.join(sandbox, '.awf', 'logs', 'subagent-events.jsonl');
+  if (!fs.existsSync(eventsFile)) return metrics;
+
+  const events = fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).flatMap((line) => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  });
+  const transcriptPaths = new Set();
+  const starts = new Map();
+  const taskRuns = [];
+  for (const event of events) {
+    const body = event.body || {};
+    if (body.transcript_path) transcriptPaths.add(body.transcript_path);
+    if (body.agent_transcript_path) transcriptPaths.add(body.agent_transcript_path);
+    if (event.event === 'SubagentStart') starts.set(body.agent_id, Date.parse(event.ts));
+    if (event.event === 'SubagentStop') {
+      const match = body.last_assistant_message?.match(/RESULT:\s*(\{[^\n]*\})/);
+      let taskId = null;
+      try { taskId = JSON.parse(match?.[1]).taskId; } catch { /* malformed/missing RESULT is already scored elsewhere */ }
+      const startedAt = starts.get(body.agent_id);
+      const stoppedAt = Date.parse(event.ts);
+      if (taskId && Number.isFinite(startedAt) && Number.isFinite(stoppedAt)) taskRuns.push({ taskId, startedAt, stoppedAt });
+    }
+  }
+
+  const uniqueUsage = new Map();
+  for (const transcript of transcriptPaths) {
+    if (!fs.existsSync(transcript)) continue;
+    for (const line of fs.readFileSync(transcript, 'utf8').split('\n')) {
+      let item;
+      try { item = JSON.parse(line); } catch { continue; }
+      const usage = item.message?.usage;
+      const messageId = item.message?.id;
+      if (!usage || !messageId) continue;
+      // Claude transcript 会按 content block 重复写同一个 message.id，且每行重复携带 usage。
+      // 同一 transcript/message 只计一次；流式增量取各字段最大值，避免低估最终 output。
+      const key = `${transcript}\0${messageId}`;
+      const previous = uniqueUsage.get(key) || {};
+      uniqueUsage.set(key, {
+        input: Math.max(previous.input || 0, usage.input_tokens || 0),
+        cacheCreation: Math.max(previous.cacheCreation || 0, usage.cache_creation_input_tokens || 0),
+        cacheRead: Math.max(previous.cacheRead || 0, usage.cache_read_input_tokens || 0),
+        output: Math.max(previous.output || 0, usage.output_tokens || 0),
+      });
+    }
+  }
+  metrics.modelCalls = uniqueUsage.size;
+  for (const usage of uniqueUsage.values()) {
+    metrics.tokens.input += usage.input;
+    metrics.tokens.cacheCreation += usage.cacheCreation;
+    metrics.tokens.cacheRead += usage.cacheRead;
+    metrics.tokens.output += usage.output;
+  }
+  metrics.tokens.contextInput = metrics.tokens.input + metrics.tokens.cacheCreation + metrics.tokens.cacheRead;
+
+  const stageOf = (id) => id.startsWith('T') ? 'dev' : id.startsWith('R') ? 'review' : id.startsWith('X') ? 'test' : 'doc';
+  for (const stage of ['dev', 'review', 'test', 'doc']) {
+    const rows = taskRuns.filter((row) => stageOf(row.taskId) === stage);
+    if (!rows.length) continue;
+    metrics.stages[stage] = {
+      tasks: rows.length,
+      wallMs: Math.max(...rows.map((row) => row.stoppedAt)) - Math.min(...rows.map((row) => row.startedAt)),
+      averageTaskMs: Math.round(rows.reduce((n, row) => n + row.stoppedAt - row.startedAt, 0) / rows.length),
+    };
+  }
+  return metrics;
+}
+
 // ── 单用例执行 ──
 
 async function runCase(c) {
@@ -283,11 +370,15 @@ async function runCase(c) {
   // 3. run
   console.log(`\n▸ awf run · ${c.id}（实时 CLI 输出）\n`);
   const recordTaskEvent = createTaskEventRecorder(log);
-  const runRes = await runCmd(process.execPath, [AWF, 'run'], {
+  const executionStartedAt = Date.now();
+  const runArgs = [AWF, 'run'];
+  if (multiAgent) runArgs.push('--multi-agent');
+  const runRes = await runCmd(process.execPath, runArgs, {
     cwd: sandbox,
     teeOutput: true,
     onOutput: recordTaskEvent,
   });
+  const executionEndedAt = Date.now();
   initLog.end();
   log.end();
   if (runRes.timedOut || runRes.code !== 0) {
@@ -305,7 +396,10 @@ async function runCase(c) {
   }
 
   const ok = checks.every((ch) => ch.ok);
-  return { id: c.id, name: c.name, ok, checks, sandbox, logPath };
+  const metrics = collectExecutionMetrics({ sandbox, seed: c.seed, executionStartedAt, executionEndedAt });
+  const result = { id: c.id, name: c.name, ok, checks, metrics, sandbox, logPath };
+  writeFile(path.join(sandbox, 'eval-result.json'), `${JSON.stringify(result, null, 2)}\n`);
+  return result;
 }
 
 // ── 汇总 ──
@@ -315,6 +409,12 @@ function printResult(r) {
   console.log(`\n${icon} ${r.id} — ${r.name}`);
   for (const ch of r.checks) {
     console.log(`    ${ch.ok ? '  ✔' : '  ✘'} ${ch.msg}`);
+  }
+  if (r.metrics) {
+    console.log(`    执行耗时: ${(r.metrics.executionDurationMs / 1000).toFixed(1)}s`);
+    console.log(`    task prompt: ${r.metrics.taskPromptChars} chars`);
+    console.log(`    模型调用: ${r.metrics.modelCalls}`);
+    console.log(`    token: input=${r.metrics.tokens.input}, cacheRead=${r.metrics.tokens.cacheRead}, output=${r.metrics.tokens.output}`);
   }
   console.log(`    沙箱: ${r.sandbox}`);
   console.log(`    日志: ${r.logPath}`);
