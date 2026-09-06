@@ -1,0 +1,123 @@
+{
+  "port": 8787,
+  "marketplace": {
+    "name": "ai-workflow-dev",
+    "description": "ai-workflow 双插件市场 — core 引擎层 + plugin-code 编程层",
+    "owner": {
+      "name": "v-shangjunhao"
+    },
+    "plugins": [
+      {
+        "dir": "core",
+        "name": "ai-workflow-core",
+        "description": "AI Workflow 引擎层插件 — 跨领域通用：MCP（state/session/oneshot）+ hooks + 运行态命令技能",
+        "version": "2.0.0",
+        "keywords": [
+          "workflow",
+          "mcp",
+          "hooks"
+        ]
+      },
+      {
+        "dir": "plugin-code",
+        "name": "ai-workflow-code",
+        "description": "AI Workflow 编程模式插件 — 规划/开发/审查/测试/文档等编程领域命令与技能",
+        "version": "2.0.0",
+        "keywords": [
+          "workflow",
+          "w-plan",
+          "w-dev",
+          "w-review",
+          "autonomous"
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "awf-state": {
+      "args": ["./mcp/awf-state/server.cjs"]
+    },
+    "awf-session": {
+      "args": ["./mcp/awf-session/server.cjs"],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:{PORT}"
+      }
+    },
+    "awf-oneshot": {
+      "args": ["./mcp/awf-oneshot/server.cjs"]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SessionStart\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=UserPromptSubmit\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=Stop\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SubagentStart\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SubagentStop\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=PreToolUse\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=PostToolUse\" -H 'content-type: application/json' -d @- >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -3,13 +3,6 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$DIR")"
 
-echo "=== AI Eval Pipeline ==="
-echo "Placeholder — 将在此运行自动化 AI 质量评测"
-echo ""
-echo "For each fixture in tests/eval/:"
-echo "  1. awf init in clean sandbox"
-echo "  2. awf plan with fixture requirements"
-echo "  3. awf run --local"
-echo "  4. Score outputs against expected"
-echo ""
-echo "Not yet implemented."
+# 全真 E2E 评测 — 真实 claude + tmux，消耗真实 token。
+# 不参与 npm test，仅在需要时手动运行。详见 tests/eval/README.md
+exec node "$ROOT/tests/eval/run-eval.mjs" "$@"

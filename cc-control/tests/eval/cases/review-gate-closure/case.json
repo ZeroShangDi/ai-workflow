@@ -1,0 +1,59 @@
+{
+  "id": "review-gate-closure",
+  "name": "门禁闭环全真验证（困难版）：3 缺陷跨 2 文件审查 fail → 自动派生修复 → 复审通过",
+  "requirements": "前端审查面试题增强版：useCounter Hook（useEffect 空依赖数组 + setInterval 读 count → stale closure）+ 定时器无 clearInterval 泄漏 + Counter 组件 resize 事件监听无 removeEventListener 泄漏。dev 产出带 3 处缺陷的 2 个文件 → review 门禁判定 fail（verdict 非 pass）→ CLI 自动派生修复任务 R1-F1 → 修复完成 → 门禁回退复审 → 最终 pass 全部 done。审查提示词不含缺陷类别关键词（需真实找问题）。",
+  "config": {
+    "run": {
+      "agents": { "max": 2 }
+    }
+  },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": {
+      "summary": "门禁闭环验证（困难版）：3 缺陷跨 2 文件的审查修复",
+      "reqDoc": "docs/features/review-gate-closure.md",
+      "hasUI": false,
+      "inScope": ["创建带缺陷的 useCounter Hook 与 Counter 组件", "审查并修复全部缺陷"],
+      "outOfScope": ["无需安装 React 运行时", "无需真实渲染"],
+      "acceptanceCriteria": ["review 门禁判定非 pass 后自动派生修复任务", "修复任务完成后门禁复审通过", "所有任务最终 done"]
+    },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "创建 useCounter Hook 与 Counter 组件（面试题代码）",
+        "kind": "dev",
+        "plannedFiles": ["src/useCounter.js", "src/Counter.jsx"],
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "acceptance": "src/useCounter.js 与 src/Counter.jsx 存在，内容与给定代码逐字一致",
+        "prompt": "/w-dev\n<task>\n创建两个文件，内容严格按下面给定的面试题代码逐字创建（不做任何修改、不做任何优化）：\n\n=== src/useCounter.js ===\nimport { useState, useEffect } from 'react';\n\nexport function useCounter() {\n  const [count, setCount] = useState(0);\n\n  useEffect(() => {\n    const timer = setInterval(() => {\n      setCount(count + 1);\n    }, 1000);\n  }, []);\n\n  return count;\n}\n\n=== src/Counter.jsx ===\nimport React, { useEffect, useState } from 'react';\nimport { useCounter } from './useCounter';\n\nfunction Counter() {\n  const count = useCounter();\n  const [width, setWidth] = useState(window.innerWidth);\n\n  useEffect(() => {\n    const onResize = () => setWidth(window.innerWidth);\n    window.addEventListener('resize', onResize);\n  }, []);\n\n  return (\n    <div>\n      <p>count: {count}</p>\n      <p>window width: {width}</p>\n    </div>\n  );\n}\n\nexport default Counter;\n</task>\n<constraints>\n只创建 src/useCounter.js 与 src/Counter.jsx 两个文件，内容与给定代码逐字一致，保留空依赖数组 []、setCount(count + 1)、setInterval 无 cleanup、addEventListener 无 cleanup 的原始形态，不要修改/优化任何一行。不要修改 package.json 或任何其他文件，不要执行任何 git 命令。\n</constraints>\n<files>\nsrc/useCounter.js（新建）\nsrc/Counter.jsx（新建）\n</files>\n<acceptance>\nsrc/useCounter.js 包含 useEffect(() => { const timer = setInterval(() => setCount(count + 1)..., }, [])；src/Counter.jsx 包含 useEffect 内 window.addEventListener('resize', onResize) 且无 removeEventListener。\n</acceptance>\n<risks>\n无。\n</risks>"
+      },
+      {
+        "id": "R1",
+        "title": "审查 useCounter 与 Counter（面试题：找出代码问题）",
+        "kind": "review",
+        "wbsRef": "W1-002",
+        "status": "pending",
+        "deps": ["T1"],
+        "acceptance": "useCounter 与 Counter 组件无 stale closure / 定时器泄漏 / 事件监听泄漏",
+        "prompt": "/w-review\n<task>\n以面试官视角审查下面两个文件——前端 React 代码审查面试题：找出代码中的全部问题。\n- src/useCounter.js（自定义 Hook）\n- src/Counter.jsx（组件）\n</task>\n<constraints>\n只读审查，不修改任何文件。\n</constraints>\n<acceptance>\n逐文件逐行审查，覆盖 Hook 与组件的完整生命周期与状态流转。列出你发现的全部问题（每个问题注明文件、位置、原因）。\n发现任何问题 → verdict.level 必须为 changes_requested 或 fail，RESULT status 用 failed；全部通过才 verdict.level 用 pass。\n</acceptance>\n<risks>\n无。\n</risks>"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": ["src/useCounter.js", "src/Counter.jsx"],
+    "logContain": [
+      "门禁 R1",
+      "派生修复任务 R1-F1"
+    ],
+    "verify": [
+      "node", "--input-type=module", "-e",
+      "import { readFileSync } from 'node:fs';\nconst hook = readFileSync('./src/useCounter.js', 'utf-8');\nconst comp = readFileSync('./src/Counter.jsx', 'utf-8');\n// 残留 stale 模式：useEffect 空依赖数组 + interval 回调读取 count\nconst staleEmptyDeps = /useEffect\\(\\(\\)\\s*=>[\\s\\S]{0,300}setInterval[\\s\\S]{0,300}\\bcount\\b[\\s\\S]{0,100}\\},\\s*\\[\\]\\);/.test(hook);\n// 修复充分条件（任一典型方案）：依赖数组含 [count] / setCount 函数式更新 / useRef\nconst staleFixed = /},\\s*\\[count\\]\\);/.test(hook) || /setCount\\((c|prev|n)\\s*=>/.test(hook) || /useRef/.test(hook);\n// 定时器 cleanup 恢复\nconst intervalCleaned = /clearInterval\\(timer\\)/.test(hook);\n// resize 事件监听 cleanup 恢复\nconst resizeCleaned = /removeEventListener/.test(comp);\nif ((staleEmptyDeps && !staleFixed) || !intervalCleaned || !resizeCleaned) { console.error('NOT_ALL_FIXED'); process.exit(1); }\nconsole.log('ALL_FIXED');"
+    ],
+    "tasksDone": true
+  }
+}
