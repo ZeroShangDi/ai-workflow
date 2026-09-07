@@ -25,6 +25,7 @@ const m = {
     captureSubagentTranscript: vi.fn(),
     logChoice: vi.fn(),
     logPrompt: vi.fn(),
+    logDecision: vi.fn(),
   },
   diagnose: vi.fn(async () => ({
     ok: true,
@@ -43,6 +44,7 @@ class MockRunLogger {
   captureSubagentTranscript(...args) { m.logger.captureSubagentTranscript(...args); }
   logChoice(...args) { m.logger.logChoice(...args); }
   logPrompt(...args) { m.logger.logPrompt(...args); }
+  logDecision(...args) { m.logger.logDecision(...args); }
 }
 
 // ── 临时目录：state.json 存在/不存在 + HTML 文件存在性控制 ──

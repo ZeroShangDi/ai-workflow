@@ -11,6 +11,11 @@ function loadConfig() {
   return { config: JSON.parse(raw), raw };
 }
 
+// 需要回传 ccOutput 的事件走 gateway（转发 server /hook + 透传 ccOutput）；
+// 其余事件保持裸 curl（只需上报，不读回包）。
+const GATEWAY_EVENTS = ['Stop', 'PreToolUse'];
+const CURL_EVENTS = ['SessionStart', 'UserPromptSubmit', 'SubagentStart', 'SubagentStop', 'PostToolUse'];
+
 describe('plugin config.json hooks', () => {
   // ── TC1: 文件存在且为合法 JSON ──
 
@@ -38,19 +43,23 @@ describe('plugin config.json hooks', () => {
     expect(keys).toHaveLength(7);
   });
 
-  // ── TC3: 每个 Hook 的 curl 命令完整性 ──
+  // ── TC3: Hook 命令形态 — gateway 事件走 node gateway.cjs，其余走裸 curl ──
 
-  it('TC3: 每个 Hook 的 curl 命令完整性', () => {
+  it('TC3: gateway 事件指向 gateway.cjs；其余事件保持裸 curl', () => {
     const { config } = loadConfig();
 
-    for (const [eventName, hookEntries] of Object.entries(config.hooks)) {
-      expect(hookEntries.length).toBeGreaterThanOrEqual(1);
-      const entry = hookEntries[0];
-      expect(entry.hooks).toBeDefined();
-      expect(entry.hooks.length).toBeGreaterThanOrEqual(1);
+    for (const eventName of GATEWAY_EVENTS) {
+      const cmd = config.hooks[eventName][0].hooks[0].command;
+      expect(config.hooks[eventName][0].hooks[0].type).toBe('command');
+      expect(cmd).toContain('node');
+      expect(cmd).toContain('${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs');
+      expect(cmd).toContain('__PORT__'); // 端口单源（渲染时 → 字面量）
+      expect(cmd).not.toContain('curl');
+    }
 
-      const cmd = entry.hooks[0].command;
-      expect(entry.hooks[0].type).toBe('command');
+    for (const eventName of CURL_EVENTS) {
+      const cmd = config.hooks[eventName][0].hooks[0].command;
+      expect(config.hooks[eventName][0].hooks[0].type).toBe('command');
       expect(cmd).toContain('curl');
       expect(cmd).toContain('http://127.0.0.1:__PORT__/hook');
       expect(cmd).toContain('>/dev/null 2>&1');
@@ -93,38 +102,40 @@ describe('plugin config.json hooks', () => {
     expect(cmd).toContain('; exit 0');
   });
 
-  // ── TC19: Stop curl 与 SessionStart 一致（透传，server 按 session_id 过滤）──
+  // ── TC19: Stop 命令改走 gateway（转发 /hook + ccOutput 透传），不再裸 curl ──
 
-  it('TC19: Stop curl 格式验证（透传 stdin）', () => {
+  it('TC19: Stop 命令指向 gateway（透传 stdin、由 server 决定是否返回 ccOutput）', () => {
     const { config } = loadConfig();
     const cmd = config.hooks.Stop[0].hooks[0].command;
 
-    expect(cmd).toContain('curl');
-    expect(cmd).toContain('-X POST');
-    expect(cmd).toContain('?event=Stop');
-    expect(cmd).toContain('-d @-'); // 透传 session_id，子 agent Stop 不误翻主闩锁
-    expect(cmd).toContain("sh -c '");
-    expect(cmd).toContain('; exit 0');
+    expect(cmd).toContain('node');
+    expect(cmd).toContain('${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs');
+    expect(cmd).toContain('__PORT__');
+    expect(cmd).not.toContain('curl');
+    expect(cmd).not.toContain('sh -c');
   });
 
-  // ── TC20: PreToolUse curl 使用 sh -c + exit 0 ──
+  // ── TC20: PreToolUse 命令改走 gateway，matcher 仍为 AskUserQuestion ──
 
-  it('TC20: PreToolUse curl 使用 sh -c + exit 0', () => {
+  it('TC20: PreToolUse 命令指向 gateway 且 matcher 为 AskUserQuestion', () => {
     const { config } = loadConfig();
-    const cmd = config.hooks.PreToolUse[0].hooks[0].command;
+    const entry = config.hooks.PreToolUse[0];
+    const cmd = entry.hooks[0].command;
 
-    expect(cmd).toContain("sh -c '");
-    expect(cmd).toContain("; exit 0'");
-    expect(cmd).not.toContain('|| true');
+    expect(entry.matcher).toBe('AskUserQuestion');
+    expect(cmd).toContain('node');
+    expect(cmd).toContain('${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs');
+    expect(cmd).toContain('__PORT__');
+    expect(cmd).not.toContain('curl');
   });
 
-  // ── TC21: 所有 curl 都有 -m 2 和容错（统一透传 sh -c + exit 0）──
+  // ── TC21: 裸 curl 事件都有 -m 2 和容错（统一透传 sh -c + exit 0）──
 
-  it('TC21: 所有 curl 都有 -m 2 和容错（统一 sh -c + exit 0）', () => {
+  it('TC21: 裸 curl 事件都有 -m 2 和容错（统一 sh -c + exit 0）', () => {
     const { config } = loadConfig();
 
-    for (const [, hookEntries] of Object.entries(config.hooks)) {
-      const cmd = hookEntries[0].hooks[0].command;
+    for (const eventName of CURL_EVENTS) {
+      const cmd = config.hooks[eventName][0].hooks[0].command;
       expect(cmd).toContain('-m 2');
       expect(cmd).toContain('>/dev/null 2>&1');
       // 容错：sh -c ...; exit 0（透传类）或 || true（PostToolUse）
