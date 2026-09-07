@@ -5,6 +5,9 @@
       "maxModules": 1,
       "maxPerModule": 1,
       "maxPerFeature": 1
+    },
+    "decision": {
+      "enabled": false
     }
   },
   "docs": {

@@ -1,0 +1,15 @@
+{
+  "name": "ai-workflow-decision",
+  "description": "AI Workflow 决策插件 — 决策闸门：decision-core/decision-workflow 技能 + Decision Result 协议与决策模式指令",
+  "version": "0.1.0",
+  "author": {
+    "name": "v-shangjunhao"
+  },
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "decision",
+    "decision-core",
+    "autonomous"
+  ]
+}

@@ -1,11 +1,14 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import decisionConfig from './decision-config.cjs';
 
 /**
  * run 运行时配置 — 读 .awf/config.json 的 run.* 段
  *
  * 唯一入口：loadRunConfig(projectRoot)。
  * 约定：run.agents 四级并行配额，全部缺省时 max:1 = 现状单任务串行，零行为变化。
+ *       run.decision.enabled 决策闸门开关委托 decision-config.cjs（与 server 同一实现/默认 false，
+ *       单一来源防漂移）：不配置 = 关 = 旧上抛逻辑。
  */
 
 const DEFAULT_AGENTS = {
@@ -28,7 +31,7 @@ function normalizeAgents(src = {}) {
 /**
  * 读取 .awf/config.json 的 run.* 段；文件缺失/非法 JSON → 全部用默认值。
  * @param {string} projectRoot - 用户项目根目录（cwd）
- * @returns {{ agents: { max: number, maxModules: number, maxPerModule: number, maxPerFeature: number } }}
+ * @returns {{ agents: { max: number, maxModules: number, maxPerModule: number, maxPerFeature: number }, decision: { enabled: boolean } }}
  */
 export function loadRunConfig(projectRoot) {
   let raw = {};
@@ -37,5 +40,8 @@ export function loadRunConfig(projectRoot) {
   } catch {
     /* 缺失或非法 JSON → 用默认 */
   }
-  return { agents: normalizeAgents(raw?.run?.agents) };
+  return {
+    agents: normalizeAgents(raw?.run?.agents),
+    decision: { enabled: decisionConfig.isDecisionEnabled(projectRoot) },
+  };
 }

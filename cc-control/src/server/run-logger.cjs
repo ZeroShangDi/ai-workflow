@@ -82,6 +82,14 @@ class RunLogger {
     this._append(content);
   }
 
+  /** 决策关键事件行（时间戳与决策存储记录 created_at 对齐，Review 页可对上） */
+  logDecision({ at, decisionId, event, detail }) {
+    if (!this._logPath) return;
+    const ts = at || new Date().toISOString();
+    const id = decisionId ? ` ${decisionId}` : '';
+    this._append(`[${ts}] [DECISION][${event}]${id} ${detail || ''}\n`);
+  }
+
   // ---- transcript 捕获 ----
 
   resetTranscript() {

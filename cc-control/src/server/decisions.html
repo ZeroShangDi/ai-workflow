@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>AWF — 决策 Review</title>
+<style>
+  :root {
+    --bg:#0f1117; --panel:#161822; --border:#252836; --text:#c9d1d9; --dim:#6e7681;
+    --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --danger:#f85149;
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font:14px/1.6 -apple-system,BlinkMacSystemFont,sans-serif; margin:0; }
+  a { color:var(--accent); text-decoration:none; }
+  .topbar { display:flex; align-items:center; gap:16px; padding:10px 18px; background:var(--panel); border-bottom:1px solid var(--border); }
+  .topbar h1 { font-size:15px; margin:0; }
+  .topbar .spacer { flex:1; }
+  .topbar .link { color:var(--dim); font-size:12px; }
+  .topbar .link:hover { color:var(--accent); }
+  .wrap { max-width:1200px; margin:18px auto; padding:0 18px; }
+  .toolbar { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .toolbar .count { color:var(--dim); font-size:12px; }
+  button { background:var(--accent); color:#000; border:none; border-radius:7px; padding:6px 14px; font:inherit; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--border); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  .empty { color:var(--dim); padding:30px; text-align:center; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .card .head { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; }
+  .card .head .did { font-weight:700; color:var(--accent); font-size:13px; }
+  .card .head .time { color:var(--dim); font-size:12px; }
+  .chip { padding:1px 8px; border-radius:10px; font-size:11px; border:1px solid var(--border); color:var(--dim); }
+  .chip.pending { color:var(--warn); border-color:var(--warn); }
+  .chip.overridden { color:var(--danger); border-color:var(--danger); }
+  .chip.reviewed { color:var(--ok); border-color:var(--ok); }
+  .q { margin:10px 0 4px; color:var(--text); font-size:14px; }
+  .answer { background:#0b0e14; border:1px solid var(--border); border-radius:8px; padding:10px 12px; color:#e6edf3; white-space:pre-wrap; }
+  .meta { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:6px 16px; margin-top:10px; color:var(--dim); font-size:12px; }
+  .meta b { color:var(--text); font-weight:600; }
+  .lists { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:8px 20px; margin-top:10px; font-size:12px; color:var(--dim); }
+  .lists ul { margin:4px 0 0; padding-left:18px; }
+  .override { margin-top:10px; border-top:1px dashed var(--border); padding-top:10px; }
+  .override textarea { width:100%; min-height:52px; background:#0b0e14; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font:inherit; resize:vertical; }
+  .override .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .override .msg { font-size:12px; color:var(--ok); }
+  .override .msg.err { color:var(--danger); }
+  .ovlog { margin-top:8px; font-size:12px; color:var(--dim); border-left:3px solid var(--danger); padding-left:10px; }
+  .actions { margin-left:auto; display:flex; gap:6px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>决策 Review</h1>
+  <div class="spacer"></div>
+  <a class="link" href="/">← Dashboard</a>
+</div>
+<div class="wrap">
+  <div class="toolbar">
+    <button id="refresh" class="ghost" onclick="load()">刷新</button>
+    <span class="count" id="count">—</span>
+  </div>
+  <div id="list"></div>
+</div>
+<script>
+const listEl = document.getElementById('list');
+const countEl = document.getElementById('count');
+// 本地已审（reviewed）标记：仅 UI 层；override 是写入决策记录的正式操作
+const REVIEWED_KEY = 'awf.decisions.reviewed';
+const reviewed = new Set(JSON.parse(localStorage.getItem(REVIEWED_KEY) || '[]'));
+
+function saveReviewed() { localStorage.setItem(REVIEWED_KEY, JSON.stringify([...reviewed])); }
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+const arr = (a) => (Array.isArray(a) && a.length ? a : null);
+
+function metaRow(label, value) { return `<div><b>${esc(label)}</b> ${esc(value)}</div>`; }
+
+function listHtml(items) {
+  if (!items.length) return '<div class="empty">暂无决策记录</div>';
+  const decisions = items.filter((d) => d.event === 'decision_completed');
+  const overrides = items.filter((d) => d.event === 'decision_overridden');
+  const byId = (id) => overrides.filter((o) => o.decision_id === id);
+  return decisions.map((d) => {
+    const r = d.result || {};
+    const isReviewed = reviewed.has(d.decision_id);
+    const ovs = byId(d.decision_id);
+    const status = ovs.length ? 'overridden' : (isReviewed ? 'reviewed' : 'pending');
+    const statusLabel = ovs.length ? '已 override' : (isReviewed ? '已审' : '待审');
+    const chip = `<span class="chip ${status}">${statusLabel}</span>`;
+    const lists = [
+      ['决定性因素', arr(r.decisive_factors)], ['风险', arr(r.risks)], ['未知', arr(r.unknowns)],
+      ['反转条件', arr(r.reconsider_when)], ['因果链', arr(r.causal_chain)],
+    ].filter(([, v]) => v);
+    return `
+    <div class="card">
+      <div class="head">
+        <span class="did">${esc(d.decision_id)}</span>
+        <span class="time">${esc(d.created_at || '')}</span>
+        ${chip} <span class="chip">type=${esc(r.type)}</span>
+        <span class="chip">finality=${esc(r.finality)}</span>
+        ${d.fallback ? '<span class="chip" style="color:var(--danger);border-color:var(--danger)">fallback</span>' : ''}
+        <span class="chip">source=${esc(d.source || '')}</span>
+        <span class="actions">
+          <button class="ghost" onclick="toggleReviewed('${esc(d.decision_id)}', this)">${isReviewed ? '取消已审' : '标记 reviewed'}</button>
+          <button class="ghost" onclick="toggleForm('${esc(d.decision_id)}')">Override</button>
+        </span>
+      </div>
+      <div class="q"><b>问题：</b>${esc(r.real_question || '—')}</div>
+      <div class="answer">${esc(r.answer)}</div>
+      <div class="meta">
+        ${metaRow('confidence', r.confidence)} ${metaRow('impact', r.impact)} ${metaRow('reversible', r.reversible)}
+      </div>
+      ${lists.length ? `<div class="lists">${lists.map(([label, v]) => `<div><b>${esc(label)}</b><ul>${v.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`).join('')}</div>` : ''}
+      ${ovs.map((o) => `<div class="ovlog">override ${esc(o.at || '')}：${esc(o.instruction || '')}</div>`).join('')}
+      <div class="override" id="form-${esc(d.decision_id)}" style="display:none">
+        <textarea placeholder="override instruction — 人工修正后的要求"></textarea>
+        <div class="row"><button onclick="doOverride('${esc(d.decision_id)}', this)">提交 override</button><span class="msg" id="msg-${esc(d.decision_id)}"></span></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleForm(id) {
+  const el = document.getElementById(`form-${id}`);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function toggleReviewed(id, btn) {
+  if (reviewed.has(id)) reviewed.delete(id); else reviewed.add(id);
+  saveReviewed();
+  load();
+}
+async function doOverride(id, btn) {
+  const el = document.getElementById(`form-${id}`);
+  const ta = el.querySelector('textarea');
+  const msg = document.getElementById(`msg-${id}`);
+  const instruction = (ta.value || '').trim();
+  if (!instruction) { msg.textContent = 'instruction 不能为空'; msg.className = 'msg err'; return; }
+  msg.textContent = '…'; msg.className = 'msg';
+  try {
+    const res = await fetch(`/awf/decisions/${encodeURIComponent(id)}/override`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ instruction }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || res.status);
+    msg.textContent = '已记录 override'; msg.className = 'msg';
+    ta.value = '';
+    await load();
+  } catch (e) {
+    msg.textContent = `失败：${e.message}`; msg.className = 'msg err';
+  }
+}
+
+async function load() {
+  countEl.textContent = '加载中…';
+  try {
+    const res = await fetch('/awf/decisions');
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'load failed');
+    countEl.textContent = `共 ${data.total} 条记录`;
+    listEl.innerHTML = listHtml(data.decisions || []);
+  } catch (e) {
+    countEl.textContent = `加载失败：${e.message}`;
+    listEl.innerHTML = '<div class="empty">无法读取决策记录</div>';
+  }
+}
+load();
+</script>
+</body>
+</html>

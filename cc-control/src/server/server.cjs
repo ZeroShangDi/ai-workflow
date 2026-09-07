@@ -11,6 +11,10 @@ const { readRunMetrics, readRunMeta, resetRunMeta, updateRunMeta } = require('..
 const {
   buildDiagnosisPrompt, diagnoseWithClaude, readDiagnosis, writeDiagnosis,
 } = global.__CC_RUN_DIAGNOSIS__ || require('../lib/run-diagnosis.cjs');
+const { isDecisionEnabled } = require('../lib/decision-config.cjs');
+const { parseDecisionResult } = require('./decision.cjs');
+const { DecisionStore } = require('./decision-store.cjs');
+const decisionInstruction = require('./decision-instruction.cjs');
 
 const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
 const logger = new RunLogger(PROJECT_ROOT);
@@ -148,6 +152,38 @@ function settleSubagent(body) {
   });
 }
 
+/** override → 向任务列表追加纠偏任务（kind=dev / source=decision_review，携带 decision_id/instruction/original_answer）。
+ *  复用 settleSubagent 同款 withStateLock（state.lock）；deps/plannedFiles 空 = 保守串行；不写 wbsRef（非原 WBS 叶子）。 */
+function appendDecisionReviewTask({ decision_id, instruction, original_answer }) {
+  return withStateLock(() => {
+    let s;
+    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, error: 'state.json unreadable' }; }
+    const id = `${decision_id}-REV`;
+    const existing = (s.tasks || []).find((t) => t.id === id);
+    if (existing) return { ok: true, taskId: id, existing: true };
+
+    const task = {
+      id,
+      kind: 'dev',
+      status: 'pending',
+      title: `决策纠偏：${instruction.length > 28 ? `${instruction.slice(0, 28)}…` : instruction}`,
+      source: 'decision_review',
+      prompt: `决策纠偏（decision ${decision_id}）：人工 override 指令——${instruction}。原决策 answer：${original_answer || '(无)'}。请据此对受影响产物执行修正并落账。`,
+      deps: [],
+      plannedFiles: [],
+      constraints: [],
+      acceptance: `按 override 指令完成 ${decision_id} 的纠偏`,
+      exec: { decision_id, instruction, original_answer: original_answer || null },
+    };
+
+    s.tasks = s.tasks || [];
+    s.tasks.push(task);
+    s.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+    return { ok: true, taskId: id };
+  });
+}
+
 const PORT = Number(process.env.CC_PORT || 8787);
 const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
@@ -268,6 +304,169 @@ function clearDecision() {
   decisionPending = null;
 }
 
+// ---- decision gate（v0.2.0，单 agent）：Stop 统一决策闸门 ----
+// gate 关（缺省）→ Stop 行为与现状完全一致（clearDecision + setReady + 采集）。
+// gate 开 → Stop 进入统一闸门三分支：
+//   ① 普通完成（结束文本无必需标记）→ clearDecision + setReady + 采集；
+//   ② 结束文本以 <AWF_DECISION_REQUIRED>…</…> 结尾 且 !stop_hook_active → phase=deciding，
+//      不 setReady（保持 busy 延续），返回 block ccOutput（continuePrompt = 决策模式指令，当前会话继续产出结果）；
+//   ③ deciding 中再 Stop：含有效 <AWF_DECISION_RESULT> → parse → store 落盘 → decisionResume → setReady；
+//      无有效结果 → 构造 deferred fallback 落盘 → decisionResume → setReady。
+// 闸门期间不额外翻转 ready/busy，防止 CLI 在决策事务未闭合时提前派发。
+let decisionGate = null; // null | { phase: 'deciding', startedAt }
+let decisionResume = null; // 最近一次闭合决策摘要（/status 暴露）；新事务开始时清空
+let decisionSeq = 0;
+
+function nextDecisionId() {
+  decisionSeq += 1;
+  return `D-${Date.now().toString(36)}-${decisionSeq.toString(36)}`;
+}
+
+/** 结束文本是否以决策必需标记 <AWF_DECISION_REQUIRED>…</…> 结尾 */
+function endsWithDecisionRequired(text) {
+  return /<\s*AWF_DECISION_REQUIRED\s*>[\s\S]*?<\s*\/\s*AWF_DECISION_REQUIRED\s*>\s*$/.test(text);
+}
+
+/** 无有效结果兜底：构造 deferred fallback（不悬空），与正式结果同样落盘进 Review */
+function deferredFallbackResult() {
+  return {
+    answer: '当前无法可靠完成该决策，延后处理。继续执行所有不依赖该决策的工作；如果当前分支必须依赖该决策，则停止继续扩展该分支并留待审查或后续任务处理。',
+    type: 'deferred',
+    finality: 'provisional',
+    impact: 'medium',
+    real_question: '沿用原决策问题',
+    decisive_factors: ['决策过程未能可靠完成'],
+    causal_chain: [],
+    facts: [],
+    assumptions: [],
+    unknowns: ['原决策仍未得到可靠解决'],
+    risks: ['依赖该决策的分支可能无法继续'],
+    reversible: true,
+    reconsider_when: ['人工审查时', '后续任务重新处理该问题时'],
+    confidence: 'low',
+    fallback: true,
+  };
+}
+
+/** 捕获落盘 + 置 decisionResume（正式结果与 fallback 共用；落一条完整 decision_completed 记录） */
+function persistDecision(result, source) {
+  const decisionId = nextDecisionId();
+  const createdAt = new Date().toISOString();
+  const record = {
+    event: 'decision_completed',
+    decision_id: decisionId,
+    status: 'pending_review',
+    fallback: result.fallback === true,
+    source,
+    created_at: createdAt,
+    result,
+  };
+  const appended = new DecisionStore(PROJECT_ROOT).append(record);
+  if (!appended.appended) console.log(`[decision-gate] append skipped for ${decisionId}`);
+  logger.logDecision({
+    at: createdAt,
+    decisionId,
+    event: 'decision_completed',
+    detail: result.fallback === true ? `fallback type=${result.type}` : `resolved type=${result.type}`,
+  });
+  decisionResume = {
+    decision_id: decisionId,
+    answer: result.answer,
+    type: result.type,
+    finality: result.finality,
+    fallback: result.fallback === true,
+  };
+  return decisionId;
+}
+
+/**
+ * AskUserQuestion 的 PreToolUse 决策化。
+ *   gate 关 → 维持现状：setDecision 捕获（不拦截）；
+ *   gate 开 & 非 deciding → deny，reason 指引模型把问题以 <AWF_DECISION_REQUIRED>…</…> 放本回合最后一行收尾
+ *     （勿再问/勿继续），与文字入口在 Stop 闸门 ② 处合一；
+ *   gate 开 & deciding → 重复提问拒绝（决策闭合前禁再问），不重新置 deciding。
+ * deny reason 不内嵌 DC 决策模式指令（那由 Stop block 的 continuePrompt 注入）。
+ */
+function handleAskUserQuestion(body) {
+  const questions = body.tool_input?.questions;
+  if (!questions || questions.length === 0) return null;
+
+  if (!isDecisionEnabled(PROJECT_ROOT)) {
+    const q = questions[0];
+    setDecision({
+      type: q.multiSelect ? 'multiSelect' : 'choice',
+      multiSelect: !!q.multiSelect,
+      question: q.question,
+      options: (q.options || []).map((o) => o.label),
+      header: q.header || null,
+      source: 'AskUserQuestion',
+    });
+    console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
+    return null;
+  }
+
+  if (decisionGate?.phase === 'deciding') {
+    const reason = '当前决策闭合前禁止再次发起用户提问：请按决策模式产出 <AWF_DECISION_RESULT> 收尾本回合。';
+    console.log('[hook] AskUserQuestion denied (deciding): 决策闭合前禁再问');
+    return { ccOutput: { hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: reason, updatedInput: { questions: [] } } } };
+  }
+
+  const reason = '提问工具已被拦截：禁止再向用户提问，也不要继续输出。请把需要决策的问题以 <AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED> 包裹放在本回合最后一行，然后结束本回合。';
+  console.log('[hook] AskUserQuestion denied (gate on): 改以决策标签收尾');
+  return { ccOutput: { hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: reason, updatedInput: { questions: [] } } } };
+}
+
+/** Stop 统一闸门；返回可选 { ccOutput }（② 触发时 block 当前会话让其产出结果） */
+function handleStop(body) {
+  const text = typeof body?.last_assistant_message === 'string' ? body.last_assistant_message : '';
+  const gateEnabled = isDecisionEnabled(PROJECT_ROOT);
+  const deciding = decisionGate?.phase === 'deciding';
+
+  if (!gateEnabled) {
+    // gate 关 → 现状：清 decisionPending + ready + transcript 采集
+    clearDecision();
+    decisionGate = null;
+    decisionResume = null;
+    setReady();
+    logger.captureFromTranscript();
+    return null;
+  }
+
+  if (!deciding) {
+    if (endsWithDecisionRequired(text) && body?.stop_hook_active !== true) {
+      // ② 触发
+      const startedAt = new Date().toISOString();
+      decisionGate = { phase: 'deciding', startedAt };
+      decisionResume = null;
+      logger.logDecision({ at: startedAt, decisionId: null, event: 'decision_started', detail: '决策入口（<AWF_DECISION_REQUIRED>）' });
+      let instruction;
+      try {
+        instruction = decisionInstruction.readDecisionInstruction();
+      } catch (e) {
+        instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
+      }
+      return { ccOutput: { decision: 'block', continuePrompt: instruction } };
+    }
+    // ① 普通完成（不触发）
+    clearDecision();
+    decisionGate = null;
+    decisionResume = null;
+    setReady();
+    logger.captureFromTranscript();
+    return null;
+  }
+
+  // ③ deciding 中收尾：有效结果捕获，否则 deferred fallback；随后 ready
+  const parsed = parseDecisionResult(text);
+  if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
+  persistDecision(parsed.valid ? parsed.result : deferredFallbackResult(), 'text');
+  decisionGate = null;
+  clearDecision();
+  setReady();
+  logger.captureFromTranscript();
+  return null;
+}
+
 function setReady() {
   state = 'ready';
   const pending = waiters;
@@ -372,6 +571,16 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.method === 'GET' && pathname === '/decisions.html') {
+    try {
+      const html = fs.readFileSync(htmlDir() + '/decisions.html');
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    } catch {
+      return send(res, 500, { ok: false, error: 'decisions.html not found' });
+    }
+  }
+
   if (req.method === 'GET' && pathname === '/ui') {
     try {
       const html = fs.readFileSync(htmlDir() + '/ui.html');
@@ -386,6 +595,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && pathname === '/hook') {
     const body = (await readJson(req)) || {};
     const event = body.event || url.searchParams.get('event');
+    let hookCcOutput = null; // server 需回传的 hook 输出（decision gate block/deny），gateway 透传到 stdout
 
     if (event === 'SessionStart') {
       if (diagnosisInFlight && body.session_id && body.session_id !== mainSessionId) {
@@ -413,9 +623,8 @@ const server = http.createServer(async (req, res) => {
       if (isMainSession(body)) setBusy();
     } else if (event === 'Stop') {
       if (isMainSession(body)) {
-        clearDecision();
-        setReady();
-        logger.captureFromTranscript();
+        const out = handleStop(body);
+        if (out) hookCcOutput = out.ccOutput;
       }
     } else if (event === 'SubagentStart') {
       logSubagentEvent(event, body);
@@ -498,21 +707,10 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // PreToolUse: 检测 AskUserQuestion，在执行前设置 decisionPending（不拦截）
+    // PreToolUse(AskUserQuestion)：gate 关=捕获现状（不拦截）；gate 开=deny（redirect 到决策标签 / deciding 内拒绝）
     if (event === 'PreToolUse' && body.tool_name === 'AskUserQuestion') {
-      const questions = body.tool_input?.questions;
-      if (questions && questions.length > 0) {
-        const q = questions[0];
-        setDecision({
-          type: q.multiSelect ? 'multiSelect' : 'choice',
-          multiSelect: !!q.multiSelect,
-          question: q.question,
-          options: (q.options || []).map(o => o.label),
-          header: q.header || null,
-          source: 'AskUserQuestion',
-        });
-        console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
-      }
+      const out = handleAskUserQuestion(body);
+      if (out) hookCcOutput = out.ccOutput;
     }
 
     // PostToolUse: 兜底（如果没拦截成功，原生 UI 回答后更新结果）
@@ -536,7 +734,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     console.log(`[hook] ${event} -> ${state}`);
-    return send(res, 200, { ok: true, event: event || null, state });
+    const hookResp = { ok: true, event: event || null, state };
+    if (hookCcOutput) hookResp.ccOutput = hookCcOutput;
+    return send(res, 200, hookResp);
   }
 
   // ---- state.json ----
@@ -565,10 +765,47 @@ const server = http.createServer(async (req, res) => {
     return send(res, result.ok ? 202 : 409, result);
   }
 
+  // ---- Review 数据：决策聚合列表（各 run 倒序）----
+  if (req.method === 'GET' && pathname === '/awf/decisions') {
+    const store = new DecisionStore(PROJECT_ROOT);
+    const decisions = store.listAll(); // 已按 runStamp 倒序扁平聚合
+    return send(res, 200, { ok: true, total: decisions.length, decisions });
+  }
+
+  // ---- Review override：追加 decision_overridden 事件（不改写原记录）----
+  if (req.method === 'POST' && pathname.startsWith('/awf/decisions/') && pathname.endsWith('/override')) {
+    const decisionId = decodeURIComponent(pathname.slice('/awf/decisions/'.length, -'/override'.length));
+    const body = (await readJson(req)) || {};
+    const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : '';
+    if (!instruction) return send(res, 400, { ok: false, error: 'override 需要非空 instruction' });
+    try {
+      const r = new DecisionStore(PROJECT_ROOT).override(decisionId, {
+        instruction,
+        original_answer: typeof body.original_answer === 'string' ? body.original_answer : null,
+      });
+      logger.logDecision({
+        at: new Date().toISOString(),
+        decisionId,
+        event: 'decision_overridden',
+        detail: `instruction=${instruction.slice(0, 40)}`,
+      });
+      const task = appendDecisionReviewTask({
+        decision_id: decisionId,
+        instruction,
+        original_answer: typeof body.original_answer === 'string' ? body.original_answer : null,
+      });
+      if (!task.ok) return send(res, 500, { ok: false, error: `override 已记录但纠偏任务追加失败：${task.error}`, decision_id: decisionId });
+      return send(res, 200, { ok: true, decision_id: decisionId, runStamp: r.runStamp, reviewTaskId: task.taskId });
+    } catch (e) {
+      return send(res, 404, { ok: false, error: e.message });
+    }
+  }
+
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
     const out = {
       ok: true, state, session: tmuxlib.hasSession(), projectRoot: PROJECT_ROOT, decisionPending, contextReady,
+      decisionGate, decisionResume,
       mainSessionId,
       activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
     };
@@ -757,6 +994,7 @@ function stop() {
 function _getState() {
   return {
     state, decisionPending, waiters: [...waiters], contextReady,
+    decisionGate, decisionResume,
     mainSessionId,
     activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
   };
@@ -769,6 +1007,9 @@ function _resetForTest() {
   }
   state = 'ready';
   decisionPending = null;
+  decisionGate = null;
+  decisionResume = null;
+  decisionSeq = 0;
   waiters = [];
   contextReady = false;
   mainSessionId = null;

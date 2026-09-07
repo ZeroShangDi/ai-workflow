@@ -1,8 +1,9 @@
 {
   "port": 8787,
+  "engineDir": "core",
   "marketplace": {
     "name": "ai-workflow-dev",
-    "description": "ai-workflow 双插件市场 — core 引擎层 + plugin-code 编程层",
+    "description": "ai-workflow 三插件市场 — core 引擎层 + decision 决策层 + plugin-code 编程层",
     "owner": {
       "name": "v-shangjunhao"
     },
@@ -28,6 +29,18 @@
           "w-plan",
           "w-dev",
           "w-review",
+          "autonomous"
+        ]
+      },
+      {
+        "dir": "decision",
+        "name": "ai-workflow-decision",
+        "description": "AI Workflow 决策插件 — 决策闸门：decision-core/decision-workflow 技能 + Decision Result 协议与决策模式指令",
+        "version": "0.1.0",
+        "keywords": [
+          "workflow",
+          "decision",
+          "decision-core",
           "autonomous"
         ]
       }
@@ -73,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=Stop\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
           }
         ]
       }
@@ -104,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=PreToolUse\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
           }
         ]
       }

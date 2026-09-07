@@ -264,7 +264,29 @@ async function runLoop(projectRoot) {
 }
 
 /**
- * 发送 prompt 到 Session Server → 等待就绪 → 收尾协商
+ * gate on 决策捕获后的续跑：当前会话已产出 Decision Result（decisionResume 置位）后会话收尾成 ready，
+ * 原任务并未完成。这里读取一次性 decisionResume → 注入续跑消息（answer + 继续原任务）→ 再次等待，
+ * 直到会话正常 ready 且无待续跑决策（可能一次任务多次决策）。gate off 时 decisionResume 恒 null，零影响。
+ */
+export async function drainDecisionResume(projectRoot) {
+  for (let i = 0; i < 10; i++) {
+    const status = await getStatus();
+    const resume = status?.decisionResume;
+    if (!resume || !resume.decision_id) return;
+    const note = resume.fallback ? '（兜底：无法可靠决策，按延后处理继续）' : '';
+    logStep('decision', 'info', `决策 ${resume.decision_id} → 续跑: ${String(resume.answer).slice(0, 60)}`);
+    const text = `已收到 AWF 决策结果：${resume.answer}${note}\n请据此继续执行当前任务，完成后结束本回合；如再遇需要决策之处，按既定标记处理。`;
+    const sendResp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
+    if (!sendResp?.ok) {
+      logStep('', 'error', `决策续跑注入失败: ${sendResp?.error || 'unknown'}`);
+      return;
+    }
+    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
+  }
+}
+
+/**
+ * 发送 prompt 到 Session Server → 等待就绪 → 决策续跑 → 收尾协商
  * @returns {'done' | 'timeout' | 'blocked' | 'stuck'}
  */
 async function executeTask(prompt, taskId, projectRoot) {
@@ -274,6 +296,8 @@ async function executeTask(prompt, taskId, projectRoot) {
   const spin = createSpinner('executing...');
   try {
     await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
+    // gate on 自动决策捕获后：若会话以 decisionResume 收尾，注入续跑消息让原任务继续
+    await drainDecisionResume(projectRoot);
     spin.stop();
     // 任务执行期间可能被 w-monitor 暂停；暂停时不得进入收尾追问或推进下一任务。
     await waitWhilePaused(projectRoot);

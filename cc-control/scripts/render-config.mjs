@@ -2,14 +2,15 @@
 /**
  * render-config.mjs — 从 plugin/config.json 渲染插件注册文件
  *
- * 唯一配置源：plugin/config.json（port / marketplace / mcpServers / hooks）
+ * 唯一配置源：plugin/config.json（port / engineDir / marketplace / mcpServers / hooks）
  *
  * 模式 1（无参数，npm run build 时调用）— 重生成提交在库里的文件：
- *   - plugin/.claude-plugin/marketplace.json  双插件入口（core + plugin-code）
- *   - plugin/core/.mcp.json                   MCP 声明（相对路径，修掉硬编码绝对路径 bug）
- *   - plugin/core/hooks/hooks.json            插件 hooks（__PORT__ → 字面量端口）
- *   - plugin/core/plugin.json                 引擎层插件声明（含 hooks 字段）
- *   - plugin/plugin-code/plugin.json          领域层插件声明（无 hooks 字段）
+ *   - plugin/.claude-plugin/marketplace.json      市场声明（依 marketplace.plugins 遍历 → source ./<dir>/）
+ *   - plugin/<dir>/plugin.json                    各插件声明（依 marketplace.plugins 遍历；引擎插件含 hooks 字段）
+ *   - plugin/<engineDir>/.mcp.json                MCP 声明（相对路径，修掉硬编码绝对路径 bug）
+ *   - plugin/<engineDir>/hooks/hooks.json         引擎 hooks（__PORT__ → 字面量端口，单源不进非引擎插件）
+ *   说明：plugins 的 plugin.json 完全由 marketplace.plugins 条目驱动，新增插件只需在 config 加条目；
+ *        mcpServers/hooks 为引擎运行时单源资产，只渲染进引擎插件目录（config.engineDir，缺省 core）。
  *
  * 模式 2（--workdir <dir> [--port <port>]）— 独立沙箱渲染（手动调用，不再被 bootstrap.sh 触发）：
  *   - <workdir>/.claude/settings.json         hooks（当前端口）
@@ -20,15 +21,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readPluginConfig, renderMcpServers } from '../src/lib/plugin-config.js';
+import { readPluginConfig, renderMcpServers, renderPluginJson, renderMarketplace } from '../src/lib/plugin-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const pluginRoot = path.join(repoRoot, 'plugin');
-const coreDir = path.join(pluginRoot, 'core');
-
-const AUTHOR = { name: 'v-shangjunhao' };
-const LICENSE = 'MIT';
 
 /** 渲染 hooks 段（含 hooks 顶层包装），__PORT__ → 端口字面量 */
 function renderHooksObject(hooks, port) {
@@ -38,31 +35,6 @@ function renderHooksObject(hooks, port) {
 
 function renderHooksFile(hooks, port) {
   return JSON.stringify({ hooks: renderHooksObject(hooks, port) }, null, 2) + '\n';
-}
-
-/** 生成 plugin/<dir>/plugin.json（core 带 hooks 字段，plugin-code 不带） */
-function renderPluginJson(entry, { withHooks = false } = {}) {
-  const obj = {
-    name: entry.name,
-    description: entry.description,
-    version: entry.version,
-    author: AUTHOR,
-    license: LICENSE,
-    keywords: entry.keywords || [],
-  };
-  if (withHooks) obj.hooks = './hooks/hooks.json';
-  return JSON.stringify(obj, null, 2) + '\n';
-}
-
-/** 生成 marketplace.json（source 取 ./<dir>/） */
-function renderMarketplace(marketplace) {
-  const plugins = marketplace.plugins.map((p) => ({
-    name: p.name,
-    description: p.description,
-    version: p.version,
-    source: `./${p.dir}/`,
-  }));
-  return JSON.stringify({ name: marketplace.name, description: marketplace.description, owner: marketplace.owner, plugins }, null, 2) + '\n';
 }
 
 function write(pathname, content) {
@@ -80,7 +52,8 @@ function main() {
 
   const config = readPluginConfig(repoRoot);
   const port = Number.isFinite(portArg) ? portArg : config.port;
-  const { marketplace, mcpServers, hooks } = config;
+  const { marketplace, mcpServers, hooks, engineDir } = config;
+  const enginePluginDir = path.join(pluginRoot, engineDir || 'core');
 
   if (workdir) {
     // 模式 2：沙箱文件（手动渲染）— projectDir 用字面 workdir（独立沙箱，server 在 repoRoot 内 → 绝对路径），端口用 --port
@@ -95,10 +68,15 @@ function main() {
   // 模式 1：重生成提交文件 — args 用 ${CLAUDE_PLUGIN_ROOT}（Claude Code 注入插件根）
   console.log('render-config: 生成插件注册文件');
   write(path.join(pluginRoot, '.claude-plugin', 'marketplace.json'), renderMarketplace(marketplace));
-  write(path.join(coreDir, '.mcp.json'), JSON.stringify({ mcpServers: renderMcpServers(mcpServers, { repoRoot, port }) }, null, 2) + '\n');
-  write(path.join(coreDir, 'hooks', 'hooks.json'), renderHooksFile(hooks, port));
-  write(path.join(coreDir, 'plugin.json'), renderPluginJson(marketplace.plugins.find((p) => p.dir === 'core'), { withHooks: true }));
-  write(path.join(pluginRoot, 'plugin-code', 'plugin.json'), renderPluginJson(marketplace.plugins.find((p) => p.dir === 'plugin-code')));
+
+  // 各插件 plugin.json 依 marketplace.plugins 条目生成（接受任意 dir）；引擎插件带 hooks 字段
+  for (const plugin of marketplace.plugins) {
+    write(path.join(pluginRoot, plugin.dir, 'plugin.json'), renderPluginJson(plugin, { withHooks: plugin.dir === (engineDir || 'core') }));
+  }
+
+  // 引擎运行时单源产物：mcpServers + hooks 只渲染进引擎插件（config.engineDir），不按插件拆分
+  write(path.join(enginePluginDir, '.mcp.json'), JSON.stringify({ mcpServers: renderMcpServers(mcpServers, { repoRoot, port }) }, null, 2) + '\n');
+  write(path.join(enginePluginDir, 'hooks', 'hooks.json'), renderHooksFile(hooks, port));
 }
 
 main();
