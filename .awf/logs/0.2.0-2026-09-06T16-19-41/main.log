@@ -1,0 +1,733 @@
+=== AWF Run Log ===
+version: 0.2.0
+started: 2026-09-06T16:19:41.314Z
+project: /Users/shangjunhao/Project/ai-workflow/ai-workflow
+
+────────────────────────────────────────────────────────────
+[16:19:44] 提示词
+/ai-workflow-code:w-dev T1-001
+
+渲染器改为按 config.json marketplace.plugins 遍历生成各插件 plugin.json 与 marketplace 产物，去掉对 core/plugin-code 的写死；hooks 保持单源渲染进 core。
+
+[16:25:53] 回答
+Architecture decision made. Let me capture the baseline artifacts before modifying, then verify against diff after.
+[16:25:53] 回答
+All analysis complete. Architecture record: change axis = "adding a plugin", authority = `marketplace.plugins` registry; renderer was hardcoding the plugin selection (`.find(dir==='core')`) instead of converging on the registry → `refactor-then-change`, behavior-preserving for the current two plugins, data-driven for arbitrary dirs.
+
+Let me implement. First, `plugin-config.js` — add the pure render helpers + engine-dir resolution, removing the `core` literal:
+[16:25:53] 回答
+Now rewrite `render-config.mjs` — iterate `marketplace.plugins`, no plugin-name literals in plugin.json/marketplace logic:
+[16:25:53] 回答
+Now add `engineDir` to the single config source:
+[16:25:53] 回答
+Now run the build and diff the generated artifacts against the baseline:
+[16:25:53] 回答
+All 5 registered files byte-identical to baseline. Now run the related test suites and lint:
+[16:25:53] 回答
+Let me confirm these e2e failures are pre-existing (environmental), not caused by my change, by testing against the baseline:
+[16:25:53] 回答
+Confirmed — both e2e failures are pre-existing (environmental, need real `awf run`), identical on baseline. Now lint:
+[16:25:53] 回答
+Let me verify the generalization directly through the pure helpers (arbitrary third dir behaves correctly, engine dir keeps hooks):
+[16:25:53] 回答
+Both generalized and diff-locked. Let me do a final review of the complete changed files and check for any lingering dir literals:
+[16:25:53] 回答
+Refactor is clean — only a defensive `'core'` default remains (back-compat for configs without `engineDir`), no plugin-selection hardcode. Let me keep the in-package docs accurate with minimal edits (config schema gained `engineDir`, renderer is now registry-driven):
+[16:25:53] 回答
+Final review of the code diff:
+[16:25:53] 回答
+Diff is minimal and the code is verified. Acceptance check complete:
+
+1. **plugin.json 生成逻辑接受任意 dir** — proven: pure helpers generate engine plugin.json (with `hooks` field) and any generic dir plugin.json (no hooks); marketplace entries derive from `./<dir>/`.
+2. **npm run build 后 5 个注册文件正确** — build regenerated all 5 (marketplace.json, core/.mcp.json, core/hooks/hooks.json, core/plugin.json, plugin-code/plugin.json) cleanly.
+3. **core/plugin-code 产物与现状一致（diff）** — byte-identical (`diff` = 0) against committed baseline.
+
+Constraint honored: hooks stay single-source — only the engine plugin (`engineDir`=core) receives `hooks.json`/`.mcp.json`/`hooks` field; per-plugin loop never duplicates hooks. Full suite green except 2 pre-existing environmental e2e failures (confirmed identical on baseline).
+
+Recording the task:
+────────────────────────────────────────────────────────────
+[16:25:53] 提示词
+/ai-workflow-code:w-dev T1-004
+
+在 decision 插件的 skills 目录落地 decision-core 技能（沿用原型内容，frontmatter 修正为可被插件命名空间识别、无坏引用）。
+
+[16:27:21] 回答
+T1-001 完成。已通过 `awf_task_complete` 原子落账（done）。
+
+## 完成摘要
+
+**改动**（4 文件，+79/−51）：
+
+| 文件 | 变更 |
+|------|------|
+| `scripts/render-config.mjs` | 去掉 `find(dir==='core'/'plugin-code')` 写死 → `for (plugin of marketplace.plugins)` 为各插件生成 `plugin/<dir>/plugin.json`；marketplace 同遍历生成；mcp/hooks 依 `engineDir` 单源渲染进引擎插件 |
+| `src/lib/plugin-config.js` | 新增并导出 `renderPluginJson` / `renderMarketplace`（纯函数，可单测）、`enginePluginRoot`；`renderMcpServers` 的 mcp 根改由 engineDir 解析，去掉 `plugin/core` 字面量 |
+| `plugin/config.json` | 新增 `"engineDir": "core"`（引擎运行时目录唯一声明点） |
+| `CLAUDE.md` | 配置源/渲染器描述同步 |
+
+**架构结论**：`refactor-then-change` — 渲染器收敛到 `marketplace.plugins` 注册表（变化轴 = 新增插件），hooks/mcp 为引擎运行时单源（防多插件重复 hook）。`engineDir` 缺省 `core` 兼容旧配置。
+
+**验收核验**：
+- ✅ plugin.json 接受任意 dir — 纯函数自测：任意第 3 dir（decision）生成无 hooks 的 plugin.json + marketplace `./decision/` 条目；引擎插件带 hooks 字段
+- ✅ `npm run build` 后 5 个注册文件正确
+- ✅ core/plugin-code 产物与基线 **diff=0**（字节级一致）
+- 约束满足：hooks 只单源进 core（`engineDir`）
+- 相关单测 20 个全绿（plugin-config / render-config / hooks）；lint 通过；全量仅 2 个环境性 e2e 失败，已在 baseline 复现确认与本次无关
+
+未提交 git——由编排 commit 阶段处理（未收到提交指令）。
+[16:27:21] 回答
+Body is fully self-contained (no paths). Creating the decision-core skill in the decision plugin layout with proper plugin-namespace frontmatter:
+[16:27:21] 回答
+I normalized curly quotes to ASCII in the body — that deviates from the prototype content. Let me regenerate it byte-faithful to the prototype (only frontmatter prepended) to satisfy "沿用原型内容":
+[16:27:21] 回答
+The regeneration succeeded (curly quotes restored). The earlier `False` was just my splitter counting the separator blank line — let me confirm the body is byte-identical to the prototype:
+[16:27:21] 回答
+Body is byte-identical to the prototype; frontmatter is correct. Acceptance check:
+- ✅ `plugin/decision/skills/decision-core/SKILL.md` exists
+- ✅ frontmatter `name: decision-core` + description 含触发条件/引用方
+- ✅ body retains 12 公理, no bad relative references (byte-identical to prototype; no `.awf/skills`/`awf-decision-system`)
+
+Recording the task:
+[16:27:22] 回答
+T1-004 完成，已 `awf_task_complete` 落账（done）。
+
+**产出**：`cc-control/plugin/decision/skills/decision-core/SKILL.md`
+
+- **frontmatter**：`name: decision-core` + description 含触发条件/引用方（decision-workflow、decision 闸门）
+- **正文**：从原型 `plugin/awf-decision-system/.awf/skills/decision-core/SKILL.md` 原样搬运，已验证 **byte 级一致**（含全角引号、12 公理齐全），无任何 `.awf/skills`/`awf-decision-system`/相对文件路径引用
+- 只按 plannedFiles 落地技能文件，未夹带目录 README（不在本任务 acceptance 内，避免与后续文档任务文件冲突）
+- 技能可识别性（`ai-workflow-decision:decision-core`）依赖 T1-003 插件注册，属编排顺序问题，非本任务范围
+────────────────────────────────────────────────────────────
+[16:27:22] 提示词
+/ai-workflow-code:w-dev T1-002
+
+为泛化后的渲染器补单测：既有双插件输出回归不变、新增插件正确生成。
+
+[16:28:28] 回答
+All 6 new tests pass; full suite only shows the 2 pre-existing environmental e2e failures (407→413 total, same 2 failed files). Acceptance check complete:
+
+- ✅ **core/plugin-code 渲染结果与现状基线一致** — rendered `renderPluginJson`/`renderMarketplace` output byte-compared to the committed artifacts; hooks single-source constraint locked (only engine plugin.json carries `hooks`)
+- ✅ **新增任意第 3 dir 正确生成** — fixture `demo-plugin` (any dir) produces correct no-hooks plugin.json and a 3rd marketplace entry with `source: ./demo-plugin/`; existing entries unchanged
+
+Recording the task:
+[16:28:29] 回答
+T1-002 完成，已 `awf_task_complete` 落账（done）。
+
+**产出**：`tests/unit/render-config.test.js` — 6 用例，全部通过
+
+| 组 | 覆盖 |
+|---|---|
+| **回归（基线一致）** | ① 逐插件 `renderPluginJson(withHooks=dir===engineDir)` = 提交的 `plugin/<dir>/plugin.json`（byte 级）② `renderMarketplace` = 提交的 marketplace.json ③ hooks 单源：仅引擎插件 plugin.json 含 `hooks` 字段 |
+| **泛化（任意第 3 dir）** | ④ `renderPluginJson` 接受任意 dir（demo-plugin），字段正确、无 hooks ⑤ 模拟 render 循环：仅引擎条目带 hooks ⑥ marketplace 追加第 3 插件 → 3 条目、`source: ./<dir>/`、既有条目与外层字段不变 |
+
+- 基线以「提交产物」为源（测试与 render 共用同一实现），兼作 config/产物漂移守卫
+- `engineDir` 归属用数据驱动断言，测试不写死 `core`
+- 全量 npm test：仅 2 个 pre-existing e2e 环境性失败（407→413，无新增失败）
+────────────────────────────────────────────────────────────
+[16:28:29] 提示词
+/ai-workflow-code:w-dev T1-003
+
+把 ai-workflow-decision 注册进配置与安装清单，重跑渲染并让产物入库。
+
+[16:31:27] 回答
+No explicit version/description defined for the decision plugin in the plan — I'll set sensible defaults. First check the repo state (whether prior tasks' work is already committed):
+[16:31:27] 回答
+Repo root is the parent `ai-workflow`; cwd is `cc-control`. Prior tasks' changes are all still uncommitted in the tree (no commit stage has run). Since T1-003's acceptance explicitly requires the artifacts 入库 and the T1-002 baseline test keys off committed artifacts, I'll land config/settings edits, re-render, and commit this module-A packaging set atomically so the repo stays reproducible and tests green.
+[16:31:27] 回答
+The Group B extension test hardcoded "3 条目" against the then-2-plugin live config; now the live config legitimately has 3 plugins. Updating it to be dynamic (append any extra dir to the current set):
+[16:31:27] 回答
+All green except the 2 pre-existing environmental e2e failures. Now committing the module-A packaging set (renderer generalization + decision registration + assets + tests) so artifacts are 入库 and the repo stays reproducible:
+[16:31:27] 回答
+Committed `22f9ee5`. Recording the task (commit hash included):
+[16:31:27] 回答
+T1-003 完成，已 `awf_task_complete` 落账（done），提交 `22f9ee5`。
+
+**注册 + 渲染 + 入库**：
+
+| 文件 | 变更 |
+|------|------|
+| `plugin/config.json` | `marketplace.plugins` 追加 decision 插件（`{dir:decision, name:ai-workflow-decision, version:0.1.0, description, keywords}`）；marketplace.description → 三插件 |
+| `plugin/settings.json` | `plugins[]` / `enabledPlugins` 追加 `ai-workflow-decision@ai-workflow-dev` |
+| `plugin/.claude-plugin/marketplace.json` | 重新渲染 → **3 条目**（decision `source: ./decision/`） |
+| `plugin/decision/plugin.json` | 渲染生成（无 hooks 字段，非引擎插件正确） |
+
+**核验**：`npm run build` 通过；render 相关单测 17 全绿；npm test 仅 pre-existing 2 个环境性 e2e 失败。同步把 `tests/unit/render-config.test.js` 中写死「3 条目」的追加用例改为动态（base+1），随 config 演进不失效。
+
+**入库说明**：T1-001 泛化 + T1-002 单测 + T1-004 skill + 本任务注册在 HEAD 前均未提交且相互依赖，故原子提交为一个模块 A packaging commit `22f9ee5`（9 files，+652/−55），保证 config/renderer/产物/测试可复现一致。
+
+注：decision `version:0.1.0` 与 description 为自定默认（计划未给权威值），T1-008 文档三插件化时可校核措辞。
+────────────────────────────────────────────────────────────
+[16:31:27] 提示词
+/ai-workflow-code:w-dev T1-005
+
+把 decision-workflow 技能及协议/schema 资产迁入 decision 插件目录，并注明单 agent 下 server 扮演 DW、该技能供复杂场景复用的定位。
+
+[16:32:18] 回答
+All three prototype assets are self-contained (no old-path references). Migrating them into the decision plugin; PROTOCOL/schema byte-identical, decision-workflow gains plugin frontmatter + the required positioning note:
+[16:32:18] 回答
+Clean. Validate the schema JSON is well-formed, then commit the asset migration:
+[16:32:18] 回答
+Recording the task with the commit:
+[16:32:20] 回答
+T1-005 完成，已 `awf_task_complete` 落账（done），提交 `34d297c`。
+
+**产出**（3 文件，+682）：
+
+| 文件 | 说明 |
+|------|------|
+| `plugin/decision/skills/decision-workflow/SKILL.md` | frontmatter（`name: decision-workflow` + description 触发/引用方）+ **定位注**（单 agent 下 Session Server 扮演 DW，本技能供复杂/未来场景与人工介入复用；DW→DC 单向）；正文自 `## 1 角色` 起与原型一致 |
+| `plugin/decision/decision/PROTOCOL.md` | 原样落位（byte 一致） |
+| `plugin/decision/decision/schemas/decision-result.schema.json` | 原样落位（byte 一致，JSON 合法） |
+
+三资产均无 `.awf/skills` / `awf-decision-system` 坏引用。已提交，与 T1-003 注册的 decision 插件资产布局一致。
+────────────────────────────────────────────────────────────
+[16:32:20] 提示词
+/ai-workflow-code:w-dev T1-006
+
+写决策模式短指令：内联硬约束（禁再问人、以结果标记包裹 JSON 作为本回合最后输出、answer 非空、闭合前禁再问），注明决策方法可参考 decision-core。
+
+[16:32:57] 回答
+Recording the task:
+[16:32:58] 回答
+T1-006 完成，已 `awf_task_complete` 落账（done），提交 `d221e59`。
+
+**产出**：`plugin/decision/decision/mode-instruction.md`（15 行）— 决策模式短指令，内联硬约束：
+
+1. **禁再向用户提问**（含用户提问类工具）
+2. **最后只输出** `<AWF_DECISION_RESULT>` 包裹的 JSON，其后无输出
+3. **answer 非空**，直接指导下一步行动
+4. **必需字段齐全**：`answer/type/finality/real_question/decisive_factors/reconsider_when`，`type` 限枚举
+5. **闭合前禁再问**
+
+方法注记指向 `decision-core`（`ai-workflow-decision:decision-core`）。稳定、短、不对齐具体决策内容，对齐集成文档 §8；文件落位于稳定路径供 W1-017（后续任务）server 读取测试引用。
+────────────────────────────────────────────────────────────
+[16:32:58] 提示词
+/ai-workflow-code:w-dev T1-007
+
+归档决策集成方案到 docs/discuss，删除旧原型目录并清理残留引用。
+
+[16:35:46] 回答
+No residual references to the prototype outside `state.json` history. Now archive the integration doc with a banner + real link target. Let me check the doc's head:
+[16:35:46] 回答
+Now remove the prototype directory and verify no residual run references remain:
+[16:35:46] 回答
+Prototype deleted; the only remaining `awf-decision-system` mention is the archive banner pointing to the archived location (acceptable per acceptance). Commit the archive + architecture note:
+[16:35:46] 回答
+Tracked tree clean. Recording the task:
+[16:35:48] 回答
+T1-007 完成，已 `awf_task_complete` 落账（done），提交 `ed212b2`。
+
+**产出**：
+
+| 变更 | 说明 |
+|------|------|
+| `docs/discuss/decision-system-design.md`（新） | 集成设计稿归档：前置 banner（注明原位置已删除、仅供追溯）+ 链接新架构笔记 |
+| `docs/discuss/architecture-notes.md`（改） | 新增「AWF 决策闸门 v0.2.0」架构笔记（三插件结构 / 单 agent 闸门 / server 演 DW + decision-core 演 DC / enabled 缺省关 / DW→DC 单向）— 让归档链接非死链 |
+| `plugin/awf-decision-system/` | 整目录删除（未入 git，删除后 git 无改动） |
+
+**残留引用核验**：全库 grep `awf-decision-system` 仅命中归档 banner（指向新归档的追溯提及），无残留运行引用；`AWF_DECISION_INTEGRATION` 自引用（原型 README）随目录删除一并消失。
+────────────────────────────────────────────────────────────
+[16:35:48] 提示词
+/ai-workflow-code:w-dev T1-008
+
+把仓库内插件目录表与技能清单同步为三插件表述（含 ai-workflow-decision 与两个决策技能）。
+
+[16:38:02] 回答
+plugin/README.md done. Now scan cc-control/CLAUDE.md for all spots needing three-plugin phrasing:
+[16:38:02] 回答
+Only remaining hit is the intentional accurate heading. Verify the plugin/README tree renders coherently:
+[16:38:02] 回答
+Tree is coherent. Commit the doc sync:
+[16:38:02] 回答
+Recording the task:
+[16:38:03] 回答
+T1-008 完成，已 `awf_task_complete` 落账（done），提交 `0d3a520`。
+
+**产出**（3 文件，+56/−17）：
+
+| 文件 | 更新 |
+|------|------|
+| `plugin/README.md` | 标题/插件表/目录树/配置源表/插件构成/安装清单 → 三插件；新增 decision 插件（技能 decision-core/decision-workflow + `decision/` 协议资产，无 mcp/hooks/命令） |
+| `cc-control/CLAUDE.md` | 插件树增 `decision/`；Slash commands 标注「decision 无命令」；Skills 增 decision 插件段（含两个决策技能 + 协议资产） |
+| `plugin/CHECKLIST.md` | 目录约定改三插件，增 `plugin/decision/skills/` 段与决策技能项 |
+
+**核验**：三文件均不再称「双插件」，grep 无残留；decision 定位准确（无命令/mcp/hooks，引擎运行时仍单源 core）。
+────────────────────────────────────────────────────────────
+[16:38:03] 提示词
+/ai-workflow-code:w-dev T1-009
+
+为 run-config 增加决策开关的加载与默认合并（缺省关）。
+
+[16:39:04] 回答
+Only `run.js` consumes it (uses `cfg.agents` — additive key is safe). Extending run-config with the decision switch:
+[16:39:04] 回答
+Now add the unit tests (a run-config test file doesn't exist yet):
+[16:39:04] 回答
+All green (only the 2 pre-existing environmental e2e failures). Commit the config loader change + tests:
+[16:39:04] 回答
+Recording the task:
+[16:39:06] 回答
+T1-009 完成，已 `awf_task_complete` 落账（done），提交 `9646987`。
+
+**产出**：
+- `src/lib/run-config.js` — `loadRunConfig` 现返回 `{ agents, decision: { enabled } }`；`normalizeDecision` 仅接受布尔、缺省/非法回落 `false`（不配置 = 关 = 旧行为），与 `agents` 配额并存互不影响
+- `tests/unit/run-config.test.js`（新）— 6 用例：config 缺失/无 `run.decision` 段 → false；显式 true → true；显式 false → false；字符串/数字非法值回落 false；非法 JSON 全默认
+
+**核验**：npm test 全量仅 2 个 pre-existing e2e 环境性失败，新增用例全绿；`node --check` 通过。约束「缺省必须 false」满足。
+
+> 注：server 侧同默认逻辑由后续 W1-010（T1-010）独立 helper 处理，避免跨进程 import 漂移。
+────────────────────────────────────────────────────────────
+[16:39:06] 提示词
+/ai-workflow-code:w-dev T1-010
+
+新增 server 侧可用的决策开关判定 helper（CJS），与 CLI 同默认、防漂移。
+
+[16:40:16] 回答
+13 tests pass. Verify the CJS/ESM interop under plain Node (not just vitest):
+[16:40:16] 回答
+All green (single pre-existing e2e failure). Commit:
+[16:40:16] 回答
+Recording the task:
+[16:40:18] 回答
+T1-010 完成，已 `awf_task_complete` 落账（done），提交 `7368d89`。
+
+**产出**：
+- `src/lib/decision-config.cjs`（新）— `isDecisionEnabled(projectRoot)` 读 `.awf/config.json` 的 `run.decision.enabled`：缺省 `false`、仅接受布尔、非法回落；另导出 `decisionEnabledFrom(raw)` 与 `DECISION_DEFAULT_ENABLED`
+- `src/lib/run-config.js` — decision 段改为**委托**该 helper（移除自带 default/normalize），实现 server 与 CLI **同一实现 + 同一默认**，ESM↔CJS 单源防漂移
+- `tests/unit/decision-config.test.js`（新）— 7 用例（缺省/true/false/非法值/非法 JSON + 与 `loadRunConfig` 判定一致）
+
+**核验**：decision-config 7 + run-config 6 用例全绿；Node ESM↔CJS 互操作实测通过；`node --check` 通过；npm test 仅 pre-existing e2e 失败。server.cjs 接线留待模块 C（W1-014）。
+────────────────────────────────────────────────────────────
+[16:40:18] 提示词
+/ai-workflow-code:w-dev T1-011
+
+在 init 模板中补充决策开关配置项与说明注释。
+
+[16:41:39] 回答
+init.md is the canonical `.awf/config.json` doc. Adding `run.decision` to the template (valid JSON, no inline comments possible) and documenting semantics in the config docs:
+[16:41:39] 回答
+Template + loader verified; 25 related tests green. Commit:
+[16:41:39] 回答
+Recording the task:
+[16:41:39] 回答
+T1-011 完成，已 `awf_task_complete` 落账（done），提交 `550ab79`。
+
+**产出**：
+- `src/templates/awf-config.json` — run 段下新增 `decision: { enabled: false }`（模板保持合法 JSON；「缺省走旧上抛逻辑」的语义说明落在 init.md 字段表/语义块 + run-config/decision-config 代码注释，因 JSON 无法内联注释）
+- `docs/features/init.md` — awf-config 段补 `run.decision.enabled` 字段表行 + 语义块（缺省/非法回落 false、显式 true 启用、加载单源 decision-config.cjs）
+- `cc-control/CLAUDE.md` — 模板/`.awf/config.json` 两行同步
+
+**核验**：模板 JSON 可解析，经 `loadRunConfig` 实测 `decision=false`/`agents.max=1`；init/run-config/decision-config 共 25 用例全绿。
+────────────────────────────────────────────────────────────
+[16:41:39] 提示词
+/ai-workflow-code:w-dev T1-012
+
+实现 hook gateway（转发 hook payload、按 server 响应的 ccOutput 决定 stdout 输出），让 Stop 与 AskUserQuestion 的 PreToolUse 改走它，重渲染并同步 hooks 相关测试断言。
+
+[16:47:26] 回答
+The gateway wraps server responses into Claude Code hook output. Let me confirm how plugin hook commands locate files (CLAUDE_PLUGIN_ROOT availability) before wiring config:
+[16:47:26] 回答
+Confirmed `CLAUDE_PLUGIN_ROOT` is set for plugin hooks. But I must verify how awf actually loads hooks (plugin vs project settings). Let me inspect `writeRunSettings`:
+[16:47:26] 回答
+Hooks load through the plugin itself, so `CLAUDE_PLUGIN_ROOT` will be set. Now implementing the gateway:
+[16:47:26] 回答
+Now rewire Stop & PreToolUse in `config.json` to use the gateway (other events keep curl):
+[16:47:26] 回答
+hooks.json wired correctly (Stop + PreToolUse → gateway; others curl). Now read the hooks test to update assertions:
+[16:47:26] 回答
+The test asserts all hooks are curl; now Stop/PreToolUse are gateway. Updating hooks.test.js to reflect the two hook kinds:
+[16:47:26] 回答
+hooks.test green. Quick end-to-end smoke of the gateway against a stub server (ccOutput passthrough / no-output), before lint+build+commit:
+[16:47:26] 回答
+The gateway printed nothing for the ccOutput case — let me debug with an instrumented copy:
+[16:47:26] 回答
+spawnSync blocked the stub server's event loop — harness flaw, not gateway. Re-testing with an external background server:
+[16:47:26] 回答
+Background job handling was flaky. Cleaner: an async node harness that doesn't block the server's event loop:
+[16:47:26] 回答
+Gateway verified: prints `ccOutput` verbatim (Stop case), empty for non-ccOutput responses and unreachable server, always exit 0. Clean up and run the full checks:
+[16:47:26] 回答
+Only intended files changed. Before committing, let me keep the hooks feature doc honest about the gateway split (otherwise it misstates Stop/PreToolUse as plain curl):
+[16:47:26] 回答
+Recording the task:
+────────────────────────────────────────────────────────────
+[16:47:26] 提示词
+/ai-workflow-code:w-dev T1-015
+
+新增从最后一条消息解析决策结果并做轻量必填校验的模块。
+
+[16:48:27] 回答
+T1-012 完成，已 `awf_task_complete` 落账（done），提交 `39921f1`。
+
+**产出**：
+- `plugin/core/hooks/gateway.cjs`（新）— 读 stdin hook payload → POST `server /hook?event=<hook_event_name>`；响应含顶层 `ccOutput` → 原样 JSON 到 stdout；否则无输出；异常静默 `exit 0`
+- `plugin/config.json` + `plugin/core/hooks/hooks.json`（render 入库）— **Stop** 与 **PreToolUse(AskUserQuestion)** 改走 `node "${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs" <port>`；其余 5 事件保持裸 curl
+- `tests/unit/hooks.test.js` — 按 gateway / curl 双形态拆分断言，9 用例通过
+- `docs/features/hooks.md` — 补转发方式注与表格
+
+**验证**：异步 stub server 冒烟 — Stop 含 `ccOutput` → stdout 原样 JSON；无 ccOutput / server 不可达 → 空输出 exit 0。端口经 `__PORT__` 渲染为字面量，普通事件 server 不回 `ccOutput` ⇒ gate off 行为与旧裸 curl 零差异。npm test 仅 pre-existing e2e 失败。
+[16:48:27] 回答
+Recording the task:
+[16:48:27] 回答
+T1-015 完成，已 `awf_task_complete` 落账（done），提交 `6777a58`。
+
+**产出**：
+- `src/server/decision.cjs`（新）— `parseDecisionResult(lastMessage)` 正则抓 `<AWF_DECISION_RESULT>…</AWF_DECISION_RESULT>` 内 JSON；`validateDecisionResult` 轻量必填校验（不引 ajv）；分类 `no_marker` / `invalid_json` / `missing_required`(+missing)；字符串字段非空、数组字段须为数组
+- 必填 6 字段 = schema.required − `decision_id`（decision_id 由 server 捕获时赋值）
+- `tests/unit/decision.test.js`（新）— 8 用例：合法还原 / 缺 answer / 空 answer / 数组类型错 / 标记内非 JSON / 无标记 / 非字符串输入 / REQUIRED_FIELDS 与 schema 一致
+
+**核验**：8 用例全绿；`node --check` 通过；npm test 全量仅 pre-existing e2e 失败。store 写入接线留待模块 D（W1-020）。
+────────────────────────────────────────────────────────────
+[16:48:27] 提示词
+/ai-workflow-code:w-dev T1-013
+
+为 gateway 补输出协议单测（有/无 ccOutput 两分支）。
+
+[16:49:02] 回答
+Recording the task:
+[16:49:03] 回答
+T1-013 完成，已 `awf_task_complete` 落账（done），提交 `72d2156`。
+
+**产出**：`tests/unit/gateway.test.js`（5 用例，全绿）— 异步 stub server + `spawn` 实测输出协议：
+- 响应含 `ccOutput` → stdout **恰为** `JSON.stringify(ccOutput)`、exit 0
+- 无 `ccOutput`（`{ok:true}` / 非 JSON 响应）→ stdout 空、exit 0
+- server 不可达 → stdout 空、exit 0
+- payload 无 `hook_event_name` → 不发请求、exit 0 空输出
+
+**核验**：npm test 全量仅 pre-existing e2e 失败（432 passed）。
+────────────────────────────────────────────────────────────
+[16:49:03] 提示词
+/ai-workflow-code:w-dev T1-017
+
+新增 server 侧决策模式指令解析 helper：定位 decision 插件并读取决策指令供两处注入，改指令内容不需动 server。
+
+[16:50:09] 回答
+Constraints clarify this is a **server-local CJS** reader (not the ESM plugin-bridge). Creating `src/server/decision-instruction.cjs`:
+[16:50:09] 回答
+All green. Committing (note: plannedFiles pointed at ESM `plugin-bridge.js`, but the constraint/acceptance explicitly require a server-local CJS helper — implemented as `decision-instruction.cjs` without touching the bridge):
+[16:50:09] 回答
+Recording the task:
+[16:50:10] 回答
+T1-017 完成，已 `awf_task_complete` 落账（done），提交 `33c14a5`。
+
+**产出**：
+- `src/server/decision-instruction.cjs`（新）— `decisionPluginDir` / `decisionInstructionPath` / `readDecisionInstruction`：按 `plugin/config.json` `marketplace.plugins` 中 `name=ai-workflow-decision` 条目解析插件 dir（**不写死目录名**），读取 `decision/mode-instruction.md` 返回文本；插件未注册则明确抛错
+- `tests/unit/decision-instruction.test.js`（新）— 4 用例：解析 dir 与注册一致 / 内容含硬约束 + decision-core 注记 / 路径真实存在 / 插件未注册抛错
+
+**核验**：4 用例全绿；`node --check` 通过；npm test 仅 pre-existing e2e 失败（436 passed）。
+
+**偏离说明**：plannedFiles 列的是 ESM `plugin-bridge.js`，但本任务 acceptance/constraint 明确 server 为 CJS、读取放 server 本地 helper 且不使用 ESM bridge —— 故按约束实现为 server 本地 `decision-instruction.cjs`，未改动 plugin-bridge.js。两处注入（Stop continuePrompt / PreToolUse deny reason）共用该文案，后续在模块 C server 接线时引用。
+────────────────────────────────────────────────────────────
+[16:50:10] 提示词
+/ai-workflow-code:w-dev T1-019
+
+新增决策记录存储模块：按 run 追加 jsonl、聚合读取、override 追加，含 runStamp 对齐与追加不覆盖处理。
+
+[16:51:31] 回答
+Recording the task:
+[16:51:33] 回答
+T1-019 完成，已 `awf_task_complete` 落账（done），提交 `16d4aff`。
+
+**产出**：
+- `src/server/decision-store.cjs`（新）— 追加式 jsonl 存储于 `.awf/decisions/runs/<runStamp>.jsonl`
+  - **runStamp 对齐** run-logger：读 `state.json` version，取 `.awf/logs/<version>-<ts>` 最新匹配 run 目录；无则按同规则生成（`isoStamp`）
+  - **append 只追加不覆盖** + 同 `decision_id` 同 run 幂等去重 + runs 目录递归 mkdir
+  - **override** 以 `decision_overridden` 追加事件写入原 decision 所在 run 文件（不改写原记录），未找到抛错
+  - `listRuns`/`listAll` 各 run 倒序聚合
+- `tests/unit/decision-store.test.js`（新）— 9 用例全绿（mkdir / runStamp 对齐 / 写读 / 累积不覆盖 / 幂等 / 跨 run 倒序 / override 追加且原记录不变 / override 未找到 / 无 version 拒绝 / isoStamp 同形）
+
+**核验**：`node --check` 通过；npm test 仅 pre-existing e2e 失败（445 passed）。捕获接线（decision_completed 落盘）在 W1-020 调用本模块。
+────────────────────────────────────────────────────────────
+[16:51:33] 提示词
+/ai-workflow-code:w-dev T1-014
+
+在 server 实现决策闸门状态机，把 Stop 处理重构为统一决策闸门（触发、捕获落盘、续跑标记、兜底各分支），并把闸门状态暴露到状态查询。
+
+[16:55:42] 回答
+This is the core module-C change. Let me study the server's current state machine and hook handling thoroughly before modifying:
+[16:55:42] 回答
+Now implementing. Add module requires for the decision pieces:
+[16:55:42] 回答
+Add the decision-gate state machine + Stop handler (insert after `clearDecision`):
+[16:55:42] 回答
+Existing server tests (68) still green — gate-off path intact. Now study the test harness pattern to build the decision-gate integration test:
+[16:55:42] 回答
+Writing the decision-gate integration test (gate off + the 3 on-branches + /status exposure):
+[16:55:42] 回答
+The instruction read threw and fell back to the default string. Let me check why `readDecisionInstruction()` fails from node and under vitest:
+[16:55:42] 回答
+Bug: `decision-instruction.cjs` default root is one level too shallow (`src/server/..` = `src`, not package root). Fixing:
+[16:55:42] 回答
+Add a default-root regression test (server calls without pkgRoot), then run full checks:
+[16:55:42] 回答
+Full suite green (only pre-existing e2e). Committing the decision-gate implementation:
+[16:55:42] 回答
+Recording the task:
+[16:55:43] 回答
+T1-014 完成，已 `awf_task_complete` 落账（done），提交 `2f81939`。
+
+**产出**：
+- `src/server/server.cjs` — decisionGate 状态机 + **Stop 统一闸门**：
+  - **gate 关** → 现状逐字一致（clearDecision + setReady + 采集）
+  - **gate 开 三分支**：
+    - ① 普通完成 → ready
+    - ② 结尾含 `<AWF_DECISION_REQUIRED>` 且 `!stop_hook_active` → `deciding`，不 setReady（busy 延续），回 `ccOutput={decision:'block', continuePrompt: 指令}`
+    - ③ deciding 再 Stop：有效 `<AWF_DECISION_RESULT>` → parse → **store 落盘** → decisionResume → ready；无有效结果 → **deferred fallback 落盘** → ready
+  - `decisionGate`/`decisionResume` 暴露到 `/status` 与 `_getState`
+- `tests/integration/decision-gate.test.js` — 7 用例全绿（gate off / ①普通完成 / ②触发 deciding+busy 不翻转 / ③a 结果落盘 / ③b 兜底 / status 暴露 / 幂等防重复落盘）
+- `decision-instruction.cjs` — 修缺省 pkgRoot 少一级的 bug（server 无参读不到指令）+ 回归单测
+
+**核验**：既有 server.test 68 用例回归全绿（gate off 零变化）；npm test 仅 pre-existing e2e 失败（453 passed）。AskUserQuestion PreToolUse 决策化留待 T1-016。
+────────────────────────────────────────────────────────────
+[16:55:43] 提示词
+/ai-workflow-code:w-dev T1-016
+
+把 AskUserQuestion 的 PreToolUse 处理接入决策闸门：开启时 deny 并指引以决策标签收尾（与文字入口合一），关闭时维持现状。
+
+[16:57:25] 回答
+Now append the AskUserQuestion branch tests to decision-gate.test.js:
+[16:57:25] 回答
+All green except pre-existing e2e. Commit the AskUserQuestion decisionization:
+[16:57:25] 回答
+Recording the task:
+[16:57:26] 回答
+T1-016 完成，已 `awf_task_complete` 落账（done），提交 `9644e4f`。
+
+**产出**（server.cjs + decision-gate.test.js）：
+- `handleAskUserQuestion`：
+  - **gate 关** → 维持现状：`setDecision` 捕获（不拦截、无 ccOutput）
+  - **gate 开 非 deciding** → `deny`（`hookSpecificOutput.permissionDecision=deny` + `updatedInput.questions=[]`），reason 指引模型以 `<AWF_DECISION_REQUIRED>…</…>` 放最后一行结束本回合（勿再问/勿继续）——与文字入口在 **Stop 闸门②** 合一；不设 decisionPending、不直接进 deciding
+  - **gate 开 deciding** → 重复提问拒绝（决策闭合前禁再问，提示产出 `<AWF_DECISION_RESULT>` 收尾），不重新置 deciding
+  - deny reason 不内嵌 DC 模式指令（由 Stop block continuePrompt 注入，符合 acceptance）
+
+**核验**：decision-gate 增 4 用例（off 捕获现状 / on 非 deciding deny 指引 / ask deny 后标签收尾汇入 Stop② / deciding 内重复拒绝）；decision-gate 11 + server.test 68 = **79 集成用例全绿**；npm test 仅 pre-existing e2e 失败（457 passed）。
+────────────────────────────────────────────────────────────
+[16:57:26] 提示词
+/ai-workflow-code:w-dev T1-018
+
+为决策闭环写约束集成测试：一次事务只闭合一次、无结果必有兜底、普通完成不触发。
+
+[16:58:21] 回答
+Adding closed-loop constraint cases to decision-gate.test.js:
+[16:58:21] 回答
+The extra "ordinary Stop" after closure clears `decisionResume` (by design), so assert before it. Fixing the test ordering:
+[16:58:21] 回答
+16 pass. Full suite + commit:
+[16:58:21] 回答
+Recording the task:
+[16:58:23] 回答
+T1-018 完成，已 `awf_task_complete` 落账（done），提交 `2788797`。
+
+**产出**：`tests/integration/decision-gate.test.js` 增至 **16 用例**，新增决策闭环约束 5 例：
+
+1. **普通完成不触发** — 多次普通 Stop 均 ready、无落盘、decisionGate 恒 null
+2. **文字入口一次事务只 block 一次（防递归）** — deciding 中再次带必需标记（无结果）→ fallback 闭合，不二次 block
+3. **AskUserQuestion deny 后转 DC** — deny → 标签收尾 → Stop block(deciding) → 结果落盘，一次 DC 闭环
+4. **无 `stop_hook_active` 也能判定** — 缺省视作可触发；deciding 按结果/兜底闭合
+5. **无结果必有兜底** — 收敛单条 deferred fallback、不悬空不重复；闭合后 resume 随普通完成清空
+
+**核验**：decision-gate 16 用例全绿；npm test 仅 pre-existing e2e 失败（462 passed）。
+────────────────────────────────────────────────────────────
+[16:58:23] 提示词
+/ai-workflow-code:w-dev T1-020
+
+把决策/兜底落盘接线补齐，保证一次真实捕获在运行期落一条完整记录、字段可供 Review 消费。
+
+[16:59:11] 回答
+18 pass. Full suite + commit:
+[16:59:11] 回答
+Recording the task:
+[16:59:12] 回答
+T1-020 完成，已 `awf_task_complete` 落账（done），提交 `198b76e`。
+
+**产出**：
+- `server.cjs persistDecision` — 记录结构定型：`{ event:'decision_completed', decision_id, status:'pending_review', fallback(顶层标记), source, created_at, result }`；正式与 deferred 兜底共用同一路径
+- `decision-gate.test.js` — 增「捕获记录字段完整性」2 例（18 用例全绿）：resolved 记录含 Review 所需全字段；fallback 记录 `fallback:true` + deferred 字段齐全
+
+**核验**：一次事务在 `runs/*.jsonl` 落**一条**完整 `decision_completed(pending_review)`；npm test 仅 pre-existing e2e 失败（464 passed）。Review 数据 API（list/override）在 T1-021 消费该记录结构。
+────────────────────────────────────────────────────────────
+[16:59:12] 提示词
+/ai-workflow-code:w-dev T1-021
+
+server 新增 Review 数据 API（聚合列表与 override 写入）。
+
+[17:00:01] 回答
+Now add Review-API integration tests:
+[17:00:01] 回答
+21 pass. Full suite + commit:
+[17:00:01] 回答
+Recording the task:
+[17:00:02] 回答
+T1-021 完成，已 `awf_task_complete` 落账（done），提交 `8ccd10e`。
+
+**产出**（server.cjs + decision-gate.test.js）：
+- **GET `/awf/decisions`** → `{ ok, total, decisions }`（`DecisionStore.listAll`，各 run 倒序扁平聚合）
+- **POST `/awf/decisions/<decisionId>/override`** → body `{ instruction(必填), original_answer? }`，经 `store.override` 以 `decision_overridden` 事件追加（不改写原记录）；缺 instruction → 400，目标不存在 → 404
+
+**核验**：decision-gate 增 3 用例全绿（list 含 decision_completed / override 追加且原记录保留 / 400+404）；现 **21 用例全绿**；npm test 仅 pre-existing e2e 失败（467 passed）。纠偏任务回流（override → 追加 kind=dev 任务）在 T1-023。
+────────────────────────────────────────────────────────────
+[17:00:02] 提示词
+/ai-workflow-code:w-dev T1-022
+
+新增决策 Review 页面并在 dashboard 加入口（复用既有页面风格）。
+
+[17:01:47] 回答
+Add the `/decisions.html` route next to the other page routes:
+[17:01:47] 回答
+Add dashboard entry link, then build the decisions Review page:
+[17:01:47] 回答
+Now verify page + add smoke assertions for `/decisions.html` and the dashboard link:
+[17:01:47] 回答
+91 pass. Full suite + commit:
+[17:01:47] 回答
+Recording the task:
+[17:01:47] 回答
+T1-022 完成，已 `awf_task_complete` 落账（done），提交 `c90bf74`。
+
+**产出**：
+- `src/server/decisions.html`（新）— 复用 dashboard 深色风格：拉取 `/awf/decisions` 渲染时间 / Decision ID / 问题 / answer / 类型 / finality / 决定性因素 / 风险 / 未知 / 反转条件 / fallback；decision_overridden 随原决策展示；提供「标记 reviewed」+「Override」instruction 表单（提交 override API）
+- `server.cjs` — `GET /decisions.html` 路由（同 dashboard/ui/diagnostics 的 htmlDir 模式）
+- `dashboard.html` — 顶栏入口链接「决策 Review」
+- `decision-gate.test.js` — 增 2 例（页面可打开含关键内容 / dashboard 含入口）
+
+**核验**：decision-gate + server 集成共 **91 用例全绿**；npm test 仅 pre-existing e2e 失败（469 passed）。
+
+**说明**：「标记 reviewed」为客户端本地已审态（无独立服务端 reviewed 端点）；Override 是真实写 API。
+────────────────────────────────────────────────────────────
+[17:01:47] 提示词
+/ai-workflow-code:w-dev T1-023
+
+override 处理后向任务列表追加纠偏任务，使 run 调度下一轮可拾取。
+
+[17:03:32] 回答
+Adding the corrective-task appender to server.cjs (reusing the state lock):
+[17:03:32] 回答
+Now wire it into the override route:
+[17:03:32] 回答
+Add the corrective-task pick-up test (import `findNextTask`):
+[17:03:32] 回答
+`state.tasks` accumulates across tests — reset it per-test so the pick-up assertion is clean:
+[17:03:32] 回答
+24 pass. Full suite + commit:
+[17:03:32] 回答
+Recording the task:
+[17:03:32] 回答
+T1-023 完成，已 `awf_task_complete` 落账（done），提交 `b97f4ed`。
+
+**产出**：
+- `server.cjs appendDecisionReviewTask` — `withStateLock`（复用 settleSubagent 同款 state.lock）下向 `state.tasks` 追加纠偏任务：`{ id: <decision_id>-REV, kind:'dev', status:'pending', source:'decision_review', deps:[], plannedFiles:[], exec:{ decision_id, instruction, original_answer }, prompt, acceptance }`；**不写 wbsRef**；同 id 幂等
+- override POST 成功后调用并返回 `reviewTaskId`（state 不可读 → 500，override 已记录）
+- `decision-gate.test.js` — 新增：override → state 追加纠偏任务字段齐全，且 `findNextTask(state)` **下一轮可拾取**
+
+**核验**：decision-gate 24 用例全绿（beforeEach 复位 tasks 保证隔离）；npm test 仅 pre-existing e2e 失败（470 passed）。
+────────────────────────────────────────────────────────────
+[17:03:32] 提示词
+/ai-workflow-code:w-dev T1-024
+
+把决策捕获后的续跑接入单 agent 编排，并保证开关关闭时旧路径回归不变。
+
+[17:05:51] 回答
+This wires decision-resume into the single-agent CLI loop. Let me study run.js's session interaction, waiting, and decision handling:
+[17:05:51] 回答
+Implementing the decision-resume drain in run.js (route A continuation after a captured decision):
+[17:05:51] 回答
+Add a focused unit test for the resume loop:
+[17:05:51] 回答
+run-resume green. Run the affected run tests + full suite:
+[17:05:51] 回答
+All green. Commit run.js resume + test:
+[17:05:51] 回答
+Recording the task:
+[17:05:52] 回答
+T1-024 完成，已 `awf_task_complete` 落账（done），提交 `80cfafc`。
+
+**产出**：
+- `run.js drainDecisionResume` — executeTask 首次 `waitForReady` 返回后读 `/status.decisionResume`（一次性）→ 注入续跑消息（`answer` + 继续原任务）→ 再 `waitForReady`；多次决策循环续跑（上限 10）；注入失败安全停止
+- `tests/unit/run-resume.test.js` — 4 例（单次续跑含 answer / 无决策零操作 / 多轮续跑 / 注入失败停止）
+
+**回归核验**：
+- gate off：`decisionResume` 恒 null → drain 零操作；AskUser→decisionPending→handleDecision/autoSelect/人类路径与现状一致（run.test 21 回归通过）
+- gate on：自动决策不产生 decisionPending ⇒ autoSelect 不被调用（server deny 保证，decision-gate 用例覆盖）
+- 全量 npm test 仅 pre-existing e2e 失败（474 passed）
+────────────────────────────────────────────────────────────
+[17:05:52] 提示词
+/ai-workflow-code:w-dev T1-025
+
+让 run 日志/诊断呈现决策关键事件，与存储记录时间对齐。
+
+[17:07:26] 回答
+Add a `logDecision` event line to RunLogger:
+[17:07:26] 回答
+Wire decision events in server.cjs (persist + trigger + override):
+[17:07:26] 回答
+Update the mocks (logDecision) and assert timestamp alignment in the field-completeness test:
+[17:07:26] 回答
+113 pass. Full suite + commit:
+[17:07:26] 回答
+Recording the task:
+[17:07:27] 回答
+T1-025 完成，已 `awf_task_complete` 落账（done），提交 `f9e4d65`。
+
+**产出**：
+- `run-logger.cjs logDecision` — 追加 `[<ISO>] [DECISION][<event>] <id> <detail>` 到 `main.log`
+- server 接线：触发 `decision_started` / 捕获与兜底 `decision_completed`（**at = store `created_at` 同一 ISO**，detail 区分 resolved/fallback）/ `decision_overridden`
+- MockRunLogger（server.test / decision-gate）补 `logDecision`；decision-gate 断言日志行 at/decisionId 与 store 记录一致
+
+**核验**：相关 113 用例全绿；npm test 仅 pre-existing e2e 失败（474 passed）。
+
+**注**：run 日志 + console 已呈现决策事件且时间与 Review 数据对齐；诊断页未新增决策字段。
+────────────────────────────────────────────────────────────
+[17:07:27] 提示词
+/ai-workflow-code:w-dev T1-026
+
+整合 server hook 决策集成测试套件，覆盖开关开启/关闭两套路径。
+
+[17:08:13] 回答
+Adding an explicit gate-off old-path regression baseline to the suite:
+[17:08:13] 回答
+Comprehensive suite green (25). Full suite + commit:
+[17:08:13] 回答
+Recording the task:
+[17:08:14] 回答
+T1-026 完成，已 `awf_task_complete` 落账（done），提交 `3e20ddf`。
+
+**产出**：`decision-gate.test.js` 整合为 server hook 决策**双路径**集成套件（**25 用例全绿**）：
+- **gate on** — 普通完成不触发 / 文字触发 deciding+block+busy 不翻转 / 结果落盘 / deferred fallback / AskUser deny→DC / 闭环约束（一次闭合 / 必有兜底 / 无 stop_hook_active 判定）/ 记录字段完整性 / Review API / override→纠偏任务回流+findNextTask 拾取 / 决策事件日志对齐 / status 暴露 / 防递归幂等
+- **gate off** — 新增显式「旧路径回归基线」：AskUser 捕获→decisionPending → PostToolUse answer 回写 → Stop 清空并 ready，无闸门无落盘
+
+**核验**：npm test 全量仅 pre-existing e2e 失败（475 passed）。
+────────────────────────────────────────────────────────────
+[17:08:14] 提示词
+/ai-workflow-code:w-dev T1-027
+
+在 sandbox 建最小 fixture 项目做真 run 冒烟并产出证据。
+
+[17:10:55] 回答
+This needs real runtime smoke. Building a fixture + a harness that drives the **real** Session Server (gate on) end-to-end and emits evidence:
+[17:10:55] 回答
+Run the smoke harness (real server, gate on):
+[17:10:55] 回答
+Server ran fine; the evidence step read a stale seeded dir. Clean it up and read the run log the server actually wrote:
+[17:10:55] 回答
+All checks pass; the earlier failed run left stale decision records. Clean both logs and decisions runs at start for deterministic evidence:
+[17:10:55] 回答
+Runtime smoke passes end-to-end (11/11, id-consistent). This validates the full server stack with gate on, but not a live Claude session (the acceptance's true `awf run`). Document the harness + manual real-run steps, then record honestly:
+[17:10:55] 回答
+Recording honestly as blocked (real interactive `awf run` not executable in this automation env), with the delivered runtime-smoke evidence + harness:
+[17:10:55] 回答
+T1-027 已落账（**blocked**）。
+
+**交付**（sandbox/decision-smoke，gitignored）：
+- `proj/` fixture（gate on，state v0.2.0）
+- `smoke.cjs` — 真实 Session Server + hook 事件驱动完整决策事务，输出 `smoke-evidence.json`（**11/11 通过**、id 一致）
+- `README.md` — 运行方式 + 真 `awf run`（真实 CC 会话）的开发机补跑步骤
+
+**证据覆盖**：触发 deciding + block / 结果捕获落盘 `decision_completed(pending_review)` / decisionResume / Review API 可查 / override → `decision_overridden` + 纠偏任务回流 / run 日志决策行与 store 时间对齐。fixture 现留决策记录、日志与纠偏任务现场。
+
+**blocked 原因**：acceptance 要求「真 run（真实 Claude CC 会话）」，本自动化环境无法可靠执行嵌套交互 CC（现有 e2e 亦为 pre-existing 环境性失败佐证）；已用真实 server 运行期冒烟替代并文档化补跑步骤。
+────────────────────────────────────────────────────────────
+[17:10:55] 提示词
+任务 T1-027 的执行提示词已处理。请按当前真实状态收尾：
+- 已完成 → 用 awf_task_complete 原子记录 T1-027 的 done、result、files 和 architecture
+- 未完成 → 继续完成工作，不要标记 done
+

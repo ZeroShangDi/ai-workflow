@@ -1,0 +1,8 @@
+{
+  "crossSessionInbound": "accept",
+  "statusLine": {
+    "type": "command",
+    "command": "node \"/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control/scripts/context-usage.mjs\" \"/Users/shangjunhao/Project/ai-workflow/ai-workflow\"",
+    "refreshInterval": 30
+  }
+}

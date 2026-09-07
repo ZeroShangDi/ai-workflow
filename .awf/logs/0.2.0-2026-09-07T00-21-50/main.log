@@ -1,0 +1,366 @@
+=== AWF Run Log ===
+version: 0.2.0
+started: 2026-09-07T00:21:50.286Z
+project: /Users/shangjunhao/Project/ai-workflow/ai-workflow
+
+────────────────────────────────────────────────────────────
+[00:21:53] 提示词
+上下文检查（依据 code-context-onboard 技能规则，只做判断不做任何任务工作）：
+0. 当前对话上下文占用：未知（statusline 未配置，请自行估算）
+1. 判断是否需要压缩（优先以第 0 行的实测值为准；无实测则按对话轮数/体积估算）：
+   - 占用明显充足（明显低于窗口 ~65%），或虽接近阈值但下个任务轻量、可安全完成 → 只回复 `AWF_CONTEXT_OK`，不修改任何文件、不做任何其他操作
+   - 占用已接近/超过窗口 ~65%，且下个任务仍需较多上下文 → 压缩
+2. 压缩执行（四步）：
+   a. 按 code-context-onboard 的 7 段快照格式生成交接快照（标识符如 UUID/路径/端口必须原样保留）
+   b. 写入 `.awf/context/handoff.md`（目录不存在则创建）
+   c. 调用 `awf_context_ready` 通知 CLI 快照已就绪
+   d. 回复 `AWF_CONTEXT_READY`，结束本轮
+3. 本轮是纯检查轮：无论如何都不要开始执行任何任务、不要调用任务相关工具。
+
+[00:21:58] 回答
+AWF_CONTEXT_OK
+────────────────────────────────────────────────────────────
+[00:21:58] 提示词
+/ai-workflow-code:w-test T3-001
+
+对打包与注册模块做测试门禁：验证渲染产物、三插件注册、旧目录清理与技能资产可识别。
+
+[00:24:29] 回答
+I'll load the test task context. Let me read the task and related skills.
+[00:24:29] 回答
+I'll start the test gate for T3-001. Let me first mark the task active, then explore the module under test.
+[00:24:29] 回答
+Let me explore the module structure and existing test setup.
+[00:24:29] 回答
+This is a module test gate. Let me understand the module structure and what was built. Let me look at the packaging/registration work.
+[00:24:29] 回答
+Let me examine the plugin structure, build script, and renderer to understand what the test gate covers.
+[00:24:29] 回答
+Let me understand what "module A 打包与注册" refers to — check the plan context and relevant docs.
+[00:24:29] 回答
+Let me look at the full state to understand the plan context around T3-001 (module A 打包与注册).
+[00:24:29] 回答
+T3-001 is a module A test gate covering T1-001~T1-008 (打包与注册). Let me understand acceptance: (1) render 单测全绿, (2) decision 插件注册后 npm run build 产物正确 + core/plugin-code 无回归, (3) settings/marketplace 三插件一致, (4) 旧目录已清理无残留引用, (5) 插件技能资产可被识别.
+
+Let me find the module A commits and files.
+[00:24:29] 回答
+Module A commits identified (22f9ee5, 34d297c, d221e59, ed212b2, 0d3a520). Let me inspect the renderer generalization code and its unit test.
+[00:24:29] 回答
+Let me look at the actual module A work: render-config/plugin-config and what changed in the module A commits.
+[00:24:29] 回答
+config/marketplace/settings three plugins look consistent. Let me look at render-config source, the render script, build script, and the render-config unit tests.
+[00:24:29] 回答
+Let me check what test files cover module A's scope and confirm old prototype dir was removed.
+[00:24:29] 回答
+Let me verify the git structure and whether there are uncommitted changes in cc-control.
+[00:24:29] 回答
+Module A = 打包与注册 (rendering + registration). Let me examine the render unit tests and the plugin-bridge skill resolution used for "技能资产可识别".
+[00:24:29] 回答
+This is module A (打包与注册). Let me check the state records for module A tasks to know what tests/files were produced, then run the test gate.
+[00:24:29] 回答
+This gate covers render generalization + registration (T1-001~008). Let me run the module A unit tests and verify build reproducibility. First, the render/plugin-config unit tests.
+[00:24:29] 回答
+render/plugin-config unit tests green (9/9). Now verify `npm run build` produces correct artifacts with no regression — build rewrites the committed files, so a clean git after build = reproducible correct output.
+[00:24:29] 回答
+Now verify the build is reproducible (no drift from committed files) — confirms core/plugin-code no regression and correct output.
+[00:24:29] 回答
+Build output is byte-identical to committed files (no regression for core/plugin-code). But the decision assets grep returned nothing — let me verify decision plugin is actually included in the npm pack tarball.
+[00:24:29] 回答
+The grep returned 0 — decision plugin may not be in the pack. Let me inspect the full tarball listing.
+[00:24:29] 回答
+The earlier grep was run from repo root via `--prefix` (quirk) — running pack from cc-control confirms decision assets ARE in the tarball (decision/plugin.json + skills/decision-core, decision-workflow, decision/PROTOCOL.md, schema, mode-instruction all present).
+
+Now let me verify the remaining acceptance items: 三插件一致性, 旧目录清理, 技能资产可识别 — with a consistency assertion script.
+[00:24:29] 回答
+三插件一致性 PASS. Now verify 旧目录清理 (legacy prototype removed + no residual refs) and 技能资产可识别.
+[00:24:29] 回答
+Module A acceptance checks pass so far. Let me confirm "插件技能资产可被识别" — check whether tests/skill-discovery mechanisms reference decision assets, and confirm the two untracked discuss docs aren't module-A drift.
+[00:24:29] 回答
+Module A gate ("打包与注册") evidence is nearly complete. Let me do the final asset-recognition check: verify the decision plugin directory can be located via the marketplace registry (name→dir resolution) and its skill assets are discoverable — the same mechanism decision-instruction.cjs uses.
+[00:24:29] 回答
+All five acceptance criteria verified. Let me confirm the two untracked docs pre-date this test (not build drift) before completing.
+[00:24:29] 回答
+All module A acceptance criteria verified. Let me complete the task with a pass verdict.
+[00:24:31] 回答
+**T3-001 模块 A 测试门禁通过（verdict: pass）**
+
+5 项验收逐条核验：
+
+| 验收项 | 证据 | 结论 |
+|---|---|---|
+| 1. render 单测全绿 | `render-config.test.js` + `plugin-config.test.js` 9 用例通过（渲染泛化回归 + 任意第 3 dir） | ✅ |
+| 2. build 产物正确 + 无回归 | `npm run build` 后 6 个注册文件与提交基线 byte 一致（git 干净）；tarball 含三插件完整资产 | ✅ |
+| 3. settings/marketplace 三插件一致 | config/marketplace/settings 均含 core/decision/plugin-code；source=`./<dir>/` 匹配；hooks 单源仅 core | ✅ |
+| 4. 旧目录清理 | `plugin/awf-decision-system` 已删，全库仅剩归档 banner 追溯引用 | ✅ |
+| 5. 技能资产可识别 | decision 5 资产经 marketplace name→dir 定位均可识别，frontmatter/schema 合法 | ✅ |
+
+无回归。下一门禁（T3-002 模块 B 配置开关）可继续。
+────────────────────────────────────────────────────────────
+[00:24:31] 提示词
+/ai-workflow-code:w-test T3-002
+
+对配置开关模块做测试门禁：验证开关加载/缺省/显式语义与 server helper 一致。
+
+[00:24:58] 回答
+Module B = 配置开关. Let me examine the module B code and commits.
+[00:24:58] 回答
+The ls ran from repo root. Let me use cc-control-relative paths.
+[00:24:58] 回答
+Now read the module B unit tests and template.
+[00:24:58] 回答
+Template has `run.decision.enabled: false` under run. Now run module B unit tests and verify doc explanation presence.
+[00:24:58] 回答
+13 tests pass. Now verify "模板含说明" — the doc explanation in docs/features/init.md, and the drift-prevention (single source) wiring is truly exercised.
+[00:24:58] 回答
+Module B gate fully verified. Complete with pass verdict.
+[00:24:59] 回答
+**T3-002 模块 B 测试门禁通过（verdict: pass）**
+
+3 项验收核验：
+
+| 验收项 | 证据 | 结论 |
+|---|---|---|
+| 1. run-config/decision-config 单测通过 | `run-config.test.js`(6) + `decision-config.test.js`(7) 共 13 用例全绿 | ✅ |
+| 2. 缺省 false / 显式 true/false 语义一致 | 覆盖 config 缺失 / 无 run.decision 段 / true / false / 非法回落 / 非法 JSON；防漂移用例断言 server `isDecisionEnabled` 与 CLI `loadRunConfig` 同判定 | ✅ |
+| 3. 模板含说明 | 模板 `run.decision.enabled=false`；`docs/features/init.md` 字段表 + 语义块；init.js copyFile 写入 | ✅ |
+
+单源核实：`run-config.js` 的 decision 段委托 `decision-config.cjs`（无自带 DEFAULT/normalize），双端共用同一实现，防漂移成立。下一门禁 T3-003（模块 C server 决策状态机与 Hook）可继续。
+────────────────────────────────────────────────────────────
+[00:24:59] 提示词
+/ai-workflow-code:w-test T3-003
+
+对 server 决策状态机与 Hook 模块做测试门禁：验证统一闸门、解析校验、兜底与防递归，开关关闭行为与现状一致。
+
+[00:25:31] 回答
+Module C = server 决策状态机与 Hook, deps T1-012~T1-020. Let me read the module C task records and identify the tests/commits.
+[00:25:31] 回答
+Module C spans gateway hook, decisionGate state machine, parse/validate, decision-instruction, store, and capture wiring. Let me run the decision-gate integration suite plus module C unit tests, and the server regression baseline (gate off == 现状).
+[00:25:31] 回答
+Module C integration suite has 26 cases. Let me run the decision-gate integration suite plus module C unit tests.
+[00:25:31] 回答
+All module C tests green (52/52 across 5 files). Now verify the "gate off 与现状一致" regression baseline — T1-014 claimed existing server.test (68 cases) stays green. Let me run that too, plus confirm the hooks gateway unit test.
+[00:25:31] 回答
+All module C acceptance behaviors verified. Let me complete with pass verdict.
+[00:25:31] 回答
+**T3-003 模块 C 测试门禁通过（verdict: pass）**
+
+验收逐项核验：
+
+| 验收项 | 证据 | 结论 |
+|---|---|---|
+| decision-gate 集成 gate on/off 双路径全绿 | `decision-gate.test.js` 26 用例通过 | ✅ |
+| 单元测试 | gateway / decision / decision-instruction / decision-store 4 文件 26 用例 | ✅ |
+| 三分支 | ①普通完成 ready、②标记+`!stop_hook_active`→deciding+block、③a有效结果→落盘+decisionResume、③b无结果→fallback 闭合 | ✅ |
+| deny 一次 | 非 deciding→deny；已 deciding→重复 AskUserQuestion 拒绝不重置 | ✅ |
+| 防递归 | 结果落盘后重复 Stop 幂等；一次事务只 block 一次 | ✅ |
+| fallback | 多次无结果收敛单条 fallback 不悬空 | ✅ |
+| 无 stop_hook_active 判定 | 缺省视作首次可触发，判据独立 | ✅ |
+| gate off 与现状一致 | `server.test.js` 回归 105 用例全绿（含旧路径基线） | ✅ |
+
+合计模块 C 范围 157 用例全绿。下一门禁 T3-004（模块 D 记录与 Review）可继续。
+────────────────────────────────────────────────────────────
+[00:25:31] 提示词
+/ai-workflow-code:w-test T3-004
+
+对决策记录与 Review 模块做测试门禁：验证落盘、API/页面、override 纠偏回流。
+
+[00:26:05] 回答
+Module D = 记录与 Review. Let me read task records for T1-021~T1-023 (T1-019/020 already covered in module C run).
+[00:26:05] 回答
+Module D acceptance spans store unit, Review API/page (integration), and override→task pickup by runLoop. Let me check run test coverage for the纠偏任务拾取 and run the full module D set.
+[00:26:05] 回答
+Module D acceptance maps to decision-gate integration (API/page/override→pickup) + store unit + run-resume. Let me run the full module D suite.
+[00:26:05] 回答
+All green. Let me get exact per-file counts and confirm the store test cases cover persistence semantics.
+[00:26:05] 回答
+Let me confirm `findNextTask` in the integration test is the same scheduling primitive runLoop uses (validating "runLoop 可拾取").
+[00:26:05] 回答
+`findNextTask` is the exact primitive run.js:222/237 uses to pick the next task — the integration test asserting `findNextTask(state).id === ${id}-REV` directly proves runLoop 拾取. All acceptance criteria verified. Complete with pass verdict.
+[00:26:06] 回答
+**T3-004 模块 D 测试门禁通过（verdict: pass）**
+
+验收逐项核验（38 用例全绿）：
+
+| 验收项 | 证据 | 结论 |
+|---|---|---|
+| decision-store 单测通过 | `decision-store.test.js` 13 用例：追加不覆盖 / 幂等 / 跨 run 聚合 / override 不覆盖原记录 / 目标不存在抛错 / version 缺失拒绝 | ✅ |
+| API list/override 可用 | Review API 组：GET 聚合倒序、POST override、缺 instruction→400、不存在→404 | ✅ |
+| decisions.html 可浏览操作 | 200 text/html 含标题/Override/标记 reviewed；dashboard 含「决策 Review」入口 | ✅ |
+| override 追加纠偏任务 + runLoop 拾取 | POST→`<id>-REV` 任务（kind=dev/source=decision_review）；`findNextTask`（run.js:222 同源）断言拾取；`run-resume.test.js` 4 例验证 decisionResume 续跑 | ✅ |
+
+下一门禁 T3-005（模块 E 编排收尾与回归，含 sandbox 真 run 冒烟）可继续。
+────────────────────────────────────────────────────────────
+[00:26:06] 提示词
+/ai-workflow-code:w-test T3-005
+
+对编排收尾模块做测试门禁：验证续跑接入、关闭回归、集成与真 run 冒烟及证据。
+
+[00:26:46] 回答
+Module E = 编排收尾与回归, deps T1-024~T1-027. Let me read the task records, especially T1-027 (真 run 冒烟 + 证据).
+[00:26:46] 回答
+Module E includes a 真 run 冒烟 with evidence. T1-027 notes a constraint: nested real awf run would self-destruct the parent Session Server (Issue 002), so they used a real-server smoke instead. Let me inspect the smoke artifact and evidence before deciding how to re-verify.
+[00:26:46] 回答
+The smoke evidence exists with 11/11 checks pass. Let me examine smoke.cjs to understand if re-running is safe within this parent awf session (port isolation, no CC spawn).
+[00:26:46] 回答
+smoke.cjs is self-contained (ephemeral port 0, isolated fixture, no CC/tmux spawn) — safe to re-run within this session. Let me re-run the real-server smoke to confirm end-to-end still passes on current code, then verify run-log decision events and run the module E regression suite.
+[00:26:46] 回答
+Real-server smoke re-run passes 11/11 (fresh evidence written, id D-mtqi2sz4). Now run the module E regression suite — the run-loop (gate off), resume, integration, and run-logger tests.
+[00:26:46] 回答
+All module E tests green (139). Let me verify the smoke artifacts don't dirty tracked git (sandbox gitignored) and confirm the run-log decision-event assertion coverage.
+[00:26:46] 回答
+sandbox/ is gitignored (test evidence local by design). Let me check whether evidence should be copied into .awf/reports per the awf reporting convention.
+[00:26:46] 回答
+Smoke evidence refreshed (2026-09-07T00:26Z, 11/11 pass) and all module E tests green. All acceptance criteria met. Complete the gate.
+[00:26:46] 回答
+**T3-005 模块 E 测试门禁通过（verdict: pass）**
+
+验收逐项核验：
+
+| 验收项 | 证据 | 结论 |
+|---|---|---|
+| 集成测试 gate on/off 双路径全绿 | decision-gate(26) + server 回归 + run.test(gate off 21) + run-resume(4) + run-logger，本轮 5 文件 139 例 | ✅ |
+| 真 run 冒烟 + 证据落库 | 重跑 `smoke.cjs`（真实 Session Server，port 0 隔离）11/11 全过，evidence 刷新（D-mtqi2sz4，resume/store id 一致，override→纠偏任务） | ✅ |
+| run 日志呈现决策事件 | run-logger 单测 + 集成断言 `[DECISION][decision_completed]` 时间对齐 store；smoke 实测 main.log 含事件行 | ✅ |
+
+**说明**：真 `awf run`（真实 CC 会话）在运行中 awf run 内嵌套会自毁父 Session Server/tmux（Issue 002），故按 T1-027 既定方案以 real-server 冒烟为门内证据，开发机手动补跑步骤已存 README。
+
+至此五个模块测试门禁（T3-001~T3-005）全部通过。剩 T1-028/029（决策系统功能文档 + 测试用例文档）与 T4-001 文档完整性门禁。
+────────────────────────────────────────────────────────────
+[00:26:46] 提示词
+/ai-workflow-code:w-doc T1-028
+
+生成决策闸门 v0.2.0 功能文档（目标/边界/场景/验收），内容对齐讨论与规划元数据。
+
+[00:28:58] 回答
+T1-028 = 决策系统功能文档, target `cc-control/docs/features/decision-system.md`. The constraint references `.awf/plan/discussion/decision-system-architecture.md`. Let me read that discussion source and the plan metadata.
+[00:28:58] 回答
+Target doc doesn't exist — this is a new creation. Let me read the discussion source (the constraint anchor) to align content.
+[00:28:58] 回答
+Now let me read the plan metadata (scope/acceptance) and the WBS merge file to align.
+[00:28:58] 回答
+I now have the discussion + plan metadata. Let me look at a recently-updated sibling feature doc to match house style, and gather exact code symbols for an accurate code-driven doc.
+[00:28:58] 回答
+I have the full discussion source and plan metadata. Now let me gather accurate code symbols from the decision sources to keep the doc code-driven. Let me read the key implementation files.
+[00:28:58] 回答
+Now let me examine the server.cjs decision-gate handler and run.js drainDecisionResume to precisely describe behavior. Let me find the relevant code sections.
+[00:28:58] 回答
+Let me read the key decision-handling sections of server.cjs (handleAskUserQuestion / handleStop / persistDecision / deferred fallback).
+[00:28:58] 回答
+Now let me look at the mode-instruction.md, PROTOCOL.md summary, decision-core SKILL description, and the drainDecisionResume in run.js, plus the /awf/decisions endpoints.
+[00:28:58] 回答
+Now the run.js drainDecisionResume and the endpoints section in server.cjs.
+[00:28:58] 回答
+Let me capture the Review API endpoints, run-logger logDecision format, and a quick look at PROTOCOL.md structure.
+[00:28:58] 回答
+Let me capture the deferred fallback shape, nextDecisionId, and appendDecisionReviewTask task fields.
+[00:28:58] 回答
+I have thorough implementation detail. Let me confirm the decisions.html serving route and check decision-workflow/PROTOCOL briefly to describe DW precisely.
+[00:28:58] 回答
+I have all implementation details needed. Let me check the existing sibling functional doc `auto-decision.md` briefly to align terminology (it's the pre-decision-gate 上抛 feature), then write the doc.
+[00:28:58] 回答
+I have all the code detail. Now write the feature doc at the pinned path, aligned to discussion + plan metadata + code.
+[00:28:58] 回答
+Let me refine the doc to make 边界 and 场景 explicit headings (task requires 目标/边界/inScope/outOfScope/场景/验收).
+[00:28:58] 回答
+Let me verify the doc has all required sections and conforms.
+[00:28:58] 回答
+I'm already in cc-control. Let me re-run.
+[00:28:58] 回答
+All sections present, archive link valid. Complete the doc task.
+[00:28:59] 回答
+**T1-028 决策系统功能文档产出完成（done）**
+
+产出 `cc-control/docs/features/decision-system.md`（244 行），内容对齐讨论稿（`.awf/plan/discussion/decision-system-architecture.md` 12 节）+ plan 元数据 + 实际代码：
+
+| 要求要素 | 状态 |
+|---|---|
+| 目标 | ✅ 决策闸门 v0.2.0 目标链路 |
+| 边界 / inScope / outOfScope | ✅ Boundary 维度表 + 逐条对齐 plan 元数据 |
+| 场景 | ✅ S1–S12 矩阵（gate 关现状 / 文字 + AskUser 两入口 / deny 一次 / 防递归 / fallback / 无 stop_hook_active / override 回流 / 400·404） |
+| 验收标准 | ✅ 7 条（标注已过门禁 T3-002/003/004/005） |
+| code-doc 规范 | ✅ 功能描述 / 执行流程 / 常量配置 / 函数清单(13 项代码驱动) / 接口依赖 / 数据记录 / Review 端点，一页一类 |
+
+下一步 T1-029（决策系统测试用例文档，依赖本产出）可继续。
+────────────────────────────────────────────────────────────
+[00:28:59] 提示词
+/ai-workflow-code:w-doc T1-029
+
+生成决策闸门测试用例文档，覆盖验收标准与两套路径场景。
+
+[00:29:44] 回答
+Let me check an existing `.test.md` for format alignment.
+[00:29:44] 回答
+I have the format and full behavior knowledge from the earlier gate verifications. Let me write the test-case doc aligned to actual test suites.
+[00:29:44] 回答
+Let me verify the doc covers all required acceptance aspects and the referenced test files exist.
+[00:29:44] 回答
+Doc covers all acceptance aspects (26 TCs, all referenced test files exist, every required keyword present). Complete the task.
+[00:29:46] 回答
+**T1-029 决策系统测试用例文档产出完成（done）**
+
+产出 `cc-control/docs/features/decision-system.test.md`（206 行，26 TC），按 code-doc 测试用例模板，逐条可追溯功能文档验收标准：
+
+| 覆盖要素 | 用例 |
+|---|---|
+| 验收标准 1（开关/单源） | TC1–4 |
+| 两入口（文字 + AskUser） | TC6/TC7/TC8/TC9 |
+| 防递归 / deny 一次 / 幂等 | TC6/TC9/TC12 |
+| fallback | TC11 |
+| override 回流 | TC16–18 |
+| gate off 回归 / 续跑 / 冒烟 | TC25/TC24/TC26 |
+
+全部用例行为与真实测试代码逐条对齐（decision-gate 26 例 + 单元文件 + smoke），无虚构；引用的 12 个测试文件均已核验存在。
+
+至此文档任务全部完成。剩 T4-001（项目文档完整性门禁）——需校验 docs 三件套齐全、测试用例与功能文档一致、术语统一等。
+────────────────────────────────────────────────────────────
+[00:29:46] 提示词
+/ai-workflow-code:w-doc T4-001
+
+项目文档完整性门禁：核对架构/设计归档、三插件表述、变更记录齐全一致。
+
+[00:33:15] 回答
+T4-001 is a doc completeness gate. Let me verify the 4 acceptance criteria: archive findable, three-plugin phrasing consistent, no "双插件" residue, CHANGELOG v0.2.0 entry.
+[00:33:15] 回答
+"双插件" residue found in `bootstrap.md` (×2) and `architecture-notes.md` (×1). The decision-system.md:241 hit is the acceptance's own "不再称双插件" negation statement (legit). Let me inspect these and check CHANGELOG + plugin command/skill counts.
+[00:33:15] 回答
+CHANGELOG.md not at docs/. Let me locate the changelog and plugin counts.
+[00:33:15] 回答
+No CHANGELOG anywhere in cc-control. Let me search the whole repo and inspect the architecture-notes/bootstrap context.
+[00:33:15] 回答
+CHANGELOG is entirely absent. Let me inspect the docs directory layout and how CHANGELOG is referenced in existing docs/CLAUDE.md to understand the expected convention.
+[00:33:15] 回答
+CHANGELOG is absent repo-wide and "双插件" residue exists in 2 files. This gate expects verification + fixing gaps (plannedFiles lists these docs). Let me inspect the exact contexts before editing.
+[00:33:15] 回答
+CHANGELOG is entirely absent repo-wide. Let me gather accurate version/milestone history and precise plugin counts before creating it and fixing the stale phrasing.
+[00:33:15] 回答
+Let me check what tag cc-v0.2.0 points to and whether it's already created (this run's release) or historical.
+[00:33:15] 回答
+No CHANGELOG exists in the current tree or git history. Let me confirm git history for any prior changelog and check the plugin/README/CHECKLIST three-plugin state before writing.
+[00:33:15] 回答
+plugin/README.md and CHECKLIST.md are already three-plugin consistent. Remaining gaps: `bootstrap.md` ×2 "双插件", `architecture-notes.md` ×1 "双插件", and CHANGELOG.md entirely missing. Let me get exact skill counts to update architecture-notes accurately.
+[00:33:15] 回答
+I'm at repo root. Let me use correct paths.
+[00:33:15] 回答
+plugin/README.md and CHECKLIST.md are already three-plugin. Real gaps: `bootstrap.md` ×2, `architecture-notes.md` ×1 stale "双插件", and `docs/CHANGELOG.md` missing entirely. Let me verify exact counts before editing (commands 16 total: core 4 + plugin-code 12; skills 36: core 8 + plugin-code 26 + decision 2).
+[00:33:15] 回答
+Let me confirm precise skill counts before editing architecture-notes, and check whether bootstrap.md's claim is a historical statement or current.
+[00:33:15] 回答
+Now I have the full picture. Gaps to fix: 3 stale "双插件" phrases (bootstrap.md ×2, architecture-notes.md ×1) and missing `docs/CHANGELOG.md`. Let me read the exact bootstrap lines to edit.
+[00:33:15] 回答
+Fixing the two bootstrap.md "双插件" phrases:
+[00:33:15] 回答
+Now fix architecture-notes.md. Let me read the surrounding context to confirm it's a current-state claim.
+[00:33:15] 回答
+Let me see what section line 80 belongs to and its age.
+[00:33:15] 回答
+This is a historical "差异化优势" section but makes current-capability claims with now-inaccurate "双插件" phrasing and stale counts (actual: 16 commands + 36 skills across 3 plugins). Updating to match current state:
+[00:33:15] 回答
+Now create the missing CHANGELOG. Let me confirm the exact docs-tree expectation in cc-control/CLAUDE.md and whether the module keeps changelog history anywhere.
+[00:33:15] 回答
+CHANGELOG has never existed. Acceptance requires a v0.2.0 entry. Let me create `docs/CHANGELOG.md` following the Keep-a-Changelog style from code-doc.
+[00:33:15] 回答
+Now let me verify the doc gate fully — re-run the "双插件" scan, confirm no other inconsistencies (e.g. "两插件" / stale 2-plugin tables in docs), and confirm plannedFiles targets are consistent.
+[00:33:15] 回答
+Two remaining "双插件" hits are the acceptance's own "不再称双插件" negation statements (legit, documenting the migration). Let me do a final broader scan for stale version/2-plugin references and confirm the diff is scoped.
+[00:33:15] 回答
+Final broad scan clean (the remaining "core/plugin-code" hit in CHANGELOG is the historical "由写死 X 改为 Y" change description — accurate, not residue). Complete the doc gate.
