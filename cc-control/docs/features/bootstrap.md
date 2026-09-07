@@ -53,7 +53,7 @@ bootstrap.sh
 
 **插件 + hooks + MCP 不再由 bootstrap 渲染**。`awf init` 已完成：
 
-- `.claude/settings.json` 注册双插件（core + plugin-code），hooks/MCP 随插件声明加载
+- `.claude/settings.json` 注册三插件（core + decision + plugin-code），hooks/MCP 随插件声明加载
 - 项目级 `.mcp.json` 由 `installProjectMcp` 合并 3 个 awf-* server（绝对路径，指向 `plugin/core/mcp/awf-{state,session,oneshot}/server.cjs`），是 MCP 工具在 awf run 会话中可用的必要条件
 - `.awf/run-settings.json` 提供 `crossSessionInbound: accept`（多 agent 滑动窗口 inbox 注入需要）+ statusLine（`scripts/context-usage.mjs`）
 
@@ -88,7 +88,7 @@ tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
 | `--settings .awf/run-settings.json` | crossSessionInbound: accept + statusLine |
 | `env -u ...` | 去掉关闭 cross-session messaging 的 telemetry/feature-flag 变量 |
 
-> 注：插件不再通过 `--plugin-dir` 加载——双插件由项目 `.claude/settings.json` 注册（`awf init` 本地注入 / 全局 `claude plugin install`）。
+> 注：插件不再通过 `--plugin-dir` 加载——三插件由项目 `.claude/settings.json` 注册（`awf init` 本地注入 / 全局 `claude plugin install`）。
 
 ### Trust prompt 处理
 
