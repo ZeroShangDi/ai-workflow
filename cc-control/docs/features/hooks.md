@@ -30,23 +30,25 @@ CC Hooks 是 Claude Code 的生命周期钩子系统。当特定事件发生时�
 │   触发方式均为：curl POST /hook?event=<Event> + stdin @-
 ```
 
+> **转发方式注**：`Stop` 与 `PreToolUse(AskUserQuestion)` 是需要读取 server 回包（`ccOutput`）的事件，命令走 `plugin/core/hooks/gateway.cjs`（读 stdin payload → POST `server /hook?event=X` → 响应含顶层 `ccOutput` 则原样 JSON 打到 stdout，否则无输出 exit 0）；其余事件保持裸 curl（只上报、不读回包）。
+
 ---
 
 ## 1. hooks 配置结构
 
 ### 7 个 Hook 事件
 
-| Hook | matcher | 触发时机 | curl 方式 | 说明 |
+| Hook | matcher | 触发时机 | 转发方式 | 说明 |
 |------|---------|---------|-----------|------|
-| `SessionStart` | 无 | CC 会话启动 | POST query `?event=SessionStart` + stdin `@-` | 记录 mainSessionId + 转为 ready |
-| `UserPromptSubmit` | 无 | 用户提交 prompt | POST query `?event=UserPromptSubmit` + stdin `@-` | 主会话 → 转为 busy |
-| `Stop` | 无 | CC 响应完成 | POST query `?event=Stop` + stdin `@-` | 主会话 → 转为 ready + 抓取 transcript |
-| `SubagentStart` | 无 | 子 Agent 启动 | POST query `?event=SubagentStart` + stdin `@-` | 子 Agent 生命周期观测（不驱动闩锁） |
-| `SubagentStop` | 无 | 子 Agent 结束 | POST query `?event=SubagentStop` + stdin `@-` | 解析 NEEDS_INPUT / RESULT → 落账 |
-| `PreToolUse` | `AskUserQuestion` | tool 执行前 | POST query `?event=PreToolUse` + stdin `@-` | M5 决策上抛信号 → setDecision |
-| `PostToolUse` | 无 | tool 执行后 | POST query `?event=PostToolUse` + stdin `@-` | AskUserQuestion 的 answer 回写 |
+| `SessionStart` | 无 | CC 会话启动 | curl POST query `?event=SessionStart` + stdin `@-` | 记录 mainSessionId + 转为 ready |
+| `UserPromptSubmit` | 无 | 用户提交 prompt | curl POST query `?event=UserPromptSubmit` + stdin `@-` | 主会话 → 转为 busy |
+| `Stop` | 无 | CC 响应完成 | gateway 转发（server 返回 ccOutput 才输出） | 主会话 → 转为 ready + 抓取 transcript；决策闸门可返回 block |
+| `SubagentStart` | 无 | 子 Agent 启动 | curl POST query `?event=SubagentStart` + stdin `@-` | 子 Agent 生命周期观测（不驱动闩锁） |
+| `SubagentStop` | 无 | 子 Agent 结束 | curl POST query `?event=SubagentStop` + stdin `@-` | 解析 NEEDS_INPUT / RESULT → 落账 |
+| `PreToolUse` | `AskUserQuestion` | tool 执行前 | gateway 转发（server 返回 ccOutput 才输出） | 决策上抛信号 → setDecision；决策闸门可返回 deny |
+| `PostToolUse` | 无 | tool 执行后 | curl POST query `?event=PostToolUse` + stdin `@-` | AskUserQuestion 的 answer 回写 |
 
-> 唯一配置源是 `plugin/config.json` 的 `hooks` 字段；`plugin/core/hooks/hooks.json` 由 `render-config.mjs` 渲染产物（`__PORT__` → 端口字面量，默认 `8787`），两者事件数 / matcher / curl 方式保持一致。
+> 唯一配置源是 `plugin/config.json` 的 `hooks` 字段；`plugin/core/hooks/hooks.json` 由 `render-config.mjs` 渲染产物（`__PORT__` → 端口字面量，默认 `8787`）。`Stop` 与 `PreToolUse` 命令为 `node "${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs" <port>`，其余事件为裸 curl。
 
 ### Hook 模板结构
 

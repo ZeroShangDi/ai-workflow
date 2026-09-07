@@ -2,10 +2,12 @@
 
 > **状态由用户手动维护**，AI 不修改本文件状态。已存在标记 `[x]`，待建标记 `[ ]`。
 >
-> 目录约定（双插件结构）：
+> 目录约定（三插件结构）：
 > - `plugin/core/commands/` — 引擎层运行态命令（w-start/pause/monitor/state）
 > - `plugin/plugin-code/commands/` — 领域层命令（w-plan* + w-dev/debug/review/test/doc/commit/ui-*）
+> - `plugin/decision/commands/` — 决策层：无命令
 > - `plugin/core/skills/` — 引擎层技能（awf-run-* + awf-skill/awf-state）
+> - `plugin/decision/skills/` — 决策层技能（decision-core + decision-workflow）
 > - `plugin/plugin-code/skills/` — 领域层技能（awf-plan-* + code-*）
 
 ## 命令
@@ -81,6 +83,13 @@
 - [x] awf-run-test — 测试结果处理
 - [x] awf-skill — skill 创建/修改/聚合/拆分
 - [x] awf-state — awf-state MCP 使用指南
+
+### plugin/decision/skills/（决策层）
+
+- [x] decision-core — 纯决策内核（DC，12 公理）
+- [x] decision-workflow — Decision Workflow（DW，单 agent 下 server 扮演）
+
+协议资产：`plugin/decision/decision/PROTOCOL.md` + `schemas/decision-result.schema.json` + `mode-instruction.md`
 
 ### 规划中（未建）
 

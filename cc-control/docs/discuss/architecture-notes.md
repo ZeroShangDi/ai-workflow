@@ -4,6 +4,33 @@
 
 ---
 
+## AWF 决策闸门 v0.2.0（2026-09-07）
+
+> 状态：设计收敛为独立插件 + 单 agent 决策闸门。早期集成设计稿已归档为 [decision-system-design.md](./decision-system-design.md)。
+
+### 结构
+
+- 新增第 3 插件 **ai-workflow-decision**（`plugin/decision/`，非引擎插件：无 mcp/hooks，hooks 仍单源在 core）：承载决策内核与协议资产
+  - 技能：`decision-core`（DC，纯决策内核）+ `decision-workflow`（DW 完整职责，单 agent 下由 server 扮演 DW，技能供复杂/未来场景复用）
+  - 资产：`decision/PROTOCOL.md`、`decision/schemas/decision-result.schema.json`、`decision/mode-instruction.md`（决策模式短指令）
+- 注册：config.json `marketplace.plugins` + settings.json；渲染器按 marketplace.plugins 遍历生成（T1-001 泛化），hooks/mcp 单源渲染进引擎插件（config.engineDir）
+
+### 决策闸门（单 agent）
+
+- 开关：`.awf/config.json` → `run.decision.enabled`（缺省 **false = 旧上抛逻辑不变**）
+- 两入口：文字 `<AWF_DECISION_REQUIRED>`、`AskUserQuestion`（PreToolUse）
+- server 扮演 DW（decisionGate 状态 + Stop/PreToolUse decision-aware + hook gateway），当前 Session 切 decision 模式；加载 `mode-instruction.md` 注入为 block/deny 消息
+- DC 由模型在决策模式下调 `ai-workflow-decision:decision-core` 产出 Decision Result
+- 一次决策事务必须闭合：deny 一次、防递归；无有效结果走 deferred fallback（不悬空）
+- 记录：`.awf/decisions/runs/<runStamp>.jsonl`；Review 页 + override → 追加纠偏任务（kind=dev, source=decision_review）
+
+### 约束与后续
+
+- 依赖单向 DW → DC；DW 只有调度权无决策权
+- 本轮只做单 agent；多 agent 决策闸门、await_choice/input 明示真人路径等后置（见 plan outOfScope）
+
+---
+
 ## 与 Tmux-AI-Team / Loop Orchestrator 的对比分析（2026-07-17）
 
 ### 调研背景
@@ -50,7 +77,7 @@ awf 现阶段走**单 Agent 阶段驱动**模型（PLAN → DESIGN → CODE → 
 以下能力是 tmux AI Agent 生态中其他工具不具备的：
 
 1. **全生命周期覆盖** — 从需求对齐（交互式 Q&A）→ UI 设计（三选一 + Figma 双向）→ 开发 → 审查 → 测试 → 提交 → 里程碑收尾，而非仅覆盖编码环节
-2. **方法论内置** — 16 个命令 + 31 个 skill（双插件：core 4 命令 + 7 skill，plugin-code 12 命令 + 24 skill）不只是工具，是一套可复现的开发方法论（721 测试金字塔、约定式提交、WBS 分解、Issue 升级机制）
+2. **方法论内置** — 16 个命令 + 36 个 skill（三插件：core 4 命令 + 8 skill，decision 0 命令 + 2 skill，plugin-code 12 命令 + 26 skill）不只是工具，是一套可复现的开发方法论（721 测试金字塔、约定式提交、WBS 分解、Issue 升级机制）
 3. **Figma 双向集成** — `w-ui-design` 和 `w-ui-code` 打通设计到代码的自动化链路
 4. **PC 控制层** — VM 控制（Parallels Desktop）+ 浏览器自动化，可操控完整桌面环境
 5. **中英双语** — 命令和 skill 同时支持中文和英文

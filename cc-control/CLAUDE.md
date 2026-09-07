@@ -18,10 +18,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 cc-control/
   package.json             # npm 包
 
-  plugin/                  # 插件市场（.claude-plugin/marketplace.json 注册，双插件）
-    config.json            #   ★ 唯一配置源：port / marketplace / mcpServers / hooks
+  plugin/                  # 插件市场（.claude-plugin/marketplace.json 注册，三插件）
+    config.json            #   ★ 唯一配置源：engineDir / port / marketplace / mcpServers / hooks
                            #     （render-config.mjs 据此生成下方各注册文件）
-    settings.json          #   安装清单（本地注入源 / 全局安装源，含 core + plugin-code）
+    settings.json          #   安装清单（本地注入源 / 全局安装源，含 core + decision + plugin-code）
     core/                  #   引擎层插件 ai-workflow-core：MCP + hooks + 运行态命令技能（跨领域通用）
       plugin.json          #     插件声明（含 hooks）
       .mcp.json            #     3 个 MCP server 声明（相对路径）
@@ -30,7 +30,10 @@ cc-control/
       skills/              #     skills（awf-run-* 运行态 + awf-skill/awf-state）
       agents/              #     子 Agent 定义（awf-worker.md — 滑动窗口执行单元，RESULT/NEEDS_INPUT 输出协议）
       mcp/                 #     MCP server 实现（state/session/oneshot + state 模板）
-    plugin-code/           #   领域层插件 ai-workflow-code：编程命令 + 技能
+    decision/              #   决策层插件 ai-workflow-decision：决策技能 + 协议资产（无 mcp/hooks/命令）
+      skills/              #     skills（decision-core DC + decision-workflow DW）
+      decision/            #     协议资产（PROTOCOL + schema + mode-instruction）
+    plugin-code/           #   编程层插件 ai-workflow-code：编程命令 + 技能
       commands/            #     slash commands（w-plan* 规划 + w-dev/debug/review/test/doc/commit/ui-*）
       skills/              #     skills（awf-plan-* + code-*）
 
@@ -109,7 +112,7 @@ PLAN → DESIGN (if UI) → CODE (loop per task) → REVIEW → TEST → FINISH
 
 Any node can loop back. FINISH is a milestone marker, not project end.
 
-## Slash commands（双插件）
+## Slash commands（core / plugin-code；decision 插件无命令）
 
 ### core 插件（plugin/core/commands/，命名空间 `ai-workflow-core`）
 
@@ -137,7 +140,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 | `/w-ui-design` | 设计原型界面（UI 设计稿流程） |
 | `/w-ui-code` | 按原型设计稿实现静态页面 |
 
-## Skills（双插件）
+## Skills（core / decision / plugin-code）
 
 ### core 插件（plugin/core/skills/，命名空间 `ai-workflow-core`）
 
@@ -151,6 +154,14 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 **通用**
 - **`awf-skill`** — Skill 生命周期管理（创建/修改/聚合/拆分/审计）
 - **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ plugin/core/mcp/awf-state/）
+
+### decision 插件（plugin/decision/skills/，命名空间 `ai-workflow-decision`）
+
+**决策技能**
+- **`decision-core`** — 纯决策内核（DC）：识别真正问题与决定性变量，产出可执行、可审查的 Decision Result（12 公理）
+- **`decision-workflow`** — Decision Workflow（DW）职责与协议：单 agent 下 DW 由 Session Server 扮演，本技能供复杂/未来场景复用
+
+配套协议资产：`plugin/decision/decision/PROTOCOL.md`（DC↔DW 最小协议）、`schemas/decision-result.schema.json`、`mode-instruction.md`（决策模式短指令）
 
 ### plugin-code 插件（plugin/plugin-code/skills/，命名空间 `ai-workflow-code`）
 
@@ -273,12 +284,12 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词（taskWrapup/taskSettle/contextCheck/subagentDispatch），cli 零感知 |
 | `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + subagent-dispatch），runtime 指令由插件声明 |
 | `plugin/core/agents/awf-worker.md` | 子 Agent 身份化定义 — 滑动窗口执行单元：禁写 state、禁提问、RESULT/NEEDS_INPUT 最后一行输出协议 |
-| `src/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ docs 配置 |
-| `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额，awf run 读取（init 从模板生成） |
+| `src/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ run.decision.enabled（缺省关）+ docs 配置 |
+| `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额 + run.decision.enabled 决策开关（缺省关），awf run 读取（init 从模板生成） |
 | `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
-| `scripts/render-config.mjs` | 从 plugin/config.json 渲染 5 个插件注册文件 + 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
-| `plugin/config.json` | ★ 唯一配置源（port / marketplace / mcpServers / hooks） |
+| `scripts/render-config.mjs` | 按 config.json marketplace.plugins 遍历生成各插件 plugin.json + marketplace + 引擎插件 mcp/hooks（单源），+ 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
+| `plugin/config.json` | ★ 唯一配置源（engineDir / port / marketplace / mcpServers / hooks） |
 | `plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
 | `plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |
 | `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 18 个 tools，直接文件 I/O |

@@ -36,7 +36,7 @@ init 不再从 `src/templates/awf/` 整目录复制（该目录与 TEMPLATE.md �
 └── logs/             # awf run 全量运行日志（按运行时间分目录）
 ```
 
-### awf-config.json — run.agents 四级配额
+### awf-config.json — run.agents 四级配额 + run.decision 决策开关
 
 init 生成 `.awf/config.json`（模板 `src/templates/awf-config.json`）。`run.agents` 为并发四级配额，默认全部为 1（单 agent 串行）：
 
@@ -46,6 +46,9 @@ init 生成 `.awf/config.json`（模板 `src/templates/awf-config.json`）。`ru
 | `run.agents.maxModules` | 模块级并发上限 | `1` |
 | `run.agents.maxPerModule` | 单模块内并发上限 | `1` |
 | `run.agents.maxPerFeature` | 单特性内并发上限 | `1` |
+| `run.decision.enabled` | AWF 决策闸门开关；缺省关（不配置 = 走既有 AskUserQuestion/autoSelect 上抛逻辑，旧行为不变） | `false` |
+
+> `run.decision.enabled` 为布尔开关：显式 `true` 启用决策闸门（单 agent 下遇到决策入口转自主决策），缺省/非法值回落 `false`。加载逻辑单一来源见 `src/lib/decision-config.cjs`（server 与 CLI 共用），CLI 侧由 `loadRunConfig` 委托。
 
 另有 `docs` 配置段（`enabled` + 文档类型 + 报告类型），为文档体系开关。
 

@@ -1,22 +1,23 @@
-# Plugin — ai-workflow 双插件市场
+# Plugin — ai-workflow 三插件市场
 
-`plugin/` 是 ai-workflow 的插件市场根目录，声明并承载两个 Claude Code 插件：
+`plugin/` 是 ai-workflow 的插件市场根目录，声明并承载三个 Claude Code 插件：
 
 | 插件 | 目录 | 定位 |
 |------|------|------|
 | **ai-workflow-core** | `core/` | 引擎层 — 跨领域通用：MCP（state/session/oneshot）+ hooks + 运行态命令/技能 + awf-worker 子 Agent |
+| **ai-workflow-decision** | `decision/` | 决策层 — 决策闸门：decision-core / decision-workflow 技能 + Decision Result 协议与决策模式指令 |
 | **ai-workflow-code** | `plugin-code/` | 编程层 — 规划/开发/审查/测试/文档等编程领域命令与技能 |
 
-市场入口由 `plugin/.claude-plugin/marketplace.json` 声明双插件（`ai-workflow-dev`），`settings.json` 为安装清单。
+市场入口由 `plugin/.claude-plugin/marketplace.json` 声明三插件（`ai-workflow-dev`），`settings.json` 为安装清单。
 
 ## 目录结构
 
 ```
 plugin/
 ├── .claude-plugin/
-│   └── marketplace.json        # 双插件市场入口（渲染生成：core + plugin-code）
-├── config.json                 # ★ 唯一配置源：port / marketplace / mcpServers / hooks
-├── settings.json               # 安装清单（本地注入源 / 全局安装源，含 core + plugin-code）
+│   └── marketplace.json        # 三插件市场入口（渲染生成：core / decision / plugin-code）
+├── config.json                 # ★ 唯一配置源：engineDir / port / marketplace / mcpServers / hooks
+├── settings.json               # 安装清单（本地注入源 / 全局安装源，含 core + decision + plugin-code）
 ├── README.md
 ├── CHECKLIST.md                # 插件验收清单
 ├── PLAN.md                     # 插件规划文档
@@ -57,6 +58,17 @@ plugin/
 │       │   └── server.cjs
 │       └── awf-oneshot/        #     1 tool（无状态 LLM 调用）
 │           └── server.cjs
+│
+├── decision/                   # 决策层插件 ai-workflow-decision
+│   ├── plugin.json             #   插件声明（无 hooks 字段）
+│   ├── skills/                 #   决策技能
+│   │   ├── decision-core/SKILL.md        #     纯决策内核（DC，12 公理）
+│   │   └── decision-workflow/SKILL.md    #     Decision Workflow（单 agent 下 server 扮演）
+│   └── decision/               #   决策协议资产
+│       ├── PROTOCOL.md         #     DC ↔ DW 最小机器协议
+│       ├── schemas/
+│       │   └── decision-result.schema.json
+│       └── mode-instruction.md #     决策模式短指令
 │
 └── plugin-code/                # 编程层插件 ai-workflow-code
     ├── plugin.json             #   插件声明（无 hooks 字段）
@@ -113,14 +125,15 @@ plugin/
 
 ## 配置源机制
 
-`plugin/config.json` 是**唯一配置源**，集中声明 `port` / `marketplace` / `mcpServers` / `hooks` 四项。运行 `node scripts/render-config.mjs`（`npm run build` 的子集）据此渲染出库内的注册文件：
+`plugin/config.json` 是**唯一配置源**，集中声明 `engineDir` / `port` / `marketplace` / `mcpServers` / `hooks` 五项。运行 `node scripts/render-config.mjs`（`npm run build` 的子集）据此渲染出库内的注册文件：
 
 | 渲染产物 | 来源 |
 |---------|------|
-| `plugin/.claude-plugin/marketplace.json` | `marketplace` 段（双插件入口，`dir` → `source`） |
+| `plugin/.claude-plugin/marketplace.json` | `marketplace` 段（三插件入口，依 `plugins` 遍历 `dir` → `source`） |
 | `plugin/core/.mcp.json` | `mcpServers` 段（相对路径，`${CLAUDE_PLUGIN_ROOT}` 占位） |
 | `plugin/core/hooks/hooks.json` | `hooks` 段（`__PORT__` → 端口字面量） |
-| `plugin/core/plugin.json` | core 插件声明（含 hooks 字段） |
+| `plugin/core/plugin.json` | core 插件声明（引擎插件，含 hooks 字段） |
+| `plugin/decision/plugin.json` | decision 插件声明（无 hooks 字段） |
 | `plugin/plugin-code/plugin.json` | plugin-code 插件声明（无 hooks 字段） |
 
 命令行模式 `node scripts/render-config.mjs --workdir <dir> [--port <port>]` 渲染独立沙箱文件；`bootstrap.sh` 已不调用该模式，插件/hooks/MCP 统一由 `.claude/settings.json` 注册加载，避免覆盖项目注册。
@@ -141,6 +154,12 @@ plugin/
 - **提示词模板**：`prompts.json` 声明 plan 入口（start/resume/default）与任务收尾 wrapup/settle、context-check、subagent-dispatch，runtime 指令由插件声明
 - **技能**：`awf-plan-*` 规划技能 + `code-dev-*` 开发技能 + `code-architecture` 架构决策 + `code-review-*` 多维审查（含架构审查）+ `code-test-case` + 通用上下文/提交/文档技能
 
+### decision — 决策层（ai-workflow-decision）
+
+- **技能**：`decision-core`（DC，纯决策内核）/ `decision-workflow`（DW 职责；单 agent 下 DW 由 Session Server 扮演，本技能供复杂/未来场景复用）
+- **协议资产**：`decision/PROTOCOL.md`（DC↔DW 最小机器协议）、`decision/schemas/decision-result.schema.json`、`decision/mode-instruction.md`（决策模式短指令，供 server 读取注入）
+- **无 mcp / hooks / 命令**：决策插件不承载引擎运行时（mcpServers + hooks 仍单源在 core，config.engineDir）
+
 ## awf-worker 子 Agent
 
 `core/agents/awf-worker.md` 声明了 ai-workflow 滑动窗口调度的执行单元 Agent，由主会话通过 Agent 工具按任务窗口后台并行派发，行为协议：
@@ -160,7 +179,7 @@ plugin/
 
 `awf init` 阶段统一处理插件注册：
 
-- **本地注入**：读 `plugin/settings.json`（含 core + plugin-code）注入到项目 `.claude/settings.json`
-- **全局安装**：`awf plugin install --scope global` 按 `settings.json.plugins` 声明的 `ai-workflow-core@ai-workflow-dev` / `ai-workflow-code@ai-workflow-dev` 执行 `claude plugin install`
+- **本地注入**：读 `plugin/settings.json`（含 core + decision + plugin-code）注入到项目 `.claude/settings.json`
+- **全局安装**：`awf plugin install --scope global` 按 `settings.json.plugins` 声明的 `ai-workflow-core@ai-workflow-dev` / `ai-workflow-decision@ai-workflow-dev` / `ai-workflow-code@ai-workflow-dev` 执行 `claude plugin install`
 
 > 架构原则：插件改动，CLI 零感知。CLI 只通过 `src/lib/plugin-bridge.js` 读插件 `prompts.json` 填充提示词，不写死任何插件命令字符串。
