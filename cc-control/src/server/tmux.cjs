@@ -4,7 +4,9 @@
 // 生产环境不设置 global.__CC_EXEC_FILE_SYNC__，回落到 child_process。
 const execFileSync = global.__CC_EXEC_FILE_SYNC__ || require('child_process').execFileSync;
 
-const SESSION = process.env.CC_SESSION || 'cc';
+// 会话名单源：经 run-context 装配（config runtime.session / CC_SESSION；无 sid 回落基础名）
+const { buildRunContext } = require('../lib/run-context.cjs');
+const SESSION = buildRunContext({ env: process.env }).runSessionName;
 
 function tmux(args) {
   return execFileSync('tmux', args, { encoding: 'utf8' });

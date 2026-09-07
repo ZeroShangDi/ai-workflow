@@ -8,19 +8,19 @@
     {
       "name": "ai-workflow-core",
       "description": "AI Workflow 引擎层插件 — 跨领域通用：MCP（state/session/oneshot）+ hooks + 运行态命令技能",
-      "version": "2.0.0",
+      "version": "0.2.0",
       "source": "./core/"
     },
     {
       "name": "ai-workflow-code",
       "description": "AI Workflow 编程模式插件 — 规划/开发/审查/测试/文档等编程领域命令与技能",
-      "version": "2.0.0",
+      "version": "0.2.0",
       "source": "./plugin-code/"
     },
     {
       "name": "ai-workflow-decision",
       "description": "AI Workflow 决策插件 — 决策闸门：decision-core/decision-workflow 技能 + Decision Result 协议与决策模式指令",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./decision/"
     }
   ]

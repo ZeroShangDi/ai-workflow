@@ -6,6 +6,14 @@
 // 测试注入点：vitest 无法 mock 被原生 require 的 CJS 依赖，提供显式注入钩子。
 // 生产环境不设置 global.__CC_SPAWN__，回落到 child_process。
 const _spawn = global.__CC_SPAWN__ || require('child_process').spawn;
+const path = require('node:path');
+// claude -p 收口到 oneshot adapter（R-cc：工具面走 adapter，claude 字面不在本 MCP）
+let oneshotAdapter = null;
+try {
+  oneshotAdapter = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'adapters', 'oneshot.cjs'));
+} catch {
+  oneshotAdapter = null; // 纯插件副本（无包 src）→ 回退本地最小实现
+}
 
 function textResult(obj) {
   return { content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] };
@@ -30,7 +38,7 @@ const TOOLS = [
 
 // ---- helpers ----
 
-function spawnClaude(prompt, cwd) {
+function legacySpawnClaude(prompt, cwd) {
   return new Promise((resolve) => {
     const proc = _spawn('claude', ['-p', prompt], {
       cwd: cwd || process.cwd(),
@@ -45,6 +53,15 @@ function spawnClaude(prompt, cwd) {
       else resolve({ ok: false, error: `claude -p exited ${code}`, text: output.trim() || null });
     });
     proc.on('error', (err) => resolve({ ok: false, error: err.message }));
+  });
+}
+
+function spawnClaude(prompt, cwd) {
+  if (!oneshotAdapter) return legacySpawnClaude(prompt, cwd);
+  return oneshotAdapter.spawnClaudeP({ prompt, cwd: cwd || process.cwd(), timeoutMs: 300000, spawn: _spawn, stdio: ['pipe', 'pipe', 'pipe'] }).then((r) => {
+    if (r.error) return { ok: false, error: r.error };
+    if (!r.ok) return { ok: false, error: `claude -p exited ${r.code}`, text: r.stdout.trim() || null };
+    return { ok: true, text: r.stdout.trim() };
   });
 }
 

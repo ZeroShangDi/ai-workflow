@@ -14,6 +14,8 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+// 决策 jsonl 追加/读取经 store 层 AppendFileStore（json 模式，进程内串行 + 坏行容忍）
+const store = require('../lib/store.cjs');
 
 const VERSION_FILE = path.join('.awf', 'state.json');
 const LOGS_DIR = path.join('.awf', 'logs');
@@ -76,10 +78,14 @@ class DecisionStore {
     return path.join(this.runsDir, `${runStamp}.jsonl`);
   }
 
-  /** 追加一行记录（jsonl）；不存在目录则递归创建 */
+  /** 追加一行记录（jsonl）；目录递归创建由 store 处理 */
   _appendLine(file, record) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
+    store.createAppendFileStore({ filePath: file, json: true }).appendSync(record);
+  }
+
+  /** 读一份 run 文件的全部记录（store json 模式，容忍坏行） */
+  _records(file) {
+    return store.createAppendFileStore({ filePath: file, json: true }).readAllSync();
   }
 
   /**
@@ -103,18 +109,7 @@ class DecisionStore {
 
   /** file 中是否已含同 decision_id 的记录（幂等去重） */
   _hasDecision(file, decisionId) {
-    try {
-      const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
-      return lines.some((l) => {
-        try {
-          return JSON.parse(l).decision_id === decisionId;
-        } catch {
-          return false;
-        }
-      });
-    } catch {
-      return false;
-    }
+    return this._records(file).some((e) => e.decision_id === decisionId);
   }
 
   /**
@@ -140,14 +135,8 @@ class DecisionStore {
   /** 在全部 run 文件中查找含 decision_id 的记录，返回 { runStamp, file, entry } 或 null */
   _findDecision(decisionId) {
     for (const { runStamp, file } of this._runFiles()) {
-      try {
-        const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
-        for (const l of lines) {
-          let e;
-          try { e = JSON.parse(l); } catch { continue; }
-          if (e.decision_id === decisionId && e.event !== 'decision_overridden') return { runStamp, file, entry: e };
-        }
-      } catch { /* 跳过坏文件 */ }
+      const entry = this._records(file).find((e) => e.decision_id === decisionId && e.event !== 'decision_overridden');
+      if (entry) return { runStamp, file, entry };
     }
     return null;
   }
@@ -168,16 +157,11 @@ class DecisionStore {
    * @returns {Array<{ runStamp: string, file: string, entries: object[] }>}
    */
   listRuns() {
-    return this._runFiles().map(({ runStamp, file }) => {
-      const entries = [];
-      try {
-        const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
-        for (const l of lines) {
-          try { entries.push(JSON.parse(l)); } catch { /* 跳过坏行 */ }
-        }
-      } catch { /* 读不到则空 run */ }
-      return { runStamp, file, entries };
-    });
+    return this._runFiles().map(({ runStamp, file }) => ({
+      runStamp,
+      file,
+      entries: this._records(file),
+    }));
   }
 
   /** 扁平聚合（倒序），供 Review/override 检索 */

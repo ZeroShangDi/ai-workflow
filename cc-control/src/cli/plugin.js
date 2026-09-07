@@ -5,6 +5,7 @@ import { getPaths } from '../lib/paths.js';
 import { logger, logStep } from '../lib/ui/log.js';
 import { createSpinner } from '../lib/ui/spinner.js';
 import { installProfile, uninstallProfile, installProjectMcp } from '../lib/profile.js';
+import tooling from '../adapters/tooling.cjs';
 
 /**
  * awf plugin — 独立插件管理
@@ -111,13 +112,13 @@ async function installAllPlugins(paths, plugins) {
   };
 
   // 注册 marketplace（指向 plugin/，幂等）
-  try { execSync(`claude plugin marketplace add "${marketplaceDir}"`, { stdio: 'pipe' }); } catch {}
+  try { execSync(tooling.buildMarketplaceAdd(marketplaceDir), { stdio: 'pipe' }); } catch {}
 
   for (const spec of plugins) {
     const label = spec.split('@')[0];
     if (isInstalled(spec)) { logStep(label, 'skip', '已安装'); continue; }
     const spin = createSpinner(`installing ${spec} ...`);
-    try { await execAsync(`claude plugin install ${spec}`); spin.stop(); logStep(label, 'ok', '已安装'); }
+    try { await execAsync(tooling.buildInstall(spec)); spin.stop(); logStep(label, 'ok', '已安装'); }
     catch (err) { spin.stop(); logStep(label, 'error', `安装失败 — ${err.message}`); }
   }
 }
@@ -127,7 +128,7 @@ async function uninstallAllPlugins(paths) {
   const plugins = await loadPluginsFromProfile(paths);
   for (const spec of plugins) {
     const label = spec.split('@')[0];
-    try { await execAsync(`claude plugin uninstall ${spec}`); logStep(label, 'ok', '已卸载'); }
+    try { await execAsync(tooling.buildUninstall(spec)); logStep(label, 'ok', '已卸载'); }
     catch (err) { logStep(label, 'error', `卸载失败 — ${err.message}`); }
   }
 }

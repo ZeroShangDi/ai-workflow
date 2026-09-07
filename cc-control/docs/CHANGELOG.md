@@ -13,6 +13,8 @@
 - **决策闭环**：结果解析/轻量校验/deferred fallback/防递归（一次事务闭合一次）；决策记录追加式 jsonl（`.awf/decisions/runs/`）+ run 日志事件对齐
 - **Review 数据 API 与页面**：GET /awf/decisions + POST override + decisions.html 页面；override → 追加纠偏任务（kind=dev / source=decision_review），runLoop 下一轮拾取
 - **测试与文档**：gate on/off 双路径集成套件 + 单元测试 + real-server 冒烟证据；决策系统功能/测试用例文档
+- **配置/状态单源地基（架构重构 W1）** — `config-loader`（默认值合并 + env 覆盖 + 校验，render 读 loader 渲染）、`runtime-config`（运行期常量收敛到 config+env：端口/会话名单源，插件侧改读注入值）、`run-context` 装配器（sid→路径/会话名/workdir/settings）、`run-id`（sid 生成/校验/派生，与 runStamp 对齐）、`state-schema`（state.json 字段/枚举单源）+ `store-core`（state.lock + 原子写，CLI/server/MCP 三份重复实现归位）+ `migrate` 迁移器骨架；server/CLI/MCP 单例路径与读写改经装配器与 store 核心
+- **版本统一 0.2.0** — package / 三 plugin / marketplace / state 对齐 0.2.0（version 单源入 plugin/config.json 经渲染下发）
 
 ### Changed
 - 渲染器由写死 core/plugin-code 改为按 `marketplace.plugins` 遍历生成（render-config.mjs + plugin-config.js）

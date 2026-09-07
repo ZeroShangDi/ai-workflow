@@ -9,10 +9,16 @@ const http = require('http');
 // 测试注入点：vitest 无法 mock 被原生 require 的 CJS 依赖，提供显式注入钩子。
 // 生产环境不设置 global.__CC_EXEC_SYNC__，回落到 child_process。
 const _execSync = global.__CC_EXEC_SYNC__ || require('child_process').execSync;
-const SESSION = process.env.CC_SESSION || 'cc';
+// 会话名单源：经 bootstrap 注入 CC_SESSION（config runtime.session 同源下发）；不内嵌 'cc' 默认
+const SESSION = process.env.CC_SESSION || '';
 const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
-// 请求时读取 AWF_BASE，测试可随时切换 mock server
-const baseUrl = () => process.env.AWF_BASE || 'http://127.0.0.1:8787';
+// 请求时读取 AWF_BASE（MCP env 注入，渲染自 config 单源 port）。缺失即抛——配置错误应显式暴露，
+// 而不是回退到硬编码地址；工具分发层 catch 后以错误文本返回。测试可随时切换 mock server。
+const baseUrl = () => {
+  const base = process.env.AWF_BASE;
+  if (!base) throw new Error('awf-session: AWF_BASE 未设置（应经 MCP env 注入 http://127.0.0.1:<port>）');
+  return base;
+};
 
 // ---- helpers ----
 

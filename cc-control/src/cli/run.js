@@ -1,13 +1,14 @@
 import { spawn, execSync } from 'child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getPaths } from '../lib/paths.js';
 import { taskWrapup, taskSettle, contextCheck } from '../lib/plugin-bridge.js';
 import { installProjectMcp } from '../lib/profile.js';
 import { loadState, findNextTask, backupState, saveState, setWorkflowMode } from '../lib/state.js';
 import { loadRunConfig } from '../lib/run-config.js';
 import { waitWhilePaused } from '../lib/pause.js';
 import { handleGateCompletion } from './gate-fix.js';
+import { buildRunContext } from '../lib/run-context.cjs';
+import { generateRunSettings } from '../server/run-settings.cjs';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, sleep, sendCmd, getContextReady, SERVER_PORT } from '../lib/session/client.js';
 import { createSpinner } from '../lib/ui/spinner.js';
 import { logSection, logStep } from '../lib/ui/log.js';
@@ -23,8 +24,8 @@ import { CYAN, GREEN, YELLOW, RED, DIM, RESET } from '../lib/ui/colors.js';
  *   4. 全部完成后备份 state → .awf/versions/
  */
 export async function runCommand(task, options) {
-  const paths = getPaths();
-  const projectRoot = process.cwd();
+  const projectRoot = process.cwd(); // run 项目（.awf 宿主）
+  const ctx = buildRunContext({ projectRoot }); // 装配 infra/路径/会话名/端口（server/client/MCP 共用）
 
   // 验证 state
   const state = loadState(projectRoot);
@@ -49,7 +50,7 @@ export async function runCommand(task, options) {
   const doCleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    const session = process.env.CC_SESSION || 'cc';
+    const session = ctx.runSessionName;
     try { execSync(`tmux kill-session -t ${session} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
     // 只杀监听端口的 server，避免误杀自己——client 与 server 有 keep-alive 连接，
     // 若不带 -sTCP:LISTEN，lsof 会把本进程也算进去，kill -9 后 run 以被 SIGKILL 结束（exit 非 0）
@@ -67,9 +68,7 @@ export async function runCommand(task, options) {
   // 1. 启动环境
   logSection('启动环境');
   await startSession({
-    serverScript: paths.tmuxServer,
-    bootstrapScript: paths.bootstrapScript,
-    projectRoot: paths.projectRoot,
+    ctx,
     workDir: projectRoot,
     reuseExisting: !!options?.resume,
   });
@@ -108,15 +107,15 @@ export async function runCommand(task, options) {
 
 // ── Session 环境管理 ──
 
-/** 启动 Session Server + tmux session 两个基础设施 */
-async function startSession({ serverScript, bootstrapScript, projectRoot, workDir, sessionName = 'cc', reuseExisting = false }) {
+/** 启动 Session Server + tmux session 两个基础设施（路径/会话名/socket 一律来自 run-context ctx） */
+async function startSession({ ctx, workDir, reuseExisting = false }) {
   // 项目级 .mcp.json 是 MCP 工具可用的必要条件（enabled-only 插件注册下插件 .mcp.json 不暴露工具）
   // 幂等合并：只刷新 awf-* server 的绝对路径，保留项目已有 server
-  const m = installProjectMcp(workDir, projectRoot, SERVER_PORT);
+  const m = installProjectMcp(workDir, ctx.infraRoot, ctx.port);
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
-  await ensureServer(serverScript, projectRoot, workDir, reuseExisting);
-  await writeRunSettings(workDir, projectRoot);
-  await ensureSession(bootstrapScript, workDir, sessionName, reuseExisting);
+  await ensureServer(ctx.serverScriptPath, ctx.infraRoot, workDir, reuseExisting);
+  await writeRunSettings(ctx, workDir);
+  await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting, ctx.messagingSocketPath);
 }
 
 /** 确保 Session Server 已启动，先释放旧端口再 spawn */
@@ -148,7 +147,7 @@ async function ensureServer(serverScript, projectRoot, workDir, reuseExisting = 
 }
 
 /** 确保 tmux session 存在；resume 时优先复用现场，否则重建 */
-async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false) {
+async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false, socketPath) {
   if (reuseExisting) {
     try {
       const sessionCwd = execSync(
@@ -168,37 +167,28 @@ async function ensureSession(bootstrapScript, workDir, sessionName, reuseExistin
       ...process.env,
       CC_WORKDIR: workDir,
       CC_SESSION: sessionName,
-      CC_MESSAGING_SOCKET: path.join(workDir, '.awf', 'messaging.sock'),
+      CC_MESSAGING_SOCKET: socketPath,
     },
   });
   logStep('session', 'ok', `${sessionName} → ${workDir}`);
 }
 
 /**
- * 写 run-session 专属 settings（.awf/run-settings.json）— 声明 statusLine + crossSessionInbound。
+ * 写 run-session 专属 settings（ctx.runSettingsPath = .awf/run-settings.json）— 声明 statusLine + crossSessionInbound。
  * bootstrap 以 --settings 注入（合并语义：只覆盖声明键，不动用户/项目 settings），
  * 使 tmux 会话里状态行每次刷新把 context_window 实测百分比写入 .awf/context/usage.json；
  * crossSessionInbound: accept 是多 agent 滑动窗口经 inbox socket 注入派发指令的前提
  *（主会话 bypassPermissions 默认 hold 未证明权限的入站消息）。
  * 作用域限定在 run 会话，不污染用户在项目里的交互式会话。
  */
-async function writeRunSettings(workDir, pkgRoot) {
-  await fs.mkdir(path.join(workDir, '.awf'), { recursive: true });
-  await fs.writeFile(
-    path.join(workDir, '.awf', 'run-settings.json'),
-    JSON.stringify(
-      {
-        crossSessionInbound: 'accept',
-        statusLine: {
-          type: 'command',
-          command: `node "${path.join(pkgRoot, 'scripts', 'context-usage.mjs')}" "${workDir}"`,
-          refreshInterval: 30,
-        },
-      },
-      null,
-      2,
-    ),
-  );
+async function writeRunSettings(ctx, workDir) {
+  // run 专用 settings 内容构造归位 cc（run-settings.cjs）；本函数只负责落盘
+  const settings = generateRunSettings({
+    workdir: workDir,
+    contextUsageScript: path.join(ctx.infraRoot, 'scripts', 'context-usage.mjs'),
+  });
+  await fs.mkdir(path.dirname(ctx.runSettingsPath), { recursive: true });
+  await fs.writeFile(ctx.runSettingsPath, JSON.stringify(settings, null, 2));
 }
 
 // ── 任务循环 ──

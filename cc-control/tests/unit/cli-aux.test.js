@@ -32,6 +32,22 @@ vi.mock('../../src/lib/paths.js', () => ({
   PLUGIN_NS: 'ai-workflow-code',
 }));
 
+// run-context 装配器注入（替代旧 getPaths 的 server/bootstrap 注入点）
+vi.mock('../../src/lib/run-context.cjs', () => ({
+  buildRunContext: vi.fn(() => ({
+    sid: null,
+    session: 'cc',
+    runSessionName: 'cc',
+    port: 8787,
+    projectRoot: '/tmp/mock-project',
+    infraRoot: '/tmp/mock-project',
+    serverScriptPath: '/tmp/server.cjs',
+    bootstrapScriptPath: '/tmp/bootstrap.sh',
+    runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
+    messagingSocketPath: '/tmp/mock-project/.awf/messaging.sock',
+  })),
+}));
+
 // ── http mock for server check ──
 const httpCheckState = vi.hoisted(() => ({ ok: true, timeout: false }));
 

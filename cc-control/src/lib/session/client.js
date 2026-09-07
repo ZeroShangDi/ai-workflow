@@ -1,15 +1,21 @@
 import http from 'http';
+import runtimeConfig from '../runtime-config.cjs';
 
 /**
- * Session Server (:8787) HTTP 通信 + 决策自动处理
+ * Session Server HTTP 通信 + 决策自动处理
  */
 
-/** Session Server 默认端口 */
-export const SERVER_PORT = 8787;
+/** Session Server 默认端口 — 单源：plugin/config.json port（CC_PORT 可覆盖） */
+export const SERVER_PORT = runtimeConfig.getServerPort();
 /** waitForReady 最大等待时间 (5 min) */
 export const READY_TIMEOUT = 300000;
 /** ready 轮询间隔 */
 export const POLL_INTERVAL = 2000;
+
+/** Session Server 基址（本地回环 + 端口；端口经 config 单源 / 调用参数，无硬编码字面） */
+export function baseUrl(port = SERVER_PORT) {
+  return `http://127.0.0.1:${port}`;
+}
 
 // ── HTTP 请求 ──
 
@@ -41,7 +47,7 @@ export async function httpPostJson(url, body) {
 /** GET /status — 查询 Session Server 当前状态 */
 export function getStatus(port = SERVER_PORT) {
   return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/status`, (res) => {
+    const req = http.get(`${baseUrl(port)}/status`, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
@@ -57,23 +63,23 @@ export function getStatus(port = SERVER_PORT) {
 
 /** POST /send — 发送 prompt */
 export function sendText(text, port = SERVER_PORT) {
-  return httpPostJson(`http://127.0.0.1:${port}/send`, { text });
+  return httpPostJson(`${baseUrl(port)}/send`, { text });
 }
 
 /** POST /cmd — 发送 slash command */
 export function sendCmd(command, port = SERVER_PORT) {
-  return httpPostJson(`http://127.0.0.1:${port}/cmd`, { cmd: command });
+  return httpPostJson(`${baseUrl(port)}/cmd`, { cmd: command });
 }
 
 /** POST /respond — 向等待输入的 CC 发送回应 */
 export function sendRespond(value, port = SERVER_PORT) {
-  return httpPost(`http://127.0.0.1:${port}/respond`, { value });
+  return httpPost(`${baseUrl(port)}/respond`, { value });
 }
 
 /** GET /context-ready — 一次性消费上下文就绪标记（读取后服务端自动复位） */
 export function getContextReady(port = SERVER_PORT) {
   return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/context-ready`, (res) => {
+    const req = http.get(`${baseUrl(port)}/context-ready`, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {

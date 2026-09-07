@@ -39,6 +39,22 @@ vi.mock('../../src/lib/paths.js', () => ({
   })),
 }));
 
+// run-context 装配器注入（替代旧 getPaths）：infra/run 根都指向 mock 项目
+vi.mock('../../src/lib/run-context.cjs', () => ({
+  buildRunContext: vi.fn(() => ({
+    sid: null,
+    session: 'cc',
+    runSessionName: 'cc',
+    port: 8787,
+    projectRoot: '/tmp/mock-project',
+    infraRoot: '/tmp/mock-project',
+    serverScriptPath: '/tmp/server.cjs',
+    bootstrapScriptPath: '/tmp/bootstrap.sh',
+    runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
+    messagingSocketPath: '/tmp/mock-project/.awf/messaging.sock',
+  })),
+}));
+
 // plugin-bridge 为插件边界模块，单测 mock（真实逻辑见 plugin-bridge.test.js）
 vi.mock('../../src/lib/plugin-bridge.js', () => ({
   taskWrapup: vi.fn((taskId) => `用 awf_task_status 标记 ${taskId} done。用 awf_task_result 记录 ${taskId} 的执行结果。只做这两步。`),

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { getPaths } from '../lib/paths.js';
 // import { promptVersion } from '../lib/version.js'; // 版本处理暂时禁用
 import { stateTemplatePath } from '../lib/plugin-bridge.js';
+import tooling from '../adapters/tooling.cjs';
 import { pluginCommand } from './plugin.js';
 import { CYAN, RED, RESET } from '../lib/ui/colors.js';
 import { logSection, logStep } from '../lib/ui/log.js';
@@ -67,8 +68,8 @@ function checkPrerequisites() {
   const results = [];
   try { execSync('command -v tmux', { stdio: 'ignore' }); results.push({ label: 'tmux', status: 'ok', msg: '已安装' }); }
   catch { results.push({ label: 'tmux', status: 'warn', msg: '未安装 — brew install tmux' }); }
-  try { execSync('command -v claude', { stdio: 'ignore' }); results.push({ label: 'claude', status: 'ok', msg: '已安装' }); }
-  catch { results.push({ label: 'claude', status: 'error', msg: '未安装 — npm install -g @anthropic-ai/claude-code' }); }
+  if (tooling.claudeAvailable({ execSync })) results.push({ label: 'claude', status: 'ok', msg: '已安装' });
+  else results.push({ label: 'claude', status: 'error', msg: '未安装 — npm install -g @anthropic-ai/claude-code' });
   return results;
 }
 

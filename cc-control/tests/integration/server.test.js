@@ -191,11 +191,17 @@ describe('路由', () => {
     expect(res.body.tasks).toHaveLength(1);
   });
 
-  it('TC7: GET /awf/state → 文件不存在 → 404', async () => {
+  it('TC7: /awf/state 单项目绑定 — 装配器 projectRoot 启动即定，切换 CC_PROJECT 不改绑', async () => {
+    // 旧实现每请求重读 CC_PROJECT；收敛后 server 在启动时经 run-context 绑定单一项目（CC_PROJECT 固定）。
+    // 切换 env 不再改绑 → 仍返回启动项目的 state。
     process.env.CC_PROJECT = projectNoState;
-    const res = await api('GET', '/awf/state');
-    expect(res.status).toBe(404);
-    expect(res.body.error).toContain('state.json not found');
+    try {
+      const res = await api('GET', '/awf/state');
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('run');
+    } finally {
+      process.env.CC_PROJECT = projectWithState; // 还原，避免影响后续用例
+    }
   });
 
   it('TC8: GET /status → 返回 state/session/decisionPending', async () => {

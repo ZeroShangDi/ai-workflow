@@ -13,15 +13,23 @@ const {
 } = global.__CC_RUN_DIAGNOSIS__ || require('../lib/run-diagnosis.cjs');
 const { isDecisionEnabled } = require('../lib/decision-config.cjs');
 const { parseDecisionResult } = require('./decision.cjs');
+const gateRules = require('./decision-gate.cjs');
+const ccShapes = require('../adapters/cc-shapes.cjs');
+const extract = require('../lib/extract.cjs');
+const interact = require('./interact.cjs');
 const { DecisionStore } = require('./decision-store.cjs');
 const decisionInstruction = require('./decision-instruction.cjs');
+// run-context 装配：server 当前承载单 run（无 sid），项目根/路径/端口/会话名统一经装配器派生。
+// 多 run 分槽（每 run 独立上下文）由 T1-068/T1-071 接入。
+const { buildRunContext } = require('../lib/run-context.cjs');
+const ctx = buildRunContext({ env: process.env });
 
-const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
+const PROJECT_ROOT = ctx.projectRoot;
 const logger = new RunLogger(PROJECT_ROOT);
 if (logger.enabled) console.log(`[server] run logs: ${logger.dir}`);
 
 // ---- subagent 事件日志：SubagentStart/Stop 的完整 payload 追加写入（实证/观测用）----
-const SUBAGENT_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-events.jsonl');
+const SUBAGENT_LOG = path.join(ctx.logsDir, 'subagent-events.jsonl');
 
 function logSubagentEvent(event, body) {
   try {
@@ -33,7 +41,7 @@ function logSubagentEvent(event, body) {
 }
 
 // ---- 落账失败记录：CLI 据此触发补发（SendMessage 恢复子 Agent 补齐 RESULT）----
-const SUBAGENT_FAILED_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-failed.jsonl');
+const SUBAGENT_FAILED_LOG = path.join(ctx.logsDir, 'subagent-failed.jsonl');
 
 function logSubagentFailure(body, settled) {
   try {
@@ -50,18 +58,12 @@ function logSubagentFailure(body, settled) {
 }
 
 // ---- 决策上抛记录（NEEDS_INPUT）：CLI 据此暂停补位、主 Agent 原生 AskUserQuestion 问用户 ----
-const SUBAGENT_NEEDS_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-needs-input.jsonl');
+const SUBAGENT_NEEDS_LOG = path.join(ctx.logsDir, 'subagent-needs-input.jsonl');
 
 /** 解析子 Agent 的 NEEDS_INPUT（`NEEDS_INPUT: {json}`）；成功返回 { taskId, question, options?, context? }，否则 null */
 function parseSubagentNeedsInput(body) {
-  const msg = body.last_assistant_message || '';
-  const m = msg.match(/NEEDS_INPUT:\s*(\{[\s\S]*\})/);
-  if (!m) return null;
-  try {
-    const r = JSON.parse(m[1]);
-    if (r && typeof r.taskId === 'string' && typeof r.question === 'string') return r;
-  } catch { /* 解析失败 */ }
-  return null;
+  // 提取逻辑归位 extract.cjs
+  return extract.parseNeedsInput(body?.last_assistant_message);
 }
 
 /** 写决策上抛记录（不落账，任务保持等待；CLI 暂停补位直到决策解决） */
@@ -91,51 +93,31 @@ function resetRunLogs() {
 
 // ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
 // 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
-const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
-const STATE_LOCK = path.join(PROJECT_ROOT, '.awf', 'state.lock');
-
-function withStateLock(fn) {
-  const deadline = Date.now() + 5000;
-  for (;;) {
-    try {
-      const fd = fs.openSync(STATE_LOCK, 'wx');
-      fs.closeSync(fd);
-      break;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-      if (Date.now() > deadline) throw new Error(`state.lock timeout: ${STATE_LOCK}`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-    }
-  }
-  try { return fn(); } finally { try { fs.unlinkSync(STATE_LOCK); } catch {} }
-}
+// run state 写读统一经 store.state（JsonFileStore：state.lock + 原子写，承接 store.cjs / store-core）
+const runStores = require('../lib/store.cjs').createRunStores(ctx);
 
 /** 解析子 Agent 固定格式 RESULT（`RESULT: {json}`）；成功返回结果对象，失败返回 null */
 function parseSubagentResult(body) {
-  const msg = body.last_assistant_message || '';
-  const m = msg.match(/RESULT:\s*(\{[\s\S]*\})/);
-  if (!m) return null;
-  try {
-    const r = JSON.parse(m[1]);
-    if (r && typeof r.taskId === 'string' && (r.status === 'done' || r.status === 'blocked' || r.status === 'failed' || r.status === 'fail')) return r;
-  } catch { /* 解析失败 */ }
-  return null;
+  // 提取逻辑归位 extract.cjs（RESULT/状态集单源）
+  return extract.parseSubagentResult(body?.last_assistant_message);
 }
 
 /** SubagentStop 落账：写 state（task status + exec.result/files/commits）；返回 { ok, taskId?, reason?, recoverable? } */
 function settleSubagent(body) {
   const result = parseSubagentResult(body);
   if (!result) return { ok: false, reason: 'no valid RESULT in last_assistant_message' };
-  return withStateLock(() => {
-    let s;
-    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, reason: 'state.json unreadable', recoverable: false }; }
+  let out;
+  runStores.state.updateSync((s) => {
+    // s = null 表示缺失/非法 → 不落账
+    if (!s) { out = { ok: false, reason: 'state.json unreadable', recoverable: false }; return false; }
     const task = (s.tasks || []).find((t) => t.id === result.taskId);
-    if (!task) return { ok: false, reason: `task ${result.taskId} not found` };
+    if (!task) { out = { ok: false, reason: `task ${result.taskId} not found` }; return false; }
     // 指向已完成/已阻塞任务 → 拒绝：RESULT taskId 可能错写（如 X1 子 Agent 误写成已 done 的 T3），
     // 否则落账"假成功"（错标已有任务），真实任务永不落账且不触发补发。
     // recoverable:false → 良性（phantom 先落账/重复 Stop），不写失败记录、不触发 CLI 补发
     if (task.status === 'done' || task.status === 'blocked') {
-      return { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）`, recoverable: false };
+      out = { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）`, recoverable: false };
+      return false;
     }
     if (!task.exec) task.exec = {};
     // failed/fail 是协议允许的终态（awf-worker.md: done|blocked|failed），但调度只认 blocked 为终态，映射之
@@ -147,20 +129,21 @@ function settleSubagent(body) {
     if (result.architecture !== undefined) task.exec.architecture = result.architecture;
     if (result.commits) { task.commits = task.commits || []; task.commits.push(...result.commits); }
     s.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
-    return { ok: true, taskId: result.taskId, status: result.status };
+    out = { ok: true, taskId: result.taskId, status: result.status };
+    return true;
   });
+  return out;
 }
 
 /** override → 向任务列表追加纠偏任务（kind=dev / source=decision_review，携带 decision_id/instruction/original_answer）。
- *  复用 settleSubagent 同款 withStateLock（state.lock）；deps/plannedFiles 空 = 保守串行；不写 wbsRef（非原 WBS 叶子）。 */
+ *  store.state.updateSync 锁内读改写；deps/plannedFiles 空 = 保守串行；不写 wbsRef（非原 WBS 叶子）。 */
 function appendDecisionReviewTask({ decision_id, instruction, original_answer }) {
-  return withStateLock(() => {
-    let s;
-    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, error: 'state.json unreadable' }; }
+  let out;
+  runStores.state.updateSync((s) => {
+    if (!s) { out = { ok: false, error: 'state.json unreadable' }; return false; }
     const id = `${decision_id}-REV`;
     const existing = (s.tasks || []).find((t) => t.id === id);
-    if (existing) return { ok: true, taskId: id, existing: true };
+    if (existing) { out = { ok: true, taskId: id, existing: true }; return false; }
 
     const task = {
       id,
@@ -179,12 +162,13 @@ function appendDecisionReviewTask({ decision_id, instruction, original_answer })
     s.tasks = s.tasks || [];
     s.tasks.push(task);
     s.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
-    return { ok: true, taskId: id };
+    out = { ok: true, taskId: id };
+    return true;
   });
+  return out;
 }
 
-const PORT = Number(process.env.CC_PORT || 8787);
+const PORT = ctx.port; // 单源：config port（CC_PORT 覆盖），经 run-context 装配
 const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
 const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
@@ -237,11 +221,7 @@ function reconcileDiagnosisSession() {
 }
 
 function readProjectState() {
-  try {
-    return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'));
-  } catch {
-    return {};
-  }
+  return runStores.state.readSync() || {};
 }
 
 async function startRunDiagnosis() {
@@ -315,52 +295,23 @@ function clearDecision() {
 // 闸门期间不额外翻转 ready/busy，防止 CLI 在决策事务未闭合时提前派发。
 let decisionGate = null; // null | { phase: 'deciding', startedAt }
 let decisionResume = null; // 最近一次闭合决策摘要（/status 暴露）；新事务开始时清空
-let decisionSeq = 0;
-
+// 决策 id 生成规则归位 decision-gate（createDecisionSeq）
+const decisionSeqGen = gateRules.createDecisionSeq();
 function nextDecisionId() {
-  decisionSeq += 1;
-  return `D-${Date.now().toString(36)}-${decisionSeq.toString(36)}`;
+  return decisionSeqGen.nextId();
 }
 
-/** 结束文本是否以决策必需标记 <AWF_DECISION_REQUIRED>…</…> 结尾 */
-function endsWithDecisionRequired(text) {
-  return /<\s*AWF_DECISION_REQUIRED\s*>[\s\S]*?<\s*\/\s*AWF_DECISION_REQUIRED\s*>\s*$/.test(text);
-}
-
-/** 无有效结果兜底：构造 deferred fallback（不悬空），与正式结果同样落盘进 Review */
+/** 无有效结果兜底（构造归位 decision-gate.deferredFallbackResult） */
 function deferredFallbackResult() {
-  return {
-    answer: '当前无法可靠完成该决策，延后处理。继续执行所有不依赖该决策的工作；如果当前分支必须依赖该决策，则停止继续扩展该分支并留待审查或后续任务处理。',
-    type: 'deferred',
-    finality: 'provisional',
-    impact: 'medium',
-    real_question: '沿用原决策问题',
-    decisive_factors: ['决策过程未能可靠完成'],
-    causal_chain: [],
-    facts: [],
-    assumptions: [],
-    unknowns: ['原决策仍未得到可靠解决'],
-    risks: ['依赖该决策的分支可能无法继续'],
-    reversible: true,
-    reconsider_when: ['人工审查时', '后续任务重新处理该问题时'],
-    confidence: 'low',
-    fallback: true,
-  };
+  return gateRules.deferredFallbackResult();
 }
 
 /** 捕获落盘 + 置 decisionResume（正式结果与 fallback 共用；落一条完整 decision_completed 记录） */
 function persistDecision(result, source) {
   const decisionId = nextDecisionId();
   const createdAt = new Date().toISOString();
-  const record = {
-    event: 'decision_completed',
-    decision_id: decisionId,
-    status: 'pending_review',
-    fallback: result.fallback === true,
-    source,
-    created_at: createdAt,
-    result,
-  };
+  // decision_completed 记录构造归位 decision-gate.buildCompletedRecord
+  const record = gateRules.buildCompletedRecord({ decisionId, result, source, createdAt });
   const appended = new DecisionStore(PROJECT_ROOT).append(record);
   if (!appended.appended) console.log(`[decision-gate] append skipped for ${decisionId}`);
   logger.logDecision({
@@ -391,8 +342,11 @@ function handleAskUserQuestion(body) {
   const questions = body.tool_input?.questions;
   if (!questions || questions.length === 0) return null;
 
-  if (!isDecisionEnabled(PROJECT_ROOT)) {
-    const q = questions[0];
+  const deciding = decisionGate?.phase === 'deciding';
+  const action = gateRules.classifyAskQuestion({ enabled: isDecisionEnabled(PROJECT_ROOT), deciding, questions });
+
+  if (action.kind === 'capture') {
+    const q = action.question || questions[0];
     setDecision({
       type: q.multiSelect ? 'multiSelect' : 'choice',
       multiSelect: !!q.multiSelect,
@@ -404,64 +358,56 @@ function handleAskUserQuestion(body) {
     console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
     return null;
   }
-
-  if (decisionGate?.phase === 'deciding') {
-    const reason = '当前决策闭合前禁止再次发起用户提问：请按决策模式产出 <AWF_DECISION_RESULT> 收尾本回合。';
+  if (action.kind === 'deny_deciding') {
     console.log('[hook] AskUserQuestion denied (deciding): 决策闭合前禁再问');
-    return { ccOutput: { hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: reason, updatedInput: { questions: [] } } } };
+    return action.output;
   }
-
-  const reason = '提问工具已被拦截：禁止再向用户提问，也不要继续输出。请把需要决策的问题以 <AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED> 包裹放在本回合最后一行，然后结束本回合。';
   console.log('[hook] AskUserQuestion denied (gate on): 改以决策标签收尾');
-  return { ccOutput: { hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: reason, updatedInput: { questions: [] } } } };
+  return action.output;
 }
 
 /** Stop 统一闸门；返回可选 { ccOutput }（② 触发时 block 当前会话让其产出结果） */
 function handleStop(body) {
   const text = typeof body?.last_assistant_message === 'string' ? body.last_assistant_message : '';
-  const gateEnabled = isDecisionEnabled(PROJECT_ROOT);
   const deciding = decisionGate?.phase === 'deciding';
+  const branch = gateRules.classifyStop({
+    enabled: isDecisionEnabled(PROJECT_ROOT),
+    text,
+    deciding,
+    stopHookActive: body?.stop_hook_active,
+  });
 
-  if (!gateEnabled) {
-    // gate 关 → 现状：清 decisionPending + ready + transcript 采集
-    clearDecision();
-    decisionGate = null;
+  if (branch.branch === 'deciding') {
+    // ② 触发
+    const startedAt = new Date().toISOString();
+    decisionGate = { phase: 'deciding', startedAt };
     decisionResume = null;
-    setReady();
-    logger.captureFromTranscript();
-    return null;
-  }
-
-  if (!deciding) {
-    if (endsWithDecisionRequired(text) && body?.stop_hook_active !== true) {
-      // ② 触发
-      const startedAt = new Date().toISOString();
-      decisionGate = { phase: 'deciding', startedAt };
-      decisionResume = null;
-      logger.logDecision({ at: startedAt, decisionId: null, event: 'decision_started', detail: '决策入口（<AWF_DECISION_REQUIRED>）' });
-      let instruction;
-      try {
-        instruction = decisionInstruction.readDecisionInstruction();
-      } catch (e) {
-        instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
-      }
-      return { ccOutput: { decision: 'block', continuePrompt: instruction } };
+    logger.logDecision({ at: startedAt, decisionId: null, event: 'decision_started', detail: '决策入口（<AWF_DECISION_REQUIRED>）' });
+    let instruction;
+    try {
+      instruction = decisionInstruction.readDecisionInstruction();
+    } catch (e) {
+      instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
     }
-    // ① 普通完成（不触发）
-    clearDecision();
+    return ccShapes.blockDecision(instruction);
+  }
+
+  if (branch.branch === 'resolve') {
+    // ③ deciding 中收尾：有效结果捕获，否则 deferred fallback；随后 ready
+    const parsed = parseDecisionResult(text);
+    if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
+    persistDecision(parsed.valid ? parsed.result : deferredFallbackResult(), 'text');
     decisionGate = null;
-    decisionResume = null;
+    clearDecision();
     setReady();
     logger.captureFromTranscript();
     return null;
   }
 
-  // ③ deciding 中收尾：有效结果捕获，否则 deferred fallback；随后 ready
-  const parsed = parseDecisionResult(text);
-  if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
-  persistDecision(parsed.valid ? parsed.result : deferredFallbackResult(), 'text');
-  decisionGate = null;
+  // complete：gate 关 或 ① 普通完成 —— 清 decisionPending + ready + transcript 采集
   clearDecision();
+  decisionGate = null;
+  decisionResume = null;
   setReady();
   logger.captureFromTranscript();
   return null;
@@ -530,13 +476,9 @@ function send(res, code, obj) {
 
 /** 自动介入只允许在 CLI pause 闩锁已生效后执行。 */
 function requirePaused(res) {
-  try {
-    const s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
-    if (s.mode === 'pause') return true;
-    send(res, 409, { ok: false, error: `intervention requires mode=pause (current: ${s.mode || 'unknown'})` });
-  } catch (e) {
-    send(res, 409, { ok: false, error: `intervention requires readable paused state: ${e.message}` });
-  }
+  const s = runStores.state.readSync();
+  if (s?.mode === 'pause') return true;
+  send(res, 409, { ok: false, error: `intervention requires mode=pause (current: ${s?.mode || 'unknown'})` });
   return false;
 }
 
@@ -741,15 +683,10 @@ const server = http.createServer(async (req, res) => {
 
   // ---- state.json ----
   if (req.method === 'GET' && pathname === '/awf/state') {
-    const projectRoot = process.env.CC_PROJECT || process.cwd();
-    const statePath = path.join(projectRoot, '.awf', 'state.json');
-    try {
-      const raw = fs.readFileSync(statePath, 'utf-8');
-      res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(raw);
-    } catch (e) {
-      return send(res, 404, { ok: false, error: `state.json not found at ${statePath}` });
-    }
+    const s = runStores.state.readSync();
+    if (s == null) return send(res, 404, { ok: false, error: `state.json not found at ${ctx.statePath}` });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(s, null, 2));
   }
 
   if (req.method === 'GET' && pathname === '/awf/metrics') {
@@ -829,25 +766,23 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, ready });
   }
 
-  // AI 通知：需要人做选择（带选项）
+  // AI 通知：需要人做选择（带选项）——决策模型构造经 interact.validateDecisionRequest
   if (req.method === 'POST' && pathname === '/choice') {
     const body = await readJson(req);
-    if (!body || typeof body.question !== 'string') {
-      return send(res, 400, { ok: false, error: 'body must be {question: string, options?: string[]}' });
-    }
-    setDecision({ type: 'choice', question: body.question, options: body.options || [], context: body.context || null });
-    console.log(`[choice] ${body.question}`);
+    const v = interact.validateDecisionRequest('choice', body);
+    if (!v.ok) return send(res, 400, { ok: false, error: v.error });
+    setDecision(v.decision);
+    console.log(`[choice] ${v.decision.question}`);
     return send(res, 200, { ok: true, decisionPending });
   }
 
-  // AI 通知：需要人自由输入
+  // AI 通知：需要人自由输入——决策模型构造经 interact.validateDecisionRequest
   if (req.method === 'POST' && pathname === '/ask') {
     const body = await readJson(req);
-    if (!body || typeof body.question !== 'string') {
-      return send(res, 400, { ok: false, error: 'body must be {question: string}' });
-    }
-    setDecision({ type: 'text', question: body.question, context: body.context || null });
-    console.log(`[ask] ${body.question}`);
+    const v = interact.validateDecisionRequest('text', body);
+    if (!v.ok) return send(res, 400, { ok: false, error: v.error });
+    setDecision(v.decision);
+    console.log(`[ask] ${v.decision.question}`);
     return send(res, 200, { ok: true, decisionPending });
   }
 
@@ -1009,7 +944,7 @@ function _resetForTest() {
   decisionPending = null;
   decisionGate = null;
   decisionResume = null;
-  decisionSeq = 0;
+  decisionSeqGen.reset();
   waiters = [];
   contextReady = false;
   mainSessionId = null;

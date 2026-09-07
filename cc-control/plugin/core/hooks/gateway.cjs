@@ -17,11 +17,14 @@
  */
 const http = require('node:http');
 
-const DEFAULT_PORT = 8787;
 const HOST = '127.0.0.1';
 const TIMEOUT_MS = 2500;
 
-const port = Number.isFinite(Number(process.argv[2])) ? Number(process.argv[2]) : DEFAULT_PORT;
+// 端口来自 hook 命令注入的 argv（渲染自 config 单源 port）；CC_PORT 兜底仅测试/手工调用。
+// 不再内嵌 8787 默认值 — server 地址一律由调用方下发。非法 → 0（请求失败 → 静默 exit 0，不崩）。
+const port = Number.isFinite(Number(process.argv[2]))
+  ? Number(process.argv[2])
+  : (Number.isFinite(Number(process.env.CC_PORT)) ? Number(process.env.CC_PORT) : 0);
 
 /** 读取 stdin 全部内容 */
 function readStdin() {

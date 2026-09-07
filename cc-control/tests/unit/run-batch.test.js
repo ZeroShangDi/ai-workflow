@@ -28,7 +28,7 @@ vi.mock('../../src/lib/state.js', () => ({
   backupState: m.mockBackupState,
   markTaskActive: m.mockMarkTaskActive,
 }));
-vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
+vi.mock('../../src/server/run-scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
 vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
 vi.mock('../../src/cli/gate-fix.js', () => ({ handleGateCompletion: m.mockHandleGateCompletion }));
 vi.mock('../../src/lib/pause.js', () => ({ waitWhilePaused: m.mockWaitWhilePaused }));

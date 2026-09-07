@@ -2,7 +2,7 @@
 //
 // 与单任务 runLoop 完全隔离：仅在 run.agents.max > 1 时由 runCommand 动态 import 加载。
 //
-// CLI 调度：就绪池 + 配额 + 补位循环（runScheduler，见 scheduler.js）
+// CLI 调度：就绪池 + 配额 + 补位循环（runScheduler，见 run-scheduler.js）
 // 派发：经 /send（tmux send-keys）向主会话注入「派生后台子 Agent 执行 task」指令。
 //   —— 首选是 inbox socket 即时补位（messaging.js），但 2.1.227 的 cross-session messaging
 //      内部开关（CLAUDE_CODE_HARBOR_KITE）实测无效（socket 不绑定），暂降级 tmux 回合补位：
@@ -16,7 +16,8 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { loadState, backupState, markTaskActive } from '../lib/state.js';
-import { runScheduler } from './scheduler.js';
+import { runScheduler } from '../server/run-scheduler.js';
+import { gateCompletionHook } from '../server/run-driver.cjs';
 import { handleGateCompletion } from './gate-fix.js';
 import { subagentDispatch } from '../lib/plugin-bridge.js';
 import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
@@ -162,6 +163,8 @@ export async function runBatchLoop(projectRoot, cfg) {
 
   let dispatched;
   try {
+    // 门禁闭环经 run-driver.gateCompletionHook 锚点（任务完成 → 门禁 verdict → 派生修复 + 复审）
+    const onGateComplete = gateCompletionHook(projectRoot, { handleGateCompletion });
     ({ dispatched } = await runScheduler({
       projectRoot,
       cfg,
@@ -173,7 +176,7 @@ export async function runBatchLoop(projectRoot, cfg) {
         const title = settled?.title || task.title || '未命名任务';
         const status = settled?.status || task.status;
         taskList.update(id, title, status === 'done' ? 'done' : 'blocked');
-        await handleGateCompletion(projectRoot, id, settled || task);
+        await onGateComplete(id, settled || task);
       },
     }));
   } finally {

@@ -1,70 +1,41 @@
 import path from 'path';
 import fs from 'fs';
 import { logger } from './ui/log.js';
+// 持久化统一走 store-core（单写序列化 + 原子写），不再各自实现 state.lock + writeFileSync
+import { withFileLock as withStateLock, readJsonSync, writeJsonAtomicSync } from './store-core.js';
 
 const STATE_FILE = '.awf/state.json';
 
 // ── 基础读写 ──
 
-/** 同步 sleep（锁重试用，避免依赖异步上下文） */
-function syncSleep(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** state 写锁路径（CLI/MCP/server 共用同名 .awf/state.lock，防跨实现并发写） */
+function stateLockPath(projectRoot) {
+  return path.join(projectRoot, '.awf', 'state.lock');
 }
 
-/** state 写锁：与 awf-state MCP 的 writeState 共用 .awf/state.lock，防 CLI/MCP 并发写 */
-function withStateLock(lockPath, fn) {
-  const deadline = Date.now() + 5000;
-  for (;;) {
-    try {
-      const fd = fs.openSync(lockPath, 'wx');
-      fs.closeSync(fd);
-      break;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-      if (Date.now() > deadline) throw new Error(`state lock timeout: ${lockPath}`);
-      syncSleep(50);
-    }
-  }
-  try { return fn(); } finally { try { fs.unlinkSync(lockPath); } catch {} }
-}
-
-/** 读取 .awf/state.json */
+/** 读取 .awf/state.json（缺失/非法 → null） */
 export function loadState(projectRoot) {
-  const filePath = path.join(projectRoot, STATE_FILE);
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch {
-    return null;
-  }
+  return readJsonSync(path.join(projectRoot, STATE_FILE));
 }
 
-/** 写入 .awf/state.json（自动补 lastUpdated；加写锁防与 MCP 并发写） */
+/** 写入 .awf/state.json（锁内整份覆盖 + 原子写；自动补 lastUpdated） */
 export function saveState(projectRoot, state) {
   const filePath = path.join(projectRoot, STATE_FILE);
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
   state.lastUpdated = new Date().toISOString();
-  withStateLock(path.join(projectRoot, '.awf', 'state.lock'), () => {
-    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+  return withStateLock(stateLockPath(projectRoot), () => {
+    writeJsonAtomicSync(filePath, state);
   });
 }
 
 /** 原子更新工作流 mode；读取锁内最新 state，避免用旧任务快照覆盖并发落账。 */
 export function setWorkflowMode(projectRoot, mode) {
   const filePath = path.join(projectRoot, STATE_FILE);
-  const lockPath = path.join(projectRoot, '.awf', 'state.lock');
-  return withStateLock(lockPath, () => {
-    let state;
-    try {
-      state = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    } catch {
-      return false;
-    }
+  return withStateLock(stateLockPath(projectRoot), () => {
+    const state = readJsonSync(filePath);
+    if (!state) return false;
     state.mode = mode;
     state.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+    writeJsonAtomicSync(filePath, state);
     return true;
   });
 }
@@ -72,14 +43,9 @@ export function setWorkflowMode(projectRoot, mode) {
 /** 派发成功后将任务标记为执行中，保留其他 Agent 的并发落账。 */
 export function markTaskActive(projectRoot, taskId) {
   const filePath = path.join(projectRoot, STATE_FILE);
-  const lockPath = path.join(projectRoot, '.awf', 'state.lock');
-  return withStateLock(lockPath, () => {
-    let state;
-    try {
-      state = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    } catch {
-      return false;
-    }
+  return withStateLock(stateLockPath(projectRoot), () => {
+    const state = readJsonSync(filePath);
+    if (!state) return false;
     const task = state.tasks?.find((item) => item.id === taskId);
     if (!task || task.status !== 'pending') return false;
     task.status = 'active';
@@ -87,7 +53,7 @@ export function markTaskActive(projectRoot, taskId) {
     task.exec.startedAt = new Date().toISOString();
     delete task.exec.completedAt;
     state.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+    writeJsonAtomicSync(filePath, state);
     return true;
   });
 }

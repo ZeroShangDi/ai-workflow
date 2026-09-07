@@ -2,6 +2,9 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const store = require('../lib/store.cjs');
+const storeCore = require('../lib/store-core.cjs');
+const extract = require('../lib/extract.cjs');
 
 const SEP = '─'.repeat(60) + '\n';
 
@@ -13,6 +16,8 @@ class RunLogger {
     this._transcriptFile = null;
     this._transcriptPos = 0;
     this._sessionStartTime = Date.now();
+    // main.log 追加经 store 层 AppendFileStore（进程内串行队列，仍沿用现转录/提取方式）
+    this._main = null;
 
     if (!projectRoot) return;
     this._init();
@@ -32,6 +37,7 @@ class RunLogger {
     this._runDir = path.join(dir, `${version}-${ts}`);
     fs.mkdirSync(path.join(this._runDir, 'agents'), { recursive: true });
     this._logPath = path.join(this._runDir, 'main.log');
+    this._main = store.createAppendFileStore({ filePath: this._logPath });
 
     const header = [
       '=== AWF Run Log ===\n',
@@ -40,7 +46,7 @@ class RunLogger {
       `project: ${root}\n`,
       '\n',
     ].join('');
-    fs.writeFileSync(this._logPath, header);
+    this._main.appendRawSync(header);
   }
 
   _readVersion() {
@@ -148,7 +154,8 @@ class RunLogger {
       '\n',
     ].join('');
     try {
-      fs.writeFileSync(path.join(this._runDir, 'agents', file), header + this._renderTranscript(source));
+      // agent 转录全文一次性落盘（原子写；同名重试会覆盖而非追加，保持原语义）
+      storeCore.atomicWriteFileSync(path.join(this._runDir, 'agents', file), header + this._renderTranscript(source));
     } catch (err) {
       console.error(`[run-logger] transcript render error: ${err.message}`);
     }
@@ -168,26 +175,8 @@ class RunLogger {
   }
 
   _renderTranscript(source) {
-    const records = [];
-    for (const line of fs.readFileSync(source, 'utf-8').split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line);
-        const role = entry.type === 'assistant' ? '回答' : entry.type === 'user' ? '提示词' : null;
-        if (!role) continue;
-        const content = entry.message?.content;
-        const blocks = Array.isArray(content) ? content : [{ type: 'text', text: content }];
-        const parts = [];
-        for (const block of blocks) {
-          if (block?.type === 'text' && block.text) parts.push(block.text);
-          if (block?.type === 'tool_use') parts.push(`调用工具: ${block.name}\n${JSON.stringify(block.input || {}, null, 2)}`);
-        }
-        if (parts.length === 0) continue;
-        const time = typeof entry.timestamp === 'string' ? entry.timestamp.slice(11, 19) : '--:--:--';
-        records.push(`[${time}] ${role}\n${parts.join('\n')}\n`);
-      } catch { /* 跳过非 JSONL 或不含可读内容的记录 */ }
-    }
-    return records.join('\n');
+    // transcript 提取/渲染归位 extract.cjs（JSONL 解析 + role/工具片段 → 人读文本）
+    return extract.renderTranscriptText(fs.readFileSync(source, 'utf-8'));
   }
 
   // ---- internal ----
@@ -214,7 +203,7 @@ class RunLogger {
 
   _append(content) {
     try {
-      fs.appendFileSync(this._logPath, content);
+      this._main?.appendRawSync(content);
     } catch (err) {
       console.error(`[run-logger] write error: ${err.message}`);
     }

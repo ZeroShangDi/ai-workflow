@@ -102,6 +102,11 @@ describe('render-config --workdir 独立沙箱渲染', () => {
       path.join(ROOT, 'src', 'lib', 'plugin-config.js'),
       path.join(spacedProject, 'src', 'lib', 'plugin-config.js'),
     );
+    // plugin-config.js 经 config-loader 读配置 → 需一并拷贝共享加载器
+    fs.copyFileSync(
+      path.join(ROOT, 'src', 'lib', 'config-loader.cjs'),
+      path.join(spacedProject, 'src', 'lib', 'config-loader.cjs'),
+    );
 
     const work = path.join(TMP, 'w-spaced-root');
     const res = spawnSync(NODE, [path.join(spacedProject, 'scripts', 'render-config.mjs'), '--workdir', work], { encoding: 'utf8' });

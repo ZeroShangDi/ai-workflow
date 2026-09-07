@@ -1,11 +1,12 @@
 import { execSync } from 'child_process';
 import { logger } from '../lib/ui/log.js';
+import { buildRunContext } from '../lib/run-context.cjs';
 
 /**
  * awf attach — 接入正在运行的 tmux session，观看/操作 AI 对话
  */
 export async function attachCommand() {
-  const session = process.env.CC_SESSION || 'cc';
+  const session = buildRunContext({ projectRoot: process.cwd() }).runSessionName;
   try {
     execSync(`tmux has-session -t ${session} 2>/dev/null`, { stdio: 'ignore' });
   } catch {

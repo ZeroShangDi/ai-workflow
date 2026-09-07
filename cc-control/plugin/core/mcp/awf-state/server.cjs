@@ -12,19 +12,35 @@ const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
 const LOCK_PATH = path.join(PROJECT_ROOT, '.awf', 'state.lock');
 
 // ---- file helpers ----
+// 持久化优先走 store-core（src/lib，单写序列化 + 原子写，与 CLI/server 同一实现）。
+// 该 server 的可用路径总是包根之上的副本（自托管/跨项目 .mcp.json 绝对路径），
+// 故 require 相对包根可达；仅当运行在无 src/ 的纯插件副本（connect-only、不暴露工具）
+// 时才回退到本地同语义最小实现——真实工具面永远走 store-core。
+let storeCore = null;
+try {
+  storeCore = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'lib', 'store-core.cjs'));
+} catch {
+  storeCore = null;
+}
 
 function readState() {
+  if (storeCore) {
+    const s = storeCore.readJsonSync(STATE_PATH);
+    if (!s) {
+      const err = new Error(`ENOENT: state file missing at ${STATE_PATH}`);
+      err.code = 'ENOENT';
+      throw err;
+    }
+    return s;
+  }
   const raw = fs.readFileSync(STATE_PATH, 'utf-8');
   return JSON.parse(raw);
 }
 
 // state 写锁：CLI 与 MCP 共用 .awf/state.lock。所有 MCP 变更必须把完整的
 // read → mutate → write 放在锁内，避免 pause 与任务落账相互覆盖。
-function syncSleep(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 function withStateLock(fn) {
+  if (storeCore) return storeCore.withFileLock(LOCK_PATH, fn);
   const deadline = Date.now() + 5000;
   for (;;) {
     try {
@@ -34,7 +50,7 @@ function withStateLock(fn) {
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
       if (Date.now() > deadline) throw new Error(`state.lock timeout: ${LOCK_PATH}`);
-      syncSleep(50);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
   try { return fn(); } finally { try { fs.unlinkSync(LOCK_PATH); } catch {} }
@@ -42,7 +58,8 @@ function withStateLock(fn) {
 
 function writeState(s) {
   s.lastUpdated = new Date().toISOString();
-  fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+  if (storeCore) storeCore.writeJsonAtomicSync(STATE_PATH, s);
+  else fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
 }
 
 function textResult(obj) {

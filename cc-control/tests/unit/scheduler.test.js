@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { runScheduler } from '../../src/cli/scheduler.js';
+import { runScheduler } from '../../src/server/run-scheduler.js';
 import { handleGateCompletion } from '../../src/cli/gate-fix.js';
 import { MAX_RECHECK } from '../../src/lib/state.js';
 

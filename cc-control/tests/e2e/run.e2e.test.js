@@ -40,7 +40,7 @@ vi.mock('node:child_process', () => ({
   spawn: h.spawn,
 }));
 
-vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: h.runScheduler }));
+vi.mock('../../src/server/run-scheduler.js', () => ({ runScheduler: h.runScheduler }));
 
 import { runCommand } from '../../src/cli/run.js';
 

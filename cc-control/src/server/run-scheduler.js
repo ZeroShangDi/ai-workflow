@@ -1,4 +1,4 @@
-// src/cli/scheduler.js — 滑动窗口调度器核心（纯逻辑）
+// src/server/run-scheduler.js — 滑动窗口调度器核心（纯逻辑；迁自 cli/scheduler.js，归位 server run 域）
 //
 // CLI 拥有调度权：就绪池 + 配额上限 + plannedFiles 动态冲突 + 补位循环。
 // 派发（dispatcher）与完成感知（waitAnyDone）通过注入接口抽象，便于先单测，

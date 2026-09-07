@@ -24,9 +24,11 @@ fi
 # bypassPermissions: 免除文件读写、命令执行等权限确认，避免阻塞自动化工作流
 # --settings .awf/run-settings.json: statusLine + crossSessionInbound（多 agent 滑动窗口注入需要 accept）
 # env -u: 去掉会关闭 cross-session messaging 的变量（telemetry/feature-flag 类），仅影响本 claude 会话
+# CC_SESSION 显式注入 claude 进程 env：插件侧（awf-session MCP / 子进程）同源读会话名，
+#   不再依赖各自硬编码 'cc' 兜底与 tmux 会话名"恰好一致"
 # --messaging-socket-path: 固定 inbox socket 路径，CLI 无需猜（隐藏 flag，2.1.227 确认存在）
 tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
-  "env -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC -u DISABLE_TELEMETRY -u DO_NOT_TRACK -u DISABLE_GROWTHBOOK claude --permission-mode bypassPermissions --messaging-socket-path \"$MESSAGING_SOCKET\" --settings \"$WORKDIR/.awf/run-settings.json\""
+  "env -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC -u DISABLE_TELEMETRY -u DO_NOT_TRACK -u DISABLE_GROWTHBOOK CC_SESSION=\"$SESSION\" claude --permission-mode bypassPermissions --messaging-socket-path \"$MESSAGING_SOCKET\" --settings \"$WORKDIR/.awf/run-settings.json\""
 
 # 增大回滚缓冲，避免长会话旧消息被 tmux 截断（capture-pane -S - 依赖它）
 tmux set-option -t "$SESSION" history-limit 100000

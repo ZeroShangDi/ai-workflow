@@ -1,8 +1,7 @@
-import path from 'path';
-import { spawn } from 'child_process';
 import { planEntry } from '../lib/plugin-bridge.js';
 // import { setupVersion } from '../lib/version.js'; // 版本处理暂时禁用
 import { logger } from '../lib/ui/log.js';
+import { launchInteractiveClaude } from '../adapters/interactive.cjs';
 
 /**
  * awf plan — 启动规划会话
@@ -26,24 +25,12 @@ export async function planCommand(description, options) {
 
 // ── plan 专用 helper ──
 
-/** spawn Claude Code 交互式进程 */
-function spawnClaude(cwd, prompt) {
-  return new Promise((resolve, reject) => {
-    logger.info('启动规划会话...');
-    logger.info(`  ${prompt}\n`);
-
-    const proc = spawn('claude', [
-      '--settings', path.join(cwd, '.claude', 'settings.json'),
-      '--dangerously-skip-permissions',
-      prompt,
-    ], { stdio: 'inherit', cwd });
-
-    proc.on('close', (code) => {
-      if (code === 0 || code === null) { logger.success('规划会话结束'); resolve(); }
-      else reject(new Error(`claude 异常退出，code: ${code}`));
-    });
-    proc.on('error', (err) => reject(new Error(`无法启动 claude: ${err.message}`)));
-  });
+/** spawn Claude Code 交互式进程（claude 字面在 interactive adapter，cli 零字面） */
+async function spawnClaude(cwd, prompt) {
+  logger.info('启动规划会话...');
+  logger.info(`  ${prompt}\n`);
+  await launchInteractiveClaude({ cwd, prompt });
+  logger.success('规划会话结束');
 }
 
 // 安装/注册逻辑已迁移至 src/lib/profile.js（本地注册实现）
