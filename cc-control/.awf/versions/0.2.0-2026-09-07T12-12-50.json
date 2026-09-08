@@ -1,0 +1,3263 @@
+{
+  "mode": "run",
+  "currentState": "PLAN",
+  "version": "0.2.0",
+  "milestones": [],
+  "tasks": [
+    {
+      "id": "T1-001",
+      "title": "config-loader 共享模块（默认/env/校验）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-001：建 config-loader 共享模块（默认值合并 + env 覆盖 + 校验）",
+      "wbsRef": "W1-001",
+      "deps": [],
+      "status": "blocked",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "config-loader 共享模块建成（默认值合并 + env 覆盖 + 校验）"
+    },
+    {
+      "id": "T1-002",
+      "title": "render-config 改读 loader",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-002：render-config.mjs 改为读 loader 输出渲染 marketplace/plugin.json/.mcp.json/hooks",
+      "wbsRef": "W1-002",
+      "deps": [
+        "T1-001"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "render-config.mjs 改为读 loader 输出渲染 marketplace/plugin.json/.mcp.json/hooks"
+    },
+    {
+      "id": "T1-003",
+      "title": "运行期常量收敛 config+env（删手工拷贝）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-003：收敛运行期常量（server.cjs/client.js/gateway.cjs/awf-session fallback/MCP AWF_BASE）到 config+env，删手工拷贝",
+      "wbsRef": "W1-003",
+      "deps": [
+        "T1-002"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "运行期常量收敛到 config+env，删除手工拷贝的硬编码(8787/会话名/state 路径等)"
+    },
+    {
+      "id": "T1-004",
+      "title": "config-loader 单测",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-004：config-loader 单测（合并/env 覆盖/校验）",
+      "wbsRef": "W1-004",
+      "deps": [
+        "T1-003"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "config-loader 单测通过（合并/env 覆盖/校验）"
+    },
+    {
+      "id": "T1-005",
+      "title": "run-context 装配器（sid→路径/会话名/settings）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-005：建 run-context 装配器（输入 sid+config → 输出路径/会话名/workdir/settings）",
+      "wbsRef": "W1-005",
+      "deps": [
+        "T1-004"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "run-context 装配器建成（输入 sid+config → 输出路径/会话名/workdir/settings）"
+    },
+    {
+      "id": "T1-006",
+      "title": "server 单例引用→装配器",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-006：替换 server 内单例路径/会话名引用为装配器",
+      "wbsRef": "W1-006",
+      "deps": [
+        "T1-005"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "server 内单例路径/会话名引用已替换为装配器"
+    },
+    {
+      "id": "T1-007",
+      "title": "cli/MCP 单例引用→装配器",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-007：替换 cli/MCP 内单例引用（经 server/client）为装配器",
+      "wbsRef": "W1-007",
+      "deps": [
+        "T1-006"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "cli/MCP 内单例引用（经 server/client）已替换为装配器"
+    },
+    {
+      "id": "T1-008",
+      "title": "装配器单测",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-008：装配器单测",
+      "wbsRef": "W1-008",
+      "deps": [
+        "T1-007"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "装配器单测通过"
+    },
+    {
+      "id": "T1-009",
+      "title": "run-id.js（生成/校验/派生规则）+ 单测",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-009：run-id.js（生成/校验/派生规则）+ 单测",
+      "wbsRef": "W1-009",
+      "deps": [
+        "T1-008"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "run-id.js 生成/校验/派生规则 + 单测通过"
+    },
+    {
+      "id": "T1-010",
+      "title": "state-schema + store 核心（CJS 共享·串行化·原子写）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-010：state-schema 定义 + store 核心（CJS 共享，单写序列化/原子写）",
+      "wbsRef": "W1-010",
+      "deps": [
+        "T1-009"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "state-schema 字段唯一定义 + store 核心（CJS 共享、单写序列化/原子写）建成"
+    },
+    {
+      "id": "T1-011",
+      "title": "ESM 消费壳 + cli 调用点",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-011：ESM 消费壳（cli 用）+ 现有调用点改造（lib/state.js 及引用方）",
+      "wbsRef": "W1-011",
+      "deps": [
+        "T1-010"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "ESM 消费壳建成，cli 现有调用点改造完成"
+    },
+    {
+      "id": "T1-012",
+      "title": "server 重复实现→核心",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-012：server 内重复实现替换为核心（server.cjs 自带读写/锁）",
+      "wbsRef": "W1-012",
+      "deps": [
+        "T1-011"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "server 内重复实现替换为核心（自带读写/锁的段收敛）"
+    },
+    {
+      "id": "T1-013",
+      "title": "awf-state MCP→核心（仍直连文件）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-013：awf-state MCP 替换为核心（本阶段仍直连文件）",
+      "wbsRef": "W1-013",
+      "deps": [
+        "T1-012"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "awf-state MCP 底层替换为共享核心（仍直连文件）"
+    },
+    {
+      "id": "T1-014",
+      "title": "迁移器骨架 + schema 版本",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-014：迁移器骨架 + schema 版本字段（读旧→升新）",
+      "wbsRef": "W1-014",
+      "deps": [
+        "T1-013"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "迁移器骨架 + schema 版本字段建成（读旧→升新）"
+    },
+    {
+      "id": "T1-015",
+      "title": "store/迁移单测",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-015：store 核心/迁移单测",
+      "wbsRef": "W1-015",
+      "deps": [
+        "T1-014"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "store 核心/迁移单测通过"
+    },
+    {
+      "id": "T1-016",
+      "title": "版本对齐（config 单源 + 渲染）+ CHANGELOG 初始化",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-016：版本对齐（config 单源 + 渲染）+ CHANGELOG 初始化 v0.2.0",
+      "wbsRef": "W1-016",
+      "deps": [
+        "T1-015"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/lib/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/"
+      ],
+      "constraints": [],
+      "acceptance": "package/三 plugin/marketplace/state 版本统一 0.2.0，version 入 config 单源，CHANGELOG 立 v0.2.0 段"
+    },
+    {
+      "id": "T2-001",
+      "title": "审查 W2-001 config 单源并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-001：审查 W2-001 范围改动并给 verdict",
+      "wbsRef": "W2-001",
+      "deps": [
+        "T1-004"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-001 config 单源改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-002",
+      "title": "审查 W2-002 装配收口并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-002：审查 W2-002 范围改动并给 verdict",
+      "wbsRef": "W2-002",
+      "deps": [
+        "T1-008"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-002 常量与装配收口改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-004",
+      "title": "审查 W2-004 schema 核心并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-004：审查 W2-004 范围改动并给 verdict",
+      "wbsRef": "W2-004",
+      "deps": [
+        "T1-015"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-004 state schema 单源 + 共享读写核心改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T3-001",
+      "title": "W3-001 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-001：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-001",
+      "deps": [
+        "T1-016"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-017",
+      "title": "store 模块骨架（state/logger/usage/decision/meta/snapshot API）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-017：store 模块骨架（写 API：state/logger/usage/decision/meta/snapshot；读 API；进程内串行化队列）承接 W1-010 核心",
+      "wbsRef": "W1-017",
+      "deps": [
+        "T3-001"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "store 模块骨架建成（写 API：state/logger/usage/decision/meta/snapshot；读 API；进程内串行化队列）承接 W1-010 核心"
+    },
+    {
+      "id": "T1-018",
+      "title": "每 run 布局 .awf/runs/<sid>/",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-018：每 run 文件布局 .awf/runs/<sid>/ + 路径由 run-context(W1-005) 产出",
+      "wbsRef": "W1-018",
+      "deps": [
+        "T1-017"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "每 run 文件布局 .awf/runs/<sid>/ 建立，路径由 run-context 产出"
+    },
+    {
+      "id": "T1-019",
+      "title": "旧布局兼容读 + 完整迁移器",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-019：旧布局兼容读 + 完整迁移器（承接 W1-014）",
+      "wbsRef": "W1-019",
+      "deps": [
+        "T1-018"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "旧 .awf/logs/* / 单 state.json 兼容读 + 完整迁移器（承接 W1-014）"
+    },
+    {
+      "id": "T1-020",
+      "title": "run state 写读收口 store",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-020：run state 写读（settleSubagent/verdict/任务态等原 server.cjs 直写段）→ store.state",
+      "wbsRef": "W1-020",
+      "deps": [
+        "T1-019"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "run state 写读收口 store.state（settleSubagent/verdict/任务态等直写段迁入）"
+    },
+    {
+      "id": "T1-021",
+      "title": "run-logger 归位 store",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-021：run-logger.cjs 逻辑归位 store（转录→运行日志落盘，仍沿用现提取方式）",
+      "wbsRef": "W1-021",
+      "deps": [
+        "T1-020"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "run-logger 逻辑归位 store（转录→运行日志落盘）"
+    },
+    {
+      "id": "T1-022",
+      "title": "decision-store 归位 store",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-022：decision-store 存取归位 store",
+      "wbsRef": "W1-022",
+      "deps": [
+        "T1-021"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "decision-store 存取归位 store"
+    },
+    {
+      "id": "T1-023",
+      "title": "run-meta 归位 store",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-023：run-meta 归位 store",
+      "wbsRef": "W1-023",
+      "deps": [
+        "T1-022"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "run-meta 归位 store"
+    },
+    {
+      "id": "T1-024",
+      "title": "领域日志/usage/metrics 快照落盘管道接口",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-024：领域日志/usage/metrics 快照落盘管道接口（消费 events，供 W3-003/004 接入）",
+      "wbsRef": "W1-024",
+      "deps": [
+        "T1-023"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "领域日志/usage/metrics 快照落盘管道接口建成（消费 events，供 W3-003/004 接入）"
+    },
+    {
+      "id": "T1-025",
+      "title": "store 单测（写/读/串行/迁移/兼容）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-025：store 单测（写/读/串行化/迁移/旧兼容读）",
+      "wbsRef": "W1-025",
+      "deps": [
+        "T1-024"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/store/",
+        ".awf/"
+      ],
+      "constraints": [],
+      "acceptance": "store 单测通过（写/读/串行化/迁移/旧兼容读）"
+    },
+    {
+      "id": "T2-006",
+      "title": "审查 W2-006 store 布局并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-006：审查 W2-006 范围改动并给 verdict",
+      "wbsRef": "W2-006",
+      "deps": [
+        "T1-019"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-006 store 抽离与布局改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-007",
+      "title": "审查 W2-007 持久化收口并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-007：审查 W2-007 范围改动并给 verdict",
+      "wbsRef": "W2-007",
+      "deps": [
+        "T1-024"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-007 各持久化收口改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T3-002",
+      "title": "W3-002 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-002：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-002",
+      "deps": [
+        "T1-025"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-026",
+      "title": "目录/模块骨架 + bootstrap + config 装载",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-026：目录/模块骨架 + bootstrap（boot/优雅关闭/健康）+ config 装载（接 W3-001）",
+      "wbsRef": "W1-026",
+      "deps": [
+        "T3-002"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "server 目录/模块骨架 + bootstrap（boot/优雅关闭/健康）+ config 装载（接 W3-001）建成"
+    },
+    {
+      "id": "T1-027",
+      "title": "api 骨架 + 现有端点迁移",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-027：api 骨架：/api/v1 路由迁移 + 现有端点语义保留（/status /send /respond /hook 等先挂接）行为不变",
+      "wbsRef": "W1-027",
+      "deps": [
+        "T1-026"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "api 骨架建成：/api/v1 路由迁移 + 现有端点语义保留（/status /send /respond /hook 先挂接）行为不变"
+    },
+    {
+      "id": "T1-028",
+      "title": "events 总线 + 首批事件类型",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-028：events 总线 + 首批领域事件类型定义（run/task/agent/hook 映射锚点）",
+      "wbsRef": "W1-028",
+      "deps": [
+        "T1-027"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "events 总线 + 首批领域事件类型定义（run/task/agent/hook 映射锚点）建成"
+    },
+    {
+      "id": "T1-029",
+      "title": "静态托管骨架",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-029：静态托管骨架（现有 html 先按原样从 web 目录迁出前的临时承载）",
+      "wbsRef": "W1-029",
+      "deps": [
+        "T1-028"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "静态托管骨架建成（现有 html 先原样临时承载）"
+    },
+    {
+      "id": "T1-030",
+      "title": "statemachine 迁移（按 sid 实例）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-030：statemachine 迁移（ready/busy/decision-pending/pause/… 单槽→按 sid 实例）",
+      "wbsRef": "W1-030",
+      "deps": [
+        "T1-029"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "statemachine 迁移完成（ready/busy/decision-pending/pause 单槽→按 sid 实例）"
+    },
+    {
+      "id": "T1-031",
+      "title": "hook→事件翻译接缝（cc 最小）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-031：hook→事件翻译接缝：/hook 收口为 adapter.hook 调用 + 领域事件上抛（cc 细节最小承接）",
+      "wbsRef": "W1-031",
+      "deps": [
+        "T1-030"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "hook→事件翻译接缝建成：/hook 收口为 adapter.hook 调用 + 领域事件上抛（cc 最小承接）"
+    },
+    {
+      "id": "T1-032",
+      "title": "decision-gate 归位",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-032：decision-gate 逻辑归位（决策拦截/记录/override 现 server.cjs 段）",
+      "wbsRef": "W1-032",
+      "deps": [
+        "T1-031"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "decision-gate 逻辑归位（决策拦截/记录/override 现 server.cjs 段迁入 run 域）"
+    },
+    {
+      "id": "T1-033",
+      "title": "interact/context-ready/await + handoff 归位",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-033：interact/context-ready/await 逻辑归位 + handoff（上下文接力）",
+      "wbsRef": "W1-033",
+      "deps": [
+        "T1-032"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "interact/context-ready/await 逻辑归位 + handoff（上下文接力）完成"
+    },
+    {
+      "id": "T1-034",
+      "title": "gates 门禁闭环归位 + diagnosis 归位",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-034：gates 门禁闭环归位（verdict→修复派生，现 gate-fix/落账段）+ diagnosis 归位",
+      "wbsRef": "W1-034",
+      "deps": [
+        "T1-033"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "gates 门禁闭环归位（verdict→修复派生，现 gate-fix/落账段）+ diagnosis 归位完成"
+    },
+    {
+      "id": "T1-035",
+      "title": "单 agent 阶段链 → run/driver",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-035：单 agent 阶段链迁入 run/driver（阶段序/复杂度/prompt 经 oneshot 端口）",
+      "wbsRef": "W1-035",
+      "deps": [
+        "T1-034"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "单 agent 阶段链迁入 run/driver（阶段序/复杂度/prompt 经 oneshot 端口，模板仍 plugin/prompts.json）"
+    },
+    {
+      "id": "T1-036",
+      "title": "多 agent 滑动窗口 → run/scheduler+driver",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-036：多 agent 滑动窗口迁入 run/scheduler + driver（就绪池/配额/冲突/补位）",
+      "wbsRef": "W1-036",
+      "deps": [
+        "T1-035"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "多 agent 滑动窗口迁入 run/scheduler + driver（就绪池/配额/冲突/补位，scheduler.js 纯逻辑迁入）"
+    },
+    {
+      "id": "T1-037",
+      "title": "门禁触发链入 driver",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-037：门禁闭环触发链入 driver（任务完成→verdict 处理→派生，配合 gates）",
+      "wbsRef": "W1-037",
+      "deps": [
+        "T1-036"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "门禁闭环触发链入 driver（任务完成→verdict 处理→派生，配合 gates）"
+    },
+    {
+      "id": "T1-038",
+      "title": "cli 由司机改\"提交+订阅+应答\"形态",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-038：cli 由\"司机\"改为\"提交+订阅+应答\"的调用形态（薄化本体在 W3-005）",
+      "wbsRef": "W1-038",
+      "deps": [
+        "T1-037"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "cli 由\"司机\"改为\"提交+订阅+应答\"的调用形态（薄化本体在 W3-005）"
+    },
+    {
+      "id": "T1-039",
+      "title": "host 基座上提（tmux→server/host cc-<sid>）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-039：host 基座上提（tmux 原语 tmux.cjs → server/host，按会话名 cc-<sid>）",
+      "wbsRef": "W1-039",
+      "deps": [
+        "T1-038"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "host 基座上提（tmux 原语 tmux.cjs → server/host，按会话名 cc-<sid>）"
+    },
+    {
+      "id": "T1-040",
+      "title": "adapters/ports + cc 最小实现（host/hook）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-040：adapters/ports.js 契约 + cc 最小实现（host/hook 两端口先可跑；完整收口 W3-004）",
+      "wbsRef": "W1-040",
+      "deps": [
+        "T1-039"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "adapters/ports.js 契约 + cc 最小实现（host/hook 两端口先可跑；完整收口 W3-004）"
+    },
+    {
+      "id": "T1-041",
+      "title": "集成测试适配 + 单 run 全流程冒烟",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-041：集成测试适配 + 单 run 全流程冒烟（单/多 agent、决策、门禁各走一遍）",
+      "wbsRef": "W1-041",
+      "deps": [
+        "T1-040"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/run*.js",
+        "src/cli/scheduler.js",
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "集成测试适配 + 单 run 全流程冒烟（单/多 agent、决策、门禁各走一遍）通过"
+    },
+    {
+      "id": "T2-009",
+      "title": "审查 W2-009 结构骨架并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-009：审查 W2-009 范围改动并给 verdict",
+      "wbsRef": "W2-009",
+      "deps": [
+        "T1-029"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-009 分层结构与进程骨架改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-010",
+      "title": "审查 W2-010 run 域归位并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-010：审查 W2-010 范围改动并给 verdict",
+      "wbsRef": "W2-010",
+      "deps": [
+        "T1-034"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-010 run 域逻辑归位改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-011",
+      "title": "审查 W2-011 编排迁入并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-011：审查 W2-011 范围改动并给 verdict",
+      "wbsRef": "W2-011",
+      "deps": [
+        "T1-038"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-011 编排迁入（cli→server）改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-012",
+      "title": "审查 W2-012 host/adapters 接缝并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-012：审查 W2-012 范围改动并给 verdict",
+      "wbsRef": "W2-012",
+      "deps": [
+        "T1-040"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-012 host/adapters 接缝改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T3-003",
+      "title": "W3-003 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-003：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-003",
+      "deps": [
+        "T1-041"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-042",
+      "title": "ports.js 7 端口定稿 + mock 夹具",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-042：adapters/ports.js 定稿（7 端口接口 + 文档）+ mock adapter 测试夹具",
+      "wbsRef": "W1-042",
+      "deps": [
+        "T3-003"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "adapters/ports.js 定稿（7 端口接口 + 文档）+ mock adapter 测试夹具建成"
+    },
+    {
+      "id": "T1-043",
+      "title": "claude 会话启动迁入 cc/host",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-043：claude 会话启动迁入（bootstrap.sh/run.js 的命令行、settings 渲染、权限模式）→ cc/host，经 server/host(tmux)",
+      "wbsRef": "W1-043",
+      "deps": [
+        "T1-042"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "claude 会话启动迁入 cc/host（bootstrap.sh/run.js 命令行、settings 渲染、权限模式经 host）"
+    },
+    {
+      "id": "T1-044",
+      "title": "run 专用 settings 生成归 cc",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-044：writeRunSettings/run 专用 settings 生成归 cc（statusLine/crossSessionInbound 等 cc 格式）",
+      "wbsRef": "W1-044",
+      "deps": [
+        "T1-043"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "writeRunSettings/run 专用 settings 生成归 cc（statusLine/crossSessionInbound 等 cc 格式）"
+    },
+    {
+      "id": "T1-045",
+      "title": "cli 直拼 claude 移除",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-045：cli 直拼 claude 移除（plan 交互→interactive；attach/会话控制经 host）",
+      "wbsRef": "W1-045",
+      "deps": [
+        "T1-044"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "cli 直拼 claude 移除（plan 交互→interactive；attach/会话控制经 host）"
+    },
+    {
+      "id": "T1-046",
+      "title": "hook payload→事件翻译完整",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-046：hook payload→领域事件翻译完整（server.cjs /hook 各 cc 字段段迁入）",
+      "wbsRef": "W1-046",
+      "deps": [
+        "T1-045"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "hook payload→领域事件翻译完整（server.cjs /hook 各 cc 字段段迁入）"
+    },
+    {
+      "id": "T1-047",
+      "title": "cc 回写形状归 cc",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-047：cc 回写形状归 cc（ccOutput/{decision:block}/permissionDecision/AskUserQuestion 处理）",
+      "wbsRef": "W1-047",
+      "deps": [
+        "T1-046"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "cc 回写形状归 cc（ccOutput/{decision:block}/permissionDecision/AskUserQuestion 处理迁入）"
+    },
+    {
+      "id": "T1-048",
+      "title": "extract：RESULT/NEEDS_INPUT/transcript/usage 迁入",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-048：extract：RESULT/NEEDS_INPUT/transcript/usage/metrics 提取迁入（自 server.cjs/run-logger/run-metrics）",
+      "wbsRef": "W1-048",
+      "deps": [
+        "T1-047"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "extract：RESULT/NEEDS_INPUT/transcript/usage/metrics 提取迁入（自 server.cjs/run-logger/run-metrics）"
+    },
+    {
+      "id": "T1-049",
+      "title": "claude -p 收口 → server /oneshot → adapter.oneshot",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-049：claude -p 收口 → server /oneshot → adapter.oneshot（自 run-diagnosis/awf-oneshot/plan-check·wbs·tasks 等）",
+      "wbsRef": "W1-049",
+      "deps": [
+        "T1-048"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "claude -p 收口 → server /oneshot → adapter.oneshot（自 run-diagnosis/awf-oneshot/plan-check·wbs·tasks 等）"
+    },
+    {
+      "id": "T1-050",
+      "title": "tooling（plugin 安装/市场）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-050：tooling：plugin 安装/市场运维迁入（cli/plugin.js 的 claude plugin 调用）",
+      "wbsRef": "W1-050",
+      "deps": [
+        "T1-049"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "tooling：plugin 安装/市场运维迁入（cli/plugin.js 的 claude plugin 调用经端口）"
+    },
+    {
+      "id": "T1-051",
+      "title": "interactive（plan 交互交付）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-051：interactive：plan 交互对话经端口（终端直开 cc 的交付收口）",
+      "wbsRef": "W1-051",
+      "deps": [
+        "T1-050"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "interactive：plan 交互对话经端口（终端直开 cc 的交付收口）"
+    },
+    {
+      "id": "T1-052",
+      "title": "probe（w-monitor 侦查）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-052：probe：w-monitor 外部会话侦查经端口",
+      "wbsRef": "W1-052",
+      "deps": [
+        "T1-051"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "probe：w-monitor 外部会话侦查经端口"
+    },
+    {
+      "id": "T1-053",
+      "title": "移除 cli/server/MCP cc 字面与路径",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-053：移除 cli/server/MCP 残留 cc 命令字面与路径（改经端口）",
+      "wbsRef": "W1-053",
+      "deps": [
+        "T1-052"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "移除 cli/server/MCP 残留 cc 命令字面与路径（改经端口）"
+    },
+    {
+      "id": "T1-054",
+      "title": "U5 skills 措辞粗略扫（低优先）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-054：U5 粗略扫 skills/命令文本 cc 措辞（低优先级，标注即可，不彻底改）",
+      "wbsRef": "W1-054",
+      "deps": [
+        "T1-053"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "U5 粗略扫 skills/命令文本 cc 措辞（低优先级，标注即可，不彻底改）"
+    },
+    {
+      "id": "T1-055",
+      "title": "mock 单测全绿 + cc 冒烟",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-055：mock adapter 单测全绿 + cc 冒烟（host/hook/oneshot/install/probe/plan 交互各一走）",
+      "wbsRef": "W1-055",
+      "deps": [
+        "T1-054"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/adapters/",
+        "plugin/core/mcp/awf-oneshot/",
+        "src/lib/run-diagnosis.cjs",
+        "src/cli/",
+        "src/server/run-logger.cjs",
+        "src/server/run-metrics.cjs"
+      ],
+      "constraints": [],
+      "acceptance": "mock adapter 单测全绿 + cc 冒烟（host/hook/oneshot/install/probe/plan 交互各一走）"
+    },
+    {
+      "id": "T2-014",
+      "title": "审查 W2-014 ports 契约并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-014：审查 W2-014 范围改动并给 verdict",
+      "wbsRef": "W2-014",
+      "deps": [
+        "T1-042"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-014 ports 契约改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-015",
+      "title": "审查 W2-015 cc host 并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-015：审查 W2-015 范围改动并给 verdict",
+      "wbsRef": "W2-015",
+      "deps": [
+        "T1-045"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-015 cc host 改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-016",
+      "title": "审查 W2-016 cc hook+extract 并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-016：审查 W2-016 范围改动并给 verdict",
+      "wbsRef": "W2-016",
+      "deps": [
+        "T1-048"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-016 cc hook + extract 改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-018",
+      "title": "审查 W2-018 tooling/interactive/probe 并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-018：审查 W2-018 范围改动并给 verdict",
+      "wbsRef": "W2-018",
+      "deps": [
+        "T1-052"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-018 tooling/interactive/probe 改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T3-004",
+      "title": "W3-004 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-004：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-004",
+      "deps": [
+        "T1-055"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-056",
+      "title": "client（/api + WS 订阅）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-056：client：/api 调用封装 + WS 事件订阅（替代 session/client.js 硬编码端口/端点）",
+      "wbsRef": "W1-056",
+      "deps": [
+        "T3-004"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "client 建成：/api 调用封装 + WS 事件订阅（替代 session/client.js 硬编码端口/端点）"
+    },
+    {
+      "id": "T1-057",
+      "title": "移除端口/端点/决策形状硬编码",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-057：移除 client 对 8787/固定端点/单 run 决策形状的硬编码（接 config + sid）",
+      "wbsRef": "W1-057",
+      "deps": [
+        "T1-056"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "移除 client 对 8787/固定端点/单 run 决策形状的硬编码（接 config + sid）"
+    },
+    {
+      "id": "T1-058",
+      "title": "run.js 改提交/订阅/应答",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-058：run.js 改为：提交 run→订阅事件展示→人机应答中继→收尾；编排逻辑(已迁 W3-003)移除",
+      "wbsRef": "W1-058",
+      "deps": [
+        "T1-057"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "run.js 改为：提交 run→订阅事件展示→人机应答中继→收尾；编排逻辑(已迁 W3-003)移除"
+    },
+    {
+      "id": "T1-059",
+      "title": "--resume/--attach 重连",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-059：--resume/--attach 重连（读 store 落盘状态续接）",
+      "wbsRef": "W1-059",
+      "deps": [
+        "T1-058"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "--resume/--attach 重连（读 store 落盘状态续接）"
+    },
+    {
+      "id": "T1-060",
+      "title": "attach/follow 终端跟随",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-060：attach/follow 终端跟随展示",
+      "wbsRef": "W1-060",
+      "deps": [
+        "T1-059"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "attach/follow 终端跟随展示完成"
+    },
+    {
+      "id": "T1-061",
+      "title": "cli 调度写 → server run api",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-061：cli 侧 state 写（调度/门禁派生等剩余直写）改经 server run api",
+      "wbsRef": "W1-061",
+      "deps": [
+        "T1-060"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "cli 侧 state 写（调度/门禁派生等剩余直写）改经 server run api"
+    },
+    {
+      "id": "T1-062",
+      "title": "lib/state.js 写侧下线；读经 client",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-062：cli 侧直写路径/读路径清理（lib/state.js 写侧下线；读经 client 快照）",
+      "wbsRef": "W1-062",
+      "deps": [
+        "T1-061"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "cli 侧直写路径/读路径清理（lib/state.js 写侧下线；读经 client 快照）"
+    },
+    {
+      "id": "T1-063",
+      "title": "ensureServer 复用（去 kill-by-port，含 plan 期）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-063：ensureServer 存在即复用（去 kill-by-port；含 plan 期拉起）",
+      "wbsRef": "W1-063",
+      "deps": [
+        "T1-062"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "ensureServer 存在即复用（去 kill-by-port；含 plan 期拉起）"
+    },
+    {
+      "id": "T1-064",
+      "title": "空闲回收 + server stop；run 结束不关",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-064：空闲超时回收 + awf server stop；run 结束不关 server",
+      "wbsRef": "W1-064",
+      "deps": [
+        "T1-063"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "空闲超时回收 + awf server stop；run 结束不关 server"
+    },
+    {
+      "id": "T1-065",
+      "title": "messaging/inbox 删除",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-065：messaging/inbox 死代码删除（crossSession 降级已定）",
+      "wbsRef": "W1-065",
+      "deps": [
+        "T1-064"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "messaging/inbox 死代码删除（crossSession 降级已定）"
+    },
+    {
+      "id": "T1-066",
+      "title": "open tree CLI 渲染→web",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-066：open tree CLI 渲染移除 → 指向 web WBS-Tree 视图",
+      "wbsRef": "W1-066",
+      "deps": [
+        "T1-065"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "open tree CLI 渲染移除 → 指向 web WBS-Tree 视图"
+    },
+    {
+      "id": "T1-067",
+      "title": "命令面测试绿 + 单写者/常驻/attach 冒烟",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-067：cli 薄化后命令面测试绿 + 单写者冒烟（server 唯一写）+ 常驻/回收/attach 冒烟",
+      "wbsRef": "W1-067",
+      "deps": [
+        "T1-066"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/",
+        "src/lib/",
+        "src/server/bootstrap*"
+      ],
+      "constraints": [],
+      "acceptance": "cli 薄化后命令面测试绿 + 单写者冒烟（server 唯一写）+ 常驻/回收/attach 冒烟"
+    },
+    {
+      "id": "T2-021",
+      "title": "审查 W2-021 client 并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-021：审查 W2-021 范围改动并给 verdict",
+      "wbsRef": "W2-021",
+      "deps": [
+        "T1-057"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-021 server client 改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-022",
+      "title": "审查 W2-022 cli run 薄化并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-022：审查 W2-022 范围改动并给 verdict",
+      "wbsRef": "W2-022",
+      "deps": [
+        "T1-060"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-022 cli run 薄化改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-023",
+      "title": "审查 W2-023 写者收口并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-023：审查 W2-023 范围改动并给 verdict",
+      "wbsRef": "W2-023",
+      "deps": [
+        "T1-062"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-023 写者收口改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T3-005",
+      "title": "W3-005 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-005：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-005",
+      "deps": [
+        "T2-023",
+        "T1-104"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-068",
+      "title": "registry 多槽 + per-run adapter 绑定 + context 多实例",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-068：registry 多槽 + per-run adapter 绑定 + run-context 多实例（W1-005 装配器按 sid 真正多开）",
+      "wbsRef": "W1-068",
+      "deps": [
+        "T3-005"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "registry 多槽 + per-run adapter 绑定 + run-context 多实例（W1-005 装配器按 sid 真正多开）"
+    },
+    {
+      "id": "T1-069",
+      "title": "tmux/sock/目录按 sid 命名",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-069：tmux/messaging/sock/目录按 cc-<sid>/<sid>.sock 命名接入",
+      "wbsRef": "W1-069",
+      "deps": [
+        "T1-068"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "tmux/messaging/sock/目录按 cc-<sid>/<sid>.sock 命名接入"
+    },
+    {
+      "id": "T1-070",
+      "title": "per-run settings 渲染 __SID__ + gateway 透传",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-070：每 run settings 渲染 __SID__（bootstrap/run-settings 生成归 cc）+ gateway 透传 sid",
+      "wbsRef": "W1-070",
+      "deps": [
+        "T1-069"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "每 run settings 渲染 __SID__（bootstrap/run-settings 生成归 cc）+ gateway 透传 sid"
+    },
+    {
+      "id": "T1-071",
+      "title": "server /hook 按 sid 路由 + 状态机隔离",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-071：server /hook 按 sid 路由到 run 槽；内存状态机按 sid 隔离（ready/busy/decision 不串 run）",
+      "wbsRef": "W1-071",
+      "deps": [
+        "T1-070"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "server /hook 按 sid 路由到 run 槽；内存状态机按 sid 隔离（ready/busy/decision 不串 run）"
+    },
+    {
+      "id": "T1-072",
+      "title": "各 run 独立目录；runStamp→sid 归一",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-072：各 run 独立 state/logs/metrics/decisions 目录（承接 W3-002 布局）；runStamp→sid 归一，决策/日志不串 run",
+      "wbsRef": "W1-072",
+      "deps": [
+        "T1-071"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "各 run 独立 state/logs/metrics/decisions 目录（承接 W3-002 布局）；runStamp→sid 归一，决策/日志不串 run"
+    },
+    {
+      "id": "T1-073",
+      "title": "client 带 sid；driver 注册取 sid；attach 指定 run",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-073：client 带 sid；run driver 注册 run 取 sid；attach 指定 run",
+      "wbsRef": "W1-073",
+      "deps": [
+        "T1-072"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "client 带 sid；run driver 注册 run 取 sid；attach 指定 run"
+    },
+    {
+      "id": "T1-074",
+      "title": "前端 ?sid 视图",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-074：前端 ?sid 路由视图（多 run 简单列表壳）",
+      "wbsRef": "W1-074",
+      "deps": [
+        "T1-073"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "前端 ?sid 路由视图（多 run 简单列表壳）"
+    },
+    {
+      "id": "T1-075",
+      "title": "同机两独立项目并发 run 冒烟",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-075：同机两独立项目并发 run 冒烟（各自 .awf/settings/workdir）：不互杀、hook 路由正确、隔离成立、registry 列两 run",
+      "wbsRef": "W1-075",
+      "deps": [
+        "T1-074"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "同机两独立项目并发 run 冒烟（各自 .awf/settings/workdir）：不互杀、hook 路由正确、隔离成立、registry 列两 run"
+    },
+    {
+      "id": "T1-076",
+      "title": "双 run 冒烟全过 + 归属断言",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-076：双 run 并发冒烟全过 + 单/双 run 状态/日志/决策归属断言",
+      "wbsRef": "W1-076",
+      "deps": [
+        "T1-075"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/server/",
+        "src/cli/",
+        "plugin/core/hooks/",
+        "scripts/bootstrap.sh"
+      ],
+      "constraints": [],
+      "acceptance": "双 run 并发冒烟全过 + 单/双 run 状态/日志/决策归属断言"
+    },
+    {
+      "id": "T2-028",
+      "title": "审查 W2-028 hook 反向路由并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-028：审查 W2-028 范围改动并给 verdict",
+      "wbsRef": "W2-028",
+      "deps": [
+        "T1-071"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-028 hook 反向路由改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T3-006",
+      "title": "W3-006 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-006：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-006",
+      "deps": [
+        "T1-076"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-077",
+      "title": "awf-state 18 tools → server run api（带 sid）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-077：awf-state 18 tools 语义保留，底层改经 server run api（带 sid env）；直写文件/锁逻辑下线",
+      "wbsRef": "W1-077",
+      "deps": [
+        "T3-006"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "awf-state 18 tools 语义保留，底层改经 server run api（带 sid env）；直写文件/锁逻辑下线"
+    },
+    {
+      "id": "T1-078",
+      "title": "MCP 代理边界校验（软约束 U3）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-078：MCP 代理鉴权/边界：只碰本 sid run（软约束，U3）",
+      "wbsRef": "W1-078",
+      "deps": [
+        "T1-077"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "MCP 代理鉴权/边界：只碰本 sid run（软约束，U3）"
+    },
+    {
+      "id": "T1-079",
+      "title": "awf-session 全经 server（+sid）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-079：awf-session 全经 server（+sid）；capture 经 host 端口",
+      "wbsRef": "W1-079",
+      "deps": [
+        "T1-078"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "awf-session 全经 server（+sid）；capture 经 host 端口"
+    },
+    {
+      "id": "T1-080",
+      "title": "awf-oneshot 经 /oneshot",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-080：awf-oneshot 经 server /oneshot（直连 spawn claude 下线）",
+      "wbsRef": "W1-080",
+      "deps": [
+        "T1-079"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "awf-oneshot 经 server /oneshot（直连 spawn claude 下线）"
+    },
+    {
+      "id": "T1-081",
+      "title": "config 扩展（任意插件 mcp/hooks）+ render 改输出",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-081：config 单源扩展：任意插件可声明自身 mcp/hooks（engineDir-only 取消）+ render 改输出",
+      "wbsRef": "W1-081",
+      "deps": [
+        "T1-080"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "config 单源扩展：任意插件可声明自身 mcp/hooks（engineDir-only 取消）+ render 改输出"
+    },
+    {
+      "id": "T1-082",
+      "title": "settings 本仓段渲染 + 根 .mcp.json 消除 + figma 手工层",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-082：settings.json 本仓段改由 config 渲染产物；根 .mcp.json 消除；figma 等第三方留手工合并层",
+      "wbsRef": "W1-082",
+      "deps": [
+        "T1-081"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "settings.json 本仓段改由 config 渲染产物；根 .mcp.json 消除；figma 等第三方留手工合并层"
+    },
+    {
+      "id": "T1-083",
+      "title": "命令/skill 描述去实现字面",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-083：命令/skill 描述去\"运行实现字面\"（引用行为语义；低强度，接 U5 粗略档）",
+      "wbsRef": "W1-083",
+      "deps": [
+        "T1-082"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "命令/skill 描述去\"运行实现字面\"（引用行为语义；低强度，接 U5 粗略档）"
+    },
+    {
+      "id": "T1-084",
+      "title": "MCP 全链路 + 注册渲染单测 + plugin 测试绿",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-084：MCP 全链路（主会话写状态/oneshot/await）+ 注册/渲染单测 + plugin 测试适配绿",
+      "wbsRef": "W1-084",
+      "deps": [
+        "T1-083"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "plugin/core/mcp/",
+        "plugin/config.json",
+        "plugin/settings.json",
+        "scripts/render-config.mjs"
+      ],
+      "constraints": [],
+      "acceptance": "MCP 全链路（主会话写状态/oneshot/await）+ 注册/渲染单测 + plugin 测试适配绿"
+    },
+    {
+      "id": "T2-033",
+      "title": "审查 W2-033 MCP state 代理并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-033：审查 W2-033 范围改动并给 verdict",
+      "wbsRef": "W2-033",
+      "deps": [
+        "T1-078"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-033 MCP 薄代理 state 改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T2-035",
+      "title": "审查 W2-035 注册渲染单源并给 verdict",
+      "kind": "review",
+      "prompt": "执行 /ai-workflow-code:w-review T2-035：审查 W2-035 范围改动并给 verdict",
+      "wbsRef": "W2-035",
+      "deps": [
+        "T1-082"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "审查 W2-035 注册与渲染单源改动，输出 pass/changes_requested verdict"
+    },
+    {
+      "id": "T3-007",
+      "title": "W3-007 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-007：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-007",
+      "deps": [
+        "T1-084"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-085",
+      "title": "web/ 初始化（Vite+React）+ api client(ws, sid)",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-085：web/ 初始化（Vite+React+lint）+ api client（http+ws 封装，带 sid）",
+      "wbsRef": "W1-085",
+      "deps": [
+        "T3-007"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "web/ 初始化（Vite+React+lint）+ api client（http+ws 封装，带 sid）"
+    },
+    {
+      "id": "T1-086",
+      "title": "主题/共享组件库",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-086：主题/共享组件库（抽 4 html 公共的 CSS 变量/esc/format/task 列表等）",
+      "wbsRef": "W1-086",
+      "deps": [
+        "T1-085"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "主题/共享组件库建成（抽 4 html 公共的 CSS 变量/esc/format/task 列表等）"
+    },
+    {
+      "id": "T1-087",
+      "title": "Dashboard 迁移",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-087：Dashboard 迁移（run 总览/任务列表/阶段/指标/send·respond·stop/启停，经 server api + WS）",
+      "wbsRef": "W1-087",
+      "deps": [
+        "T1-086"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "Dashboard 迁移：run 总览/任务列表/阶段/指标/send·respond·stop/启停（经 server api + WS）"
+    },
+    {
+      "id": "T1-088",
+      "title": "Decisions 迁移",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-088：Decisions 迁移（决策列表/Review/override，api + WS 更新）",
+      "wbsRef": "W1-088",
+      "deps": [
+        "T1-087"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "Decisions 迁移：决策列表/Review/override（api + WS 更新）"
+    },
+    {
+      "id": "T1-089",
+      "title": "Diagnostics 迁移",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-089：Diagnostics 迁移（诊断触发/展示）",
+      "wbsRef": "W1-089",
+      "deps": [
+        "T1-088"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "Diagnostics 迁移（诊断触发/展示）"
+    },
+    {
+      "id": "T1-090",
+      "title": "WBS-Tree 独立视图",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-090：WBS-Tree 独立视图组件（替代 open tree CLI 渲染）",
+      "wbsRef": "W1-090",
+      "deps": [
+        "T1-089"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "WBS-Tree 独立视图组件（替代 open tree CLI 渲染）"
+    },
+    {
+      "id": "T1-091",
+      "title": "轮询→事件订阅",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-091：轮询→事件订阅（task.done/decision.required/run 状态推送刷新）",
+      "wbsRef": "W1-091",
+      "deps": [
+        "T1-090"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "轮询→事件订阅（task.done/decision.required/run 状态推送刷新）"
+    },
+    {
+      "id": "T1-092",
+      "title": "?sid 路由 + 多 run 列表壳",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-092：?sid 路由视图 + 多 run 简单列表壳",
+      "wbsRef": "W1-092",
+      "deps": [
+        "T1-091"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "?sid 路由视图 + 多 run 简单列表壳"
+    },
+    {
+      "id": "T1-093",
+      "title": "build→server/public + dev 代理",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-093：build→server/public 静态托管 + dev 代理 /api+WS",
+      "wbsRef": "W1-093",
+      "deps": [
+        "T1-092"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "build→server/public 静态托管 + dev 代理 /api+WS"
+    },
+    {
+      "id": "T1-094",
+      "title": "ui.html 废弃",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-094：ui.html 废弃删除",
+      "wbsRef": "W1-094",
+      "deps": [
+        "T1-093"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "web/",
+        "src/server/public/",
+        "src/server/ui.html",
+        "src/cli/open.js"
+      ],
+      "constraints": [],
+      "acceptance": "ui.html 废弃删除"
+    },
+    {
+      "id": "T3-008",
+      "title": "W3-008 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-008：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-008",
+      "deps": [
+        "T1-094"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-095",
+      "title": "unit/integration → 新结构",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-095：unit/integration 改指向新结构（server client mock/事件路由/store 路径）",
+      "wbsRef": "W1-095",
+      "deps": [
+        "T3-008"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "unit/integration 改指向新结构（server client mock/事件路由/store 路径）"
+    },
+    {
+      "id": "T1-096",
+      "title": "adapter/store/迁移/config/装配/run-id/client/sid 单测",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-096：adapter mock 测试、store/迁移/config/装配/run-id/client/sid 路由单测",
+      "wbsRef": "W1-096",
+      "deps": [
+        "T1-095"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "adapter mock 测试、store/迁移/config/装配/run-id/client/sid 路由单测补齐"
+    },
+    {
+      "id": "T1-097",
+      "title": "前端 api/ws 单测",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-097：前端 api/ws 层单测",
+      "wbsRef": "W1-097",
+      "deps": [
+        "T1-096"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "前端 api/ws 层单测补齐"
+    },
+    {
+      "id": "T1-098",
+      "title": "真 run 全流程回归（含双 run）",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-098：沙箱/独立项目跑真 run 全流程（plan→run 单/多 agent 决策·门禁）经新链路回归（含 W3-006 双 run 回归）",
+      "wbsRef": "W1-098",
+      "deps": [
+        "T1-097"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "沙箱/独立项目跑真 run 全流程（plan→run 单/多 agent 决策·门禁）经新链路回归（含 W3-006 双 run 回归）"
+    },
+    {
+      "id": "T1-099",
+      "title": "纪律入 review checklist + code-architecture 应用到 gate",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-099：架构纪律（依赖单向/隔离/事件 schema 版本）写入 review checklist + code-architecture 对照应用到各模块 gate",
+      "wbsRef": "W1-099",
+      "deps": [
+        "T1-098"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "tests/"
+      ],
+      "constraints": [],
+      "acceptance": "架构纪律（依赖单向/隔离/事件 schema 版本）写入 review checklist + code-architecture 对照应用到各模块 gate"
+    },
+    {
+      "id": "T3-009",
+      "title": "W3-009 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-009：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-009",
+      "deps": [
+        "T1-099"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T1-100",
+      "title": "受影响功能/新能力文档更新",
+      "kind": "doc",
+      "prompt": "执行 /ai-workflow-code:w-doc T1-100：受影响功能文档更新 + 新能力文档（store/adapters/run 域/metrics/events/api）",
+      "wbsRef": "W1-100",
+      "deps": [
+        "T3-009"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "docs/"
+      ],
+      "constraints": [],
+      "acceptance": "受影响功能文档更新（server/run/state/hooks/decision/oneshot/tmux/plan/init/cli-aux 按实际改动）+ 新能力文档（store/adapters/run 域/metrics/events/api）"
+    },
+    {
+      "id": "T1-101",
+      "title": "架构终稿入 docs/discuss",
+      "kind": "doc",
+      "prompt": "执行 /ai-workflow-code:w-doc T1-101：架构终稿 v4 入 docs/discuss（纪律文字化/组织图/功能映射/决策归档）",
+      "wbsRef": "W1-101",
+      "deps": [
+        "T1-100"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "docs/"
+      ],
+      "constraints": [],
+      "acceptance": "架构终稿 v4 入 docs/discuss（纪律文字化/组织图/功能映射/决策归档：final-v4 与 function-map 收敛为正式架构文档）"
+    },
+    {
+      "id": "T1-102",
+      "title": "CHANGELOG v0.2.0 + scripts 核对",
+      "kind": "doc",
+      "prompt": "执行 /ai-workflow-code:w-doc T1-102：CHANGELOG v0.2.0 段 + 版本/scripts（lint/build/test/eval）核对收口",
+      "wbsRef": "W1-102",
+      "deps": [
+        "T1-101"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "docs/"
+      ],
+      "constraints": [],
+      "acceptance": "CHANGELOG v0.2.0 段 + 版本/scripts（lint/build/test/eval）核对收口"
+    },
+    {
+      "id": "T1-103",
+      "title": "元实验复盘留档",
+      "kind": "doc",
+      "prompt": "执行 /ai-workflow-code:w-doc T1-103：复盘记录：AI 重构卡点/边界决策/验证结论 → docs/discuss + 决策记忆",
+      "wbsRef": "W1-103",
+      "deps": [
+        "T1-102"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "docs/"
+      ],
+      "constraints": [],
+      "acceptance": "复盘记录落盘：AI 重构卡点/边界决策/验证结论 → docs/discuss + 决策记忆"
+    },
+    {
+      "id": "T3-010",
+      "title": "W3-010 模块测试门禁",
+      "kind": "test",
+      "prompt": "执行 /ai-workflow-code:w-test T3-010：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
+      "wbsRef": "W3-010",
+      "deps": [
+        "T1-103"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
+    },
+    {
+      "id": "T4-001",
+      "title": "项目文档完整性核对门禁",
+      "kind": "doc",
+      "prompt": "执行 /ai-workflow-code:w-doc T4-001：项目文档完整性核对",
+      "wbsRef": "W4-001",
+      "deps": [
+        "T3-010"
+      ],
+      "status": "pending",
+      "plannedFiles": [],
+      "constraints": [],
+      "acceptance": "项目五类文档完整性核对通过（doc 门禁 verdict pass）"
+    },
+    {
+      "id": "T1-104",
+      "title": "plan 启动重置 state + 旧内容归档历史",
+      "kind": "dev",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-104：awf plan 启动时检测非空旧 state → 自动归档 .awf/versions/state-&lt;ts&gt;.json 并重置为空 plan 模板；run 模式不触发。",
+      "wbsRef": "W1-104",
+      "deps": [
+        "T1-067"
+      ],
+      "status": "pending",
+      "plannedFiles": [
+        "src/cli/plan.js",
+        "src/lib/state.js",
+        "src/lib/paths.js",
+        "src/templates/",
+        ".awf/versions/"
+      ],
+      "constraints": [],
+      "acceptance": "带残留 state 起新 plan 先归档后重置；空 state 不重复归档；awf run 读态不受影响；有单测。"
+    }
+  ],
+  "wbs": [
+    {
+      "id": "W4-001",
+      "name": "AWF 架构重构 v0.2.0（全量一次性）",
+      "desc": "AWF 架构重构 v0.2.0（全量一次性）：server 收敛为常驻控制平面、cli 薄化、前端 web 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。模块链 W3-001→002→003→004→005→006，W3-007/008 分支，W3-009 贯穿，W3-010 收尾。",
+      "deps": []
+    },
+    {
+      "id": "W3-001",
+      "name": "地基（行为不变底座）",
+      "desc": "交付\"行为不变的底座\"：配置单一真源、常量/路径/装配收口、sid 原语、state schema 单源版本化与共享读写核心、版本统一。所有上层模块以此为依赖。",
+      "deps": []
+    },
+    {
+      "id": "W3-002",
+      "name": "store 单写者数据层",
+      "desc": "在 server 内把全部持久化收进 store 纯数据模块：run state、运行日志、usage、decision、run-meta、metrics 快照；数据按 run 目录布局 .awf/runs/<sid>/；旧布局兼容读 + 完整迁移器。",
+      "deps": []
+    },
+    {
+      "id": "W3-003",
+      "name": "server 控制平面分层 + run 域 + 编排迁入",
+      "desc": "server.cjs 拆为 bootstrap/api/events/config/host + run 域子模块 + adapters + diagnosis/metrics；把 cli 中单/多 agent 编排逻辑迁入 run/driver+scheduler；按单 run(sid) 实例化；保持单 run 全流程行为不变。",
+      "deps": []
+    },
+    {
+      "id": "W3-004",
+      "name": "adapters/cc 工具适配收口",
+      "desc": "把 claude 的一切从 cli/server/plugin MCP/scripts 各处迁入 adapters/cc 的 7 端口实现（host/hook/extract/oneshot/probe/tooling/interactive）；外部只剩 ports 契约。U5 顺带低优执行。",
+      "deps": []
+    },
+    {
+      "id": "W3-005",
+      "name": "cli 薄化 + client + 常驻生命周期",
+      "desc": "cli 由 run 司机变为薄终端面；新增 server client(HTTP+WS)；cli 调度写路径改经 server run api → 单写者成立；server 常驻生命周期（复用/空闲回收/stop）；死代码清理；--resume/--attach。",
+      "deps": []
+    },
+    {
+      "id": "W3-006",
+      "name": "多 run sessionid 贯穿",
+      "desc": "把单 run 语义升级为显式 sid 贯穿全链路：server 多槽 registry、tmux cc-<sid>、hook 反向路由（__SID__ 注入 + gateway 带 sid）、日志/state/决策按 sid 分片、MCP/client/前端带 sid；同机并发冒烟验证隔离。",
+      "deps": []
+    },
+    {
+      "id": "W3-007",
+      "name": "插件层收口",
+      "desc": "三插件 MCP（awf-state/session/oneshot）由直连实现改为薄 HTTP 代理（带 sid）；插件注册与渲染单源化（config 单源含任意插件 mcp/hooks、settings 本仓段渲染、根 .mcp.json 消除）；方法论资产工具无关化收尾（低强度）。",
+      "deps": []
+    },
+    {
+      "id": "W3-008",
+      "name": "前端工程 web/（React+Vite）",
+      "desc": "repo 顶层 web/ React+Vite 工程：四视图（Dashboard/WBS-Tree/Decisions/Diagnostics）迁移；轮询→WS 事件驱动；?sid 路由 + 多 run 列表壳；共享主题/组件；build 产物入 server/public 托管；ui.html 废弃。",
+      "deps": []
+    },
+    {
+      "id": "W3-009",
+      "name": "质量与验证",
+      "desc": "全量测试适配新结构并补齐组件级单测；自托管真 run 冒烟走完整新链路（cc 回归）；架构纪律（依赖方向/隔离/事件 schema）文字化写入审查 checklist，重构各模块过 code-review-architecture。",
+      "deps": []
+    },
+    {
+      "id": "W3-010",
+      "name": "文档与发布",
+      "desc": "受影响功能文档更新；架构终稿（v4）落正式 docs/discuss；CHANGELOG v0.2.0 + 发布基线核对；AI 重构元实验复盘记录。",
+      "deps": []
+    },
+    {
+      "id": "W2-001",
+      "name": "config 单源",
+      "deps": []
+    },
+    {
+      "id": "W2-002",
+      "name": "常量与装配收口",
+      "deps": []
+    },
+    {
+      "id": "W2-003",
+      "name": "sid 原语",
+      "deps": []
+    },
+    {
+      "id": "W2-004",
+      "name": "state schema 单源 + 共享读写核心",
+      "deps": []
+    },
+    {
+      "id": "W2-005",
+      "name": "版本统一",
+      "deps": []
+    },
+    {
+      "id": "W2-006",
+      "name": "store 抽离与布局",
+      "deps": []
+    },
+    {
+      "id": "W2-007",
+      "name": "各持久化收口",
+      "deps": []
+    },
+    {
+      "id": "W2-008",
+      "name": "store 验证",
+      "deps": []
+    },
+    {
+      "id": "W2-009",
+      "name": "分层结构与进程骨架",
+      "deps": []
+    },
+    {
+      "id": "W2-010",
+      "name": "run 域逻辑归位",
+      "deps": []
+    },
+    {
+      "id": "W2-011",
+      "name": "编排迁入（cli→server）",
+      "deps": []
+    },
+    {
+      "id": "W2-012",
+      "name": "host/adapters 接缝（最小 cc）",
+      "deps": []
+    },
+    {
+      "id": "W2-013",
+      "name": "验收",
+      "deps": []
+    },
+    {
+      "id": "W2-014",
+      "name": "ports 契约",
+      "deps": []
+    },
+    {
+      "id": "W2-015",
+      "name": "cc host",
+      "deps": []
+    },
+    {
+      "id": "W2-016",
+      "name": "cc hook + extract",
+      "deps": []
+    },
+    {
+      "id": "W2-017",
+      "name": "cc oneshot",
+      "deps": []
+    },
+    {
+      "id": "W2-018",
+      "name": "tooling/interactive/probe",
+      "deps": []
+    },
+    {
+      "id": "W2-019",
+      "name": "外部去 cc + U5",
+      "deps": []
+    },
+    {
+      "id": "W2-020",
+      "name": "验收",
+      "deps": []
+    },
+    {
+      "id": "W2-021",
+      "name": "server client",
+      "deps": []
+    },
+    {
+      "id": "W2-022",
+      "name": "cli run 薄化",
+      "deps": []
+    },
+    {
+      "id": "W2-023",
+      "name": "写者收口（单写者完成）",
+      "deps": []
+    },
+    {
+      "id": "W2-024",
+      "name": "server 生命周期",
+      "deps": []
+    },
+    {
+      "id": "W2-025",
+      "name": "死代码清理",
+      "deps": []
+    },
+    {
+      "id": "W2-026",
+      "name": "验收",
+      "deps": []
+    },
+    {
+      "id": "W2-027",
+      "name": "sid 装配多实例化",
+      "deps": []
+    },
+    {
+      "id": "W2-028",
+      "name": "hook 反向路由",
+      "deps": []
+    },
+    {
+      "id": "W2-029",
+      "name": "存储分片确认",
+      "deps": []
+    },
+    {
+      "id": "W2-030",
+      "name": "CLI/前端 sid",
+      "deps": []
+    },
+    {
+      "id": "W2-031",
+      "name": "并发冒烟",
+      "deps": []
+    },
+    {
+      "id": "W2-032",
+      "name": "验收",
+      "deps": []
+    },
+    {
+      "id": "W2-033",
+      "name": "MCP 薄代理 state",
+      "deps": []
+    },
+    {
+      "id": "W2-034",
+      "name": "MCP 薄代理 session/oneshot",
+      "deps": []
+    },
+    {
+      "id": "W2-035",
+      "name": "注册与渲染单源",
+      "deps": []
+    },
+    {
+      "id": "W2-036",
+      "name": "资产措辞收尾",
+      "deps": []
+    },
+    {
+      "id": "W2-037",
+      "name": "验收",
+      "deps": []
+    },
+    {
+      "id": "W2-038",
+      "name": "脚手架与基座",
+      "deps": []
+    },
+    {
+      "id": "W2-039",
+      "name": "Dashboard 迁移",
+      "deps": []
+    },
+    {
+      "id": "W2-040",
+      "name": "Decisions 迁移",
+      "deps": []
+    },
+    {
+      "id": "W2-041",
+      "name": "Diagnostics + WBS-Tree",
+      "deps": []
+    },
+    {
+      "id": "W2-042",
+      "name": "WS 事件驱动与 sid",
+      "deps": []
+    },
+    {
+      "id": "W2-043",
+      "name": "产物托管与收尾",
+      "deps": []
+    },
+    {
+      "id": "W2-044",
+      "name": "现有测试适配",
+      "deps": []
+    },
+    {
+      "id": "W2-045",
+      "name": "组件级单测补齐",
+      "deps": []
+    },
+    {
+      "id": "W2-046",
+      "name": "自托管冒烟",
+      "deps": []
+    },
+    {
+      "id": "W2-047",
+      "name": "纪律落地",
+      "deps": []
+    },
+    {
+      "id": "W2-048",
+      "name": "功能文档更新",
+      "deps": []
+    },
+    {
+      "id": "W2-049",
+      "name": "架构文档落正式",
+      "deps": []
+    },
+    {
+      "id": "W2-050",
+      "name": "CHANGELOG + 发布基线",
+      "deps": []
+    },
+    {
+      "id": "W2-051",
+      "name": "AI 重构复盘",
+      "deps": []
+    },
+    {
+      "id": "W1-001",
+      "name": "config-loader 共享模块（默认/env/校验）",
+      "deps": []
+    },
+    {
+      "id": "W1-002",
+      "name": "render-config 改读 loader",
+      "deps": []
+    },
+    {
+      "id": "W1-003",
+      "name": "运行期常量收敛 config+env（删手工拷贝）",
+      "deps": []
+    },
+    {
+      "id": "W1-004",
+      "name": "config-loader 单测",
+      "deps": []
+    },
+    {
+      "id": "W1-005",
+      "name": "run-context 装配器（sid→路径/会话名/settings）",
+      "deps": []
+    },
+    {
+      "id": "W1-006",
+      "name": "server 单例引用→装配器",
+      "deps": []
+    },
+    {
+      "id": "W1-007",
+      "name": "cli/MCP 单例引用→装配器",
+      "deps": []
+    },
+    {
+      "id": "W1-008",
+      "name": "装配器单测",
+      "deps": []
+    },
+    {
+      "id": "W1-009",
+      "name": "run-id.js（生成/校验/派生规则）+ 单测",
+      "deps": []
+    },
+    {
+      "id": "W1-010",
+      "name": "state-schema + store 核心（CJS 共享·串行化·原子写）",
+      "deps": []
+    },
+    {
+      "id": "W1-011",
+      "name": "ESM 消费壳 + cli 调用点",
+      "deps": []
+    },
+    {
+      "id": "W1-012",
+      "name": "server 重复实现→核心",
+      "deps": []
+    },
+    {
+      "id": "W1-013",
+      "name": "awf-state MCP→核心（仍直连文件）",
+      "deps": []
+    },
+    {
+      "id": "W1-014",
+      "name": "迁移器骨架 + schema 版本",
+      "deps": []
+    },
+    {
+      "id": "W1-015",
+      "name": "store/迁移单测",
+      "deps": []
+    },
+    {
+      "id": "W1-016",
+      "name": "版本对齐（config 单源 + 渲染）+ CHANGELOG 初始化",
+      "deps": []
+    },
+    {
+      "id": "W1-017",
+      "name": "store 模块骨架（写 API：state/logger/usage/decision/meta/snapshot）",
+      "deps": []
+    },
+    {
+      "id": "W1-018",
+      "name": "每 run 文件布局 .awf/runs/<sid>/",
+      "deps": []
+    },
+    {
+      "id": "W1-019",
+      "name": "旧布局兼容读 + 完整迁移器",
+      "deps": []
+    },
+    {
+      "id": "W1-020",
+      "name": "run state 写读收口 store",
+      "deps": []
+    },
+    {
+      "id": "W1-021",
+      "name": "run-logger 归位 store",
+      "deps": []
+    },
+    {
+      "id": "W1-022",
+      "name": "decision-store 归位 store",
+      "deps": []
+    },
+    {
+      "id": "W1-023",
+      "name": "run-meta 归位 store",
+      "deps": []
+    },
+    {
+      "id": "W1-024",
+      "name": "领域日志/usage/metrics 快照落盘管道接口",
+      "deps": []
+    },
+    {
+      "id": "W1-025",
+      "name": "store 单测（写/读/串行化/迁移/旧兼容读）",
+      "deps": []
+    },
+    {
+      "id": "W1-026",
+      "name": "目录/模块骨架 + bootstrap（boot/优雅关闭/健康）+ config 装载",
+      "deps": []
+    },
+    {
+      "id": "W1-027",
+      "name": "api 骨架：/api/v1 路由迁移 + 现有端点语义保留",
+      "deps": []
+    },
+    {
+      "id": "W1-028",
+      "name": "events 总线 + 首批领域事件类型定义",
+      "deps": []
+    },
+    {
+      "id": "W1-029",
+      "name": "静态托管骨架（现有 html 临时承载）",
+      "deps": []
+    },
+    {
+      "id": "W1-030",
+      "name": "statemachine 迁移（单槽→按 sid 实例）",
+      "deps": []
+    },
+    {
+      "id": "W1-031",
+      "name": "hook→事件翻译接缝（cc 最小）",
+      "deps": []
+    },
+    {
+      "id": "W1-032",
+      "name": "decision-gate 逻辑归位",
+      "deps": []
+    },
+    {
+      "id": "W1-033",
+      "name": "interact/context-ready/await 逻辑归位 + handoff",
+      "deps": []
+    },
+    {
+      "id": "W1-034",
+      "name": "gates 门禁闭环归位 + diagnosis 归位",
+      "deps": []
+    },
+    {
+      "id": "W1-035",
+      "name": "单 agent 阶段链迁入 run/driver",
+      "deps": []
+    },
+    {
+      "id": "W1-036",
+      "name": "多 agent 滑动窗口迁入 run/scheduler + driver",
+      "deps": []
+    },
+    {
+      "id": "W1-037",
+      "name": "门禁闭环触发链入 driver",
+      "deps": []
+    },
+    {
+      "id": "W1-038",
+      "name": "cli 由司机改\"提交+订阅+应答\"调用形态",
+      "deps": []
+    },
+    {
+      "id": "W1-039",
+      "name": "host 基座上提（tmux 原语 → server/host cc-<sid>）",
+      "deps": []
+    },
+    {
+      "id": "W1-040",
+      "name": "adapters/ports 契约 + cc 最小实现（host/hook）",
+      "deps": []
+    },
+    {
+      "id": "W1-041",
+      "name": "集成测试适配 + 单 run 全流程冒烟",
+      "deps": []
+    },
+    {
+      "id": "W1-042",
+      "name": "adapters/ports.js 定稿（7 端口接口 + 文档）+ mock 夹具",
+      "deps": []
+    },
+    {
+      "id": "W1-043",
+      "name": "claude 会话启动迁入 cc/host",
+      "deps": []
+    },
+    {
+      "id": "W1-044",
+      "name": "run 专用 settings 生成归 cc（writeRunSettings）",
+      "deps": []
+    },
+    {
+      "id": "W1-045",
+      "name": "cli 直拼 claude 移除（plan→interactive）",
+      "deps": []
+    },
+    {
+      "id": "W1-046",
+      "name": "hook payload→领域事件翻译完整",
+      "deps": []
+    },
+    {
+      "id": "W1-047",
+      "name": "cc 回写形状归 cc（decision:block/permissionDecision/AskUserQuestion）",
+      "deps": []
+    },
+    {
+      "id": "W1-048",
+      "name": "extract：RESULT/NEEDS_INPUT/transcript/usage/metrics 提取迁入",
+      "deps": []
+    },
+    {
+      "id": "W1-049",
+      "name": "claude -p 收口 → server /oneshot → adapter.oneshot",
+      "deps": []
+    },
+    {
+      "id": "W1-050",
+      "name": "tooling：plugin 安装/市场运维迁入",
+      "deps": []
+    },
+    {
+      "id": "W1-051",
+      "name": "interactive：plan 交互对话经端口",
+      "deps": []
+    },
+    {
+      "id": "W1-052",
+      "name": "probe：w-monitor 外部会话侦查经端口",
+      "deps": []
+    },
+    {
+      "id": "W1-053",
+      "name": "移除 cli/server/MCP 残留 cc 命令字面与路径",
+      "deps": []
+    },
+    {
+      "id": "W1-054",
+      "name": "U5 粗略扫 skills/命令文本 cc 措辞（低优先）",
+      "deps": []
+    },
+    {
+      "id": "W1-055",
+      "name": "mock adapter 单测全绿 + cc 冒烟",
+      "deps": []
+    },
+    {
+      "id": "W1-056",
+      "name": "client：/api 调用封装 + WS 事件订阅",
+      "deps": []
+    },
+    {
+      "id": "W1-057",
+      "name": "移除 client 端口/固定端点/单 run 决策形状硬编码",
+      "deps": []
+    },
+    {
+      "id": "W1-058",
+      "name": "run.js 改提交 run→订阅展示→人机应答中继→收尾",
+      "deps": []
+    },
+    {
+      "id": "W1-059",
+      "name": "--resume/--attach 重连（读 store 落盘状态续接）",
+      "deps": []
+    },
+    {
+      "id": "W1-060",
+      "name": "attach/follow 终端跟随展示",
+      "deps": []
+    },
+    {
+      "id": "W1-061",
+      "name": "cli 侧 state 写改经 server run api",
+      "deps": []
+    },
+    {
+      "id": "W1-062",
+      "name": "lib/state.js 写侧下线；读经 client 快照",
+      "deps": []
+    },
+    {
+      "id": "W1-063",
+      "name": "ensureServer 存在即复用（去 kill-by-port，含 plan 期拉起）",
+      "deps": []
+    },
+    {
+      "id": "W1-064",
+      "name": "空闲超时回收 + awf server stop；run 结束不关 server",
+      "deps": []
+    },
+    {
+      "id": "W1-065",
+      "name": "messaging/inbox 死代码删除",
+      "deps": []
+    },
+    {
+      "id": "W1-066",
+      "name": "open tree CLI 渲染移除 → 指向 web WBS-Tree",
+      "deps": []
+    },
+    {
+      "id": "W1-067",
+      "name": "cli 薄化后命令面测试绿 + 单写者/常驻/attach 冒烟",
+      "deps": []
+    },
+    {
+      "id": "W1-068",
+      "name": "registry 多槽 + per-run adapter 绑定 + run-context 多实例",
+      "deps": []
+    },
+    {
+      "id": "W1-069",
+      "name": "tmux/messaging/sock/目录按 cc-<sid>/<sid>.sock 命名接入",
+      "deps": []
+    },
+    {
+      "id": "W1-070",
+      "name": "每 run settings 渲染 __SID__（bootstrap/run-settings 归 cc）+ gateway 透传",
+      "deps": []
+    },
+    {
+      "id": "W1-071",
+      "name": "server /hook 按 sid 路由到 run 槽；状态机按 sid 隔离",
+      "deps": []
+    },
+    {
+      "id": "W1-072",
+      "name": "各 run 独立 state/logs/metrics/decisions 目录；runStamp→sid 归一",
+      "deps": []
+    },
+    {
+      "id": "W1-073",
+      "name": "client 带 sid；run driver 注册取 sid；attach 指定 run",
+      "deps": []
+    },
+    {
+      "id": "W1-074",
+      "name": "前端 ?sid 路由视图（多 run 简单列表壳）",
+      "deps": []
+    },
+    {
+      "id": "W1-075",
+      "name": "同机两独立项目并发 run 冒烟",
+      "deps": []
+    },
+    {
+      "id": "W1-076",
+      "name": "双 run 并发冒烟全过 + 状态/日志/决策归属断言",
+      "deps": []
+    },
+    {
+      "id": "W1-077",
+      "name": "awf-state 18 tools 语义保留，底层改经 server run api（带 sid）",
+      "deps": []
+    },
+    {
+      "id": "W1-078",
+      "name": "MCP 代理鉴权/边界：只碰本 sid run（软约束 U3）",
+      "deps": []
+    },
+    {
+      "id": "W1-079",
+      "name": "awf-session 全经 server（+sid）；capture 经 host 端口",
+      "deps": []
+    },
+    {
+      "id": "W1-080",
+      "name": "awf-oneshot 经 server /oneshot（直连 spawn claude 下线）",
+      "deps": []
+    },
+    {
+      "id": "W1-081",
+      "name": "config 单源扩展：任意插件声明自身 mcp/hooks + render 改输出",
+      "deps": []
+    },
+    {
+      "id": "W1-082",
+      "name": "settings 本仓段由 config 渲染；根 .mcp.json 消除；figma 留手工合并层",
+      "deps": []
+    },
+    {
+      "id": "W1-083",
+      "name": "命令/skill 描述去\"运行实现字面\"（引用行为语义，低强度）",
+      "deps": []
+    },
+    {
+      "id": "W1-084",
+      "name": "MCP 全链路（写状态/oneshot/await）+ 注册渲染单测 + plugin 测试适配绿",
+      "deps": []
+    },
+    {
+      "id": "W1-085",
+      "name": "web/ 初始化（Vite+React+lint）+ api client（http+ws，带 sid）",
+      "deps": []
+    },
+    {
+      "id": "W1-086",
+      "name": "主题/共享组件库（抽 4 html 公共 CSS/esc/format/task 列表）",
+      "deps": []
+    },
+    {
+      "id": "W1-087",
+      "name": "Dashboard 迁移（总览/任务/阶段/指标/命令，经 api+WS）",
+      "deps": []
+    },
+    {
+      "id": "W1-088",
+      "name": "Decisions 迁移（列表/Review/override，api+WS 更新）",
+      "deps": []
+    },
+    {
+      "id": "W1-089",
+      "name": "Diagnostics 迁移（诊断触发/展示）",
+      "deps": []
+    },
+    {
+      "id": "W1-090",
+      "name": "WBS-Tree 独立视图组件（替代 open tree CLI）",
+      "deps": []
+    },
+    {
+      "id": "W1-091",
+      "name": "轮询→事件订阅（task.done/decision.required/run 状态推送刷新）",
+      "deps": []
+    },
+    {
+      "id": "W1-092",
+      "name": "?sid 路由视图 + 多 run 简单列表壳",
+      "deps": []
+    },
+    {
+      "id": "W1-093",
+      "name": "build→server/public 静态托管 + dev 代理 /api+WS",
+      "deps": []
+    },
+    {
+      "id": "W1-094",
+      "name": "ui.html 废弃删除",
+      "deps": []
+    },
+    {
+      "id": "W1-095",
+      "name": "unit/integration 改指向新结构（client mock/事件路由/store 路径）",
+      "deps": []
+    },
+    {
+      "id": "W1-096",
+      "name": "adapter mock、store/迁移/config/装配/run-id/client/sid 路由单测",
+      "deps": []
+    },
+    {
+      "id": "W1-097",
+      "name": "前端 api/ws 层单测",
+      "deps": []
+    },
+    {
+      "id": "W1-098",
+      "name": "沙箱/独立项目跑真 run 全流程经新链路回归（含双 run）",
+      "deps": []
+    },
+    {
+      "id": "W1-099",
+      "name": "纪律入 review checklist + code-architecture 对照应用到各模块 gate",
+      "deps": []
+    },
+    {
+      "id": "W1-100",
+      "name": "受影响功能文档更新 + 新能力文档（store/adapters/run 域/metrics/events/api）",
+      "deps": []
+    },
+    {
+      "id": "W1-101",
+      "name": "架构终稿 v4 入 docs/discuss（纪律文字化/组织图/功能映射/决策归档）",
+      "deps": []
+    },
+    {
+      "id": "W1-102",
+      "name": "CHANGELOG v0.2.0 段 + 版本/scripts（lint/build/test/eval）核对收口",
+      "deps": []
+    },
+    {
+      "id": "W1-103",
+      "name": "复盘记录：AI 重构卡点/边界决策/验证结论 → docs/discuss + 决策记忆",
+      "deps": []
+    },
+    {
+      "id": "W2-052",
+      "name": "plan 启动重置与历史归档",
+      "desc": "awf plan 启动时检测到非空旧 state（含上次 plan/run 的 tasks/wbs/milestones）→ 先归档到历史版本，再以空模板重置，避免新旧 plan 混叠。",
+      "acceptance": "新 plan 在旧残留上启动能自动归档重置；run 模式不受影响；有单测。",
+      "deps": []
+    },
+    {
+      "id": "W1-104",
+      "name": "plan 启动检测→归档历史→重置模板",
+      "desc": "在 awf plan 入口加启动守卫：state 非空(非全新模板)时，把旧 state 快照写 .awf/versions/state-&lt;ts&gt;.json，然后重置为空 plan 模板。run 模式(awf run)不触发重置。",
+      "acceptance": "带残留 state 起新 plan 自动归档并重置；空 state 不重复归档；run 读态不受影响；单测覆盖。",
+      "deps": []
+    }
+  ],
+  "lastUpdated": "2026-09-07T12:10:50.751Z",
+  "plan": {
+    "summary": "AWF 架构重构 v0.2.0（全量一次性）—— server 收敛为常驻控制平面(run 域/store/metrics/adapters/cc 收口)、cli 薄化、前端 web/ React 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。",
+    "reqDoc": "",
+    "hasUI": true,
+    "inScope": [
+      "server 控制平面化(run 域全部子能力+api/events/store/host/metrics/diagnosis/config/bootstrap)",
+      "adapters/cc 收口：claude 一切入 cc adapter，外部零 cc",
+      "cli 薄化+HTTP/WS client+server 常驻生命周期(复用/空闲回收/stop)",
+      "插件 MCP 薄代理(带 sid)+注册渲染单源+engineDir 放开",
+      "前端工程 web/(Dashboard/WBS-Tree/Decisions/Diagnostics 迁移+WS+产物托管)",
+      "sessionid 贯穿(单 sid→多 run 隔离)+同机双独立项目并发冒烟",
+      "常量/state schema 单源版本化+版本漂移收敛 0.2.0",
+      "架构纪律 R1-R6 文字化(依赖单向/隔离/事件 schema)",
+      "废弃 ui.html/inbox messaging/open tree CLI 渲染",
+      "全量验证(测试适配+组件单测+自托管真 run 冒烟)",
+      "文档/CHANGELOG/复盘留档"
+    ],
+    "outOfScope": [
+      "真实接入第二工具(只建接缝)",
+      "UI 视觉大改/桌面壳/远程多用户",
+      "server 崩溃自动续活/run 级进程隔离/成本配额",
+      "skills 彻底工具无关化(U5 粗略)",
+      "1.0 后 API 版本策略",
+      "旧历史现场完整迁移"
+    ],
+    "acceptanceCriteria": [
+      "现有全量测试在适配后全绿",
+      "单 run 全流程(plan+单/多agent+决策+门禁)经新链路行为不变(自托管冒烟)",
+      "同机两独立项目并发 run 互不干扰(sid 隔离成立)",
+      "server 唯一写者(单写者收口)",
+      "cc 一切收 adapter、外部源码零 claude 命令字面",
+      "前端四视图功能对齐并经 server API/WS 驱动",
+      "版本/CHANGELOG 收敛 0.2.0"
+    ]
+  }
+}

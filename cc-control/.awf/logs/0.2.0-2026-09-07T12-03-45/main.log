@@ -1,0 +1,9 @@
+=== AWF Run Log ===
+version: 0.2.0
+started: 2026-09-07T12:03:45.020Z
+project: /Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control
+
+────────────────────────────────────────────────────────────
+[12:03:48] 提示词
+执行 /ai-workflow-code:w-dev T1-001：建 config-loader 共享模块（默认值合并 + env 覆盖 + 校验）
+
