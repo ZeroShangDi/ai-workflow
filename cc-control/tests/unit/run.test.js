@@ -67,7 +67,7 @@ vi.mock('../../src/lib/pause.js', () => ({
 }));
 
 import { taskWrapup, taskSettle, contextCheck } from '../../src/lib/plugin-bridge.js';
-import { getContextReady, sendCmd } from '../../src/lib/session/client.js';
+import { getContextReady, sendCmd, READY_TIMEOUT } from '../../src/lib/session/client.js';
 
 // fs mock：readFile 默认 ENOENT（快照/usage 不存在），mkdir/writeFile 默认 no-op（run-settings 写入）
 const mockReadFile = vi.hoisted(() => vi.fn());
@@ -422,7 +422,7 @@ describe('runCommand', () => {
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
 
-    // /send 成功，但 CC 一直 busy → waitForReady 超时(300s) → 回查任务 done → 不报错继续
+    // /send 成功，但 CC 一直 busy → waitForReady 超时 → 回查任务 done → 不报错继续
     httpState.sendResponse = JSON.stringify({ ok: true });
     httpState.statusSequence = [JSON.stringify({ state: 'ready' })]; // ensureServer 启动检测
     httpState.statusResponse = JSON.stringify({ state: 'busy' });    // waitForReady 永不 ready
@@ -438,7 +438,7 @@ describe('runCommand', () => {
       .mockReturnValue(null);
 
     const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(310000); // 超过 READY_TIMEOUT(300s)
+    await vi.advanceTimersByTimeAsync(READY_TIMEOUT + 10000); // 超过 READY_TIMEOUT（client.js 单源）
     await promise;
     vi.useRealTimers();
 
