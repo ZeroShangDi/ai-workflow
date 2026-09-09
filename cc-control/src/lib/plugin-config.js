@@ -77,6 +77,38 @@ export function enginePluginRoot(repoRoot) {
 }
 
 /**
+ * T1-081：插件 mcp/hooks 资产解析——任意插件可声明自身 mcpServers/hooks（engineDir-only 取消）。
+ * 引擎插件（dir===engineDir）在自身无声明时回落顶层 config.mcpServers/hooks（向后兼容）；
+ * 其余插件仅用自身声明（无 → null，不渲染引擎运行时资产）。
+ * @param {{dir: string, mcpServers?: object, hooks?: object}} plugin
+ * @param {{mcpServers?: object, hooks?: object, engineDir?: string}} config
+ */
+export function resolvePluginAssets(plugin, { mcpServers = null, hooks = null, engineDir } = {}) {
+  const isEngine = plugin.dir === (engineDir || 'core');
+  return {
+    mcpServers: plugin.mcpServers || (isEngine ? mcpServers : null),
+    hooks: plugin.hooks || (isEngine ? hooks : null),
+  };
+}
+
+/**
+ * T1-082：本仓 .claude/settings.json 渲染产物——由 plugin/settings.json（安装清单，含第三方
+ * 手工合并层如 figma）渲染，仅解析 source.path 的 <pkg> 占位为绝对 plugin 根。
+ * @param {object} pluginSettings - plugin/settings.json 内容（plugins/enabledPlugins/extraKnownMarketplaces）
+ * @param {string} pluginRoot - 本仓 plugin 目录绝对路径（cc-control/plugin）
+ */
+export function renderRepoSettings(pluginSettings, pluginRoot) {
+  const s = JSON.parse(JSON.stringify(pluginSettings || {}));
+  const repoRoot = path.resolve(pluginRoot, '..');
+  for (const m of Object.values(s.extraKnownMarketplaces || {})) {
+    if (m?.source?.path && typeof m.source.path === 'string') {
+      m.source.path = m.source.path.replaceAll('<pkg>', repoRoot);
+    }
+  }
+  return JSON.stringify(s, null, 2) + '\n';
+}
+
+/**
  * 渲染 mcpServers（args 相对引擎插件根 plugin/<engineDir> 解析）。
  *   absolute=true  → args 解析为绝对路径（供跨项目注入的项目级 .mcp.json）
  *   relativeTo=<dir> → args 解析为相对 <dir> 的路径（供自托管项目级 .mcp.json，与仓库提交版一致）

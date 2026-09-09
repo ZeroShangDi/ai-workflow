@@ -68,3 +68,6 @@ cc-control/sandbox/
 # === Gradio ===
 .gradio/
 uploads/
+cc-control/.awf/context/usage.json
+cc-control/.claude/settings.json
+cc-control/.mcp.json

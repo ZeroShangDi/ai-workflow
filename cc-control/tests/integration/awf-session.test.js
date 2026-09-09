@@ -91,11 +91,13 @@ describe('awf-session MCP tools', () => {
     expect(requests[0].url).toBe('/status');
   });
 
-  it('TC10: awf_capture_pane 正常（不经过 HTTP）', async () => {
+  it('TC10: awf_capture_pane — 经 server /status?snapshot=1（capture 走 host 端口，T1-079）', async () => {
     mockExecSync.mockReturnValue('完整 pane 文本');
     const result = await mod.handlers['tools/call']({ name: 'awf_capture_pane', arguments: {} });
     expect(result.content[0].text).toContain('完整 pane 文本');
-    expect(requests).toHaveLength(0); // 未发任何 HTTP 请求
+    // 先打 server snapshot 请求；server 无 snapshot → 降级本地 exec
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests[requests.length - 1].url).toBe('/status?snapshot=1');
   });
 
   it('TC10b: awf_session_intervene → POST /intervene', async () => {
@@ -205,7 +207,7 @@ describe('HTTP helpers', () => {
 
   it('TC19: capturePane execSync 异常 → 不抛，返回 (capture failed:)', async () => {
     mockExecSync.mockImplementation(() => { throw new Error('no session'); });
-    expect(mod.capturePane()).toBe('(capture failed: no session)');
+    expect(await mod.capturePane()).toBe('(capture failed: no session)');
   });
 });
 

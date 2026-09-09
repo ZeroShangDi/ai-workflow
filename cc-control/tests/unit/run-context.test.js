@@ -79,11 +79,6 @@ describe('.awf 现行单 run 布局路径', () => {
     expect(ctx.decisionsDir).toBe(`${ROOT}/.awf/decisions/runs`);
   });
 
-  it('messagingSocketPath：缺省 .awf/messaging.sock，CC_MESSAGING_SOCKET 覆盖', () => {
-    expect(ctx.messagingSocketPath).toBe(`${ROOT}/.awf/messaging.sock`);
-    const over = buildRunContext({ projectRoot: ROOT, env: { CC_MESSAGING_SOCKET: '/tmp/x.sock' } });
-    expect(over.messagingSocketPath).toBe('/tmp/x.sock');
-  });
 
   it('runDir 仅在有 sid 时派生（T1-018 每 run 布局锚点）', () => {
     expect(buildRunContext({ projectRoot: ROOT, env: {} }).runDir).toBeUndefined();

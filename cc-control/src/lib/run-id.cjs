@@ -63,4 +63,17 @@ function generateRunId({ version, ts = new Date(), entropy = true, random } = {}
   return id;
 }
 
-module.exports = { SID_PATTERN, SID_MAX_LEN, validateRunId, normalizeStamp, deriveRunId, generateRunId };
+/**
+ * runStamp→sid 归一（T1-072）：显式 sid 即 run stamp（决策/日志/指标按此隔离不串 run）；
+ * 无 sid 回退派生 `${version}-<ts>`（与 run-logger 现行 runStamp 对齐）。
+ * @param {{ sid?: string, version: string, ts?: Date|string }} input
+ */
+function resolveRunStamp({ sid, version, ts = new Date() } = {}) {
+  if (sid != null && sid !== '') {
+    if (!validateRunId(sid)) throw new Error(`run-id: 非法 sid ${String(sid)}`);
+    return sid;
+  }
+  return deriveRunId({ version, ts });
+}
+
+module.exports = { SID_PATTERN, SID_MAX_LEN, validateRunId, normalizeStamp, deriveRunId, generateRunId, resolveRunStamp };

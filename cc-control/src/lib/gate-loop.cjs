@@ -2,7 +2,7 @@
 /**
  * gate-loop.cjs — 门禁闭环规则（verdict → 修复目标）归位（供 cli gate-fix 与后续 run 域复用）
  *
- * 把「门禁 verdict → 修复任务目标文案」的纯规则从 cli/gate-fix.js 收敛到 lib，
+ * 把「门禁 verdict → 修复任务目标文案」的纯规则从 cli/gate-fix.js（现 src/server/gate-fix.js）收敛到 lib，
  * 单一实现；派发（spawnGateFixTask）、元判定（gateFixMeta/MAX_RECHECK，state.js）与
  * 提示词模板（plugin-bridge.gateFixPrompt）仍在各自边界。
  */

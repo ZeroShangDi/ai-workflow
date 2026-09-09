@@ -11,20 +11,32 @@ export async function serverCommand(action) {
 
   switch (action) {
     case 'start': {
-      const running = await checkServer(ctx.port);
-      if (!running) {
+      // T1-063：存在即复用（不 kill-by-port）；他项目 server 占用 → 报错不覆盖
+      const existing = await getStatus(ctx.port);
+      if (existing?.state) {
+        if (existing.projectRoot && existing.projectRoot !== ctx.projectRoot) {
+          logger.error(`端口 ${ctx.port} 已被其他项目 server 占用（${existing.projectRoot}）；请先 awf server stop`);
+          return;
+        }
+        logger.info('tmux-http 已运行 → 复用');
+      } else {
         logger.info('启动 tmux-http ...');
         const proc = spawn('node', [ctx.serverScriptPath], {
           stdio: 'ignore',
           detached: true,
-          cwd: ctx.infraRoot,
+          cwd: ctx.projectRoot,
           env: { ...process.env, CC_PORT: String(ctx.port), CC_PROJECT: ctx.projectRoot },
         });
         proc.unref();
 
         for (let i = 0; i < 30; i++) {
           await sleep(500);
-          if (await checkServer(ctx.port)) break;
+          const s = await getStatus(ctx.port);
+          if (s?.state) break;
+        }
+        if (!(await getStatus(ctx.port))?.state) {
+          logger.error('tmux-http 启动超时（端口可能被非 awf 进程占用）');
+          return;
         }
       }
 
@@ -50,7 +62,11 @@ export async function serverCommand(action) {
         execSync(`tmux kill-session -t ${session} 2>/dev/null`, { stdio: 'ignore' });
       } catch {}
 
-      execSync(`lsof -ti:${ctx.port} | xargs kill 2>/dev/null`, { stdio: 'ignore' });
+      // T1-064：优先请求常驻 server 优雅关闭（/shutdown）；失败（无 server/旧版）再 kill-by-port
+      const shut = await requestShutdown(ctx.port);
+      if (!shut) {
+        execSync(`lsof -ti:${ctx.port} | xargs kill 2>/dev/null`, { stdio: 'ignore' });
+      }
       logger.success('已停止');
       break;
     }
@@ -75,4 +91,14 @@ export async function serverCommand(action) {
 async function checkServer(port) {
   const status = await getStatus(port);
   return status?.state != null;
+}
+
+/** 请求常驻 server 优雅关闭（POST /shutdown）；失败/超时返回 false */
+async function requestShutdown(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/shutdown`, { method: 'POST', signal: AbortSignal.timeout(1500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

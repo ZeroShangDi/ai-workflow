@@ -61,14 +61,8 @@ fs.writeFileSync(
   JSON.stringify({ mode: 'run', version: '0.1.0', currentState: 'CODE', tasks: [{ id: 'T1', status: 'done' }] }),
 );
 
-const htmlOnlyUi = path.join(TMP, 'html-only-ui');    // 只有 ui.html → / 回退 ui
-const htmlOnlyDash = path.join(TMP, 'html-only-dash'); // 只有 dashboard → /ui 500
-const htmlEmpty = path.join(TMP, 'html-empty');        // 都没有 → 500
-fs.mkdirSync(htmlOnlyUi, { recursive: true });
-fs.mkdirSync(htmlOnlyDash, { recursive: true });
+const htmlEmpty = path.join(TMP, 'html-empty');        // 都没有 → 500（T1-094：ui.html 已废弃，无回退）
 fs.mkdirSync(htmlEmpty, { recursive: true });
-fs.writeFileSync(path.join(htmlOnlyUi, 'ui.html'), '<title>cc-control</title><div id="pill"></div>');
-fs.writeFileSync(path.join(htmlOnlyDash, 'dashboard.html'), '<title>AWF Run — Dashboard</title><div id="taskList"></div>');
 
 // ── env + 注入：必须在 import server.cjs 之前 ──
 process.env.CC_PROJECT = projectWithState;
@@ -146,26 +140,17 @@ describe('路由', () => {
     expect(res.text).toContain('id="taskList"');
   });
 
-  it('TC2: GET / → dashboard 不存在时回退 ui.html', async () => {
-    process.env.CC_HTML_DIR = htmlOnlyUi;
-    const res = await api('GET', '/');
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('<title>cc-control</title>');
-    expect(res.text).not.toContain('AWF Run');
-  });
-
-  it('TC3: GET / → 两者都不存在 → 500', async () => {
+  it('TC3: GET / → dashboard 缺失 → 500（ui.html 已废弃，无回退）', async () => {
     process.env.CC_HTML_DIR = htmlEmpty;
     const res = await api('GET', '/');
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ ok: false, error: 'no page found' });
   });
 
-  it('TC4: GET /ui → 返回 ui.html', async () => {
+  it('TC4: GET /ui → 404（ui.html 已废弃删除）', async () => {
     const res = await api('GET', '/ui');
-    expect(res.status).toBe(200);
-    expect(res.contentType).toContain('text/html');
-    expect(res.text).toContain('cc-control');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ ok: false, error: 'not found' });
   });
 
   it('TC4b: GET /diagnostics → 返回诊断页', async () => {
@@ -173,13 +158,6 @@ describe('路由', () => {
     expect(res.status).toBe(200);
     expect(res.contentType).toContain('text/html');
     expect(res.text).toContain('本次运行诊断');
-  });
-
-  it('TC5: GET /ui → 不存在 → 500', async () => {
-    process.env.CC_HTML_DIR = htmlOnlyDash;
-    const res = await api('GET', '/ui');
-    expect(res.status).toBe(500);
-    expect(res.body).toEqual({ ok: false, error: 'ui.html not found' });
   });
 
   it('TC6: GET /awf/state → 200 + JSON', async () => {
@@ -877,5 +855,49 @@ describe('dashboard.html', () => {
     expect(html).toContain("fetch('/stop', { method: 'POST' })");
     expect(html).toContain('renderSendButton');
     expect(html).toContain("isBusy = !!ok && !!ss.session && ss.state === 'busy'");
+  });
+});
+
+describe('web 产物静态托管（T1-093：build→server/public SPA）', () => {
+  it('产物存在：root 由 React SPA 承载；assets 托管；无扩展名 SPA 路由回退 index；API 不受影响', async () => {
+    const webDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-webpub-'));
+    try {
+      fs.mkdirSync(path.join(webDir, 'assets'), { recursive: true });
+      fs.writeFileSync(path.join(webDir, 'index.html'), '<!doctype html><title>awf-web-app</title><div id="root"></div>');
+      fs.writeFileSync(path.join(webDir, 'assets', 'app.js'), 'console.log("awf-app-js")');
+      process.env.CC_WEB_PUBLIC = webDir;
+
+      const root = await api('GET', '/');
+      expect(root.status).toBe(200);
+      expect(root.text).toContain('awf-web-app');
+
+      const asset = await api('GET', '/assets/app.js');
+      expect(asset.status).toBe(200);
+      expect(asset.text).toContain('awf-app-js');
+      expect(asset.contentType).toContain('javascript');
+
+      const spa = await api('GET', '/wbs-tree'); // 前端路由（无扩展名）→ SPA 回退 index.html
+      expect(spa.status).toBe(200);
+      expect(spa.text).toContain('awf-web-app');
+
+      const st = await api('GET', '/status'); // 显式 API 端点仍优先（不被静态托管吞掉）
+      expect(st.status).toBe(200);
+      expect(st.body).not.toBe(null);
+      expect(st.body.ok).toBe(true);
+    } finally {
+      delete process.env.CC_WEB_PUBLIC;
+      fs.rmSync(webDir, { recursive: true, force: true });
+    }
+  });
+
+  it('产物缺失（未构建）：回落 legacy 托管（root→dashboard）+ 未知 GET 404', async () => {
+    delete process.env.CC_WEB_PUBLIC; // 指向缺省 src/server/public（无 index → 未就绪）
+    const root = await api('GET', '/');
+    expect(root.status).toBe(200);
+    expect(root.text).toContain('AWF Run'); // legacy dashboard.html
+
+    const miss = await api('GET', '/nope-404');
+    expect(miss.status).toBe(404);
+    expect(miss.body).toEqual({ ok: false, error: 'not found' });
   });
 });

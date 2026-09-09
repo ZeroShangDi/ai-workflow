@@ -29,14 +29,12 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-/** 默认页面别名：把无扩展名的 UI 路径映射到对应 html（现状 /、/ui、/diagnostics、/decisions.html） */
+/** 默认页面别名：把无扩展名的 UI 路径映射到对应 html（现状 /、/diagnostics、/decisions.html；T1-094 已删 ui.html） */
 function defaultAliases() {
   return {
     '/': 'dashboard.html',
     '/dashboard': 'dashboard.html',
     '/dashboard.html': 'dashboard.html',
-    '/ui': 'ui.html',
-    '/ui.html': 'ui.html',
     '/diagnostics': 'diagnostics.html',
     '/diagnostics.html': 'diagnostics.html',
     '/decisions': 'decisions.html',
@@ -48,10 +46,10 @@ function mimeFor(filePath) {
   return MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
-function createStaticHost({ root = __dirname, aliases = defaultAliases() } = {}) {
+function createStaticHost({ root = __dirname, aliases = defaultAliases(), spa = null } = {}) {
   const rootResolved = path.resolve(root);
 
-  /** 把 URL path 解析到 root 下文件；越权/不存在 → null */
+  /** 把 URL path 解析到 root 下文件；越权/不存在 → null；spa 开启时无扩展名路径回退 index */
   function resolve(urlPath) {
     const raw = String(urlPath || '/');
     // 去 query/hash
@@ -70,8 +68,17 @@ function createStaticHost({ root = __dirname, aliases = defaultAliases() } = {})
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       const html = `${joined}.html`;
       if (fs.existsSync(html) && !fs.statSync(html).isDirectory()) file = html;
-      else return null;
+      else file = null;
     }
+    // SPA 回退：无扩展名的前端路由（如 /wbs-tree）→ index.html（产物托管；默认关闭）
+    if (file == null && spa) {
+      const base = path.basename(p);
+      if (base.indexOf('.') === -1) {
+        const idx = path.join(rootResolved, spa);
+        if (fs.existsSync(idx) && !fs.statSync(idx).isDirectory()) file = idx;
+      }
+    }
+    if (file == null) return null;
     if (fs.statSync(file).isDirectory()) return null;
     return file;
   }

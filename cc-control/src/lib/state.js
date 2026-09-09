@@ -316,3 +316,48 @@ export function backupState(projectRoot) {
   const file = path.join(dir, `${state.version}-${ts}.json`);
   fs.writeFileSync(file, JSON.stringify(state, null, 2));
 }
+
+/**
+ * plan 启动守卫（T1-104）：若存在含残留内容的旧 state（且非 run/pause 运行生命周期），
+ * 先把当前 state 原样归档到 .awf/versions/state-<ts>.json，再把当前文件重置为「空 plan 模板」
+ * （mode=plan + 空 tasks/wbs/milestones/plan），让新 plan 会话从空板开始。
+ *   - run/pause 模式 → 不触发（{ action: 'run-active' }）
+ *   - 空 state（模板或无语义内容）→ 不重复归档（{ action: 'none' }）
+ * 锁内原子完成归档 + 重置（单写语义，与 run 域写一致）。
+ * @param {string} projectRoot
+ * @returns {{ action: 'none'|'run-active'|'archived', archivedPath?: string }}
+ */
+export function archiveOldStateForPlan(projectRoot) {
+  const filePath = path.join(projectRoot, STATE_FILE);
+  const cur = readJsonSync(filePath);
+  if (!cur) return { action: 'none' };
+  if (cur.mode === 'run' || cur.mode === 'pause') return { action: 'run-active' };
+
+  const hasContent =
+    (Array.isArray(cur.tasks) && cur.tasks.length > 0) ||
+    (Array.isArray(cur.wbs) && cur.wbs.length > 0) ||
+    (cur.wbs && typeof cur.wbs === 'object' && !Array.isArray(cur.wbs) && Object.keys(cur.wbs).length > 0) ||
+    (cur.plan && typeof cur.plan === 'object' && Object.keys(cur.plan).length > 0) ||
+    (Array.isArray(cur.milestones) && cur.milestones.length > 0);
+  if (!hasContent) return { action: 'none' };
+
+  const dir = path.join(projectRoot, '.awf', 'versions');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const archivedPath = path.join(dir, `state-${ts}.json`);
+  const reset = {
+    mode: 'plan',
+    currentState: 'PLAN',
+    version: cur.version,
+    milestones: [],
+    tasks: [],
+    wbs: [],
+    plan: {},
+    lastUpdated: new Date().toISOString(),
+  };
+  withStateLock(stateLockPath(projectRoot), () => {
+    fs.mkdirSync(dir, { recursive: true });
+    writeJsonAtomicSync(archivedPath, cur);
+    writeJsonAtomicSync(filePath, reset);
+  });
+  return { action: 'archived', archivedPath };
+}

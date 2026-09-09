@@ -53,21 +53,29 @@ function logRunDirs(projectRoot, version) {
 class DecisionStore {
   /**
    * @param {string} projectRoot - 用户项目根目录
+   * @param {{ runStamp?: string, runsDir?: string }} [opts]
+   *   runStamp  显式 run stamp（T1-072 runStamp→sid 归一：多 run 传 sid，决策落该 run 不串）；
+   *             缺省沿用单 run 现状（扫描 .awf/logs 最新匹配 state.version 的 run 目录）。
+   *   runsDir   决策文件目录覆写（W3-002 per-run 布局可传 ctx.runDecisionsDir）；缺省
+   *             .awf/decisions/runs。
    */
-  constructor(projectRoot) {
+  constructor(projectRoot, { runStamp = null, runsDir = null } = {}) {
     this.projectRoot = projectRoot;
+    this._explicitStamp = runStamp;
+    this._runsDirOverride = runsDir;
   }
 
   get runsDir() {
-    return path.join(this.projectRoot, RUNS_DIR);
+    return this._runsDirOverride || path.join(this.projectRoot, RUNS_DIR);
   }
 
   /**
-   * 解析 runStamp：优先取 .awf/logs 中最新匹配 state.version 的 run 目录名；
-   * 无 run 目录时按同规则用当前时间生成（与 run-logger 命名一致）。
+   * 解析 runStamp：显式 sid → 直接采用；否则优先取 .awf/logs 中最新匹配 state.version 的
+   * run 目录名；无 run 目录时按同规则用当前时间生成（与 run-logger 命名一致）。
    * @returns {string|null} version 缺失时返回 null
    */
   runStamp() {
+    if (this._explicitStamp) return this._explicitStamp;
     const version = readVersion(this.projectRoot);
     if (!version) return null;
     const latest = logRunDirs(this.projectRoot, version)[0];

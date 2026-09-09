@@ -1,4 +1,4 @@
-// src/cli/gate-fix.js — 门禁闭环：fail 自动派生修复 + 复审回退
+// src/server/gate-fix.js — 门禁闭环：fail 自动派生修复 + 复审回退（原 cli/gate-fix，T1-062 归位 server 侧）
 //
 // 门禁任务（kind=review/test）由子 Agent / 主会话完成时输出结构化 verdict
 // （exec.verdict，见 plugin/core/agents/awf-worker.md）。CLI 检测

@@ -3,6 +3,10 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+// 极简 WebSocket 助手（T1-091：/run/events 实时推送通道）
+const { encodeTextFrame, upgrade: wsUpgrade } = require('./ws.cjs');
+// 静态托管原语（T1-093：web 构建产物 SPA 静态托管）
+const { createStaticHost } = require('./static.cjs');
 // 测试注入点：vitest 无法 mock 被原生 require 加载的 CJS 依赖，提供显式注入钩子。
 // 生产环境不设置 global.__CC_TMUX__/__CC_RUNLOGGER__，回落到真实模块。
 const tmuxlib = global.__CC_TMUX__ || require('./tmux.cjs');
@@ -22,6 +26,47 @@ const decisionInstruction = require('./decision-instruction.cjs');
 // run-context 装配：server 当前承载单 run（无 sid），项目根/路径/端口/会话名统一经装配器派生。
 // 多 run 分槽（每 run 独立上下文）由 T1-068/T1-071 接入。
 const { buildRunContext } = require('../lib/run-context.cjs');
+const { isIdleDue, idleDefaultMs } = require('../lib/server-idle.cjs');
+const { createRunSlot } = require('./run-slot.cjs');
+// T1-080：oneshot（claude -p）收口 server /oneshot——cc 经 oneshot adapter；测试可注入 global.__CC_ONESHOT__
+const oneshotLib = global.__CC_ONESHOT__ || require('../adapters/oneshot.cjs');
+// T1-071：per-run 内存槽（ready/busy/decision/contextReady 按 sid 隔离，不串 run）。
+// 缺省（无 sid）hook 仍走下方既有全局单槽路径，本映射仅承载 sid 显式路由的 run。
+const runSlotsBySid = new Map();
+function runSlotFor(sid) {
+  if (sid == null || sid === '') return null;
+  const key = String(sid);
+  let slot = runSlotsBySid.get(key);
+  if (!slot) { slot = createRunSlot(key); runSlotsBySid.set(key, slot); }
+  return slot;
+}
+/** sid run 槽 hook 处理（T1-071：路由到独立内存态；gate 关等价 complete，gate 开全闸门留决策接入） */
+function handleSidHook(sid, event, body, res) {
+  const slot = runSlotFor(sid);
+  console.log(`[hook:${sid}] ${event} -> ${slot.state}`);
+  if (event === 'SessionStart') {
+    slot.setReady();
+  } else if (event === 'UserPromptSubmit') {
+    slot.setBusy();
+  } else if (event === 'Stop') {
+    if (!isDecisionEnabled(PROJECT_ROOT)) slot.clearDecision();
+    slot.setReady();
+  } else if (event === 'PreToolUse' && body?.tool_name === 'AskUserQuestion') {
+    const questions = body?.tool_input?.questions;
+    const q = Array.isArray(questions) ? questions[0] : null;
+    if (q && !isDecisionEnabled(PROJECT_ROOT)) {
+      slot.setDecision({
+        type: q.multiSelect ? 'multiSelect' : 'choice',
+        multiSelect: !!q.multiSelect,
+        question: q.question,
+        options: (q.options || []).map((o) => o.label),
+        header: q.header || null,
+        source: 'AskUserQuestion',
+      });
+    }
+  }
+  return send(res, 200, { ok: true, event: event || null, state: slot.state, sid });
+}
 const ctx = buildRunContext({ env: process.env });
 
 const PROJECT_ROOT = ctx.projectRoot;
@@ -95,6 +140,7 @@ function resetRunLogs() {
 // 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
 // run state 写读统一经 store.state（JsonFileStore：state.lock + 原子写，承接 store.cjs / store-core）
 const runStores = require('../lib/store.cjs').createRunStores(ctx);
+const storeCore = require('../lib/store-core.cjs'); // per-run state 通用路径原子读写（T1-078）
 
 /** 解析子 Agent 固定格式 RESULT（`RESULT: {json}`）；成功返回结果对象，失败返回 null */
 function parseSubagentResult(body) {
@@ -175,6 +221,7 @@ const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);
 // dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
 const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
+let lastActivityAt = Date.now(); // T1-064 空闲回收：每次请求刷新
 let metricsCache = { at: 0, value: null };
 let diagnosisInFlight = false;
 
@@ -277,11 +324,28 @@ function isMainSession(body) {
 }
 
 function setDecision(d) {
+  const opening = decisionPending == null && d != null;
   decisionPending = d;
+  // T1-091：决策挂起 → 推 run host 事件环（决策.required 前端实时订阅刷新）
+  if (opening) {
+    publishHostEvent('decision.required', {
+      type: d.type || null,
+      question: d.question || null,
+      options: d.options || null,
+      source: d.source || null,
+    });
+  }
 }
 
 function clearDecision() {
   decisionPending = null;
+}
+
+/** T1-091：把决策闸门事件推入 run host 事件环（host 未装配时静默跳过，不影响主流程） */
+function publishHostEvent(type, payload) {
+  if (runHost && typeof runHost.publish === 'function') {
+    try { runHost.publish(type, payload); } catch { /* 推送失败不影响决策/执行主流程 */ }
+  }
 }
 
 // ---- decision gate（v0.2.0，单 agent）：Stop 统一决策闸门 ----
@@ -327,6 +391,14 @@ function persistDecision(result, source) {
     finality: result.finality,
     fallback: result.fallback === true,
   };
+  // T1-091：决策落盘 → 推 run host 事件环（decision.record 前端 Decisions/Review 实时刷新）
+  publishHostEvent('decision.record', {
+    decisionId,
+    answer: result.answer ?? null,
+    type: result.type ?? null,
+    finality: result.finality ?? null,
+    fallback: result.fallback === true,
+  });
   return decisionId;
 }
 
@@ -452,6 +524,174 @@ async function submit(text) {
   tmuxlib.sendEnter();
 }
 
+// ---- 常驻 run host（T1-105）：server 托管 run 编排的宿主 + /run/* 提交/状态/轮询端点 ----
+// 惰性装配（首次 /run/* 命中时触发），旧端点零影响；导出面与单 run ready/busy 不变。
+// 依赖注入：run-driver(chain)/run-scheduler/state/gate-fix 经动态 import + require 组装，
+// 与 run-batch ESM 桥接同法；测试可用 global.__CC_RUN_HOST_DEPS__ 整体覆盖（同 __CC_TMUX__ 注入点）。
+let runHost = null; // 已装配的 host 实例
+let runHostReady = null; // bootstrap promise（供端点 await）
+let runHostBootErr = null; // bootstrap 失败原因（端点 503 可读）
+const { createRunHost } = require('./run-host.cjs');
+
+/** 宿主是否有 run 在驱动（空闲回收 / shutdown 判定用：有则绝不回收） */
+function hostHasActiveRun() {
+  if (!runHost) return false;
+  try {
+    const all = runHost.snapshot();
+    return (all?.runs || []).some((r) => r.status === 'queued' || r.status === 'running');
+  } catch {
+    return false;
+  }
+}
+
+/** 单 agent 默认执行器（真实模型通道 v1）：发任务 prompt 到交互会话 → 等任务在 state 自我结算。
+ *  收尾协商/决策续跑/超时 settle 等 run.js 会话语义随 T1-058 cutover 迁移后在此收敛。 */
+function defaultSingleExecutor() {
+  return {
+    runTask: async ({ taskId, task }) => {
+      const text = task.prompt || task.title || task.id;
+      if (!tmuxlib.hasSession()) throw new Error(`tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh`);
+      const ready = await waitReady(READY_TIMEOUT_MS);
+      if (!ready) throw new Error('still busy (ready timeout)');
+      logger.captureFromTranscript();
+      setBusy();
+      logger.logPrompt(text);
+      await submit(text);
+      const deadline = Date.now() + READY_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await sleep(500);
+        const s = runStores.state.readSync();
+        const t = s?.tasks?.find((x) => x.id === taskId);
+        if (t && (t.status === 'done' || t.status === 'blocked')) return { status: t.status };
+      }
+      throw new Error(`task ${taskId} 超时未自我结算（仍 ${runStores.state.readSync()?.tasks?.find((x) => x.id === taskId)?.status || 'unknown'}）`);
+    },
+  };
+}
+
+/** 装配 run host（单例；首次调用建立 promise，失败记录原因不抛——旧路径不依赖 host） */
+async function bootstrapRunHost() {
+  if (runHostReady) return runHostReady;
+  runHostReady = (async () => {
+    const override = global.__CC_RUN_HOST_DEPS__; // 测试整体覆盖（见 tests/integration/run-host.test.js）
+    let stateApi;
+    let cfg;
+    let chain;
+    let schedulerFn;
+    let gateFix;
+    let executor;
+    let batch;
+    if (override) {
+      stateApi = override.stateApi;
+      cfg = override.cfg;
+      chain = override.chain;
+      schedulerFn = override.scheduler;
+      gateFix = override.handleGateCompletion;
+      executor = override.executor;
+      batch = override.batch;
+    } else {
+      const state = await import('../lib/state.js');
+      stateApi = {
+        loadState: (r) => state.loadState(r),
+        saveState: (r, s) => state.saveState(r, s),
+        markTaskActive: (r, id) => state.markTaskActive(r, id),
+        findNextTask: (s) => state.findNextTask(s),
+        setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
+      };
+      const rc = await import('../lib/run-config.js');
+      cfg = rc.loadRunConfig(PROJECT_ROOT);
+      const sch = await import('./run-scheduler.js');
+      schedulerFn = sch.runScheduler;
+      const gf = await import('./gate-fix.js');
+      gateFix = gf.handleGateCompletion;
+      chain = require('./run-driver.cjs');
+      executor = defaultSingleExecutor();
+      batch = null; // 多 agent 传输（tmux 派发 / SubagentStop 落账）随 CLI cutover 任务接线
+    }
+    const host = createRunHost({
+      projectRoot: PROJECT_ROOT,
+      cfg,
+      state: stateApi,
+      chain,
+      handleGateCompletion: gateFix,
+      scheduler: schedulerFn,
+      executor,
+      batch,
+    });
+    host.start();
+    runHost = host;
+    return host;
+  })().catch((err) => {
+    runHostBootErr = err;
+    console.error(`[server] run host bootstrap 失败: ${err.message}`);
+    return null;
+  });
+  return runHostReady;
+}
+
+/** /run/* 端点共用：取装配好的 host；未就绪 → 503（可读原因） */
+
+// ---- server run api 写端点底层（T1-061）：cli 侧 state 直写下线，写收口 server 单写者 ----
+let runStateApi = null;
+let runStateApiReady = null;
+
+/** 惰性装载 state 写原语（setWorkflowMode/markTaskActive/backupState）；测试可经 __CC_RUN_HOST_DEPS__.stateApi 覆盖 */
+async function ensureRunStateApi() {
+  if (runStateApiReady) return runStateApiReady;
+  runStateApiReady = (async () => {
+    const override = global.__CC_RUN_HOST_DEPS__?.stateApi;
+    if (override) {
+      runStateApi = {
+        saveState: override.saveState || (() => false),
+        setWorkflowMode: override.setWorkflowMode || (() => false),
+        markTaskActive: override.markTaskActive || (() => false),
+        backupState: override.backupState || (() => undefined),
+      };
+      return runStateApi;
+    }
+    const state = await import('../lib/state.js');
+    runStateApi = {
+      saveState: (r, s) => state.saveState(r, s),
+      setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
+      markTaskActive: (r, id) => state.markTaskActive(r, id),
+      backupState: (r) => state.backupState(r),
+    };
+    return runStateApi;
+  })().catch((err) => {
+    runStateApi = null;
+    runStateApiReady = null;
+    console.error(`[server] state api 装载失败: ${err.message}`);
+    return null;
+  });
+  return runStateApiReady;
+}
+
+/** 门禁完成处理函数（server 进程内执行 gate-fix 同一实现；测试可经 deps 覆盖） */
+async function runStateGateHandler() {
+  const override = global.__CC_RUN_HOST_DEPS__?.handleGateCompletion;
+  if (override) return override;
+  const gf = await import('./gate-fix.js');
+  return gf.handleGateCompletion;
+}
+
+// ---- T1-078：run-state 边界按 sid 分片（软约束 U3）----
+// sid 提供时读/写 .awf/runs/<sid>/state.json（只碰本 sid run）；缺省回落项目根 state（单 run 现状）。
+function runStateFile(sid) {
+  return sid
+    ? path.join(PROJECT_ROOT, '.awf', 'runs', sid, 'state.json')
+    : path.join(PROJECT_ROOT, '.awf', 'state.json');
+}
+function runStateLockFile(sid) {
+  return sid
+    ? path.join(PROJECT_ROOT, '.awf', 'runs', sid, 'state.lock')
+    : path.join(PROJECT_ROOT, '.awf', 'state.lock');
+}
+function writeRunStateSid(sid, state) {
+  const file = runStateFile(sid);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  return storeCore.withFileLock(runStateLockFile(sid), () => storeCore.writeJsonAtomicSync(file, state));
+}
+
 // ---- HTTP plumbing ----
 function readJson(req) {
   return new Promise((resolve) => {
@@ -482,24 +722,40 @@ function requirePaused(res) {
   return false;
 }
 
+// ── T1-093 web 构建产物静态托管（React SPA）──
+// 产物目录：CC_WEB_PUBLIC 覆盖（测试/独立目录），缺省 <src>/server/public（web/vite build outDir）。
+// index.html 存在 → 就绪（root 给 React、assets/SPA 由尾兜底托管）；未构建 → 回落 legacy 托管页（现状）。
+const WEB_PUBLIC_DEFAULT = path.join(__dirname, 'public');
+function webPublicRoot() {
+  return process.env.CC_WEB_PUBLIC || WEB_PUBLIC_DEFAULT;
+}
+function webIndexHtml() {
+  try { return fs.readFileSync(path.join(webPublicRoot(), 'index.html')); } catch { return null; }
+}
+/** 惰性实例；每次构建（无缓存）以让 CC_WEB_PUBLIC 覆盖即时生效 */
+function webHostInstance() {
+  if (!webIndexHtml()) return null;
+  return createStaticHost({ root: webPublicRoot(), aliases: { '/': 'index.html' }, spa: 'index.html' });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
+  lastActivityAt = Date.now(); // 任何请求视为活动（空闲回收计时刷新）
 
-  // dashboard (default) + control panel
+  // dashboard (default)；T1-093：web 构建产物存在 → root 由 React SPA 承载；T1-094：ui.html 已废弃不再回退
   if (req.method === 'GET' && pathname === '/') {
+    const idx = webIndexHtml();
+    if (idx) {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(idx);
+    }
     try {
       const html = fs.readFileSync(htmlDir() + '/dashboard.html');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(html);
     } catch {
-      try {
-        const html = fs.readFileSync(htmlDir() + '/ui.html');
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        return res.end(html);
-      } catch {
-        return send(res, 500, { ok: false, error: 'no page found' });
-      }
+      return send(res, 500, { ok: false, error: 'no page found' });
     }
   }
 
@@ -523,13 +779,16 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (req.method === 'GET' && pathname === '/ui') {
+  // T1-086：共享主题/工具资产（theme.css / common.js，托管页公共抽取）
+  if (req.method === 'GET' && (pathname === '/theme.css' || pathname === '/common.js')) {
+    const name = pathname === '/theme.css' ? 'theme.css' : 'common.js';
+    const ctype = name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8';
     try {
-      const html = fs.readFileSync(htmlDir() + '/ui.html');
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(html);
+      const body = fs.readFileSync(path.join(htmlDir(), name));
+      res.writeHead(200, { 'content-type': ctype });
+      return res.end(body);
     } catch {
-      return send(res, 500, { ok: false, error: 'ui.html not found' });
+      return send(res, 404, { ok: false, error: 'asset not found' });
     }
   }
 
@@ -538,6 +797,13 @@ const server = http.createServer(async (req, res) => {
     const body = (await readJson(req)) || {};
     const event = body.event || url.searchParams.get('event');
     let hookCcOutput = null; // server 需回传的 hook 输出（decision gate block/deny），gateway 透传到 stdout
+
+    // T1-071：带 sid 的 hook → 按 sid 路由到独立 run 槽（不触碰全局单槽）；无 sid 走既有单槽路径
+    const hookSid = url.searchParams.get('sid');
+    if (hookSid) {
+      handleSidHook(hookSid, event, body, res);
+      return;
+    }
 
     if (event === 'SessionStart') {
       if (diagnosisInFlight && body.session_id && body.session_id !== mainSessionId) {
@@ -683,8 +949,10 @@ const server = http.createServer(async (req, res) => {
 
   // ---- state.json ----
   if (req.method === 'GET' && pathname === '/awf/state') {
-    const s = runStores.state.readSync();
-    if (s == null) return send(res, 404, { ok: false, error: `state.json not found at ${ctx.statePath}` });
+    const sid = url.searchParams.get('sid');
+    // T1-078：?sid 提供 → 只读该 run 槽 state（.awf/runs/<sid>/state.json，软边界）；否则项目根 state
+    const s = sid ? storeCore.readJsonSync(runStateFile(sid)) : runStores.state.readSync();
+    if (s == null) return send(res, 404, { ok: false, error: `state.json not found${sid ? ` for run ${sid}` : ''}` });
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify(s, null, 2));
   }
@@ -740,6 +1008,18 @@ const server = http.createServer(async (req, res) => {
 
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
+    // T1-071：?sid= 返回该 run 槽内存态（ready/busy/decision 隔离）
+    const statusSid = url.searchParams.get('sid');
+    if (statusSid) {
+      const slot = runSlotFor(statusSid);
+      return send(res, 200, {
+        ok: true, sid: statusSid,
+        state: slot.state,
+        decisionPending: slot.decisionPending,
+        contextReady: slot.contextReady,
+        projectRoot: PROJECT_ROOT,
+      });
+    }
     const out = {
       ok: true, state, session: tmuxlib.hasSession(), projectRoot: PROJECT_ROOT, decisionPending, contextReady,
       decisionGate, decisionResume,
@@ -901,10 +1181,158 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.value });
   }
 
+  // ---- run host：提交 run / 状态快照 / 轮询事件（T1-105；CLI cutover 在 T1-058） ----
+  // 惰性装配：首次命中触发 bootstrap（含 ESM 动态 import），随后 runHost 常驻。
+  if (req.method === 'POST' && pathname === '/run/submit') {
+    const body = (await readJson(req)) || {};
+    await bootstrapRunHost();
+    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    const runId = typeof body.runId === 'string' && body.runId.length > 0 ? body.runId : undefined;
+    const r = runHost.submitRun({ runId });
+    if (!r.ok) return send(res, 409, { ok: false, error: r.error, runId: r.runId });
+    return send(res, 202, { ok: true, runId: r.runId, mode: r.mode });
+  }
+
+  if (req.method === 'GET' && pathname === '/run/status') {
+    await bootstrapRunHost();
+    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    const runId = url.searchParams.get('runId') || undefined;
+    return send(res, 200, runHost.snapshot(runId));
+  }
+
+  if (req.method === 'GET' && pathname === '/run/events') {
+    await bootstrapRunHost();
+    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    const afterSeqRaw = url.searchParams.get('afterSeq');
+    const afterSeq = Number(afterSeqRaw);
+    const q = {
+      afterSeq: Number.isInteger(afterSeq) && afterSeq >= 0 ? afterSeq : 0,
+      runId: url.searchParams.get('runId') || undefined,
+    };
+    return send(res, 200, runHost.pollEvents(q));
+  }
+
+  // ---- server run api 写端点（T1-061）：cli 调度/门禁派生等剩余直写收口 server 单写者 ----
+  if (req.method === 'POST' && pathname === '/run/state/mode') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.mode !== 'string' || !['run', 'idle', 'pause'].includes(body.mode)) {
+      return send(res, 400, { ok: false, error: 'body must be {mode: run|idle|pause}' });
+    }
+    await ensureRunStateApi();
+    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    const ok = runStateApi.setWorkflowMode(PROJECT_ROOT, body.mode);
+    return send(res, 200, { ok: !!ok, mode: body.mode });
+  }
+
+  if (req.method === 'POST' && pathname === '/run/state/task/active') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.taskId !== 'string' || body.taskId.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {taskId: non-empty string}' });
+    }
+    await ensureRunStateApi();
+    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    const ok = runStateApi.markTaskActive(PROJECT_ROOT, body.taskId);
+    return send(res, 200, { ok: !!ok, taskId: body.taskId });
+  }
+
+  if (req.method === 'POST' && pathname === '/run/state/gate') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.taskId !== 'string' || body.taskId.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {taskId: non-empty string}' });
+    }
+    const s = runStores.state.readSync();
+    const task = s?.tasks?.find((x) => x.id === body.taskId) || null;
+    if (!task) return send(res, 200, { ok: true, applied: false, reason: 'task not found' });
+    const handler = await runStateGateHandler();
+    await handler(PROJECT_ROOT, body.taskId, task);
+    return send(res, 200, { ok: true, applied: true, taskId: body.taskId });
+  }
+
+  if (req.method === 'POST' && pathname === '/run/state/backup') {
+    await ensureRunStateApi();
+    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    runStateApi.backupState(PROJECT_ROOT);
+    return send(res, 200, { ok: true });
+  }
+
+  // T1-077：awf-state MCP 语义保留、底层写收口 server 单写者——MCP 客户端按工具语义算出
+  // 完整 state，POST 此处由 server 用 state.js 单写者（锁 + 原子）落盘；MCP 不再直写文件/锁。
+  if (req.method === 'POST' && pathname === '/run/state/apply') {
+    const body = (await readJson(req)) || {};
+    const state = body?.state;
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      return send(res, 400, { ok: false, error: 'body must be {state: object}' });
+    }
+    await ensureRunStateApi();
+    const sid = url.searchParams.get('sid');
+    try {
+      if (sid) {
+        // T1-078：sid → 只写该 run 槽 state（软边界），互不影响其它 run
+        writeRunStateSid(sid, state);
+      } else {
+        if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+        runStateApi.saveState(PROJECT_ROOT, state);
+      }
+      return send(res, 200, { ok: true });
+    } catch (e) {
+      return send(res, 500, { ok: false, error: `state 落盘失败: ${e.message}` });
+    }
+  }
+
+  // T1-080：awf-oneshot 经 server——无状态 claude -p 调用收口 server（oneshot adapter，外部零 claude）
+  if (req.method === 'POST' && pathname === '/oneshot') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.prompt !== 'string' || body.prompt.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {prompt: non-empty string}' });
+    }
+    const r = await oneshotLib.runOneShot({ prompt: body.prompt, cwd: typeof body.cwd === 'string' ? body.cwd : undefined, timeoutMs: 300000 })
+      .catch((e) => ({ ok: false, error: e.message }));
+    return send(res, 200, r);
+  }
+
+  // 优雅关闭（T1-064）：awf server stop / 空闲回收调用；响应送达后 close（main 才退出进程）
+  if (req.method === 'POST' && pathname === '/shutdown') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, shutting: true }));
+    setTimeout(() => {
+      stop().then(() => { if (require.main === module) process.exit(0); });
+    }, 60);
+    return;
+  }
+
+  // T1-093：web 构建产物静态托管——GET 未命中既有端点 → 走产物 host（assets + 无扩展名 SPA 回退 index）
+  if (req.method === 'GET') {
+    const host = webHostInstance();
+    if (host && host.serve(req, res, pathname)) return;
+  }
+
   return send(res, 404, { ok: false, error: 'not found' });
 });
 
 // ---- lifecycle: CLI 以子进程方式运行；测试中可显式 start/stop ----
+// ── WebSocket 升级：/run/events 实时事件推送（T1-091）──
+// 前端 createApiClient.stream('/run/events') 建立 ws；升级前惰性装配 run host，把宿主事件
+// 逐条以文本帧推给订阅客户端；socket 关闭即退订。路径非 /run/events（含他路径/静态）一律拒绝。
+server.on('upgrade', (req, socket) => {
+  let pathname = '/';
+  try { pathname = new URL(req.url || '/', 'http://localhost').pathname; } catch { /* 保持默认 */ }
+  if (pathname !== '/run/events') {
+    try { socket.destroy(); } catch { /* ignore */ }
+    return;
+  }
+  bootstrapRunHost()
+    .then(() => {
+      if (!runHost) { try { socket.destroy(); } catch { /* ignore */ } return; }
+      const unsub = runHost.subscribe((event) => {
+        try {
+          if (socket.writable) socket.write(encodeTextFrame(JSON.stringify(event)));
+        } catch { /* 客户端断开等写入失败：退订由 onClose 兜底 */ }
+      });
+      wsUpgrade(req, socket, { onClose: unsub, onError: unsub });
+    })
+    .catch(() => { try { socket.destroy(); } catch { /* ignore */ } });
+});
+
 function start(port = PORT) {
   resetRunLogs();
   metricsCache = { at: 0, value: null };
@@ -919,6 +1347,7 @@ function start(port = PORT) {
 }
 
 function stop() {
+  if (runHost) { try { runHost.stop(); } catch { /* host 停止失败不影响 server 关闭 */ } }
   return new Promise((resolve) => {
     server.close(() => resolve());
     if (server.closeAllConnections) server.closeAllConnections();
@@ -945,6 +1374,7 @@ function _resetForTest() {
   decisionGate = null;
   decisionResume = null;
   decisionSeqGen.reset();
+  runSlotsBySid.clear(); // T1-071 per-run 槽清理（用例隔离）
   waiters = [];
   contextReady = false;
   mainSessionId = null;
@@ -952,6 +1382,13 @@ function _resetForTest() {
   metricsCache = { at: 0, value: null };
   resetRunMeta(PROJECT_ROOT);
   diagnosisInFlight = false;
+  // run host（T1-105）：复位以便用例隔离；有 active run 时 reset 拒绝，调用方应先等 run 收敛
+  if (runHost) {
+    try { runHost.stop(); runHost.reset(); } catch { /* host 复位失败不阻塞 server 复位 */ }
+  }
+  runHost = null;
+  runHostReady = null;
+  runHostBootErr = null;
 }
 
 module.exports = {
@@ -964,4 +1401,21 @@ if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
   });
+
+  // T1-064/067 常驻空闲回收：run 结束后 server 保留；空闲阈值（CC_SERVER_IDLE_MS，0=禁用）无活动
+  // 且宿主无 run 驱动 → 自动关闭。任何请求都刷新 lastActivityAt，故有看板/轮询即非空闲。
+  // 检查节拍 CC_SERVER_IDLE_CHECK_MS（默认 60s，测试冒烟可调小）。
+  const idleMs = idleDefaultMs();
+  if (idleMs > 0) {
+    const idleCheckMs = Number(process.env.CC_SERVER_IDLE_CHECK_MS || 60000);
+    const idleTimer = setInterval(() => {
+      if (hostHasActiveRun()) return; // 宿主有 run 在驱动绝不回收
+      if (isIdleDue({ now: Date.now(), lastActivityAt, idleMs })) {
+        clearInterval(idleTimer);
+        console.log(`[server] 空闲 ${Math.round(idleMs / 60000)}min 无活动且无 run 驱动，自动关闭（常驻回收）`);
+        stop().then(() => process.exit(0));
+      }
+    }, idleCheckMs);
+    if (idleTimer.unref) idleTimer.unref();
+  }
 }

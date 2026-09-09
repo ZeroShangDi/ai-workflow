@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { runScheduler } from '../../src/server/run-scheduler.js';
-import { handleGateCompletion } from '../../src/cli/gate-fix.js';
+import { handleGateCompletion } from '../../src/server/gate-fix.js';
 import { MAX_RECHECK } from '../../src/lib/state.js';
 
 // scheduler 用真实 loadState 读 .awf/state.json；dispatcher/waitAnyDone 为注入接口。

@@ -2,3 +2,5 @@ docs/discuss/all_claude_prompts.md
 sandbox/
 .awf/run-settings.json
 # .claude/settings.json 是 init 本地注入生成物（marketplace 绝对路径机器相关），不入库
+# web/ 构建产物落 server 托管目录（T1-093），不入库
+src/server/public/

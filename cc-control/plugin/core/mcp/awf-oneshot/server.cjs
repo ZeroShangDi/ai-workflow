@@ -15,6 +15,34 @@ try {
   oneshotAdapter = null; // 纯插件副本（无包 src）→ 回退本地最小实现
 }
 
+// T1-080：awf-oneshot 经 server /oneshot——env AWF_BASE 提供时走 server（server 经 oneshot
+// adapter spawn claude -p），MCP 不再直连 spawn；缺省（离线/单测）沿用本地 spawn。
+const http = require('node:http');
+const AWF_BASE = process.env.AWF_BASE || '';
+function httpJsonPost(pathname, bodyObj) {
+  return new Promise((resolve) => {
+    const base = new URL(AWF_BASE);
+    const data = JSON.stringify(bodyObj || {});
+    const req = http.request({
+      hostname: base.hostname, port: base.port || 80, path: pathname, method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
+    }, (r) => {
+      let raw = '';
+      r.on('data', (c) => { raw += c; });
+      r.on('end', () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
+    req.write(data);
+    req.end();
+  });
+}
+async function serverOneShot(prompt, cwd) {
+  const r = await httpJsonPost('/oneshot', { prompt, cwd: cwd || undefined });
+  if (!r || r.ok !== true) return { ok: false, error: (r && r.error) || 'awf-oneshot server 调用失败（/oneshot）' };
+  return r;
+}
+
 function textResult(obj) {
   return { content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] };
 }
@@ -99,7 +127,7 @@ const handlers = {
             return textResult({ ok: false, error: 'prompt is required' });
           }
           logStderr(`oneshot: ${args.prompt.slice(0, 80)}...`);
-          const result = await spawnClaude(args.prompt, args.cwd);
+          const result = AWF_BASE ? await serverOneShot(args.prompt, args.cwd) : await spawnClaude(args.prompt, args.cwd);
           return textResult(result);
         }
         default:

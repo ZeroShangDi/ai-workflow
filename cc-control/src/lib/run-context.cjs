@@ -83,8 +83,6 @@ function buildRunContext({ sid = null, projectRoot, env = process.env } = {}) {
     runMetaPath: path.join(awfDir, 'logs', 'run-meta.json'),
     logsDir: path.join(awfDir, 'logs'),
     decisionsDir: path.join(awfDir, 'decisions', 'runs'),
-    /** inbox socket（CC_MESSAGING_SOCKET 覆盖；多 run 按 <sid>.sock 命名见 T1-069 接入） */
-    messagingSocketPath: env.CC_MESSAGING_SOCKET || path.join(awfDir, 'messaging.sock'),
 
     // ── 每 run 布局（T1-018）：.awf/runs/<sid>/ 及子路径（无 sid → 不派生） ──
     runDir,

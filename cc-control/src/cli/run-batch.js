@@ -4,10 +4,9 @@
 //
 // CLI 调度：就绪池 + 配额 + 补位循环（runScheduler，见 run-scheduler.js）
 // 派发：经 /send（tmux send-keys）向主会话注入「派生后台子 Agent 执行 task」指令。
-//   —— 首选是 inbox socket 即时补位（messaging.js），但 2.1.227 的 cross-session messaging
-//      内部开关（CLAUDE_CODE_HARBOR_KITE）实测无效（socket 不绑定），暂降级 tmux 回合补位：
-//      主会话每回合派后台子 Agent 后立即结束回合，CLI 感知完成 → 下回合补位。后台子 Agent
-//      跨回合运行，并发由子 Agent 维持。
+//   —— T1-065 定稿：cross-session messaging/inbox（messaging.js）已删除，dispatch 收敛为
+//      tmux 回合补位：主会话每回合派后台子 Agent 后立即结束回合，CLI 感知完成 → 下回合补位。
+//      后台子 Agent 跨回合运行，并发由子 Agent 维持。
 // 落账：子 Agent 结束 → SubagentStop hook → server 解析 last_assistant_message 的 RESULT → 写 state
 // 完成感知：CLI 轮询 state 检测运行中任务 done/blocked（容忍延迟）
 // 补发：hook 落账失败 → 读 subagent-failed.jsonl → SendMessage 恢复子 Agent 补齐 RESULT
@@ -15,10 +14,8 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
-import { loadState, backupState, markTaskActive } from '../lib/state.js';
 import { runScheduler } from '../server/run-scheduler.js';
-import { gateCompletionHook } from '../server/run-driver.cjs';
-import { handleGateCompletion } from './gate-fix.js';
+import { createRunClient } from './run-client.js';
 import { subagentDispatch } from '../lib/plugin-bridge.js';
 import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
 import { handleDecision } from './run.js';
@@ -46,8 +43,9 @@ function maxTsFromLog(logPath) {
   return max;
 }
 
-/** 轮询 state 检测完成 + 落账失败补发 + 决策上抛挂起（NEEDS_INPUT 未解决 → suspended） */
-function makeWaitAnyDone(projectRoot, dispatcher, taskList) {
+/** 轮询完成检测 + 落账失败补发 + 决策上抛挂起（NEEDS_INPUT 未解决 → suspended）。
+ *  run 态读经 server 快照（readTasks：client.getState），不再 CLI 直读 lib/state.js（T1-062）。 */
+function makeWaitAnyDone(projectRoot, dispatcher, taskList, readTasks) {
   const failedLog = path.join(projectRoot, '.awf', 'logs', 'subagent-failed.jsonl');
   const needsLog = path.join(projectRoot, '.awf', 'logs', 'subagent-needs-input.jsonl');
   let lastFailedTs = maxTsFromLog(failedLog); // 上次处理的失败记录时间（毫秒游标）
@@ -117,9 +115,9 @@ function makeWaitAnyDone(projectRoot, dispatcher, taskList) {
         continue;
       }
 
-      const state = loadState(projectRoot);
+      const tasks = await readTasks();
       const done = running.taskIds().filter((id) => {
-        const t = state?.tasks?.find((x) => x.id === id);
+        const t = tasks.find((x) => x.id === id);
         return t && (t.status === 'done' || t.status === 'blocked');
       });
       await checkNeedsInput();
@@ -140,6 +138,16 @@ function makeWaitAnyDone(projectRoot, dispatcher, taskList) {
  */
 export async function runBatchLoop(projectRoot, cfg) {
   const taskList = createTaskList();
+  const client = createRunClient({});
+  // run 态读经 server 快照（client.getState → GET /awf/state），不直读 lib/state.js（T1-062）
+  const readTasks = async () => {
+    try {
+      const s = await client.getState();
+      return Array.isArray(s?.tasks) ? s.tasks : [];
+    } catch {
+      return [];
+    }
+  };
   const dispatcher = {
     async send(task) {
       await waitWhilePaused(projectRoot);
@@ -151,7 +159,8 @@ export async function runBatchLoop(projectRoot, cfg) {
       // 经 Session Server /send（tmux）注入：主会话收到指令 → 派生后台子 Agent → 回合结束
       const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
       if (!resp?.ok) throw new Error(`派发 ${task.id} 失败: ${resp?.error || 'unknown'}`);
-      markTaskActive(projectRoot, task.id);
+      // T1-061：调度 active 写经 server run api（server 单写者），不再 CLI 直写 state
+      await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/task/active`, { taskId: task.id });
       taskList.update(task.id, task.title, 'active');
     },
     async sendRaw(text) {
@@ -163,27 +172,26 @@ export async function runBatchLoop(projectRoot, cfg) {
 
   let dispatched;
   try {
-    // 门禁闭环经 run-driver.gateCompletionHook 锚点（任务完成 → 门禁 verdict → 派生修复 + 复审）
-    const onGateComplete = gateCompletionHook(projectRoot, { handleGateCompletion });
+    // 门禁闭环：任务完成 → 门禁 verdict 判定/派生修复经 server run api（T1-061 收口 server 单写者）
     ({ dispatched } = await runScheduler({
       projectRoot,
       cfg,
       dispatcher,
-      waitAnyDone: makeWaitAnyDone(projectRoot, dispatcher, taskList),
-      // 门禁闭环：门禁任务（review/test）blocked + verdict 非 pass → 派生修复任务 + 回退复审
+      waitAnyDone: makeWaitAnyDone(projectRoot, dispatcher, taskList, readTasks),
       onTaskComplete: async (id, task) => {
-        const settled = loadState(projectRoot)?.tasks?.find((item) => item.id === id);
+        const settled = (await readTasks()).find((item) => item.id === id);
         const title = settled?.title || task.title || '未命名任务';
         const status = settled?.status || task.status;
         taskList.update(id, title, status === 'done' ? 'done' : 'blocked');
-        await onGateComplete(id, settled || task);
+        await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/gate`, { taskId: id });
       },
     }));
   } finally {
     taskList.stop();
   }
 
-  backupState(projectRoot);
+  // T1-061：版本备份经 server run api（server 单写者）
+  await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/backup`, {});
   console.log('');
   console.log(`  ${GREEN}✔ 工作流结束（${dispatched} 任务）${RESET}\n`);
 }

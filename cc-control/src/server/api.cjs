@@ -36,7 +36,6 @@ const API_CATALOG = [
   { name: 'awfDecisionsOverride', method: 'POST', legacyPrefix: '/awf/decisions/', apiPrefix: '/api/v1/awf/decisions/', suffix: '/override' },
   { name: 'index', method: 'GET', legacy: '/', api: '/api/v1/' },
   { name: 'dashboard', method: 'GET', api: '/api/v1/dashboard' },
-  { name: 'ui', method: 'GET', legacy: '/ui', api: '/api/v1/ui' },
   { name: 'diagnosticsHtml', method: 'GET', legacy: '/diagnostics', api: '/api/v1/diagnostics' },
   { name: 'decisionsHtml', method: 'GET', legacy: '/decisions.html', api: '/api/v1/decisions.html' },
 ];

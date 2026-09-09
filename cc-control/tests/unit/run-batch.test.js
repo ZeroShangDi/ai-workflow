@@ -10,12 +10,11 @@ const m = vi.hoisted(() => ({
   mockHttpPostJson: vi.fn(),
   mockSubagentDispatch: vi.fn(),
   mockSleep: vi.fn(() => Promise.resolve()),
-  mockBackupState: vi.fn(),
-  mockMarkTaskActive: vi.fn(),
-  mockLoadState: vi.fn(() => null),
   mockGetStatus: vi.fn(),
+  client: {
+    getState: vi.fn(async () => ({ tasks: [] })),
+  },
   mockHandleDecision: vi.fn(),
-  mockHandleGateCompletion: vi.fn(() => Promise.resolve()),
   mockWaitWhilePaused: vi.fn(() => Promise.resolve()),
   mockTaskListUpdate: vi.fn(),
   mockTaskListStop: vi.fn(),
@@ -23,14 +22,9 @@ const m = vi.hoisted(() => ({
 
 vi.mock('../../src/lib/plugin-bridge.js', () => ({ subagentDispatch: m.mockSubagentDispatch }));
 vi.mock('../../src/lib/session/client.js', () => ({ httpPostJson: m.mockHttpPostJson, sleep: m.mockSleep, SERVER_PORT: 8787, getStatus: m.mockGetStatus }));
-vi.mock('../../src/lib/state.js', () => ({
-  loadState: m.mockLoadState,
-  backupState: m.mockBackupState,
-  markTaskActive: m.mockMarkTaskActive,
-}));
+vi.mock('../../src/cli/run-client.js', () => ({ createRunClient: vi.fn(() => m.client) }));
 vi.mock('../../src/server/run-scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
 vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
-vi.mock('../../src/cli/gate-fix.js', () => ({ handleGateCompletion: m.mockHandleGateCompletion }));
 vi.mock('../../src/lib/pause.js', () => ({ waitWhilePaused: m.mockWaitWhilePaused }));
 vi.mock('../../src/lib/ui/task-list.js', () => ({
   createTaskList: () => ({
@@ -45,9 +39,9 @@ import { runBatchLoop } from '../../src/cli/run-batch.js';
 describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
   beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    for (const k of Object.keys(m)) m[k].mockReset();
+    for (const k of Object.keys(m)) { if (k === 'client') continue; m[k].mockReset(); }
     m.mockSleep.mockImplementation(() => Promise.resolve());
-    m.mockLoadState.mockReturnValue(null);
+    m.client.getState.mockReset().mockResolvedValue({ tasks: [] });
     m.mockGetStatus.mockResolvedValue({}); // 默认无主 Agent 决策
   });
 
@@ -58,7 +52,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     const args = m.mockRunScheduler.mock.calls[0][0];
     expect(args.projectRoot).toBe('/tmp/proj');
     expect(args.cfg).toEqual({ agents: { max: 2 } });
-    expect(m.mockBackupState).toHaveBeenCalled();
+    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/backup', {});
   });
 
   it('TC-B: dispatcher.send 经 subagentDispatch + /send 派发到主会话', async () => {
@@ -75,7 +69,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     expect(m.mockWaitWhilePaused).toHaveBeenCalledWith('/tmp/proj');
     expect(m.mockSubagentDispatch).toHaveBeenCalledWith({ taskId: 'T1', taskTitle: '做任务', taskPrompt: 'do it' });
     expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/send', { text: 'DISPATCH_PROMPT' });
-    expect(m.mockMarkTaskActive).toHaveBeenCalledWith('/tmp/proj', 'T1');
+    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/task/active', { taskId: 'T1' });
     expect(m.mockTaskListUpdate).toHaveBeenCalledWith('T1', '做任务', 'active');
   });
 
@@ -109,9 +103,9 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     fs.writeFileSync(failedLog, JSON.stringify({ ts: new Date().toISOString(), agentId: 'agent-bad', reason: 'task T999 not found', resultTaskId: 'T999' }) + '\n');
 
     // 驱动 waitAnyDone：先无完成（触发补发检测），后 T1 完成（返回）
-    m.mockLoadState
-      .mockReturnValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
-      .mockReturnValueOnce({ tasks: [{ id: 'T1', status: 'done' }] });
+    m.client.getState
+      .mockResolvedValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
+      .mockResolvedValueOnce({ tasks: [{ id: 'T1', status: 'done' }] });
     await waitAnyDone({ taskIds: () => ['T1'] });
 
     // 补发：经 /send 注入「SendMessage 恢复子 Agent」指令（含 agent-bad）
@@ -134,10 +128,10 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     m.mockGetStatus
       .mockResolvedValueOnce({ decisionPending: { question: '选 A 还是 B', options: ['A', 'B'], answered: false } })
       .mockResolvedValue({});
-    m.mockLoadState
-      .mockReturnValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
-      .mockReturnValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
-      .mockReturnValue({ tasks: [{ id: 'T1', status: 'done' }] });
+    m.client.getState
+      .mockResolvedValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
+      .mockResolvedValueOnce({ tasks: [{ id: 'T1', status: 'pending' }] })
+      .mockResolvedValue({ tasks: [{ id: 'T1', status: 'done' }] });
     await waitAnyDone({ taskIds: () => ['T1'] });
 
     expect(m.mockHandleDecision).toHaveBeenCalledTimes(1); // 决策被响应（/respond 回主 Agent）
@@ -166,7 +160,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     // 触发完成回调：门禁任务 blocked → handleGateCompletion 被调用（projectRoot/id/task 透传）
     const gateTask = { id: 'R1', kind: 'review', status: 'blocked', exec: { verdict: { level: 'fail' } } };
     await captured('R1', gateTask);
-    expect(m.mockHandleGateCompletion).toHaveBeenCalledWith('/tmp/proj', 'R1', gateTask);
+    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/gate', { taskId: 'R1' });
   });
 
   it('TC-I: 任务落账后输出完成状态与标题', async () => {
@@ -175,7 +169,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
       captured = onTaskComplete;
       return { dispatched: 0 };
     });
-    m.mockLoadState.mockReturnValue({ tasks: [{ id: 'T1', title: '实现登录', status: 'done' }] });
+    m.client.getState.mockResolvedValue({ tasks: [{ id: 'T1', title: '实现登录', status: 'done' }] });
     await runBatchLoop('/tmp/proj', { agents: { max: 2 } });
 
     await captured('T1', { id: 'T1', title: '旧标题', status: 'active' });

@@ -71,3 +71,20 @@ describe('createStaticHost — serve', () => {
     expect(res.headers['content-type']).toContain('text/javascript');
   });
 });
+
+describe('createStaticHost — SPA 产物托管（T1-093 web build→public）', () => {
+  const root = tmpAssets();
+  fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><div id="app"></div>');
+  const host = createStaticHost({ root, aliases: { '/': 'index.html' }, spa: 'index.html' });
+
+  it('/ 经别名给 index；assets 直接文件', () => {
+    expect(host.resolve('/')).toBe(path.join(root, 'index.html'));
+    expect(host.resolve('/app.js')).toBe(path.join(root, 'app.js'));
+  });
+
+  it('无扩展名前端路由 → SPA 回退 index；存在文件优先于回退；带扩展名缺失仍 null（不吞资源 404）', () => {
+    expect(host.resolve('/wbs-tree')).toBe(path.join(root, 'index.html'));
+    expect(host.resolve('/dashboard')).toBe(path.join(root, 'dashboard.html')); // 真实文件优先
+    expect(host.resolve('/missing.js')).toBeNull();
+  });
+});

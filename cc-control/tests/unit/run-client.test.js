@@ -53,3 +53,100 @@ describe('client 端点集中 + 订阅接缝（T1-056）', () => {
     expect(events[0].type).toBe('status');
   });
 });
+
+describe('client run host 调用面（T1-105）', () => {
+  function makeHttp() {
+    const calls = [];
+    return {
+      calls,
+      http: {
+        postJson: async (p, b) => { calls.push(['postJson', p, b]); return { ok: true }; },
+        getJson: async (p) => { calls.push(['getJson', p]); return { ok: true, events: [] }; },
+        respond: async (v) => { calls.push(['respond', v]); return { ok: true }; },
+        status: async () => ({ state: 'ready' }),
+      },
+    };
+  }
+
+  it('submitRun 提交 /run/submit（runId 可选）', async () => {
+    const { calls, http } = makeHttp();
+    const client = createRunClient({ http });
+    await client.submitRun({ runId: 'r1' });
+    await client.submitRun();
+    expect(calls).toEqual([
+      ['postJson', '/run/submit', { runId: 'r1' }],
+      ['postJson', '/run/submit', {}],
+    ]);
+  });
+
+  it('runSnapshot / pollRunEvents 经 getJson 命中状态/事件端点（含 query）', async () => {
+    const { calls, http } = makeHttp();
+    const client = createRunClient({ http });
+    await client.runSnapshot({ runId: 'r1' });
+    await client.runSnapshot();
+    await client.pollRunEvents({ runId: 'r1', afterSeq: 5, limit: 10 });
+    await client.pollRunEvents({});
+    expect(calls).toEqual([
+      ['getJson', '/run/status?runId=r1'],
+      ['getJson', '/run/status'],
+      ['getJson', '/run/events?afterSeq=5&runId=r1&limit=10'],
+      ['getJson', '/run/events?afterSeq=0'],
+    ]);
+  });
+
+  it('端点表含 run submit/status/events', () => {
+    expect(API_ENDPOINTS.runSubmit).toEqual({ path: '/run/submit', method: 'POST' });
+    expect(API_ENDPOINTS.runStatus.method).toBe('GET');
+    expect(API_ENDPOINTS.runEvents.path).toBe('/run/events');
+  });
+});
+
+describe('client server run api 写端点（T1-061）', () => {
+  function makeHttp() {
+    const calls = [];
+    return {
+      calls,
+      http: {
+        postJson: async (p, b) => { calls.push(['postJson', p, b]); return { ok: true }; },
+        getJson: async (p) => { calls.push(['getJson', p]); return { ok: true }; },
+        status: async () => ({ state: 'ready' }),
+      },
+    };
+  }
+
+  it('setRunMode / markRunTaskActive / runGateComplete / backupRun 命中 /run/state/*', async () => {
+    const { calls, http } = makeHttp();
+    const client = createRunClient({ http });
+    await client.setRunMode('run');
+    await client.markRunTaskActive('T1');
+    await client.runGateComplete('R1');
+    await client.backupRun();
+    expect(calls).toEqual([
+      ['postJson', '/run/state/mode', { mode: 'run' }],
+      ['postJson', '/run/state/task/active', { taskId: 'T1' }],
+      ['postJson', '/run/state/gate', { taskId: 'R1' }],
+      ['postJson', '/run/state/backup', {}],
+    ]);
+  });
+
+  it('端点表含 run state 写端点', () => {
+    expect(API_ENDPOINTS.stateMode.path).toBe('/run/state/mode');
+    expect(API_ENDPOINTS.stateTaskActive.path).toBe('/run/state/task/active');
+    expect(API_ENDPOINTS.stateGate.path).toBe('/run/state/gate');
+    expect(API_ENDPOINTS.stateBackup.method).toBe('POST');
+  });
+
+  it('getState 经 getJson 读 /awf/state（运行态读经 server 快照）', async () => {
+    const { calls, http } = makeHttp();
+    const client = createRunClient({ http });
+    await client.getState();
+    expect(calls).toEqual([['getJson', '/awf/state']]);
+  });
+
+  it('T1-073：slotStatus(sid) 读 server /status?sid（run 槽内存态）', async () => {
+    const { calls, http } = makeHttp();
+    const client = createRunClient({ http });
+    await client.slotStatus('r1');
+    expect(calls).toEqual([['getJson', '/status?sid=r1']]);
+  });
+});
