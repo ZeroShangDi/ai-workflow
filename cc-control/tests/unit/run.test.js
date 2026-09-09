@@ -406,7 +406,7 @@ describe('runCommand', () => {
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
 
-    // /send 成功，但 CC 一直 busy → waitForReady 超时(300s) → 回查任务 done → 不报错继续
+    // /send 成功，但 CC 一直 busy → waitForReady 超时(30min) → 回查任务 done → 不报错继续
     httpState.sendResponse = JSON.stringify({ ok: true });
     httpState.statusSequence = [JSON.stringify({ state: 'ready' })]; // ensureServer 启动检测
     httpState.statusResponse = JSON.stringify({ state: 'busy' });    // waitForReady 永不 ready
@@ -422,7 +422,7 @@ describe('runCommand', () => {
       .mockReturnValue(null);
 
     const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(310000); // 超过 READY_TIMEOUT(300s)
+    await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 10000); // 超过 READY_TIMEOUT(30min)
     await promise;
     vi.useRealTimers();
 

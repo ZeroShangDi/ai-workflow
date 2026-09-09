@@ -63,7 +63,7 @@ runBatchLoop
 |------|------|------|------|
 | `SERVER_PORT` | 8787 | HTTP Session Server 端口 | `src/lib/session/client.js` |
 | `POLL_INTERVAL` | 2000ms | 单 agent ready 轮询间隔 | `src/lib/session/client.js` |
-| `READY_TIMEOUT` | 300000ms (5min) | ready / waitForTaskDone 超时 | `src/lib/session/client.js` |
+| `READY_TIMEOUT` | 1800000ms (30min) | ready / waitForTaskDone 超时 | `src/lib/session/client.js` |
 | `DEFAULT_TIMEOUT_MS` | 5000ms | AskUserQuestion 自动选择等待 | `src/lib/session/client.js` |
 | `MAX_SETTLE_ROUNDS` | 3 | 单 agent 收尾协商追问最大轮数 | `src/cli/run.js` |
 | `POLL_MS` | 2000ms | 多 agent 完成感知轮询间隔 | `src/cli/run-batch.js` |
@@ -290,7 +290,7 @@ while (true)
 | 场景 | 行为 |
 |------|------|
 | `/send` 失败 | 单 agent：返回 `'timeout'`，不阻塞流程；多 agent：抛错（派发失败暴露） |
-| `executeTask` 超时（5min） | catch 后回查 state，若 done 则返回 `'ok'` |
+| `executeTask` 超时（30min） | catch 后回查 state，若 done 则返回 `'ok'` |
 | 回查 state 仍未 done | 返回 `'timeout'` |
 | 超时后重读 state 发现 done | `consecutiveTimeouts` 归零，正常继续 |
 | 连续 2 次超时（单 agent） | 标记 blocked，`consecutiveTimeouts` 归零 |

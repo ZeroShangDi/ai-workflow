@@ -185,7 +185,7 @@ function appendDecisionReviewTask({ decision_id, instruction, original_answer })
 }
 
 const PORT = Number(process.env.CC_PORT || 8787);
-const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
+const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 30 * 60 * 1000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
 const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);

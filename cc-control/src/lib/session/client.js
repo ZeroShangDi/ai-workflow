@@ -6,8 +6,8 @@ import http from 'http';
 
 /** Session Server 默认端口 */
 export const SERVER_PORT = 8787;
-/** waitForReady 最大等待时间 (5 min) */
-export const READY_TIMEOUT = 300000;
+/** waitForReady 最大等待时间 (30 min) */
+export const READY_TIMEOUT = 30 * 60 * 1000;
 /** ready 轮询间隔 */
 export const POLL_INTERVAL = 2000;
 
