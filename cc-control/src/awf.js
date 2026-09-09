@@ -32,7 +32,9 @@ program
   .command('run [task]')
   .description('启动自治开发工作流')
   .option('-a, --auto', '全自动模式，不暂停等待确认')
-  .option('-r, --resume', '从上次中断处恢复')
+  .option('-r, --resume', '从上次中断处恢复（活跃 run 挂接续观；宿主空闲则续跑 store 剩余任务）')
+  .option('--attach', '挂接到正在运行的 run（读 store 落盘状态续观 + 应答中继，不重复提交）')
+  .option('-R, --run-id <runId>', '指定 run（sid/runId）：--attach/--resume 挂接该 run，fresh 提交命名该 run')
   .option('-l, --local', '使用本地提示词模板，跳过 AI 智能生成')
   .option('--multi-agent', '启用多 Agent 并行执行（默认单 Agent）')
   .action(runCommand);
@@ -52,7 +54,7 @@ program
 
 program
   .command('open <target>')
-  .description('打开可视化页面：dashboard / tree / ui')
+  .description('打开可视化页面：dashboard / tree')
   .action(openCommand);
 
 program

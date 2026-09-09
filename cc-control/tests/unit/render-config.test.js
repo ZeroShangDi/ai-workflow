@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readPluginConfig, renderPluginJson, renderMarketplace } from '../../src/lib/plugin-config.js';
+import { readPluginConfig, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings } from '../../src/lib/plugin-config.js';
 
 const REPO = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const PLUGIN = path.join(REPO, 'plugin');
@@ -101,5 +101,42 @@ describe('渲染器泛化 — 新增任意第 3 dir 正确生成', () => {
       description: config.marketplace.description,
       owner: config.marketplace.owner,
     });
+  });
+});
+
+
+describe('T1-081 resolvePluginAssets — 任意插件可声明自身 mcp/hooks（engineDir-only 取消）', () => {
+  const config = readPluginConfig(REPO);
+  const H = { SessionStart: [{ hooks: [{ type: 'command', command: 'true' }] }] };
+  const M = { mine: { args: ['./mcp/x.js'] } };
+
+  it('引擎插件未声明 → 回落顶层 config.mcpServers/hooks', () => {
+    const r = resolvePluginAssets({ dir: config.engineDir }, config);
+    expect(r.mcpServers).toEqual(config.mcpServers);
+    expect(r.hooks).toEqual(config.hooks);
+  });
+
+  it('非引擎插件未声明 → null（引擎运行时资产不外泄）', () => {
+    expect(resolvePluginAssets({ dir: 'decision' }, config)).toEqual({ mcpServers: null, hooks: null });
+  });
+
+  it('任意插件声明自身 hooks/mcp → 用自身声明', () => {
+    const r = resolvePluginAssets({ dir: 'demo-plugin', mcpServers: M, hooks: H }, config);
+    expect(r.mcpServers).toEqual(M);
+    expect(r.hooks).toEqual(H);
+  });
+});
+
+
+describe('T1-082 renderRepoSettings — 本仓 .claude/settings.json 由 plugin/settings.json 渲染', () => {
+  it('<pkg> 解析为绝对 plugin 根；第三方（figma 等）手工层原样保留', () => {
+    const src = {
+      plugins: ['figma@claude-plugins-official', 'ai-workflow-core@ai-workflow-dev'],
+      enabledPlugins: { 'figma@claude-plugins-official': true, 'ai-workflow-core@ai-workflow-dev': true },
+      extraKnownMarketplaces: { 'ai-workflow-dev': { source: { source: 'directory', path: '<pkg>/plugin' } } },
+    };
+    const out = JSON.parse(renderRepoSettings(src, PLUGIN));
+    expect(out.extraKnownMarketplaces['ai-workflow-dev'].source.path).toBe(PLUGIN);
+    expect(out.plugins[0]).toBe('figma@claude-plugins-official'); // 第三方层保留
   });
 });

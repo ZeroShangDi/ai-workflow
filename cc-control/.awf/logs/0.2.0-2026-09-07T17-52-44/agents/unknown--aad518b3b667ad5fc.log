@@ -1,0 +1,390 @@
+=== AWF Subagent Log ===
+task: unknown
+agent: aad518b3b667ad5fc
+captured: 2026-09-07T17:58:32.758Z
+
+[17:55:09] 提示词
+You are exploring a Claude Code plugin repo at /Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control (cc-control: an AI workflow orchestrator for Claude Code). We are mid v0.2.0 refactor: making src/server/server.cjs actually host run orchestration (a resident run loop) instead of cli/run.js being the sole driver.
+
+Task: Build a precise map of existing server-side scaffolding and its tests, so a dev can wire a live "run host" without breaking existing behavior.
+
+Please read and summarize these files (all under src/server/):
+- server.cjs (967 lines — the current monolith; focus on its exported surface, the /hook handler, /send /status /respond endpoints, ready/busy state, decision gate integration, and any TODO comments referencing W3 / run domain / run-driver / run-scheduler / api.cjs / app.cjs)
+- run-driver.cjs, run-scheduler.js (pure logic layers) — what they export and what they're missing to be live-wired
+- app.cjs, api.cjs (routers/assembly), host.cjs, statemachine.cjs, hook-adapter.cjs, interact.cjs, session-launch.cjs, run-settings.cjs, run-logger.cjs
+- src/lib/store.cjs, src/lib/events.cjs, src/lib/gate-loop.cjs, src/lib/run-metrics.cjs, src/lib/run-config.js, src/lib/state.js (just the export surface & key function signatures; do not dump full files)
+- src/cli/run-client.js and src/lib/session/client.js (the client-side API surface: functions exported, endpoints referenced)
+- src/lib/plugin-bridge.js — the prompt-template read surface (taskWrapup/taskSettle/contextCheck/subagentDispatch)
+- src/cli/gate-fix.js and src/cli/scheduler.js if exists
+
+Then examine the test files under tests/unit/ for these modules: run-driver.test.js, run-batch.test.js, scheduler.test.js, server-api.test.js, server-app.test.js, host.test.js, statemachine.test.js, run-client.test.js, events.test.js, hook-adapter.test.js, run.test.js, server.test.js (tests/integration). For each test report: what behaviors are asserted (imports/APIs exercised), and any tests that currently FAIL or are skipped.
+
+Report (Chinese OK): a structured inventory: module → exports → current wiring status (pure/passthrough/used-by-nobody), tests → what they lock down. Flag mismatches between what tests expect and what modules currently provide. Do NOT modify any files.
+
+[17:55:11] 回答
+I'll systematically map the server scaffolding. Let me start by exploring the structure and reading the key files in parallel.
+
+[17:55:12] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== src/server ===\" && ls -la src/server/ 2>/dev/null && echo \"=== src/lib ===\" && ls -la src/lib/ 2>/dev/null && echo \"=== src/cli ===\" && ls -la src/cli/ 2>/dev/null && echo \"=== src/lib/session ===\" && ls -la src/lib/session/ 2>/dev/null && echo \"=== tests ===\" && find tests -maxdepth 2 -type d 2>/dev/null",
+  "description": "List directory structure of src/server, src/lib, src/cli, tests"
+}
+
+[17:55:13] 回答
+Let me list the test files and read the core server files in parallel.
+
+[17:55:13] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== tests/unit ===\" && ls -la tests/unit/ 2>/dev/null && echo \"=== tests/integration ===\" && ls -la tests/integration/ 2>/dev/null && echo \"=== tests/helpers ===\" && ls -la tests/helpers/ 2>/dev/null && echo \"=== tests/fixtures ===\" && ls -la tests/fixtures/ 2>/dev/null",
+  "description": "List test directories"
+}
+
+[17:55:14] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/server.cjs"
+}
+
+[17:55:17] 回答
+server.cjs read complete. Now let me read the other server modules and grep for key references in parallel.
+
+[17:55:17] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/run-driver.cjs"
+}
+
+[17:55:17] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/run-scheduler.js"
+}
+
+[17:55:17] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/app.cjs"
+}
+
+[17:55:18] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/api.cjs"
+}
+
+[17:55:18] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/host.cjs"
+}
+
+[17:55:18] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/statemachine.cjs"
+}
+
+[17:55:19] 回答
+Now the remaining server modules.
+
+[17:55:19] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/hook-adapter.cjs"
+}
+
+[17:55:20] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/interact.cjs"
+}
+
+[17:55:20] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/session-launch.cjs"
+}
+
+[17:55:20] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/run-settings.cjs"
+}
+
+[17:55:20] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/server/run-logger.cjs"
+}
+
+[17:55:22] 回答
+Now let me read the lib modules.
+
+[17:55:22] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/store.cjs"
+}
+
+[17:55:22] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/events.cjs"
+}
+
+[17:55:22] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/gate-loop.cjs"
+}
+
+[17:55:23] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/run-metrics.cjs"
+}
+
+[17:55:23] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/run-config.js"
+}
+
+[17:55:25] 回答
+Now state.js and the client-side + bridge files.
+
+[17:55:26] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/state.js"
+}
+
+[17:55:26] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/cli/run-client.js"
+}
+
+[17:55:26] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/session/client.js"
+}
+
+[17:55:26] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/lib/plugin-bridge.js"
+}
+
+[17:55:26] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/src/cli/gate-fix.js"
+}
+
+[17:55:29] 回答
+Now let me map the actual wiring status via grep — who imports these modules — plus check scheduler.js existence and TODO references.
+
+[17:55:31] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== require/import references ===\" && grep -rn --include='*.cjs' --include='*.js' -E \"require\\(['\\\"](\\.\\./)*server/(run-driver|run-scheduler|app|api|host|statemachine|hook-adapter|interact|session-launch|run-settings)\\.?c?j?s?['\\\"]\\)|from ['\\\"](\\.\\./)*server/(run-driver|run-scheduler|app|api|host|statemachine|hook-adapter|interact|session-launch|run-settings)\" src tests 2>/dev/null | grep -v \"src/server/\" | grep -v node_modules\necho \"=== who references cli/run-client ===\"\ngrep -rn --include='*.cjs' --include='*.js' -E \"run-client\" src tests 2>/dev/null | grep -v \"src/cli/run-client.js\"\necho \"=== who references lib/session/client ===\"\ngrep -rn --include='*.cjs' --include='*.js' -E \"session/client\" src tests 2>/dev/null | grep -v \"src/lib/session/client.js\"\necho \"=== scheduler.js in cli? ===\"\nls -la src/cli/scheduler.js 2>&1\necho \"=== run-batch referenced by ===\"\ngrep -rn --include='*.cjs' --include='*.js' -E \"run-batch\" src tests 2>/dev/null | grep -v \"src/cli/run-batch.js\"",
+  "description": "Grep import/reference graph for server modules"
+}
+
+[17:55:32] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== TODO/W3/run-driver/run-scheduler/api.cjs/app.cjs mentions in server.cjs ===\" && grep -n -E \"TODO|FIXME|W3|W1|run-driver|run-scheduler|api\\.cjs|app\\.cjs|run domain|run 域|T1-06\" src/server/server.cjs\necho \"=== who imports server.cjs ===\"\ngrep -rn --include='*.cjs' --include='*.js' -E \"require\\(['\\\"].*server\\.cjs['\\\"]\\)|from ['\\\"].*server\\.cjs['\\\"]\" src tests 2>/dev/null | grep -v node_modules\necho \"=== how is server.cjs launched (child_process) ===\"\ngrep -rn --include='*.cjs' --include='*.js' -E \"server\\.cjs\" src tests 2>/dev/null | grep -v \"src/server/server.cjs\"",
+  "description": "Find TODO references and who consumes server.cjs"
+}
+
+[17:55:35] 回答
+run-driver and run-scheduler ARE consumed by cli/run-batch.js. Now let me read the requested test files.
+
+[17:55:35] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/run-driver.test.js"
+}
+
+[17:55:35] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/run-batch.test.js"
+}
+
+[17:55:36] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/scheduler.test.js"
+}
+
+[17:55:36] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/server-api.test.js"
+}
+
+[17:55:38] 回答
+Now the remaining unit tests.
+
+[17:55:38] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/server-app.test.js"
+}
+
+[17:55:38] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/host.test.js"
+}
+
+[17:55:38] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/statemachine.test.js"
+}
+
+[17:55:39] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/run-client.test.js"
+}
+
+[17:55:39] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/events.test.js"
+}
+
+[17:55:39] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/hook-adapter.test.js"
+}
+
+[17:55:40] 回答
+Now the two large test files — run.test.js and integration/server.test.js.
+
+[17:55:41] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/unit/run.test.js"
+}
+
+[17:55:42] 回答
+Now the integration server.test.js — the biggest test for the server monolith.
+
+[17:55:43] 回答
+调用工具: Read
+{
+  "file_path": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/tests/integration/server.test.js"
+}
+
+[17:55:51] 回答
+Let me check package.json test setup, look for skipped tests, and confirm file completeness.
+
+[17:55:53] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== package.json (scripts) ===\" && node -e \"const p=require('/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control/package.json'); console.log(JSON.stringify(p.scripts,null,1)); console.log('vitest:', (p.devDependencies&&p.devDependencies.vitest)||(p.dependencies&&p.dependencies.vitest)||'n/a');\"\necho \"=== node_modules/vitest exists? ===\" && ls -d node_modules/vitest 2>&1 | head -1\necho \"=== skipped/todo tests in target files ===\"\ngrep -rn -E \"\\.(skip|todo)\\b|describe\\.skip|it\\.skip|test\\.skip|xit\\(|xdescribe\\(\" tests/unit/run-driver.test.js tests/unit/run-batch.test.js tests/unit/scheduler.test.js tests/unit/server-api.test.js tests/unit/server-app.test.js tests/unit/host.test.js tests/unit/statemachine.test.js tests/unit/run-client.test.js tests/unit/events.test.js tests/unit/hook-adapter.test.js tests/unit/run.test.js tests/integration/server.test.js 2>/dev/null || echo \"none found\"\necho \"=== line counts ===\"\nwc -l tests/integration/server.test.js tests/unit/run.test.js src/server/server.cjs",
+  "description": "Inspect test scripts and search for skipped tests"
+}
+
+[17:56:03] 回答
+No skipped tests in the target files. To accurately report which currently FAIL, let me run the targeted test set (writing only to temp dirs; I'll verify repo cleanliness after).
+
+[17:56:04] 回答
+调用工具: Bash
+{
+  "command": "git status --porcelain | head -5; echo \"--- running vitest (target files) ---\"; npx vitest run tests/unit/run-driver.test.js tests/unit/run-batch.test.js tests/unit/scheduler.test.js tests/unit/server-api.test.js tests/unit/server-app.test.js tests/unit/host.test.js tests/unit/statemachine.test.js tests/unit/run-client.test.js tests/unit/events.test.js tests/unit/hook-adapter.test.js tests/unit/run.test.js tests/integration/server.test.js --reporter=basic 2>&1 | tail -60; echo \"--- git status after ---\"; git status --porcelain | head -5",
+  "description": "Run targeted vitest files to detect failures",
+  "timeout": 300000
+}
+
+[17:56:08] 回答
+Reporter name `basic` was invalid in vitest 4. Re-running with the default reporter.
+
+[17:56:09] 回答
+调用工具: Bash
+{
+  "command": "npx vitest run tests/unit/run-driver.test.js tests/unit/run-batch.test.js tests/unit/scheduler.test.js tests/unit/server-api.test.js tests/unit/server-app.test.js tests/unit/host.test.js tests/unit/statemachine.test.js tests/unit/run-client.test.js tests/unit/events.test.js tests/unit/hook-adapter.test.js tests/unit/run.test.js tests/integration/server.test.js 2>&1 | tail -80; echo \"=== EXIT: ${PIPESTATUS[0]} ===\"",
+  "description": "Run targeted vitest files with default reporter",
+  "timeout": 300000
+}
+
+[17:56:20] 回答
+One failure: `TC17` in run.test.js times out. Let me re-run that single file to check whether it's consistent or flaky.
+
+[17:56:20] 回答
+调用工具: Bash
+{
+  "command": "npx vitest run tests/unit/run.test.js -t \"TC17\" 2>&1 | tail -25; echo \"=== retry whole file ===\"; npx vitest run tests/unit/run.test.js 2>&1 | tail -15",
+  "description": "Re-run run.test.js to check TC17 consistency",
+  "timeout": 180000
+}
+
+[17:56:44] 回答
+TC17 fails consistently even in isolation. Let me confirm the test run didn't leave artifacts, and inspect run.js's waitForReady call to understand the TC17 mismatch.
+
+[17:56:45] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== full porcelain count ===\"; git status --porcelain | wc -l; echo \"=== untracked under cc-control (top) ===\"; git status --porcelain | grep '^??' | head -20\necho \"=== run.js waitForReady usage ===\"; grep -n \"waitForReady\\|READY_TIMEOUT\\|timeoutMs\\|checkTaskDone\\|超时但任务\" src/cli/run.js\necho \"=== client.js READY_TIMEOUT value ===\"; grep -n \"READY_TIMEOUT\" src/lib/session/client.js",
+  "description": "Check git cleanliness and waitForReady call site"
+}
+
+[17:56:54] 回答
+Clean — only the 4 pre-existing changes. Let me finalize the wiring graph for the remaining modules (session-launch, api/app/statemachine consumers, adapters/ports).
+
+[17:56:56] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== consumers of each server scaffolding module (excluding own file & own tests) ===\"\nfor m in session-launch statemachine run-scheduler run-driver run-settings app.cjs api.cjs host.cjs hook-adapter interact run-logger decision-gate decision-store decision-instruction decision.cjs; do\n  echo \"--- $m ---\"\n  grep -rn -E \"require\\(['\\\"](\\.\\./)*.*server/$m['\\\"]\\)|from ['\\\"](\\.\\./)*.*server/$m['\\\"]\" src tests 2>/dev/null | grep -v \"src/server/$m\" | grep -v \"tests/unit/${m%.cjs}.test\" | grep -v \"tests/unit/scheduler.test\" | head -6\ndone\necho \"=== what adapters/ports.cjs does ===\"\nhead -40 src/adapters/ports.cjs 2>/dev/null\necho \"=== run-batch.js import block ===\"\nsed -n '1,40p' src/cli/run-batch.js",
+  "description": "Map consumers of server scaffolding modules"
+}
+
+[17:57:02] 回答
+zsh mangled `$m[` as an array subscript. Retrying with braced variables.
+
+[17:57:03] 回答
+调用工具: Bash
+{
+  "command": "for m in session-launch statemachine app.cjs api.cjs interact decision-gate decision-store decision-instruction decision.cjs cc-shapes; do\n  echo \"--- ${m} consumers ---\"\n  grep -rn -E \"(require\\(|from )['\\\"][^'\\\"]*/${m}['\\\"]\" src tests 2>/dev/null | grep -v \"src/server/${m}\" | grep -vE \"tests/(unit|integration)/(${m%%.*})\\.test\" | head -6\ndone\necho \"=== run.js ensureServer + driver path (does it call runBatchLoop) ===\"\ngrep -n \"runBatchLoop\\|runScheduler\\|dynamic import\\|agents.max\\|ensureServer\\|child_process\\|spawn\" src/cli/run.js | head -20",
+  "description": "Safely map module consumers and run.js driver path"
+}
+
+[17:57:09] 回答
+Let me do one clean grep confirming the not-yet-verified modules (including `.cjs` suffix handling).
+
+[17:57:10] 回答
+调用工具: Bash
+{
+  "command": "for m in \"session-launch\" \"statemachine\" \"app\\.cjs\" \"api\\.cjs\" \"interact\\.cjs\" \"run-logger\" \"decision-store\" \"decision-gate\"; do\n  echo \"--- consumers of ${m} (src+tests, excl self + own unit test) ---\"\n  grep -rnE \"(require\\(|import[^;]*from )['\\\"][^'\\\"]*${m}['\\\"]\" src tests 2>/dev/null | grep -vE \"src/server/${m}\" | grep -vE \"tests/(unit|integration)/${m%%\\.*}\\.test\" | head -8\ndone",
+  "description": "Confirm remaining consumer graph"
+}
+
+[17:57:19] 回答
+Let me confirm whether run-batch actually invokes `gateCompletionHook` and whether run-driver's stage-chain fns are used anywhere live.
+
+[17:57:20] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== gateCompletionHook usage in run-batch ===\"; grep -n \"gateCompletionHook\\|onTaskComplete\" src/cli/run-batch.js\necho \"=== decideChain/nextStage/assertStage/classifyComplexity callers (prod src, excl run-driver itself) ===\"\ngrep -rn \"decideChain\\|nextStage(\\|assertStage(\\|classifyComplexity\\|STAGE_CHAINS\" src 2>/dev/null | grep -v \"src/server/run-driver.cjs\"\necho \"=== who reads run-context 'runSessionName' or uses session-launch anywhere ===\"\ngrep -rn \"session-launch\\|runSessionName\\|buildSessionEnv\\|buildClaudeArgs\\|buildTmuxCommand\" src 2>/dev/null | grep -v \"src/server/session-launch.cjs\" | grep -v \"src/lib/run-context.cjs\" | head\necho \"=== where server.cjs main is spawned from ===\"\ngrep -rn \"tmuxServer\\|serverScriptPath\" src/cli/run.js src/lib/paths.js src/lib/run-context.cjs 2>/dev/null | head",
+  "description": "Confirm live usage of run-driver helpers and session-launch"
+}
+
+[17:57:25] 回答
+One more check on the adapters layer and remaining test files, then I'll compile the report.
+
+[17:57:27] 回答
+调用工具: Bash
+{
+  "command": "echo \"=== consumers of adapters/ports.cjs (prod src) ===\"; grep -rn \"adapters/ports\\|require('./ports')\\|from '../adapters/ports\\|ports.cjs\" src 2>/dev/null | grep -v \"src/adapters/ports.cjs\" | head\necho \"=== does anything call run-settings.generateRunSettings live ===\"; grep -n \"generateRunSettings\" src/cli/run.js\necho \"=== integration decision tests + e2e referencing server.cjs ===\"; ls tests/integration/decision*.test.js tests/e2e/run.e2e.test.js 2>/dev/null\necho \"=== events.cjs consumers ===\"; grep -rn \"events.cjs\\|events.js\" src 2>/dev/null | grep -v \"src/lib/events.cjs\" | head\necho \"=== session-launch unit test exists ===\"; ls tests/unit/session-launch.test.js tests/unit/interact.test.js 2>/dev/null",
+  "description": "Check adapters ports consumers and remaining refs"
+}

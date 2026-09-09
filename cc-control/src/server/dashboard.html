@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+  <link rel="stylesheet" href="/theme.css">
+  <script defer src="/common.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AWF Run — Dashboard</title>
@@ -513,6 +515,41 @@ document.getElementById('output').addEventListener('scroll', () => {
 
 setInterval(refresh, 2000);
 refresh();
+</script>
+<style>
+#runShell{margin:6px 12px;padding:8px;border:1px solid #333;border-radius:6px;font:12px/1.5 -apple-system,sans-serif}
+#runShell a{color:#7cc;margin-right:6px;text-decoration:none}
+#runShell .sep{color:#555;margin:0 4px}
+#runDetail{margin-top:6px;white-space:pre-wrap;color:#bbb}
+</style>
+<div id="runShell"><b>runs</b><div id="runList">…</div><div id="runDetail"></div></div>
+<script>
+// T1-074：?sid 路由视图 + 多 run 简单列表壳（宿主 /run/status 列表 + /run/status?runId 详情）
+(async function () {
+  const q = new URLSearchParams(location.search);
+  const sid = q.get('sid');
+  const list = document.getElementById('runList');
+  const detail = document.getElementById('runDetail');
+  async function refreshRuns() {
+    try {
+      const res = await fetch('/run/status');
+      const body = await res.json();
+      const runs = body.runs || [];
+      list.innerHTML = runs.length === 0
+        ? '<span>(无 run)</span>'
+        : runs.map((r) => `<a href="?sid=${encodeURIComponent(r.runId)}">${r.runId}</a><span>${r.status} ${r.counts ? r.counts.done + '/' + r.counts.total : ''}</span><br>`).join('');
+      if (sid) {
+        const r2 = await fetch('/run/status?runId=' + encodeURIComponent(sid));
+        const d = await r2.json();
+        detail.textContent = (d && d.run)
+          ? `run ${d.run.runId} [${d.run.status}] mode=${d.run.mode} counts=${JSON.stringify(d.run.counts)} current=${d.run.currentTaskTitle || d.run.currentTaskId || '-'}${d.run.error ? ' error=' + d.run.error : ''}`
+          : (d && d.error) || 'run 未找到';
+      }
+    } catch (e) { detail.textContent = '加载失败 ' + e.message; }
+  }
+  refreshRuns();
+  setInterval(refreshRuns, 3000);
+})();
 </script>
 </body>
 </html>

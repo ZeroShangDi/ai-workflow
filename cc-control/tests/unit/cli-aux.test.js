@@ -32,6 +32,21 @@ vi.mock('../../src/lib/paths.js', () => ({
   PLUGIN_NS: 'ai-workflow-code',
 }));
 
+// run-context 装配器注入（替代旧 getPaths 的 server/bootstrap 注入点）
+vi.mock('../../src/lib/run-context.cjs', () => ({
+  buildRunContext: vi.fn(() => ({
+    sid: null,
+    session: 'cc',
+    runSessionName: 'cc',
+    port: 8787,
+    projectRoot: '/tmp/mock-project',
+    infraRoot: '/tmp/mock-project',
+    serverScriptPath: '/tmp/server.cjs',
+    bootstrapScriptPath: '/tmp/bootstrap.sh',
+    runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
+  })),
+}));
+
 // ── http mock for server check ──
 const httpCheckState = vi.hoisted(() => ({ ok: true, timeout: false }));
 
@@ -309,38 +324,18 @@ describe('cli-aux', () => {
       expect(mockSpawn).toHaveBeenCalledWith('open', ['http://localhost:8787'], expect.any(Object));
     });
 
-    it('TC17: ui — 同 dashboard', async () => {
-      await openCommand('ui');
-
-      expect(mockLogger.info).toHaveBeenCalledWith('打开 dashboard: http://localhost:8787');
-      expect(mockSpawn).toHaveBeenCalledWith('open', ['http://localhost:8787'], expect.any(Object));
+    it('TC17: ui 已废弃（T1-094）——作为目标报错', async () => {
+      vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+      await expect(openCommand('ui')).rejects.toThrow('exit');
+      expect(mockLogger.error).toHaveBeenCalledWith('未知目标: ui，可用: tree | dashboard');
     });
 
-    it('TC18: tree — 正常渲染 HTML', async () => {
-      mockFs.readFile.mockResolvedValue(JSON.stringify({ wbs: [{ name: 'Task 1' }] }));
-      mockFs.writeFile.mockResolvedValue();
-
+    it('TC18: tree — 指向 web WBS-Tree 视图（?view=wbs-tree）', async () => {
       await openCommand('tree');
 
-      expect(mockFs.writeFile).toHaveBeenCalled();
-      const html = mockFs.writeFile.mock.calls[0][1];
-      expect(html).toContain('<!DOCTYPE html>');
-      expect(html).toContain('Task 1');
-      expect(mockSpawn).toHaveBeenCalledWith('open', [expect.stringContaining('w-tree.html')], expect.any(Object));
-    });
-
-    it('TC19: tree — wbs 为空时报错', async () => {
-      mockFs.readFile.mockResolvedValue(JSON.stringify({})); // no wbs
-      vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
-      await expect(openCommand('tree')).rejects.toThrow('exit');
-      expect(mockLogger.error).toHaveBeenCalledWith('尚未规划，请先执行 awf plan');
-    });
-
-    it('TC20: tree — state.json 不存在', async () => {
-      mockFs.readFile.mockRejectedValue(new Error('ENOENT'));
-
-      await expect(openCommand('tree')).rejects.toThrow('ENOENT');
+      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('WBS-Tree'));
+      expect(mockSpawn).toHaveBeenCalledWith('open', ['http://localhost:8787/?view=wbs-tree'], expect.any(Object));
+      expect(mockFs.writeFile).not.toHaveBeenCalled(); // 不再生成 w-tree.html
     });
 
     it('TC21: openBrowser 平台选择 + spawn 参数', async () => {
@@ -368,7 +363,7 @@ describe('cli-aux', () => {
       vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
       await expect(openCommand('invalid')).rejects.toThrow('exit');
-      expect(mockLogger.error).toHaveBeenCalledWith('未知目标: invalid，可用: tree | ui | dashboard');
+      expect(mockLogger.error).toHaveBeenCalledWith('未知目标: invalid，可用: tree | dashboard');
     });
   });
 

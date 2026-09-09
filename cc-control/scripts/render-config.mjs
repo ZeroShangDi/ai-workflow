@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readPluginConfig, renderMcpServers, renderPluginJson, renderMarketplace } from '../src/lib/plugin-config.js';
+import { readPluginConfig, renderMcpServers, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings } from '../src/lib/plugin-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -69,14 +69,24 @@ function main() {
   console.log('render-config: 生成插件注册文件');
   write(path.join(pluginRoot, '.claude-plugin', 'marketplace.json'), renderMarketplace(marketplace));
 
-  // 各插件 plugin.json 依 marketplace.plugins 条目生成（接受任意 dir）；引擎插件带 hooks 字段
+  // T1-081：config 单源扩展——任意插件可声明自身 mcpServers/hooks（engineDir-only 取消）。
+  // 引擎插件（config.engineDir）在自身无声明时回落顶层 config.mcpServers/hooks（向后兼容）；
+  // 其余插件仅用自身声明（无则不给引擎运行时资产）。渲染按插件输出到各自 dir。
   for (const plugin of marketplace.plugins) {
-    write(path.join(pluginRoot, plugin.dir, 'plugin.json'), renderPluginJson(plugin, { withHooks: plugin.dir === (engineDir || 'core') }));
+    const { mcpServers: pluginMcp, hooks: pluginHooks } = resolvePluginAssets(plugin, { mcpServers, hooks, engineDir });
+    write(path.join(pluginRoot, plugin.dir, 'plugin.json'), renderPluginJson(plugin, { withHooks: !!pluginHooks }));
+    if (pluginMcp) {
+      write(path.join(pluginRoot, plugin.dir, '.mcp.json'), JSON.stringify({ mcpServers: renderMcpServers(pluginMcp, { repoRoot, port }) }, null, 2) + '\n');
+    }
+    if (pluginHooks) {
+      write(path.join(pluginRoot, plugin.dir, 'hooks', 'hooks.json'), renderHooksFile(pluginHooks, port));
+    }
   }
 
-  // 引擎运行时单源产物：mcpServers + hooks 只渲染进引擎插件（config.engineDir），不按插件拆分
-  write(path.join(enginePluginDir, '.mcp.json'), JSON.stringify({ mcpServers: renderMcpServers(mcpServers, { repoRoot, port }) }, null, 2) + '\n');
-  write(path.join(enginePluginDir, 'hooks', 'hooks.json'), renderHooksFile(hooks, port));
+  // T1-082：本仓 .claude/settings.json = plugin/settings.json 渲染产物（<pkg> → 绝对 plugin 根；
+  // 第三方如 figma 属 plugin/settings.json 的手工合并层，原样保留）
+  const pluginSettings = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'settings.json'), 'utf8'));
+  write(path.join(repoRoot, '.claude', 'settings.json'), renderRepoSettings(pluginSettings, pluginRoot));
 }
 
 main();

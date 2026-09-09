@@ -1,6 +1,6 @@
 {
   "name": "ai-workflow",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "AI Workflow Framework — persistent multi-session workflow orchestration for Claude Code, with CLI bootstrap",
   "type": "module",
   "bin": {

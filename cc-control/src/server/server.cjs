@@ -3,6 +3,10 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+// 极简 WebSocket 助手（T1-091：/run/events 实时推送通道）
+const { encodeTextFrame, upgrade: wsUpgrade } = require('./ws.cjs');
+// 静态托管原语（T1-093：web 构建产物 SPA 静态托管）
+const { createStaticHost } = require('./static.cjs');
 // 测试注入点：vitest 无法 mock 被原生 require 加载的 CJS 依赖，提供显式注入钩子。
 // 生产环境不设置 global.__CC_TMUX__/__CC_RUNLOGGER__，回落到真实模块。
 const tmuxlib = global.__CC_TMUX__ || require('./tmux.cjs');
@@ -13,15 +17,64 @@ const {
 } = global.__CC_RUN_DIAGNOSIS__ || require('../lib/run-diagnosis.cjs');
 const { isDecisionEnabled } = require('../lib/decision-config.cjs');
 const { parseDecisionResult } = require('./decision.cjs');
+const gateRules = require('./decision-gate.cjs');
+const ccShapes = require('../adapters/cc-shapes.cjs');
+const extract = require('../lib/extract.cjs');
+const interact = require('./interact.cjs');
 const { DecisionStore } = require('./decision-store.cjs');
 const decisionInstruction = require('./decision-instruction.cjs');
+// run-context 装配：server 当前承载单 run（无 sid），项目根/路径/端口/会话名统一经装配器派生。
+// 多 run 分槽（每 run 独立上下文）由 T1-068/T1-071 接入。
+const { buildRunContext } = require('../lib/run-context.cjs');
+const { isIdleDue, idleDefaultMs } = require('../lib/server-idle.cjs');
+const { createRunSlot } = require('./run-slot.cjs');
+// T1-080：oneshot（claude -p）收口 server /oneshot——cc 经 oneshot adapter；测试可注入 global.__CC_ONESHOT__
+const oneshotLib = global.__CC_ONESHOT__ || require('../adapters/oneshot.cjs');
+// T1-071：per-run 内存槽（ready/busy/decision/contextReady 按 sid 隔离，不串 run）。
+// 缺省（无 sid）hook 仍走下方既有全局单槽路径，本映射仅承载 sid 显式路由的 run。
+const runSlotsBySid = new Map();
+function runSlotFor(sid) {
+  if (sid == null || sid === '') return null;
+  const key = String(sid);
+  let slot = runSlotsBySid.get(key);
+  if (!slot) { slot = createRunSlot(key); runSlotsBySid.set(key, slot); }
+  return slot;
+}
+/** sid run 槽 hook 处理（T1-071：路由到独立内存态；gate 关等价 complete，gate 开全闸门留决策接入） */
+function handleSidHook(sid, event, body, res) {
+  const slot = runSlotFor(sid);
+  console.log(`[hook:${sid}] ${event} -> ${slot.state}`);
+  if (event === 'SessionStart') {
+    slot.setReady();
+  } else if (event === 'UserPromptSubmit') {
+    slot.setBusy();
+  } else if (event === 'Stop') {
+    if (!isDecisionEnabled(PROJECT_ROOT)) slot.clearDecision();
+    slot.setReady();
+  } else if (event === 'PreToolUse' && body?.tool_name === 'AskUserQuestion') {
+    const questions = body?.tool_input?.questions;
+    const q = Array.isArray(questions) ? questions[0] : null;
+    if (q && !isDecisionEnabled(PROJECT_ROOT)) {
+      slot.setDecision({
+        type: q.multiSelect ? 'multiSelect' : 'choice',
+        multiSelect: !!q.multiSelect,
+        question: q.question,
+        options: (q.options || []).map((o) => o.label),
+        header: q.header || null,
+        source: 'AskUserQuestion',
+      });
+    }
+  }
+  return send(res, 200, { ok: true, event: event || null, state: slot.state, sid });
+}
+const ctx = buildRunContext({ env: process.env });
 
-const PROJECT_ROOT = process.env.CC_PROJECT || process.cwd();
+const PROJECT_ROOT = ctx.projectRoot;
 const logger = new RunLogger(PROJECT_ROOT);
 if (logger.enabled) console.log(`[server] run logs: ${logger.dir}`);
 
 // ---- subagent 事件日志：SubagentStart/Stop 的完整 payload 追加写入（实证/观测用）----
-const SUBAGENT_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-events.jsonl');
+const SUBAGENT_LOG = path.join(ctx.logsDir, 'subagent-events.jsonl');
 
 function logSubagentEvent(event, body) {
   try {
@@ -33,7 +86,7 @@ function logSubagentEvent(event, body) {
 }
 
 // ---- 落账失败记录：CLI 据此触发补发（SendMessage 恢复子 Agent 补齐 RESULT）----
-const SUBAGENT_FAILED_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-failed.jsonl');
+const SUBAGENT_FAILED_LOG = path.join(ctx.logsDir, 'subagent-failed.jsonl');
 
 function logSubagentFailure(body, settled) {
   try {
@@ -50,18 +103,12 @@ function logSubagentFailure(body, settled) {
 }
 
 // ---- 决策上抛记录（NEEDS_INPUT）：CLI 据此暂停补位、主 Agent 原生 AskUserQuestion 问用户 ----
-const SUBAGENT_NEEDS_LOG = path.join(PROJECT_ROOT, '.awf', 'logs', 'subagent-needs-input.jsonl');
+const SUBAGENT_NEEDS_LOG = path.join(ctx.logsDir, 'subagent-needs-input.jsonl');
 
 /** 解析子 Agent 的 NEEDS_INPUT（`NEEDS_INPUT: {json}`）；成功返回 { taskId, question, options?, context? }，否则 null */
 function parseSubagentNeedsInput(body) {
-  const msg = body.last_assistant_message || '';
-  const m = msg.match(/NEEDS_INPUT:\s*(\{[\s\S]*\})/);
-  if (!m) return null;
-  try {
-    const r = JSON.parse(m[1]);
-    if (r && typeof r.taskId === 'string' && typeof r.question === 'string') return r;
-  } catch { /* 解析失败 */ }
-  return null;
+  // 提取逻辑归位 extract.cjs
+  return extract.parseNeedsInput(body?.last_assistant_message);
 }
 
 /** 写决策上抛记录（不落账，任务保持等待；CLI 暂停补位直到决策解决） */
@@ -91,51 +138,32 @@ function resetRunLogs() {
 
 // ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
 // 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
-const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
-const STATE_LOCK = path.join(PROJECT_ROOT, '.awf', 'state.lock');
-
-function withStateLock(fn) {
-  const deadline = Date.now() + 5000;
-  for (;;) {
-    try {
-      const fd = fs.openSync(STATE_LOCK, 'wx');
-      fs.closeSync(fd);
-      break;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-      if (Date.now() > deadline) throw new Error(`state.lock timeout: ${STATE_LOCK}`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-    }
-  }
-  try { return fn(); } finally { try { fs.unlinkSync(STATE_LOCK); } catch {} }
-}
+// run state 写读统一经 store.state（JsonFileStore：state.lock + 原子写，承接 store.cjs / store-core）
+const runStores = require('../lib/store.cjs').createRunStores(ctx);
+const storeCore = require('../lib/store-core.cjs'); // per-run state 通用路径原子读写（T1-078）
 
 /** 解析子 Agent 固定格式 RESULT（`RESULT: {json}`）；成功返回结果对象，失败返回 null */
 function parseSubagentResult(body) {
-  const msg = body.last_assistant_message || '';
-  const m = msg.match(/RESULT:\s*(\{[\s\S]*\})/);
-  if (!m) return null;
-  try {
-    const r = JSON.parse(m[1]);
-    if (r && typeof r.taskId === 'string' && (r.status === 'done' || r.status === 'blocked' || r.status === 'failed' || r.status === 'fail')) return r;
-  } catch { /* 解析失败 */ }
-  return null;
+  // 提取逻辑归位 extract.cjs（RESULT/状态集单源）
+  return extract.parseSubagentResult(body?.last_assistant_message);
 }
 
 /** SubagentStop 落账：写 state（task status + exec.result/files/commits）；返回 { ok, taskId?, reason?, recoverable? } */
 function settleSubagent(body) {
   const result = parseSubagentResult(body);
   if (!result) return { ok: false, reason: 'no valid RESULT in last_assistant_message' };
-  return withStateLock(() => {
-    let s;
-    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, reason: 'state.json unreadable', recoverable: false }; }
+  let out;
+  runStores.state.updateSync((s) => {
+    // s = null 表示缺失/非法 → 不落账
+    if (!s) { out = { ok: false, reason: 'state.json unreadable', recoverable: false }; return false; }
     const task = (s.tasks || []).find((t) => t.id === result.taskId);
-    if (!task) return { ok: false, reason: `task ${result.taskId} not found` };
+    if (!task) { out = { ok: false, reason: `task ${result.taskId} not found` }; return false; }
     // 指向已完成/已阻塞任务 → 拒绝：RESULT taskId 可能错写（如 X1 子 Agent 误写成已 done 的 T3），
     // 否则落账"假成功"（错标已有任务），真实任务永不落账且不触发补发。
     // recoverable:false → 良性（phantom 先落账/重复 Stop），不写失败记录、不触发 CLI 补发
     if (task.status === 'done' || task.status === 'blocked') {
-      return { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）`, recoverable: false };
+      out = { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）`, recoverable: false };
+      return false;
     }
     if (!task.exec) task.exec = {};
     // failed/fail 是协议允许的终态（awf-worker.md: done|blocked|failed），但调度只认 blocked 为终态，映射之
@@ -147,20 +175,21 @@ function settleSubagent(body) {
     if (result.architecture !== undefined) task.exec.architecture = result.architecture;
     if (result.commits) { task.commits = task.commits || []; task.commits.push(...result.commits); }
     s.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
-    return { ok: true, taskId: result.taskId, status: result.status };
+    out = { ok: true, taskId: result.taskId, status: result.status };
+    return true;
   });
+  return out;
 }
 
 /** override → 向任务列表追加纠偏任务（kind=dev / source=decision_review，携带 decision_id/instruction/original_answer）。
- *  复用 settleSubagent 同款 withStateLock（state.lock）；deps/plannedFiles 空 = 保守串行；不写 wbsRef（非原 WBS 叶子）。 */
+ *  store.state.updateSync 锁内读改写；deps/plannedFiles 空 = 保守串行；不写 wbsRef（非原 WBS 叶子）。 */
 function appendDecisionReviewTask({ decision_id, instruction, original_answer }) {
-  return withStateLock(() => {
-    let s;
-    try { s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8')); } catch { return { ok: false, error: 'state.json unreadable' }; }
+  let out;
+  runStores.state.updateSync((s) => {
+    if (!s) { out = { ok: false, error: 'state.json unreadable' }; return false; }
     const id = `${decision_id}-REV`;
     const existing = (s.tasks || []).find((t) => t.id === id);
-    if (existing) return { ok: true, taskId: id, existing: true };
+    if (existing) { out = { ok: true, taskId: id, existing: true }; return false; }
 
     const task = {
       id,
@@ -179,18 +208,20 @@ function appendDecisionReviewTask({ decision_id, instruction, original_answer })
     s.tasks = s.tasks || [];
     s.tasks.push(task);
     s.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
-    return { ok: true, taskId: id };
+    out = { ok: true, taskId: id };
+    return true;
   });
+  return out;
 }
 
-const PORT = Number(process.env.CC_PORT || 8787);
-const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 30 * 60 * 1000);
+const PORT = ctx.port; // 单源：config port（CC_PORT 覆盖），经 run-context 装配
+const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
 const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);
 // dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
 const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
+let lastActivityAt = Date.now(); // T1-064 空闲回收：每次请求刷新
 let metricsCache = { at: 0, value: null };
 let diagnosisInFlight = false;
 
@@ -237,11 +268,7 @@ function reconcileDiagnosisSession() {
 }
 
 function readProjectState() {
-  try {
-    return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'));
-  } catch {
-    return {};
-  }
+  return runStores.state.readSync() || {};
 }
 
 async function startRunDiagnosis() {
@@ -297,11 +324,28 @@ function isMainSession(body) {
 }
 
 function setDecision(d) {
+  const opening = decisionPending == null && d != null;
   decisionPending = d;
+  // T1-091：决策挂起 → 推 run host 事件环（决策.required 前端实时订阅刷新）
+  if (opening) {
+    publishHostEvent('decision.required', {
+      type: d.type || null,
+      question: d.question || null,
+      options: d.options || null,
+      source: d.source || null,
+    });
+  }
 }
 
 function clearDecision() {
   decisionPending = null;
+}
+
+/** T1-091：把决策闸门事件推入 run host 事件环（host 未装配时静默跳过，不影响主流程） */
+function publishHostEvent(type, payload) {
+  if (runHost && typeof runHost.publish === 'function') {
+    try { runHost.publish(type, payload); } catch { /* 推送失败不影响决策/执行主流程 */ }
+  }
 }
 
 // ---- decision gate（v0.2.0，单 agent）：Stop 统一决策闸门 ----
@@ -315,52 +359,23 @@ function clearDecision() {
 // 闸门期间不额外翻转 ready/busy，防止 CLI 在决策事务未闭合时提前派发。
 let decisionGate = null; // null | { phase: 'deciding', startedAt }
 let decisionResume = null; // 最近一次闭合决策摘要（/status 暴露）；新事务开始时清空
-let decisionSeq = 0;
-
+// 决策 id 生成规则归位 decision-gate（createDecisionSeq）
+const decisionSeqGen = gateRules.createDecisionSeq();
 function nextDecisionId() {
-  decisionSeq += 1;
-  return `D-${Date.now().toString(36)}-${decisionSeq.toString(36)}`;
+  return decisionSeqGen.nextId();
 }
 
-/** 结束文本是否以决策必需标记 <AWF_DECISION_REQUIRED>…</…> 结尾 */
-function endsWithDecisionRequired(text) {
-  return /<\s*AWF_DECISION_REQUIRED\s*>[\s\S]*?<\s*\/\s*AWF_DECISION_REQUIRED\s*>\s*$/.test(text);
-}
-
-/** 无有效结果兜底：构造 deferred fallback（不悬空），与正式结果同样落盘进 Review */
+/** 无有效结果兜底（构造归位 decision-gate.deferredFallbackResult） */
 function deferredFallbackResult() {
-  return {
-    answer: '当前无法可靠完成该决策，延后处理。继续执行所有不依赖该决策的工作；如果当前分支必须依赖该决策，则停止继续扩展该分支并留待审查或后续任务处理。',
-    type: 'deferred',
-    finality: 'provisional',
-    impact: 'medium',
-    real_question: '沿用原决策问题',
-    decisive_factors: ['决策过程未能可靠完成'],
-    causal_chain: [],
-    facts: [],
-    assumptions: [],
-    unknowns: ['原决策仍未得到可靠解决'],
-    risks: ['依赖该决策的分支可能无法继续'],
-    reversible: true,
-    reconsider_when: ['人工审查时', '后续任务重新处理该问题时'],
-    confidence: 'low',
-    fallback: true,
-  };
+  return gateRules.deferredFallbackResult();
 }
 
 /** 捕获落盘 + 置 decisionResume（正式结果与 fallback 共用；落一条完整 decision_completed 记录） */
 function persistDecision(result, source) {
   const decisionId = nextDecisionId();
   const createdAt = new Date().toISOString();
-  const record = {
-    event: 'decision_completed',
-    decision_id: decisionId,
-    status: 'pending_review',
-    fallback: result.fallback === true,
-    source,
-    created_at: createdAt,
-    result,
-  };
+  // decision_completed 记录构造归位 decision-gate.buildCompletedRecord
+  const record = gateRules.buildCompletedRecord({ decisionId, result, source, createdAt });
   const appended = new DecisionStore(PROJECT_ROOT).append(record);
   if (!appended.appended) console.log(`[decision-gate] append skipped for ${decisionId}`);
   logger.logDecision({
@@ -376,6 +391,14 @@ function persistDecision(result, source) {
     finality: result.finality,
     fallback: result.fallback === true,
   };
+  // T1-091：决策落盘 → 推 run host 事件环（decision.record 前端 Decisions/Review 实时刷新）
+  publishHostEvent('decision.record', {
+    decisionId,
+    answer: result.answer ?? null,
+    type: result.type ?? null,
+    finality: result.finality ?? null,
+    fallback: result.fallback === true,
+  });
   return decisionId;
 }
 
@@ -391,8 +414,11 @@ function handleAskUserQuestion(body) {
   const questions = body.tool_input?.questions;
   if (!questions || questions.length === 0) return null;
 
-  if (!isDecisionEnabled(PROJECT_ROOT)) {
-    const q = questions[0];
+  const deciding = decisionGate?.phase === 'deciding';
+  const action = gateRules.classifyAskQuestion({ enabled: isDecisionEnabled(PROJECT_ROOT), deciding, questions });
+
+  if (action.kind === 'capture') {
+    const q = action.question || questions[0];
     setDecision({
       type: q.multiSelect ? 'multiSelect' : 'choice',
       multiSelect: !!q.multiSelect,
@@ -404,64 +430,56 @@ function handleAskUserQuestion(body) {
     console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
     return null;
   }
-
-  if (decisionGate?.phase === 'deciding') {
-    const reason = '当前决策闭合前禁止再次发起用户提问：请按决策模式产出 <AWF_DECISION_RESULT> 收尾本回合。';
+  if (action.kind === 'deny_deciding') {
     console.log('[hook] AskUserQuestion denied (deciding): 决策闭合前禁再问');
-    return { ccOutput: { hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: reason, updatedInput: { questions: [] } } } };
+    return action.output;
   }
-
-  const reason = '提问工具已被拦截：禁止再向用户提问，也不要继续输出。请把需要决策的问题以 <AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED> 包裹放在本回合最后一行，然后结束本回合。';
   console.log('[hook] AskUserQuestion denied (gate on): 改以决策标签收尾');
-  return { ccOutput: { hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: reason, updatedInput: { questions: [] } } } };
+  return action.output;
 }
 
 /** Stop 统一闸门；返回可选 { ccOutput }（② 触发时 block 当前会话让其产出结果） */
 function handleStop(body) {
   const text = typeof body?.last_assistant_message === 'string' ? body.last_assistant_message : '';
-  const gateEnabled = isDecisionEnabled(PROJECT_ROOT);
   const deciding = decisionGate?.phase === 'deciding';
+  const branch = gateRules.classifyStop({
+    enabled: isDecisionEnabled(PROJECT_ROOT),
+    text,
+    deciding,
+    stopHookActive: body?.stop_hook_active,
+  });
 
-  if (!gateEnabled) {
-    // gate 关 → 现状：清 decisionPending + ready + transcript 采集
-    clearDecision();
-    decisionGate = null;
+  if (branch.branch === 'deciding') {
+    // ② 触发
+    const startedAt = new Date().toISOString();
+    decisionGate = { phase: 'deciding', startedAt };
     decisionResume = null;
-    setReady();
-    logger.captureFromTranscript();
-    return null;
-  }
-
-  if (!deciding) {
-    if (endsWithDecisionRequired(text) && body?.stop_hook_active !== true) {
-      // ② 触发
-      const startedAt = new Date().toISOString();
-      decisionGate = { phase: 'deciding', startedAt };
-      decisionResume = null;
-      logger.logDecision({ at: startedAt, decisionId: null, event: 'decision_started', detail: '决策入口（<AWF_DECISION_REQUIRED>）' });
-      let instruction;
-      try {
-        instruction = decisionInstruction.readDecisionInstruction();
-      } catch (e) {
-        instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
-      }
-      return { ccOutput: { decision: 'block', continuePrompt: instruction } };
+    logger.logDecision({ at: startedAt, decisionId: null, event: 'decision_started', detail: '决策入口（<AWF_DECISION_REQUIRED>）' });
+    let instruction;
+    try {
+      instruction = decisionInstruction.readDecisionInstruction();
+    } catch (e) {
+      instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
     }
-    // ① 普通完成（不触发）
-    clearDecision();
+    return ccShapes.blockDecision(instruction);
+  }
+
+  if (branch.branch === 'resolve') {
+    // ③ deciding 中收尾：有效结果捕获，否则 deferred fallback；随后 ready
+    const parsed = parseDecisionResult(text);
+    if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
+    persistDecision(parsed.valid ? parsed.result : deferredFallbackResult(), 'text');
     decisionGate = null;
-    decisionResume = null;
+    clearDecision();
     setReady();
     logger.captureFromTranscript();
     return null;
   }
 
-  // ③ deciding 中收尾：有效结果捕获，否则 deferred fallback；随后 ready
-  const parsed = parseDecisionResult(text);
-  if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
-  persistDecision(parsed.valid ? parsed.result : deferredFallbackResult(), 'text');
-  decisionGate = null;
+  // complete：gate 关 或 ① 普通完成 —— 清 decisionPending + ready + transcript 采集
   clearDecision();
+  decisionGate = null;
+  decisionResume = null;
   setReady();
   logger.captureFromTranscript();
   return null;
@@ -506,6 +524,174 @@ async function submit(text) {
   tmuxlib.sendEnter();
 }
 
+// ---- 常驻 run host（T1-105）：server 托管 run 编排的宿主 + /run/* 提交/状态/轮询端点 ----
+// 惰性装配（首次 /run/* 命中时触发），旧端点零影响；导出面与单 run ready/busy 不变。
+// 依赖注入：run-driver(chain)/run-scheduler/state/gate-fix 经动态 import + require 组装，
+// 与 run-batch ESM 桥接同法；测试可用 global.__CC_RUN_HOST_DEPS__ 整体覆盖（同 __CC_TMUX__ 注入点）。
+let runHost = null; // 已装配的 host 实例
+let runHostReady = null; // bootstrap promise（供端点 await）
+let runHostBootErr = null; // bootstrap 失败原因（端点 503 可读）
+const { createRunHost } = require('./run-host.cjs');
+
+/** 宿主是否有 run 在驱动（空闲回收 / shutdown 判定用：有则绝不回收） */
+function hostHasActiveRun() {
+  if (!runHost) return false;
+  try {
+    const all = runHost.snapshot();
+    return (all?.runs || []).some((r) => r.status === 'queued' || r.status === 'running');
+  } catch {
+    return false;
+  }
+}
+
+/** 单 agent 默认执行器（真实模型通道 v1）：发任务 prompt 到交互会话 → 等任务在 state 自我结算。
+ *  收尾协商/决策续跑/超时 settle 等 run.js 会话语义随 T1-058 cutover 迁移后在此收敛。 */
+function defaultSingleExecutor() {
+  return {
+    runTask: async ({ taskId, task }) => {
+      const text = task.prompt || task.title || task.id;
+      if (!tmuxlib.hasSession()) throw new Error(`tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh`);
+      const ready = await waitReady(READY_TIMEOUT_MS);
+      if (!ready) throw new Error('still busy (ready timeout)');
+      logger.captureFromTranscript();
+      setBusy();
+      logger.logPrompt(text);
+      await submit(text);
+      const deadline = Date.now() + READY_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await sleep(500);
+        const s = runStores.state.readSync();
+        const t = s?.tasks?.find((x) => x.id === taskId);
+        if (t && (t.status === 'done' || t.status === 'blocked')) return { status: t.status };
+      }
+      throw new Error(`task ${taskId} 超时未自我结算（仍 ${runStores.state.readSync()?.tasks?.find((x) => x.id === taskId)?.status || 'unknown'}）`);
+    },
+  };
+}
+
+/** 装配 run host（单例；首次调用建立 promise，失败记录原因不抛——旧路径不依赖 host） */
+async function bootstrapRunHost() {
+  if (runHostReady) return runHostReady;
+  runHostReady = (async () => {
+    const override = global.__CC_RUN_HOST_DEPS__; // 测试整体覆盖（见 tests/integration/run-host.test.js）
+    let stateApi;
+    let cfg;
+    let chain;
+    let schedulerFn;
+    let gateFix;
+    let executor;
+    let batch;
+    if (override) {
+      stateApi = override.stateApi;
+      cfg = override.cfg;
+      chain = override.chain;
+      schedulerFn = override.scheduler;
+      gateFix = override.handleGateCompletion;
+      executor = override.executor;
+      batch = override.batch;
+    } else {
+      const state = await import('../lib/state.js');
+      stateApi = {
+        loadState: (r) => state.loadState(r),
+        saveState: (r, s) => state.saveState(r, s),
+        markTaskActive: (r, id) => state.markTaskActive(r, id),
+        findNextTask: (s) => state.findNextTask(s),
+        setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
+      };
+      const rc = await import('../lib/run-config.js');
+      cfg = rc.loadRunConfig(PROJECT_ROOT);
+      const sch = await import('./run-scheduler.js');
+      schedulerFn = sch.runScheduler;
+      const gf = await import('./gate-fix.js');
+      gateFix = gf.handleGateCompletion;
+      chain = require('./run-driver.cjs');
+      executor = defaultSingleExecutor();
+      batch = null; // 多 agent 传输（tmux 派发 / SubagentStop 落账）随 CLI cutover 任务接线
+    }
+    const host = createRunHost({
+      projectRoot: PROJECT_ROOT,
+      cfg,
+      state: stateApi,
+      chain,
+      handleGateCompletion: gateFix,
+      scheduler: schedulerFn,
+      executor,
+      batch,
+    });
+    host.start();
+    runHost = host;
+    return host;
+  })().catch((err) => {
+    runHostBootErr = err;
+    console.error(`[server] run host bootstrap 失败: ${err.message}`);
+    return null;
+  });
+  return runHostReady;
+}
+
+/** /run/* 端点共用：取装配好的 host；未就绪 → 503（可读原因） */
+
+// ---- server run api 写端点底层（T1-061）：cli 侧 state 直写下线，写收口 server 单写者 ----
+let runStateApi = null;
+let runStateApiReady = null;
+
+/** 惰性装载 state 写原语（setWorkflowMode/markTaskActive/backupState）；测试可经 __CC_RUN_HOST_DEPS__.stateApi 覆盖 */
+async function ensureRunStateApi() {
+  if (runStateApiReady) return runStateApiReady;
+  runStateApiReady = (async () => {
+    const override = global.__CC_RUN_HOST_DEPS__?.stateApi;
+    if (override) {
+      runStateApi = {
+        saveState: override.saveState || (() => false),
+        setWorkflowMode: override.setWorkflowMode || (() => false),
+        markTaskActive: override.markTaskActive || (() => false),
+        backupState: override.backupState || (() => undefined),
+      };
+      return runStateApi;
+    }
+    const state = await import('../lib/state.js');
+    runStateApi = {
+      saveState: (r, s) => state.saveState(r, s),
+      setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
+      markTaskActive: (r, id) => state.markTaskActive(r, id),
+      backupState: (r) => state.backupState(r),
+    };
+    return runStateApi;
+  })().catch((err) => {
+    runStateApi = null;
+    runStateApiReady = null;
+    console.error(`[server] state api 装载失败: ${err.message}`);
+    return null;
+  });
+  return runStateApiReady;
+}
+
+/** 门禁完成处理函数（server 进程内执行 gate-fix 同一实现；测试可经 deps 覆盖） */
+async function runStateGateHandler() {
+  const override = global.__CC_RUN_HOST_DEPS__?.handleGateCompletion;
+  if (override) return override;
+  const gf = await import('./gate-fix.js');
+  return gf.handleGateCompletion;
+}
+
+// ---- T1-078：run-state 边界按 sid 分片（软约束 U3）----
+// sid 提供时读/写 .awf/runs/<sid>/state.json（只碰本 sid run）；缺省回落项目根 state（单 run 现状）。
+function runStateFile(sid) {
+  return sid
+    ? path.join(PROJECT_ROOT, '.awf', 'runs', sid, 'state.json')
+    : path.join(PROJECT_ROOT, '.awf', 'state.json');
+}
+function runStateLockFile(sid) {
+  return sid
+    ? path.join(PROJECT_ROOT, '.awf', 'runs', sid, 'state.lock')
+    : path.join(PROJECT_ROOT, '.awf', 'state.lock');
+}
+function writeRunStateSid(sid, state) {
+  const file = runStateFile(sid);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  return storeCore.withFileLock(runStateLockFile(sid), () => storeCore.writeJsonAtomicSync(file, state));
+}
+
 // ---- HTTP plumbing ----
 function readJson(req) {
   return new Promise((resolve) => {
@@ -530,34 +716,46 @@ function send(res, code, obj) {
 
 /** 自动介入只允许在 CLI pause 闩锁已生效后执行。 */
 function requirePaused(res) {
-  try {
-    const s = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
-    if (s.mode === 'pause') return true;
-    send(res, 409, { ok: false, error: `intervention requires mode=pause (current: ${s.mode || 'unknown'})` });
-  } catch (e) {
-    send(res, 409, { ok: false, error: `intervention requires readable paused state: ${e.message}` });
-  }
+  const s = runStores.state.readSync();
+  if (s?.mode === 'pause') return true;
+  send(res, 409, { ok: false, error: `intervention requires mode=pause (current: ${s?.mode || 'unknown'})` });
   return false;
+}
+
+// ── T1-093 web 构建产物静态托管（React SPA）──
+// 产物目录：CC_WEB_PUBLIC 覆盖（测试/独立目录），缺省 <src>/server/public（web/vite build outDir）。
+// index.html 存在 → 就绪（root 给 React、assets/SPA 由尾兜底托管）；未构建 → 回落 legacy 托管页（现状）。
+const WEB_PUBLIC_DEFAULT = path.join(__dirname, 'public');
+function webPublicRoot() {
+  return process.env.CC_WEB_PUBLIC || WEB_PUBLIC_DEFAULT;
+}
+function webIndexHtml() {
+  try { return fs.readFileSync(path.join(webPublicRoot(), 'index.html')); } catch { return null; }
+}
+/** 惰性实例；每次构建（无缓存）以让 CC_WEB_PUBLIC 覆盖即时生效 */
+function webHostInstance() {
+  if (!webIndexHtml()) return null;
+  return createStaticHost({ root: webPublicRoot(), aliases: { '/': 'index.html' }, spa: 'index.html' });
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
+  lastActivityAt = Date.now(); // 任何请求视为活动（空闲回收计时刷新）
 
-  // dashboard (default) + control panel
+  // dashboard (default)；T1-093：web 构建产物存在 → root 由 React SPA 承载；T1-094：ui.html 已废弃不再回退
   if (req.method === 'GET' && pathname === '/') {
+    const idx = webIndexHtml();
+    if (idx) {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(idx);
+    }
     try {
       const html = fs.readFileSync(htmlDir() + '/dashboard.html');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(html);
     } catch {
-      try {
-        const html = fs.readFileSync(htmlDir() + '/ui.html');
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        return res.end(html);
-      } catch {
-        return send(res, 500, { ok: false, error: 'no page found' });
-      }
+      return send(res, 500, { ok: false, error: 'no page found' });
     }
   }
 
@@ -581,13 +779,16 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (req.method === 'GET' && pathname === '/ui') {
+  // T1-086：共享主题/工具资产（theme.css / common.js，托管页公共抽取）
+  if (req.method === 'GET' && (pathname === '/theme.css' || pathname === '/common.js')) {
+    const name = pathname === '/theme.css' ? 'theme.css' : 'common.js';
+    const ctype = name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8';
     try {
-      const html = fs.readFileSync(htmlDir() + '/ui.html');
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(html);
+      const body = fs.readFileSync(path.join(htmlDir(), name));
+      res.writeHead(200, { 'content-type': ctype });
+      return res.end(body);
     } catch {
-      return send(res, 500, { ok: false, error: 'ui.html not found' });
+      return send(res, 404, { ok: false, error: 'asset not found' });
     }
   }
 
@@ -596,6 +797,13 @@ const server = http.createServer(async (req, res) => {
     const body = (await readJson(req)) || {};
     const event = body.event || url.searchParams.get('event');
     let hookCcOutput = null; // server 需回传的 hook 输出（decision gate block/deny），gateway 透传到 stdout
+
+    // T1-071：带 sid 的 hook → 按 sid 路由到独立 run 槽（不触碰全局单槽）；无 sid 走既有单槽路径
+    const hookSid = url.searchParams.get('sid');
+    if (hookSid) {
+      handleSidHook(hookSid, event, body, res);
+      return;
+    }
 
     if (event === 'SessionStart') {
       if (diagnosisInFlight && body.session_id && body.session_id !== mainSessionId) {
@@ -741,15 +949,12 @@ const server = http.createServer(async (req, res) => {
 
   // ---- state.json ----
   if (req.method === 'GET' && pathname === '/awf/state') {
-    const projectRoot = process.env.CC_PROJECT || process.cwd();
-    const statePath = path.join(projectRoot, '.awf', 'state.json');
-    try {
-      const raw = fs.readFileSync(statePath, 'utf-8');
-      res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(raw);
-    } catch (e) {
-      return send(res, 404, { ok: false, error: `state.json not found at ${statePath}` });
-    }
+    const sid = url.searchParams.get('sid');
+    // T1-078：?sid 提供 → 只读该 run 槽 state（.awf/runs/<sid>/state.json，软边界）；否则项目根 state
+    const s = sid ? storeCore.readJsonSync(runStateFile(sid)) : runStores.state.readSync();
+    if (s == null) return send(res, 404, { ok: false, error: `state.json not found${sid ? ` for run ${sid}` : ''}` });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify(s, null, 2));
   }
 
   if (req.method === 'GET' && pathname === '/awf/metrics') {
@@ -803,6 +1008,18 @@ const server = http.createServer(async (req, res) => {
 
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
+    // T1-071：?sid= 返回该 run 槽内存态（ready/busy/decision 隔离）
+    const statusSid = url.searchParams.get('sid');
+    if (statusSid) {
+      const slot = runSlotFor(statusSid);
+      return send(res, 200, {
+        ok: true, sid: statusSid,
+        state: slot.state,
+        decisionPending: slot.decisionPending,
+        contextReady: slot.contextReady,
+        projectRoot: PROJECT_ROOT,
+      });
+    }
     const out = {
       ok: true, state, session: tmuxlib.hasSession(), projectRoot: PROJECT_ROOT, decisionPending, contextReady,
       decisionGate, decisionResume,
@@ -829,25 +1046,23 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, ready });
   }
 
-  // AI 通知：需要人做选择（带选项）
+  // AI 通知：需要人做选择（带选项）——决策模型构造经 interact.validateDecisionRequest
   if (req.method === 'POST' && pathname === '/choice') {
     const body = await readJson(req);
-    if (!body || typeof body.question !== 'string') {
-      return send(res, 400, { ok: false, error: 'body must be {question: string, options?: string[]}' });
-    }
-    setDecision({ type: 'choice', question: body.question, options: body.options || [], context: body.context || null });
-    console.log(`[choice] ${body.question}`);
+    const v = interact.validateDecisionRequest('choice', body);
+    if (!v.ok) return send(res, 400, { ok: false, error: v.error });
+    setDecision(v.decision);
+    console.log(`[choice] ${v.decision.question}`);
     return send(res, 200, { ok: true, decisionPending });
   }
 
-  // AI 通知：需要人自由输入
+  // AI 通知：需要人自由输入——决策模型构造经 interact.validateDecisionRequest
   if (req.method === 'POST' && pathname === '/ask') {
     const body = await readJson(req);
-    if (!body || typeof body.question !== 'string') {
-      return send(res, 400, { ok: false, error: 'body must be {question: string}' });
-    }
-    setDecision({ type: 'text', question: body.question, context: body.context || null });
-    console.log(`[ask] ${body.question}`);
+    const v = interact.validateDecisionRequest('text', body);
+    if (!v.ok) return send(res, 400, { ok: false, error: v.error });
+    setDecision(v.decision);
+    console.log(`[ask] ${v.decision.question}`);
     return send(res, 200, { ok: true, decisionPending });
   }
 
@@ -966,10 +1181,158 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, sent: body.value });
   }
 
+  // ---- run host：提交 run / 状态快照 / 轮询事件（T1-105；CLI cutover 在 T1-058） ----
+  // 惰性装配：首次命中触发 bootstrap（含 ESM 动态 import），随后 runHost 常驻。
+  if (req.method === 'POST' && pathname === '/run/submit') {
+    const body = (await readJson(req)) || {};
+    await bootstrapRunHost();
+    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    const runId = typeof body.runId === 'string' && body.runId.length > 0 ? body.runId : undefined;
+    const r = runHost.submitRun({ runId });
+    if (!r.ok) return send(res, 409, { ok: false, error: r.error, runId: r.runId });
+    return send(res, 202, { ok: true, runId: r.runId, mode: r.mode });
+  }
+
+  if (req.method === 'GET' && pathname === '/run/status') {
+    await bootstrapRunHost();
+    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    const runId = url.searchParams.get('runId') || undefined;
+    return send(res, 200, runHost.snapshot(runId));
+  }
+
+  if (req.method === 'GET' && pathname === '/run/events') {
+    await bootstrapRunHost();
+    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    const afterSeqRaw = url.searchParams.get('afterSeq');
+    const afterSeq = Number(afterSeqRaw);
+    const q = {
+      afterSeq: Number.isInteger(afterSeq) && afterSeq >= 0 ? afterSeq : 0,
+      runId: url.searchParams.get('runId') || undefined,
+    };
+    return send(res, 200, runHost.pollEvents(q));
+  }
+
+  // ---- server run api 写端点（T1-061）：cli 调度/门禁派生等剩余直写收口 server 单写者 ----
+  if (req.method === 'POST' && pathname === '/run/state/mode') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.mode !== 'string' || !['run', 'idle', 'pause'].includes(body.mode)) {
+      return send(res, 400, { ok: false, error: 'body must be {mode: run|idle|pause}' });
+    }
+    await ensureRunStateApi();
+    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    const ok = runStateApi.setWorkflowMode(PROJECT_ROOT, body.mode);
+    return send(res, 200, { ok: !!ok, mode: body.mode });
+  }
+
+  if (req.method === 'POST' && pathname === '/run/state/task/active') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.taskId !== 'string' || body.taskId.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {taskId: non-empty string}' });
+    }
+    await ensureRunStateApi();
+    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    const ok = runStateApi.markTaskActive(PROJECT_ROOT, body.taskId);
+    return send(res, 200, { ok: !!ok, taskId: body.taskId });
+  }
+
+  if (req.method === 'POST' && pathname === '/run/state/gate') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.taskId !== 'string' || body.taskId.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {taskId: non-empty string}' });
+    }
+    const s = runStores.state.readSync();
+    const task = s?.tasks?.find((x) => x.id === body.taskId) || null;
+    if (!task) return send(res, 200, { ok: true, applied: false, reason: 'task not found' });
+    const handler = await runStateGateHandler();
+    await handler(PROJECT_ROOT, body.taskId, task);
+    return send(res, 200, { ok: true, applied: true, taskId: body.taskId });
+  }
+
+  if (req.method === 'POST' && pathname === '/run/state/backup') {
+    await ensureRunStateApi();
+    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    runStateApi.backupState(PROJECT_ROOT);
+    return send(res, 200, { ok: true });
+  }
+
+  // T1-077：awf-state MCP 语义保留、底层写收口 server 单写者——MCP 客户端按工具语义算出
+  // 完整 state，POST 此处由 server 用 state.js 单写者（锁 + 原子）落盘；MCP 不再直写文件/锁。
+  if (req.method === 'POST' && pathname === '/run/state/apply') {
+    const body = (await readJson(req)) || {};
+    const state = body?.state;
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      return send(res, 400, { ok: false, error: 'body must be {state: object}' });
+    }
+    await ensureRunStateApi();
+    const sid = url.searchParams.get('sid');
+    try {
+      if (sid) {
+        // T1-078：sid → 只写该 run 槽 state（软边界），互不影响其它 run
+        writeRunStateSid(sid, state);
+      } else {
+        if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+        runStateApi.saveState(PROJECT_ROOT, state);
+      }
+      return send(res, 200, { ok: true });
+    } catch (e) {
+      return send(res, 500, { ok: false, error: `state 落盘失败: ${e.message}` });
+    }
+  }
+
+  // T1-080：awf-oneshot 经 server——无状态 claude -p 调用收口 server（oneshot adapter，外部零 claude）
+  if (req.method === 'POST' && pathname === '/oneshot') {
+    const body = (await readJson(req)) || {};
+    if (!body || typeof body.prompt !== 'string' || body.prompt.length === 0) {
+      return send(res, 400, { ok: false, error: 'body must be {prompt: non-empty string}' });
+    }
+    const r = await oneshotLib.runOneShot({ prompt: body.prompt, cwd: typeof body.cwd === 'string' ? body.cwd : undefined, timeoutMs: 300000 })
+      .catch((e) => ({ ok: false, error: e.message }));
+    return send(res, 200, r);
+  }
+
+  // 优雅关闭（T1-064）：awf server stop / 空闲回收调用；响应送达后 close（main 才退出进程）
+  if (req.method === 'POST' && pathname === '/shutdown') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, shutting: true }));
+    setTimeout(() => {
+      stop().then(() => { if (require.main === module) process.exit(0); });
+    }, 60);
+    return;
+  }
+
+  // T1-093：web 构建产物静态托管——GET 未命中既有端点 → 走产物 host（assets + 无扩展名 SPA 回退 index）
+  if (req.method === 'GET') {
+    const host = webHostInstance();
+    if (host && host.serve(req, res, pathname)) return;
+  }
+
   return send(res, 404, { ok: false, error: 'not found' });
 });
 
 // ---- lifecycle: CLI 以子进程方式运行；测试中可显式 start/stop ----
+// ── WebSocket 升级：/run/events 实时事件推送（T1-091）──
+// 前端 createApiClient.stream('/run/events') 建立 ws；升级前惰性装配 run host，把宿主事件
+// 逐条以文本帧推给订阅客户端；socket 关闭即退订。路径非 /run/events（含他路径/静态）一律拒绝。
+server.on('upgrade', (req, socket) => {
+  let pathname = '/';
+  try { pathname = new URL(req.url || '/', 'http://localhost').pathname; } catch { /* 保持默认 */ }
+  if (pathname !== '/run/events') {
+    try { socket.destroy(); } catch { /* ignore */ }
+    return;
+  }
+  bootstrapRunHost()
+    .then(() => {
+      if (!runHost) { try { socket.destroy(); } catch { /* ignore */ } return; }
+      const unsub = runHost.subscribe((event) => {
+        try {
+          if (socket.writable) socket.write(encodeTextFrame(JSON.stringify(event)));
+        } catch { /* 客户端断开等写入失败：退订由 onClose 兜底 */ }
+      });
+      wsUpgrade(req, socket, { onClose: unsub, onError: unsub });
+    })
+    .catch(() => { try { socket.destroy(); } catch { /* ignore */ } });
+});
+
 function start(port = PORT) {
   resetRunLogs();
   metricsCache = { at: 0, value: null };
@@ -984,6 +1347,7 @@ function start(port = PORT) {
 }
 
 function stop() {
+  if (runHost) { try { runHost.stop(); } catch { /* host 停止失败不影响 server 关闭 */ } }
   return new Promise((resolve) => {
     server.close(() => resolve());
     if (server.closeAllConnections) server.closeAllConnections();
@@ -1009,7 +1373,8 @@ function _resetForTest() {
   decisionPending = null;
   decisionGate = null;
   decisionResume = null;
-  decisionSeq = 0;
+  decisionSeqGen.reset();
+  runSlotsBySid.clear(); // T1-071 per-run 槽清理（用例隔离）
   waiters = [];
   contextReady = false;
   mainSessionId = null;
@@ -1017,6 +1382,13 @@ function _resetForTest() {
   metricsCache = { at: 0, value: null };
   resetRunMeta(PROJECT_ROOT);
   diagnosisInFlight = false;
+  // run host（T1-105）：复位以便用例隔离；有 active run 时 reset 拒绝，调用方应先等 run 收敛
+  if (runHost) {
+    try { runHost.stop(); runHost.reset(); } catch { /* host 复位失败不阻塞 server 复位 */ }
+  }
+  runHost = null;
+  runHostReady = null;
+  runHostBootErr = null;
 }
 
 module.exports = {
@@ -1029,4 +1401,21 @@ if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
   });
+
+  // T1-064/067 常驻空闲回收：run 结束后 server 保留；空闲阈值（CC_SERVER_IDLE_MS，0=禁用）无活动
+  // 且宿主无 run 驱动 → 自动关闭。任何请求都刷新 lastActivityAt，故有看板/轮询即非空闲。
+  // 检查节拍 CC_SERVER_IDLE_CHECK_MS（默认 60s，测试冒烟可调小）。
+  const idleMs = idleDefaultMs();
+  if (idleMs > 0) {
+    const idleCheckMs = Number(process.env.CC_SERVER_IDLE_CHECK_MS || 60000);
+    const idleTimer = setInterval(() => {
+      if (hostHasActiveRun()) return; // 宿主有 run 在驱动绝不回收
+      if (isIdleDue({ now: Date.now(), lastActivityAt, idleMs })) {
+        clearInterval(idleTimer);
+        console.log(`[server] 空闲 ${Math.round(idleMs / 60000)}min 无活动且无 run 驱动，自动关闭（常驻回收）`);
+        stop().then(() => process.exit(0));
+      }
+    }, idleCheckMs);
+    if (idleTimer.unref) idleTimer.unref();
+  }
 }

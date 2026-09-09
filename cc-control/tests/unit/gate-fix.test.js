@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { handleGateCompletion } from '../../src/cli/gate-fix.js';
+import { handleGateCompletion } from '../../src/server/gate-fix.js';
 import { MAX_RECHECK } from '../../src/lib/state.js';
 
 // handleGateCompletion 用真实 loadState/saveState/spawnGateFixTask（state.js 纯文件 I/O），

@@ -1,6 +1,6 @@
 ---
 name: awf-monitor-probe
-description: w-monitor 的一次性侦查单元。读取 tmux Claude Code 现场、运行日志和工作流状态，与上次快照比较，只返回结构化健康判断。仅由 w-monitor 派发。
+description: w-monitor 的一次性侦查单元。读取运行中的 Claude Code 会话现场、运行日志与工作流状态，与上次快照比较，只返回结构化健康判断。仅由 w-monitor 派发。
 tools: Read, Grep, Glob, Bash, mcp__awf-session__awf_session_status, mcp__awf-session__awf_capture_pane, mcp__awf-state__awf_read_state
 model: inherit
 ---

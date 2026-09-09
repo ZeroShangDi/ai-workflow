@@ -1,4 +1,4 @@
-// src/cli/gate-fix.js — 门禁闭环：fail 自动派生修复 + 复审回退
+// src/server/gate-fix.js — 门禁闭环：fail 自动派生修复 + 复审回退（原 cli/gate-fix，T1-062 归位 server 侧）
 //
 // 门禁任务（kind=review/test）由子 Agent / 主会话完成时输出结构化 verdict
 // （exec.verdict，见 plugin/core/agents/awf-worker.md）。CLI 检测
@@ -12,6 +12,7 @@
 
 import { loadState, saveState, spawnGateFixTask, gateFixMeta, MAX_RECHECK } from '../lib/state.js';
 import { gateFixPrompt } from '../lib/plugin-bridge.js';
+import { buildFixTarget } from '../lib/gate-loop.cjs';
 import { logStep } from '../lib/ui/log.js';
 
 /**
@@ -37,14 +38,7 @@ export async function handleGateCompletion(projectRoot, id, task) {
   if (!meta) return;
 
   const v = gate.exec?.verdict;
-  const architecture = gate.exec?.architecture;
-  const reportPath = (gate.exec?.files || []).find((f) => f.startsWith('.awf/reports/')) || '';
-  let fixTarget = reportPath
-    ? `修复门禁 ${gate.id} 报告 ${reportPath} 中列出的全部问题。`
-    : `修复门禁 ${gate.id} 判定中列出的问题：${v?.conclusion || v?.level}。`;
-  if (architecture?.note || architecture?.boundary) {
-    fixTarget += ` 架构修复要求：变化轴=${architecture.changeAxis || '未说明'}；期望边界=${architecture.boundary || '未说明'}；路径=${architecture.path || '未说明'}；${architecture.note || ''}`;
-  }
+  const fixTarget = buildFixTarget(gate); // verdict→修复目标规则归位 gate-loop
   const prompt = await gateFixPrompt({ fixId: meta.fixId, fixTarget });
 
   const fixId = spawnGateFixTask(state, gate, prompt);

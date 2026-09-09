@@ -14,6 +14,8 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+// 决策 jsonl 追加/读取经 store 层 AppendFileStore（json 模式，进程内串行 + 坏行容忍）
+const store = require('../lib/store.cjs');
 
 const VERSION_FILE = path.join('.awf', 'state.json');
 const LOGS_DIR = path.join('.awf', 'logs');
@@ -51,21 +53,29 @@ function logRunDirs(projectRoot, version) {
 class DecisionStore {
   /**
    * @param {string} projectRoot - 用户项目根目录
+   * @param {{ runStamp?: string, runsDir?: string }} [opts]
+   *   runStamp  显式 run stamp（T1-072 runStamp→sid 归一：多 run 传 sid，决策落该 run 不串）；
+   *             缺省沿用单 run 现状（扫描 .awf/logs 最新匹配 state.version 的 run 目录）。
+   *   runsDir   决策文件目录覆写（W3-002 per-run 布局可传 ctx.runDecisionsDir）；缺省
+   *             .awf/decisions/runs。
    */
-  constructor(projectRoot) {
+  constructor(projectRoot, { runStamp = null, runsDir = null } = {}) {
     this.projectRoot = projectRoot;
+    this._explicitStamp = runStamp;
+    this._runsDirOverride = runsDir;
   }
 
   get runsDir() {
-    return path.join(this.projectRoot, RUNS_DIR);
+    return this._runsDirOverride || path.join(this.projectRoot, RUNS_DIR);
   }
 
   /**
-   * 解析 runStamp：优先取 .awf/logs 中最新匹配 state.version 的 run 目录名；
-   * 无 run 目录时按同规则用当前时间生成（与 run-logger 命名一致）。
+   * 解析 runStamp：显式 sid → 直接采用；否则优先取 .awf/logs 中最新匹配 state.version 的
+   * run 目录名；无 run 目录时按同规则用当前时间生成（与 run-logger 命名一致）。
    * @returns {string|null} version 缺失时返回 null
    */
   runStamp() {
+    if (this._explicitStamp) return this._explicitStamp;
     const version = readVersion(this.projectRoot);
     if (!version) return null;
     const latest = logRunDirs(this.projectRoot, version)[0];
@@ -76,10 +86,14 @@ class DecisionStore {
     return path.join(this.runsDir, `${runStamp}.jsonl`);
   }
 
-  /** 追加一行记录（jsonl）；不存在目录则递归创建 */
+  /** 追加一行记录（jsonl）；目录递归创建由 store 处理 */
   _appendLine(file, record) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
+    store.createAppendFileStore({ filePath: file, json: true }).appendSync(record);
+  }
+
+  /** 读一份 run 文件的全部记录（store json 模式，容忍坏行） */
+  _records(file) {
+    return store.createAppendFileStore({ filePath: file, json: true }).readAllSync();
   }
 
   /**
@@ -103,18 +117,7 @@ class DecisionStore {
 
   /** file 中是否已含同 decision_id 的记录（幂等去重） */
   _hasDecision(file, decisionId) {
-    try {
-      const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
-      return lines.some((l) => {
-        try {
-          return JSON.parse(l).decision_id === decisionId;
-        } catch {
-          return false;
-        }
-      });
-    } catch {
-      return false;
-    }
+    return this._records(file).some((e) => e.decision_id === decisionId);
   }
 
   /**
@@ -140,14 +143,8 @@ class DecisionStore {
   /** 在全部 run 文件中查找含 decision_id 的记录，返回 { runStamp, file, entry } 或 null */
   _findDecision(decisionId) {
     for (const { runStamp, file } of this._runFiles()) {
-      try {
-        const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
-        for (const l of lines) {
-          let e;
-          try { e = JSON.parse(l); } catch { continue; }
-          if (e.decision_id === decisionId && e.event !== 'decision_overridden') return { runStamp, file, entry: e };
-        }
-      } catch { /* 跳过坏文件 */ }
+      const entry = this._records(file).find((e) => e.decision_id === decisionId && e.event !== 'decision_overridden');
+      if (entry) return { runStamp, file, entry };
     }
     return null;
   }
@@ -168,16 +165,11 @@ class DecisionStore {
    * @returns {Array<{ runStamp: string, file: string, entries: object[] }>}
    */
   listRuns() {
-    return this._runFiles().map(({ runStamp, file }) => {
-      const entries = [];
-      try {
-        const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
-        for (const l of lines) {
-          try { entries.push(JSON.parse(l)); } catch { /* 跳过坏行 */ }
-        }
-      } catch { /* 读不到则空 run */ }
-      return { runStamp, file, entries };
-    });
+    return this._runFiles().map(({ runStamp, file }) => ({
+      runStamp,
+      file,
+      entries: this._records(file),
+    }));
   }
 
   /** 扁平聚合（倒序），供 Review/override 检索 */

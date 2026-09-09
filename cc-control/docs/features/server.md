@@ -206,7 +206,7 @@ const agents = new Map();      // 子 agent 观测: key(session_id/agent_id) →
 
 | 常量 | 默认值 | 说明 |
 |------|--------|------|
-| `READY_TIMEOUT_MS` | 1800000 (30min) | /send、/cmd waitReady 超时 |
+| `READY_TIMEOUT_MS` | 120000 (2min) | /send、/cmd waitReady 超时 |
 | `ENTER_DELAY_MS` | 200 | sendText 后等待再 sendEnter |
 | `LOCAL_CMD_FALLBACK_MS` | 1500 | /cmd 和 /respond(无 decision) fallback |
 | `DECISION_FALLBACK_MS` | 300000 (5min) | /respond 有 decision 时的 fallback |

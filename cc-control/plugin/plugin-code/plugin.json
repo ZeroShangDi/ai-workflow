@@ -1,7 +1,7 @@
 {
   "name": "ai-workflow-code",
   "description": "AI Workflow 编程模式插件 — 规划/开发/审查/测试/文档等编程领域命令与技能",
-  "version": "2.0.0",
+  "version": "0.2.0",
   "author": {
     "name": "v-shangjunhao"
   },

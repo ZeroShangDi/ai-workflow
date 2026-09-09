@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+// claude -p 收口到 oneshot adapter（R-cc：外部源码零 claude 字面）
+const oneshot = require('../adapters/oneshot.cjs');
 
 const DIAGNOSIS_PATH = ['.awf', 'logs', 'run-diagnosis.json'];
 const DIAGNOSIS_TIMEOUT_MS = 5 * 60 * 1000;
@@ -76,27 +77,20 @@ function parseDiagnosis(text) {
 }
 
 function diagnoseWithClaude(prompt, projectRoot) {
-  return new Promise((resolve) => {
-    // 诊断是独立、只读的模型调用，必须隔离项目 hooks，避免它被误认为新的主会话。
-    const proc = spawn('claude', ['-p', '--safe-mode', '--no-session-persistence', prompt], {
-      cwd: projectRoot,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NO_COLOR: '1' },
-      timeout: DIAGNOSIS_TIMEOUT_MS,
-    });
-    let stdout = '';
-    let stderr = '';
-    proc.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    proc.on('error', (error) => resolve({ ok: false, error: error.message }));
-    proc.on('close', (code) => {
-      if (code !== 0) return resolve({ ok: false, error: stderr.trim() || `claude -p exited ${code}` });
-      try {
-        resolve({ ok: true, diagnosis: parseDiagnosis(stdout) });
-      } catch (error) {
-        resolve({ ok: false, error: `无法解析 AI 诊断结果：${error.message}` });
-      }
-    });
+  // 诊断是独立、只读的模型调用，必须隔离项目 hooks；claude -p 经 oneshot adapter（safe-mode + 无会话持久化）
+  return oneshot.spawnClaudeP({
+    prompt,
+    cwd: projectRoot,
+    args: ['--safe-mode', '--no-session-persistence'],
+    timeoutMs: DIAGNOSIS_TIMEOUT_MS,
+  }).then((r) => {
+    if (r.error) return { ok: false, error: r.error };
+    if (!r.ok) return { ok: false, error: r.stderr.trim() || `claude -p exited ${r.code}` };
+    try {
+      return { ok: true, diagnosis: parseDiagnosis(r.stdout) };
+    } catch (error) {
+      return { ok: false, error: `无法解析 AI 诊断结果：${error.message}` };
+    }
   });
 }
 

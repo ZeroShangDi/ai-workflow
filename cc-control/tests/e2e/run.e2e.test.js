@@ -40,7 +40,7 @@ vi.mock('node:child_process', () => ({
   spawn: h.spawn,
 }));
 
-vi.mock('../../src/cli/scheduler.js', () => ({ runScheduler: h.runScheduler }));
+vi.mock('../../src/server/run-scheduler.js', () => ({ runScheduler: h.runScheduler }));
 
 import { runCommand } from '../../src/cli/run.js';
 
@@ -225,16 +225,16 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
     expect(prompts[2]).toBe('task two');
   }, 20000);
 
-  it('E2E-6: --multi-agent 显式分流到 runBatchLoop（滑动窗口入口）', async () => {
+  it('E2E-6: 多 agent（run.agents.max>1）分流到 runBatchLoop（滑动窗口入口）', async () => {
     fs.mkdirSync(path.join(TMP, '.awf'), { recursive: true });
     fs.writeFileSync(path.join(TMP, '.awf', 'config.json'), JSON.stringify({ run: { agents: { max: 2 } } }));
     writeState(baseState([
       { id: 'T1', title: 'T1', prompt: 'task one', status: 'pending', deps: [], plannedFiles: ['src/a.js'] },
     ]));
 
-    await runCommand(undefined, { multiAgent: true });
+    await runCommand(undefined, {});
 
-    // 显式开关 → 分流到滑动窗口调度器（真实 socket 派发 + hook 落账留给全真 eval；mock 环境只验证分流）
+    // max>1 → 分流到滑动窗口调度器（真实 socket 派发 + hook 落账留给全真 eval；mock 环境只验证分流）
     expect(h.runScheduler).toHaveBeenCalled();
   }, 20000);
 });

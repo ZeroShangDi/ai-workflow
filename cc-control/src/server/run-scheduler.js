@@ -1,8 +1,8 @@
-// src/cli/scheduler.js — 滑动窗口调度器核心（纯逻辑）
+// src/server/run-scheduler.js — 滑动窗口调度器核心（纯逻辑；迁自 cli/scheduler.js，归位 server run 域）
 //
 // CLI 拥有调度权：就绪池 + 配额上限 + plannedFiles 动态冲突 + 补位循环。
 // 派发（dispatcher）与完成感知（waitAnyDone）通过注入接口抽象，便于先单测，
-// 后接真实通道（inbox socket 派发 / SubagentStop hook 落账）。
+// 后接真实通道（tmux 派发 / SubagentStop hook 落账）。T1-065：inbox socket 方案已删。
 //
 // 配额语义：硬上限，非目标——池子按实际就绪任务填充，不足不凑满。
 // 预留「延时补位」：waitAnyDone 可容忍完成信号延迟，补位不依赖即时信号。

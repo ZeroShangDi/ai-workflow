@@ -1,0 +1,26 @@
+/* theme.css — awf server 托管页共享主题（4 html 公共 CSS 变量 + 基础样式）
+   T1-086：从 dashboard/ui/decisions/diagnostics 内联样式中抽取公共 token。 */
+:root {
+  --bg: #1a1a2e;
+  --card: #16213e;
+  --accent: #0f3460;
+  --text: #eee;
+  --muted: #888;
+  --border: #333;
+  --done: #4caf50;
+  --active: #ff9800;
+  --blocked: #e53935;
+  --warn: #ff9800;
+  --info: #7cc;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.done { color: var(--done); }
+.active { color: var(--active); }
+.blocked { color: var(--blocked); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); }

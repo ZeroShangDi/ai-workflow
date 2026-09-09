@@ -1,5 +1,7 @@
 import path from 'node:path';
-import fs from 'node:fs';
+import configLoader from './config-loader.cjs';
+
+const { loadConfig, ConfigError } = configLoader;
 
 /** 插件 MCP args 前缀：Claude Code 注入插件根（仅 installed 插件生效） */
 const PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}';
@@ -8,15 +10,59 @@ const PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}';
 const AUTHOR = { name: 'v-shangjunhao' };
 const LICENSE = 'MIT';
 
-/** config.json 未声明 engineDir 时的引擎插件目录（兼容旧配置） */
+/** config.json 未声明 engineDir / port 时的兜底（loader 默认） */
 const DEFAULT_ENGINE_DIR = 'core';
+const DEFAULT_PORT = 8787;
 
 /**
- * 读取插件唯一配置源 plugin/config.json（port / engineDir / marketplace / mcpServers / hooks）
+ * plugin/config.json 的字段规则（经 config-loader 校验，passthrough 保留整份文件）。
+ * port/engineDir 给默认值；marketplace/mcpServers/hooks 只做类型校验，子结构保留原样。
+ */
+const PLUGIN_CONFIG_RULES = {
+  port: { default: DEFAULT_PORT, type: 'integer', min: 1, max: 65535 },
+  engineDir: { default: DEFAULT_ENGINE_DIR, type: 'string', pattern: /^.+$/ },
+  marketplace: { type: 'object' },
+  mcpServers: { type: 'object' },
+  hooks: { type: 'object' },
+};
+
+/** marketplace.plugins 最小结构校验：数组 + 每项 dir/name 非空字符串 + dir 不重复 */
+function assertMarketplaceShape(marketplace) {
+  if (!marketplace || !Array.isArray(marketplace.plugins)) {
+    throw new ConfigError('plugin/config.json 校验失败：缺少 marketplace.plugins 数组');
+  }
+  const errors = [];
+  const dirs = [];
+  marketplace.plugins.forEach((p, i) => {
+    if (!p || typeof p !== 'object') {
+      errors.push(`marketplace.plugins[${i}] 应为对象`);
+      return;
+    }
+    for (const field of ['dir', 'name']) {
+      if (typeof p[field] !== 'string' || !p[field]) errors.push(`marketplace.plugins[${i}].${field} 应为非空字符串`);
+    }
+    if (typeof p.dir === 'string' && p.dir) dirs.push(p.dir);
+  });
+  for (const dup of new Set(dirs.filter((d, i) => dirs.indexOf(d) !== i))) {
+    errors.push(`marketplace.plugins.dir 重复：${dup}`);
+  }
+  if (errors.length > 0) throw new ConfigError(`plugin/config.json 结构校验失败：\n  ${errors.join('\n  ')}`, errors);
+}
+
+/**
+ * 读取插件唯一配置源 plugin/config.json（port / engineDir / marketplace / mcpServers / hooks）。
+ * 经 config-loader 加载：默认值兜底 + 类型校验 + marketplace 结构校验（strict 聚合抛 ConfigError），
+ * passthrough 保留整份文件，未声明字段原样通过。
  * @param {string} repoRoot - cc-control 根目录
  */
 export function readPluginConfig(repoRoot) {
-  return JSON.parse(fs.readFileSync(path.join(repoRoot, 'plugin', 'config.json'), 'utf8'));
+  const config = loadConfig({
+    rules: PLUGIN_CONFIG_RULES,
+    source: { filePath: path.join(repoRoot, 'plugin', 'config.json') },
+    passthrough: true,
+  });
+  assertMarketplaceShape(config.marketplace);
+  return config;
 }
 
 /**
@@ -28,6 +74,38 @@ export function readPluginConfig(repoRoot) {
 export function enginePluginRoot(repoRoot) {
   const config = readPluginConfig(repoRoot);
   return path.join(repoRoot, 'plugin', config.engineDir || DEFAULT_ENGINE_DIR);
+}
+
+/**
+ * T1-081：插件 mcp/hooks 资产解析——任意插件可声明自身 mcpServers/hooks（engineDir-only 取消）。
+ * 引擎插件（dir===engineDir）在自身无声明时回落顶层 config.mcpServers/hooks（向后兼容）；
+ * 其余插件仅用自身声明（无 → null，不渲染引擎运行时资产）。
+ * @param {{dir: string, mcpServers?: object, hooks?: object}} plugin
+ * @param {{mcpServers?: object, hooks?: object, engineDir?: string}} config
+ */
+export function resolvePluginAssets(plugin, { mcpServers = null, hooks = null, engineDir } = {}) {
+  const isEngine = plugin.dir === (engineDir || 'core');
+  return {
+    mcpServers: plugin.mcpServers || (isEngine ? mcpServers : null),
+    hooks: plugin.hooks || (isEngine ? hooks : null),
+  };
+}
+
+/**
+ * T1-082：本仓 .claude/settings.json 渲染产物——由 plugin/settings.json（安装清单，含第三方
+ * 手工合并层如 figma）渲染，仅解析 source.path 的 <pkg> 占位为绝对 plugin 根。
+ * @param {object} pluginSettings - plugin/settings.json 内容（plugins/enabledPlugins/extraKnownMarketplaces）
+ * @param {string} pluginRoot - 本仓 plugin 目录绝对路径（cc-control/plugin）
+ */
+export function renderRepoSettings(pluginSettings, pluginRoot) {
+  const s = JSON.parse(JSON.stringify(pluginSettings || {}));
+  const repoRoot = path.resolve(pluginRoot, '..');
+  for (const m of Object.values(s.extraKnownMarketplaces || {})) {
+    if (m?.source?.path && typeof m.source.path === 'string') {
+      m.source.path = m.source.path.replaceAll('<pkg>', repoRoot);
+    }
+  }
+  return JSON.stringify(s, null, 2) + '\n';
 }
 
 /**

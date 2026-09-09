@@ -8,7 +8,7 @@
  *
  * 协议：
  *   1. 读 stdin 的 hook JSON payload
- *   2. POST http://127.0.0.1:<port>/hook?event=<hook_event_name>，body 为原始 stdin
+ *   2. POST http://127.0.0.1:<port>/hook?event=<hook_event_name>[&sid=<run-sid>]，body 为原始 stdin
  *   3. server 响应含顶层 ccOutput → 原样 JSON.stringify(ccOutput) 打到 stdout（Claude Code 作为 hook 输出消费）
  *   4. 否则无任何 stdout 输出、exit 0（与裸 curl 行为一致：不阻断、不报错）
  *   任何网络/解析异常都静默 exit 0，避免 hook 误报。
@@ -17,11 +17,17 @@
  */
 const http = require('node:http');
 
-const DEFAULT_PORT = 8787;
 const HOST = '127.0.0.1';
 const TIMEOUT_MS = 2500;
 
-const port = Number.isFinite(Number(process.argv[2])) ? Number(process.argv[2]) : DEFAULT_PORT;
+// 端口来自 hook 命令注入的 argv（渲染自 config 单源 port）；CC_PORT 兜底仅测试/手工调用。
+// 不再内嵌 8787 默认值 — server 地址一律由调用方下发。非法 → 0（请求失败 → 静默 exit 0，不崩）。
+const port = Number.isFinite(Number(process.argv[2]))
+  ? Number(process.argv[2])
+  : (Number.isFinite(Number(process.env.CC_PORT)) ? Number(process.env.CC_PORT) : 0);
+
+// T1-070：透传 run sid 给 server /hook（bootstrap 为每 run 注入 CC_SID；server 按 sid 路由到槽）。
+const SID_QS = process.env.CC_SID ? `&sid=${encodeURIComponent(String(process.env.CC_SID))}` : '';
 
 /** 读取 stdin 全部内容 */
 function readStdin() {
@@ -41,7 +47,7 @@ function postToServer(event, body) {
       {
         host: HOST,
         port,
-        path: `/hook?event=${encodeURIComponent(event)}`,
+        path: `/hook?event=${encodeURIComponent(event)}${SID_QS}`,
         method: 'POST',
         headers: { 'content-type': 'application/json' },
       },

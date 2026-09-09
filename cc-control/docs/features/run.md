@@ -63,7 +63,7 @@ runBatchLoop
 |------|------|------|------|
 | `SERVER_PORT` | 8787 | HTTP Session Server 端口 | `src/lib/session/client.js` |
 | `POLL_INTERVAL` | 2000ms | 单 agent ready 轮询间隔 | `src/lib/session/client.js` |
-| `READY_TIMEOUT` | 1800000ms (30min) | ready / waitForTaskDone 超时 | `src/lib/session/client.js` |
+| `READY_TIMEOUT` | 300000ms (5min) | ready / waitForTaskDone 超时 | `src/lib/session/client.js` |
 | `DEFAULT_TIMEOUT_MS` | 5000ms | AskUserQuestion 自动选择等待 | `src/lib/session/client.js` |
 | `MAX_SETTLE_ROUNDS` | 3 | 单 agent 收尾协商追问最大轮数 | `src/cli/run.js` |
 | `POLL_MS` | 2000ms | 多 agent 完成感知轮询间隔 | `src/cli/run-batch.js` |
@@ -290,12 +290,10 @@ while (true)
 | 场景 | 行为 |
 |------|------|
 | `/send` 失败 | 单 agent：返回 `'timeout'`，不阻塞流程；多 agent：抛错（派发失败暴露） |
-| `executeTask` 等待窗口超时（30min） | 回查 state 与 Session Server；会话仍 busy 则继续等待原任务，不重复派发 |
-| 回查 state 已 done | 返回 `'done'`，兼容 Stop hook 延迟 |
-| Session Server 不可用且任务仍 active | 异常退出，保留 tmux、server 与 `mode=run` 现场，禁止跨任务派发 |
+| `executeTask` 超时（5min） | catch 后回查 state，若 done 则返回 `'ok'` |
+| 回查 state 仍未 done | 返回 `'timeout'` |
 | 超时后重读 state 发现 done | `consecutiveTimeouts` 归零，正常继续 |
 | 连续 2 次超时（单 agent） | 标记 blocked，`consecutiveTimeouts` 归零 |
-| 无可派发任务但仍有 active/pending | 视为调度停滞并异常退出，不得误报「工作流结束」 |
 | `settleTask` 多轮追问仍未完成 | 标记 blocked 并跳过（返回 `'stuck'`） |
 | 子 Agent 落账失败（多 agent） | 补发要求重出 RESULT，上限 `RESEND_MAX` 次 |
 | `waitAnyDone` 单轮等待超时（15min） | 抛错中断，暴露问题 |

@@ -1,125 +1,57 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { EventEmitter } from 'node:events';
-import { mockExecSync, mockSpawn } from '../helpers/mock-child-process.js';
 
-const { mockFindNextTask, mockLoadState } = vi.hoisted(() => ({
-  mockFindNextTask: vi.fn(() => null),
-  mockLoadState: vi.fn(() => null),
+// run.js（T1-058 薄化后）：提交 run → 订阅事件/状态展示 → 人机应答中继 → 收尾。
+// 编排在 server run host；本套件 mock run-client/session/子进程，聚焦 run.js 保留的
+// 控制流（mode 复位、--resume 闩锁、环境拉起、异常保留现场）与新的 submit/observe/relay。
+
+const m = vi.hoisted(() => ({
+  loadState: vi.fn(() => null),
+  installProjectMcp: vi.fn(() => ({ written: false, servers: [] })),
+  generateRunSettings: vi.fn(() => ({ statusLine: {} })), // T1-065 已移除 crossSessionInbound（inbox 死代码）
+  waitWhilePaused: vi.fn(async () => {}),
+  getStatus: vi.fn(async () => ({ state: 'ready' })),
+  httpPost: vi.fn(async () => ({})),
+  httpPostJson: vi.fn(async () => ({ ok: true })),
+  autoSelect: vi.fn(async () => ({ index: 1 })),
+  waitForReady: vi.fn(async () => true),
+  execSync: vi.fn(() => Buffer.from('')),
+  spawn: vi.fn(() => ({ unref: vi.fn() })),
+  client: {
+    submitRun: vi.fn(async () => ({ ok: true, runId: 'default', mode: 'single' })),
+    pollRunEvents: vi.fn(async () => ({ events: [], tailSeq: 0, afterSeq: 0 })),
+    runSnapshot: vi.fn(async () => ({ ok: true, run: { status: 'done', counts: { total: 1, done: 1, blocked: 0 } } })),
+    setRunMode: vi.fn(async () => ({ ok: true })),
+  },
 }));
 
-const mockSaveState = vi.hoisted(() => vi.fn());
-const mockSetWorkflowMode = vi.hoisted(() => vi.fn(() => true));
-
-vi.mock('../../src/lib/state.js', () => ({
-  loadState: mockLoadState,
-  findNextTask: mockFindNextTask,
-  backupState: vi.fn(),
-  saveState: mockSaveState,
-  setWorkflowMode: mockSetWorkflowMode,
-}));
-
-vi.mock('../../src/lib/session/client.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    autoSelect: vi.fn(() => Promise.resolve({ index: 1 })),
-    sleep: vi.fn(() => Promise.resolve()),
-    getContextReady: vi.fn(() => Promise.resolve(false)), // 默认：未触发压缩
-    sendCmd: vi.fn(() => Promise.resolve({ ok: true })),
-  };
-});
-
-vi.mock('../../src/lib/paths.js', () => ({
-  getPaths: vi.fn(() => ({
-    projectRoot: '/tmp/mock-project',
-    claudePlugins: '/tmp/mock-plugins',
-    ccSettings: '/tmp/mock-settings.json',
-    tmuxServer: '/tmp/server.cjs',
-    bootstrapScript: '/tmp/bootstrap.sh',
+vi.mock('../../src/lib/state.js', () => ({ loadState: m.loadState }));
+vi.mock('../../src/lib/run-config.js', () => ({ loadRunConfig: vi.fn(() => ({ agents: { max: 1 } })) }));
+vi.mock('../../src/lib/pause.js', () => ({ waitWhilePaused: m.waitWhilePaused }));
+vi.mock('../../src/lib/profile.js', () => ({ installProjectMcp: m.installProjectMcp }));
+vi.mock('../../src/lib/run-context.cjs', () => ({
+  buildRunContext: vi.fn(() => ({
+    sid: null, session: 'cc', runSessionName: 'cc', port: 8787,
+    projectRoot: '/tmp/mock-cwd', infraRoot: '/tmp/mock-project',
+    serverScriptPath: '/tmp/server.cjs', bootstrapScriptPath: '/tmp/bootstrap.sh',
+    runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
   })),
 }));
-
-// plugin-bridge 为插件边界模块，单测 mock（真实逻辑见 plugin-bridge.test.js）
-vi.mock('../../src/lib/plugin-bridge.js', () => ({
-  taskWrapup: vi.fn((taskId) => `用 awf_task_status 标记 ${taskId} done。用 awf_task_result 记录 ${taskId} 的执行结果。只做这两步。`),
-  taskSettle: vi.fn((taskId) => `任务 ${taskId} 尚未标记 done，请明确状态三选一。`),
-  contextCheck: vi.fn(() => '【上下文检查】只判断不工作'),
+vi.mock('../../src/server/run-settings.cjs', () => ({ generateRunSettings: m.generateRunSettings }));
+vi.mock('../../src/cli/run-client.js', () => ({ createRunClient: vi.fn(() => m.client) }));
+vi.mock('../../src/lib/session/client.js', () => ({
+  httpPost: m.httpPost,
+  httpPostJson: m.httpPostJson,
+  autoSelect: m.autoSelect,
+  waitForReady: m.waitForReady,
+  getStatus: m.getStatus,
+  SERVER_PORT: 8787,
 }));
 
-vi.mock('../../src/lib/pause.js', () => ({
-  waitWhilePaused: vi.fn(() => Promise.resolve()),
-}));
+const mkdir = vi.hoisted(() => vi.fn());
+const writeFile = vi.hoisted(() => vi.fn());
+vi.mock('node:fs/promises', () => ({ default: { mkdir, writeFile }, mkdir, writeFile }));
 
-import { taskWrapup, taskSettle, contextCheck } from '../../src/lib/plugin-bridge.js';
-import { getContextReady, sendCmd } from '../../src/lib/session/client.js';
-
-// fs mock：readFile 默认 ENOENT（快照/usage 不存在），mkdir/writeFile 默认 no-op（run-settings 写入）
-const mockReadFile = vi.hoisted(() => vi.fn());
-const mockMkdir = vi.hoisted(() => vi.fn());
-const mockWriteFile = vi.hoisted(() => vi.fn());
-vi.mock('node:fs/promises', () => ({
-  default: { readFile: mockReadFile, mkdir: mockMkdir, writeFile: mockWriteFile },
-  readFile: mockReadFile,
-  mkdir: mockMkdir,
-  writeFile: mockWriteFile,
-}));
-
-const httpState = vi.hoisted(() => ({
-  statusResponse: JSON.stringify({ state: 'ready' }),
-  sendResponse: JSON.stringify({ ok: true }),
-  statusSequence: null, // 按序返回 /status 响应，供「启动后变 busy」场景
-  sentBodies: [],       // 记录所有 http.request 写入的 body（断言 /send 内容）
-}));
-
-vi.mock('node:http', async () => {
-  const { EventEmitter: EE } = await import('node:events');
-
-  function fakeGet(url, cb) {
-    const req = new EE();
-    req.setTimeout = vi.fn();
-    req.destroy = vi.fn();
-    req.abort = vi.fn();
-
-    if (typeof url === 'string' && url.includes('/status')) {
-      setImmediate(() => {
-        const res = new EE();
-        try { cb(res); } catch (e) { /* ok */ }
-        setImmediate(() => {
-          const body = (httpState.statusSequence && httpState.statusSequence.length)
-            ? httpState.statusSequence.shift()
-            : httpState.statusResponse;
-          res.emit('data', body); res.emit('end');
-        });
-      });
-    } else {
-      setImmediate(() => {
-        const res = new EE();
-        try { cb(res); } catch (e) { /* ok */ }
-        setImmediate(() => { res.emit('data', '{}'); res.emit('end'); });
-      });
-    }
-    return req;
-  }
-
-  function fakeRequest(url, opts, cb) {
-    const req = new EE();
-    req.write = vi.fn((data) => { httpState.sentBodies.push(String(data)); });
-    req.end = vi.fn();
-    const handler = typeof opts === 'function' ? opts : cb;
-
-    setImmediate(() => {
-      const res = new EE();
-      try { handler(res); } catch (e) { /* ok */ }
-      const body = (typeof url === 'string' && url.includes('/send'))
-        ? httpState.sendResponse : '{}';
-      setImmediate(() => { res.emit('data', body); res.emit('end'); });
-    });
-    return req;
-  }
-
-  const mod = { get: fakeGet, request: fakeRequest };
-  return { ...mod, default: mod };
-});
+vi.mock('node:child_process', () => ({ spawn: m.spawn, execSync: m.execSync }));
 
 import { runCommand } from '../../src/cli/run.js';
 
@@ -127,628 +59,329 @@ function stateWith(overrides) {
   return { currentState: 'CODE', tasks: [], ...overrides };
 }
 
-function tasksDone(tasks) {
-  return tasks.map((t) => ({ ...t, status: 'done' }));
+/** 默认：宿主空闲（无 run 列表）；按 runId 查 → 已 done（观察环即刻收敛） */
+function hostIdleDone() {
+  m.client.runSnapshot.mockImplementation(async ({ runId } = {}) => (
+    runId
+      ? { ok: true, run: { runId, status: 'done', counts: { total: 1, done: 1, blocked: 0 } } }
+      : { ok: true, runs: [] }
+  ));
 }
 
-describe('runCommand', () => {
+describe('runCommand（T1-058 薄化：提交 + 观察 + 收尾）', () => {
   beforeEach(() => {
     vi.spyOn(process, 'cwd').mockReturnValue('/tmp/mock-cwd');
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    httpState.statusResponse = JSON.stringify({ state: 'ready' });
-    httpState.sendResponse = JSON.stringify({ ok: true });
-    httpState.statusSequence = null;
-    httpState.sentBodies = [];
+    m.loadState.mockReset().mockReturnValue(stateWith({ mode: 'run' }));
+    m.getStatus.mockReset().mockResolvedValue({ state: 'ready' });
+    m.httpPost.mockReset().mockResolvedValue({});
+    m.httpPostJson.mockReset().mockResolvedValue({ ok: true });
+    m.autoSelect.mockReset().mockResolvedValue({ index: 1 });
+    m.waitWhilePaused.mockReset().mockResolvedValue();
+    m.execSync.mockReset().mockReturnValue(Buffer.from(''));
+    m.spawn.mockReset().mockReturnValue({ unref: vi.fn() });
+    m.installProjectMcp.mockReset().mockReturnValue({ written: false, servers: [] });
 
-    mockExecSync.mockImplementation(() => Buffer.from(''));
-    mockSpawn.mockImplementation(() => {
-      const proc = new EventEmitter();
-      proc.unref = vi.fn();
-      return proc;
-    });
-
-    mockLoadState.mockReset();
-    mockFindNextTask.mockReset();
-    mockSaveState.mockReset();
-    mockSetWorkflowMode.mockReset();
-    mockSetWorkflowMode.mockReturnValue(true);
-    mockReadFile.mockReset();
-    mockReadFile.mockRejectedValue(new Error('ENOENT'));
-    mockMkdir.mockReset();
-    mockWriteFile.mockReset();
-    contextCheck.mockClear();
-    getContextReady.mockClear();
-    getContextReady.mockResolvedValue(false);
-    sendCmd.mockClear();
+    m.client.submitRun.mockReset().mockResolvedValue({ ok: true, runId: 'default', mode: 'single' });
+    m.client.pollRunEvents.mockReset().mockResolvedValue({ events: [], tailSeq: 0, afterSeq: 0 });
+    m.client.runSnapshot.mockReset();
+    m.client.setRunMode.mockReset().mockResolvedValue({ ok: true });
+    hostIdleDone();
+    mkdir.mockReset();
+    writeFile.mockReset();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.useRealTimers(); // 防止断言失败时 fake timers 泄漏到后续测试
+    vi.useRealTimers();
   });
 
-  // ── TC1 ──
+  function boot(runCommandPromise, ms) {
+    return vi.advanceTimersByTimeAsync(ms || 2000);
+  }
 
   it('TC1: state.json 不存在 → 退出', async () => {
-    mockLoadState.mockReturnValue(null);
-    vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit');
-    });
-
+    m.loadState.mockReturnValue(null);
+    vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('process.exit'); });
     await expect(runCommand(undefined, {})).rejects.toThrow('process.exit');
   });
 
-  // ── TC2 ──
-
-  it('TC2: state.json 正常加载 → 进入主流程', async () => {
+  it('TC2: 环境拉起 → 提交 run → 观察至 done → mode idle + 清理', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'do it' }];
-    // loadState sequence: initial → runLoop → waitForTaskDone (done!) → runLoop → final
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValue(stateWith({ tasks: tasksDone(tasks), currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
+    m.loadState.mockReturnValue(stateWith({ mode: 'plan', currentState: 'FINISH' }));
+    m.getStatus.mockResolvedValueOnce(false); // ensureServer 探测无已有 server → 走拉起
 
     const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
+    await boot(promise);
 
-    expect(mockLoadState).toHaveBeenCalled();
+    // 环境拉起：spawn server
+    expect(m.spawn).toHaveBeenCalledWith('node', ['/tmp/server.cjs'], expect.any(Object));
+    // 经 run-client 提交 run
+    expect(m.client.submitRun).toHaveBeenCalledWith({});
+    // mode：plan → run（启动）→ idle（收尾）
+    expect(m.client.setRunMode).toHaveBeenCalledWith('run');
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
+    // 收尾清理
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('工作流结束'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('已停止运行会话'));
   });
 
-  it('TC2b: awf run 启动前将 mode 切换为 run', async () => {
+  it('TC2b: 观察循环消费宿主事件并展示（task.done 渲染）', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    const state = stateWith({ mode: 'plan', currentState: 'FINISH' });
-    mockLoadState.mockReturnValue(state);
-    mockFindNextTask.mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(2000);
-    await promise;
-
-    expect(mockSetWorkflowMode).toHaveBeenNthCalledWith(1, '/tmp/mock-cwd', 'run');
-    expect(mockSetWorkflowMode).toHaveBeenLastCalledWith('/tmp/mock-cwd', 'idle');
-  });
-
-  it('TC2b-1: --resume 重启暂停中的 CLI 时保留 pause 闩锁', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    mockLoadState.mockReturnValue(stateWith({ mode: 'pause', currentState: 'FINISH' }));
-    mockFindNextTask.mockReturnValue(null);
-    httpState.statusResponse = JSON.stringify({
-      state: 'ready', projectRoot: '/tmp/mock-cwd',
+    m.loadState.mockReturnValue(stateWith({ mode: 'run', currentState: 'CODE' }));
+    // 第一帧提交后事件：task.started/done + run.stopped(done)
+    let calls = 0;
+    m.client.pollRunEvents.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) return { events: [], tailSeq: 0, afterSeq: 0 }; // 提交前种子
+      if (calls === 2) return {
+        afterSeq: 3, tailSeq: 3,
+        events: [
+          { seq: 1, runId: 'default', type: 'run.started', payload: { mode: 'single' } },
+          { seq: 2, runId: 'default', type: 'task.started', payload: { taskId: 'T1', title: '做 A', chain: ['DEV', 'COMMIT'] } },
+          { seq: 3, runId: 'default', type: 'task.done', payload: { taskId: 'T1' } },
+        ],
+      };
+      return { events: [], afterSeq: 3, tailSeq: 3 };
     });
-    mockExecSync.mockImplementation((cmd) => (
-      cmd.startsWith('tmux display-message') ? '/tmp/mock-cwd\n' : Buffer.from('')
-    ));
 
-    const promise = runCommand(undefined, { resume: true });
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(2000);
-    await promise;
+    const promise = runCommand(undefined, {});
+    await boot(promise);
 
-    expect(mockSetWorkflowMode).not.toHaveBeenCalledWith('/tmp/mock-cwd', 'run');
-    expect(mockExecSync.mock.calls.some(([cmd]) => (
-      cmd === 'tmux display-message -p -t cc "#{pane_current_path}"'
-    ))).toBe(true);
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1: 做 A'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('工作流结束'));
   });
 
-  it('TC2c: 调度异常时保留 mode=run 和运行现场', async () => {
+  it('TC2c: run 提交失败（host 未就绪/重复）→ 保留现场（不 idle、不清理）', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    const task = { id: 'T1', title: 't1', status: 'pending', prompt: 'p' };
-    mockLoadState.mockReturnValue(stateWith({ mode: 'run', tasks: [task] }));
-    mockFindNextTask.mockImplementation(() => { throw new Error('scheduler failed'); });
+    m.loadState.mockReturnValue(stateWith({ mode: 'run' }));
+    m.client.submitRun.mockResolvedValue({ ok: false, error: '宿主正在驱动 run default' });
 
     const promise = runCommand(undefined, {});
-    const rejected = expect(promise).rejects.toThrow('scheduler failed');
-    await vi.advanceTimersByTimeAsync(2000);
+    const rejected = expect(promise).rejects.toThrow('宿主正在驱动 run default');
+    await boot(promise);
     await rejected;
 
-    expect(mockSetWorkflowMode).not.toHaveBeenCalledWith('/tmp/mock-cwd', 'idle');
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('服务已关闭'));
+    expect(m.client.setRunMode).not.toHaveBeenCalledWith('idle');
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('已停止运行会话'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
   });
 
-  it('TC2d: 正常完成但 idle 写入失败时保留现场', async () => {
+  it('TC2d: run 宿主以 error 收尾 → 保留现场（不标 idle）', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
+    m.loadState.mockReturnValue(stateWith({ mode: 'run' }));
+    m.client.submitRun.mockResolvedValue({ ok: true, runId: 'default', mode: 'single' });
+    m.client.runSnapshot.mockResolvedValue({ ok: true, run: { runId: 'default', status: 'error', error: 'executor 失败', counts: {} } });
 
-    mockLoadState.mockReturnValue(stateWith({ mode: 'run', currentState: 'FINISH' }));
-    mockFindNextTask.mockReturnValue(null);
-    mockSetWorkflowMode.mockReturnValue(false);
+    const promise = runCommand(undefined, {});
+    const rejected = expect(promise).rejects.toThrow('executor 失败');
+    await boot(promise);
+    await rejected;
+
+    expect(m.client.setRunMode).not.toHaveBeenCalledWith('idle');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('工作流结束'));
+  });
+
+  it('TC2e: 正常完成但 idle 写入失败 → 保留现场', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+    m.loadState.mockReturnValue(stateWith({ mode: 'run', currentState: 'FINISH' }));
+    m.client.setRunMode.mockResolvedValue({ ok: false });
 
     const promise = runCommand(undefined, {});
     const rejected = expect(promise).rejects.toThrow('无法将 mode 设置为 idle');
-    await vi.advanceTimersByTimeAsync(2000);
+    await boot(promise);
     await rejected;
 
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('服务已关闭'));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('已停止运行会话'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
   });
 
-  // ── TC10 ──
-
-  it('TC10: 无 pending 任务时 break', async () => {
+  it('TC2f: --resume 重启暂停中的 CLI 时保留 pause 闩锁（不切 run）', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
+    m.loadState.mockReturnValue(stateWith({ mode: 'pause', currentState: 'FINISH' }));
+    m.client.runSnapshot.mockResolvedValue({ ok: true, run: { runId: 'default', status: 'done', counts: {} } });
 
-    const tasks = [{ id: 'T1', title: 't1', status: 'done' }];
-    mockLoadState.mockReturnValue(stateWith({ tasks }));
-    mockFindNextTask.mockReturnValue(null);
+    const promise = runCommand(undefined, { resume: true });
+    await boot(promise);
 
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(2000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(mockFindNextTask).toHaveBeenCalled();
+    expect(m.client.setRunMode).not.toHaveBeenCalledWith('run');
   });
 
-  it('TC10b: 无可派发任务但存在 active 时异常退出并保留现场', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'active', prompt: 'p' }];
-    mockLoadState.mockReturnValue(stateWith({ mode: 'run', tasks }));
-    mockFindNextTask.mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    const rejected = expect(promise).rejects.toThrow('无可派发任务，但工作流仍未完成（T1:active）');
-    await vi.advanceTimersByTimeAsync(2000);
-    await rejected;
-
-    expect(mockSetWorkflowMode).not.toHaveBeenCalledWith('/tmp/mock-cwd', 'idle');
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
-  });
-
-  // ── TC6 ──
-
-  it('TC6: SIGINT 注册清理处理器', async () => {
+  it('TC6: SIGINT/SIGTERM 注册清理处理器', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'done' }];
-    mockLoadState.mockReturnValue(stateWith({ tasks }));
-    mockFindNextTask.mockReturnValue(null);
-
+    m.loadState.mockReturnValue(stateWith({ mode: 'run' }));
     const onSpy = vi.spyOn(process, 'on');
 
     const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(2000);
-    await promise;
-    vi.useRealTimers();
+    await boot(promise);
 
     expect(onSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
     expect(onSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
   });
 
-  // ── TC12 ──
-
-  it('TC12: /send 非 ok → timeout → 任务仍 pending 即将重试', async () => {
+  it('TC7: server 已存在且属本项目 → 复用（不 spawn 不 kill）', async () => {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    httpState.sendResponse = JSON.stringify({ ok: false, error: 'session busy' });
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    // 始终 pending：超时后回查仍 pending → 触发「即将重试」warn
-    mockLoadState.mockReturnValue(stateWith({ tasks }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
+    m.loadState.mockReturnValue(stateWith({ mode: 'run' }));
+    m.getStatus.mockResolvedValue({ state: 'ready', projectRoot: '/tmp/mock-cwd' });
 
     const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(3000);
-    await promise;
-    vi.useRealTimers();
+    await boot(promise);
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('/send 失败: session busy'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，即将重试'));
+    expect(m.spawn).not.toHaveBeenCalledWith('node', ['/tmp/server.cjs'], expect.any(Object));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('复用现有服务'));
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
   });
 
-  it('TC12b: 单 agent 输出显式 title 字段', async () => {
-    vi.useFakeTimers();
+  it('TC8: 端口被其他项目 server 占用 → 报错不杀（保留现场）', async () => {
     vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
+    m.loadState.mockReturnValue(stateWith({ mode: 'run' }));
+    m.getStatus.mockResolvedValue({ state: 'ready', projectRoot: '/tmp/other' });
 
-    const tasks = [{ id: 'T1', title: '实现登录', status: 'pending', prompt: '补齐登录流程与测试' }];
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValue(stateWith({ tasks: tasksDone(tasks), currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
+    await expect(runCommand(undefined, {})).rejects.toThrow('其他项目 server 占用');
+    expect(m.spawn).not.toHaveBeenCalledWith('node', ['/tmp/server.cjs'], expect.any(Object));
+    expect(m.execSync).not.toHaveBeenCalledWith(expect.stringContaining('lsof'));
+  });
+});
 
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
+describe('runCommand 重连（T1-059 --resume/--attach）', () => {
+  /** 宿主有活跃 run（CLI 中断但宿主仍在驱动） */
+  function hostActive(counts = { done: 1, blocked: 0, total: 2 }) {
+    m.client.runSnapshot.mockImplementation(async ({ runId } = {}) => (
+      runId
+        ? { ok: true, run: { runId, status: 'done', counts: { ...counts, total: counts.total } } }
+        : { ok: true, runs: [{ runId: 'default', status: 'running', counts }] }
+    ));
+  }
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('title'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('实现登录'));
+  beforeEach(() => {
+    vi.spyOn(process, 'cwd').mockReturnValue('/tmp/mock-cwd');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    m.loadState.mockReset().mockReturnValue(stateWith({ mode: 'run' }));
+    m.getStatus.mockReset().mockResolvedValue({ state: 'ready' });
+    m.waitWhilePaused.mockReset().mockResolvedValue();
+    m.execSync.mockReset().mockReturnValue(Buffer.from(''));
+    m.spawn.mockReset().mockReturnValue({ unref: vi.fn() });
+    m.client.submitRun.mockReset().mockResolvedValue({ ok: true, runId: 'default', mode: 'single' });
+    m.client.pollRunEvents.mockReset().mockResolvedValue({ events: [], tailSeq: 0, afterSeq: 0 });
+    m.client.runSnapshot.mockReset();
+    m.client.setRunMode.mockReset().mockResolvedValue({ ok: true });
+    hostIdleDone();
   });
 
-  // ── TC3 ──
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
-  it('TC3: ensureServer 成功启动', async () => {
+  function bootWith(promise) {
+    return vi.advanceTimersByTimeAsync(2000);
+  }
+
+  function boot(runPromise) {
     vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
     vi.spyOn(process, 'exit').mockImplementation(() => {});
+    const p = runPromise();
+    const b = bootWith(p);
+    return { p, b };
+  }
 
-    httpState.statusResponse = JSON.stringify({ state: 'ready' });
+  it('RC1: --resume 且宿主有活跃 run → 挂接续观（不重复提交），读落盘进度后收敛 done + idle', async () => {
+    hostActive();
+    const { p, b } = boot(() => runCommand(undefined, { resume: true }));
+    await b;
+    await p;
 
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValue(stateWith({ tasks: tasksDone(tasks), currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(mockSpawn).toHaveBeenCalledWith('node', ['/tmp/server.cjs'], expect.any(Object));
+    expect(m.client.submitRun).not.toHaveBeenCalled(); // 关键：不重复提交（宿主单槽）
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('挂接 run default'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('1/2 done'));
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('工作流结束'));
   });
 
-  // ── TC17 ──
+  it('RC2: --resume 且宿主空闲 → 提交续跑 store 剩余任务（续接）', async () => {
+    // 默认 hostIdleDone：宿主无活跃 run
+    const { p, b } = boot(() => runCommand(undefined, { resume: true }));
+    await b;
+    await p;
 
-  it('TC17: waitForReady 超时后回查 state 发现 done → 继续', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    // /send 成功，但 CC 一直 busy → waitForReady 超时(30min) → 回查任务 done → 不报错继续
-    httpState.sendResponse = JSON.stringify({ ok: true });
-    httpState.statusSequence = [JSON.stringify({ state: 'ready' })]; // ensureServer 启动检测
-    httpState.statusResponse = JSON.stringify({ state: 'busy' });    // waitForReady 永不 ready
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    const doneTasks = tasksDone(tasks);
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks }))       // runCommand 初始
-      .mockReturnValueOnce(stateWith({ tasks }))       // runLoop 初始
-      .mockReturnValue(stateWith({ tasks: doneTasks })); // checkTaskDone 回查 → done
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 10000); // 超过 READY_TIMEOUT(30min)
-    await promise;
-    vi.useRealTimers();
-
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('超时但任务 T1 已完成'));
+    expect(m.client.submitRun).toHaveBeenCalledWith({});
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
   });
 
-  it('TC17b: 等待窗口超时但会话仍 busy → 继续等待原任务且不重复 /send', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
+  it('RC3: --attach 且宿主有活跃 run → 挂接（不提交）', async () => {
+    hostActive({ done: 0, blocked: 0, total: 3 });
+    const { p, b } = boot(() => runCommand(undefined, { attach: true }));
+    await b;
+    await p;
 
-    httpState.statusSequence = [JSON.stringify({ state: 'ready' })]; // ensureServer
-    httpState.statusResponse = JSON.stringify({ state: 'busy' });
-
-    const pending = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    const active = [{ ...pending[0], status: 'active' }];
-    const done = tasksDone(pending);
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks: pending }))
-      .mockReturnValueOnce(stateWith({ tasks: pending }))
-      .mockReturnValueOnce(stateWith({ tasks: active }))
-      .mockReturnValueOnce(stateWith({ tasks: done }))
-      .mockReturnValue(stateWith({ tasks: done, currentState: 'FINISH' }));
-    mockFindNextTask.mockReturnValueOnce(pending[0]);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 10000);
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('继续等待原会话'));
-
-    httpState.statusResponse = JSON.stringify({ state: 'ready' });
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-
-    const sent = httpState.sentBodies.map((body) => JSON.parse(body).text);
-    expect(sent.filter((text) => text === 'p')).toHaveLength(1);
+    expect(m.client.submitRun).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('挂接 run default'));
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
   });
 
-  // ── TC16 ──
+  it('RC4: --attach 但宿主空闲 → 报错保留现场（不提交、不 idle）', async () => {
+    const { p, b } = boot(() => runCommand(undefined, { attach: true }));
+    const rejected = expect(p).rejects.toThrow('宿主无活跃 run');
+    await b;
+    await rejected;
 
-  it('TC16: 连续 2 次超时 → 跳过任务', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    httpState.sendResponse = JSON.stringify({ ok: false, error: 'busy' });
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    // 始终 pending：2 次超时后触发「跳过任务」error
-    mockLoadState.mockReturnValue(stateWith({ tasks }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，即将重试'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('连续 2 次超时，跳过任务 T1'));
+    expect(m.client.submitRun).not.toHaveBeenCalled();
+    expect(m.client.setRunMode).not.toHaveBeenCalledWith('idle');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
   });
 
-  // ── TC18 ──
+  it('RC5: fresh 却撞上宿主活跃 run → 防御性转挂接（不重复提交）', async () => {
+    hostActive();
+    const { p, b } = boot(() => runCommand(undefined, {}));
+    await b;
+    await p;
 
-  it('TC18: 任务未标记 done → 补发收尾 prompt（taskWrapup）', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-    taskWrapup.mockClear();
-
-    httpState.statusResponse = JSON.stringify({ state: 'ready' });
-    httpState.sendResponse = JSON.stringify({ ok: true });
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    const doneTasks = tasksDone(tasks);
-    // loadState 调用序: runCommand(pending) → runLoop(pending) → ensureTaskDone 回查(pending→补发) → 收尾后回查(done) → runLoop 重载(done/FINISH)
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks: doneTasks }))
-      .mockReturnValue(stateWith({ tasks: doneTasks, currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 未标记 done，补发收尾 prompt'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('收尾 prompt 已生效'));
-    expect(taskWrapup).toHaveBeenCalledWith('T1');
+    expect(m.client.submitRun).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('宿主已有活跃 run'));
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
   });
 
-  // ── TC19 ──
+  it('RC6: T1-073 --attach -R r1 → 挂接指定 run（不提交），收敛 done', async () => {
+    m.client.runSnapshot.mockImplementation(async ({ runId: id } = {}) => (
+      id === 'r1'
+        ? { ok: true, run: { runId: 'r1', status: 'done', counts: { total: 2, done: 2, blocked: 0 }, mode: 'single' } }
+        : { ok: true, runs: [{ runId: 'r1', status: 'running', counts: { done: 1, blocked: 0, total: 2 }, mode: 'single' }] }
+    ));
+    const { p, b } = boot(() => runCommand(undefined, { attach: true, runId: 'r1' }));
+    await b;
+    await p;
 
-  it('TC19: 收尾未生效 → 追问一轮 → 任务完成', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-    taskWrapup.mockClear();
-    taskSettle.mockClear();
-
-    httpState.statusResponse = JSON.stringify({ state: 'ready' });
-    httpState.sendResponse = JSON.stringify({ ok: true });
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    const doneTasks = tasksDone(tasks);
-    // loadState 调用序: runCommand → runLoop → settleTask 首查(pending) → wrapup 后查(pending) → 追问后查(done) → runLoop 重载(done/FINISH)
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks: doneTasks }))
-      .mockReturnValue(stateWith({ tasks: doneTasks, currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 仍为 pending，追问（第 1/3 轮）'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 已完成'));
-    expect(taskSettle).toHaveBeenCalledWith('T1');
+    expect(m.client.submitRun).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('挂接指定 run r1'));
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
   });
 
-  // ── TC20 ──
+  it('RC7: T1-073 --attach -R 不存在 run → 报错保留现场（不提交不 idle）', async () => {
+    // 默认 hostIdleDone：宿主无该 run
+    const { p, b } = boot(() => runCommand(undefined, { attach: true, runId: 'zzz' }));
+    const rejected = expect(p).rejects.toThrow('未找到 run zzz');
+    await b;
+    await rejected;
 
-  it('TC20: 追问 3 轮仍未完成 → 标 blocked 跳过', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-    taskWrapup.mockClear();
-    taskSettle.mockClear();
-
-    httpState.statusResponse = JSON.stringify({ state: 'ready' });
-    httpState.sendResponse = JSON.stringify({ ok: true });
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
-    // 始终 pending：wrapup 未生效 + 追问 3 轮均 pending → stuck → markTaskBlocked
-    mockLoadState.mockReturnValue(stateWith({ tasks }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('任务 T1 多轮追问后仍未完成，标记 blocked 并跳过'));
-    expect(taskSettle).toHaveBeenCalledTimes(3);
-  });
-
-  // ── 任务前上下文检查 ──
-
-  it('TC30: 第一个任务跳过上下文检查（不查标记、不 /clear）', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    const tasks = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'do it' }];
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValueOnce(stateWith({ tasks }))
-      .mockReturnValue(stateWith({ tasks: tasksDone(tasks), currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(tasks[0])
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(contextCheck).not.toHaveBeenCalled();
-    expect(getContextReady).not.toHaveBeenCalled();
-    expect(sendCmd).not.toHaveBeenCalled();
-  });
-
-  it('TC31: 任务 2 上下文检查未触发压缩 → 原样执行任务 prompt', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-
-    const t1 = { id: 'T1', title: 't1', status: 'done', prompt: 'p1' };
-    const t2 = { id: 'T2', title: 't2', status: 'pending', prompt: 'p2' };
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValue(stateWith({ tasks: [t1, { ...t2, status: 'done' }], currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(t2)
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(contextCheck).toHaveBeenCalledTimes(1);
-    // usage.json 不存在（statusline 未配置）→ 注入「未知，请自行估算」回退
-    expect(contextCheck).toHaveBeenCalledWith('未知（statusline 未配置，请自行估算）');
-    expect(getContextReady).toHaveBeenCalledTimes(1);
-    expect(sendCmd).not.toHaveBeenCalled();
-    // 任务 prompt 原样发送（未注入快照）
-    expect(httpState.sentBodies).toContain(JSON.stringify({ text: 'p2' }));
-  });
-
-  it('TC33: usage 低于第一层阈值 → CLI 直接放行，不打扰 AI', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-    mockReadFile.mockResolvedValue(JSON.stringify({ used_percentage: 62, context_window_size: 200000 }));
-
-    const t1 = { id: 'T1', title: 't1', status: 'done', prompt: 'p1' };
-    const t2 = { id: 'T2', title: 't2', status: 'pending', prompt: 'p2' };
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValue(stateWith({ tasks: [t1, { ...t2, status: 'done' }], currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(t2)
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    // 62 < 80 → 第一层过滤：不发检查轮、不查标记、不 /clear，直接执行任务
-    expect(contextCheck).not.toHaveBeenCalled();
-    expect(getContextReady).not.toHaveBeenCalled();
-    expect(sendCmd).not.toHaveBeenCalled();
-    expect(httpState.sentBodies).toContain(JSON.stringify({ text: 'p2' }));
-  });
-
-  it('TC34: usage 达到第一层阈值 → AI 检查轮注入实测百分比', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-    mockReadFile.mockResolvedValue(JSON.stringify({ used_percentage: 82, context_window_size: 200000 }));
-
-    const t1 = { id: 'T1', title: 't1', status: 'done', prompt: 'p1' };
-    const t2 = { id: 'T2', title: 't2', status: 'pending', prompt: 'p2' };
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValue(stateWith({ tasks: [t1, { ...t2, status: 'done' }], currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(t2)
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    // 82 ≥ 80 → 进入第二层：检查轮注入实测百分比；AI 未触发压缩 → 不 /clear
-    expect(contextCheck).toHaveBeenCalledWith('已用约 82%（statusline 实测）');
-    expect(getContextReady).toHaveBeenCalledTimes(1);
-    expect(sendCmd).not.toHaveBeenCalled();
-  });
-
-  it('TC32: 任务 2 触发压缩 → /clear + 快照注入任务 prompt', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'on').mockImplementation(() => process);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-    getContextReady.mockResolvedValue(true);
-    mockReadFile.mockResolvedValue('SNAPSHOT_GOAL: 完成 T1\nSNAPSHOT_NEXT: 做 T2');
-
-    const t1 = { id: 'T1', title: 't1', status: 'done', prompt: 'p1' };
-    const t2 = { id: 'T2', title: 't2', status: 'pending', prompt: 'p2' };
-    mockLoadState
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValueOnce(stateWith({ tasks: [t1, t2] }))
-      .mockReturnValue(stateWith({ tasks: [t1, { ...t2, status: 'done' }], currentState: 'FINISH' }));
-    mockFindNextTask
-      .mockReturnValueOnce(t2)
-      .mockReturnValue(null);
-
-    const promise = runCommand(undefined, {});
-    await vi.advanceTimersByTimeAsync(5000);
-    await promise;
-    vi.useRealTimers();
-
-    expect(contextCheck).toHaveBeenCalledTimes(1);
-    expect(getContextReady).toHaveBeenCalledTimes(1);
-    expect(sendCmd).toHaveBeenCalledWith('/clear');
-    // 任务 prompt 前缀注入快照（快照内容 + 原始任务 prompt）
-    const taskSend = httpState.sentBodies.find((b) => b.includes('SNAPSHOT_GOAL'));
-    expect(taskSend).toBeTruthy();
-    expect(taskSend).toContain('p2');
-    expect(JSON.parse(taskSend).text).toBe(
-      '【上下文快照】按 code-context-onboard 生成，接手前先读\nSNAPSHOT_GOAL: 完成 T1\nSNAPSHOT_NEXT: 做 T2\n\np2',
-    );
+    expect(m.client.submitRun).not.toHaveBeenCalled();
+    expect(m.client.setRunMode).not.toHaveBeenCalledWith('idle');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
   });
 });

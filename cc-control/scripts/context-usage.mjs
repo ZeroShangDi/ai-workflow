@@ -40,10 +40,13 @@ async function main() {
 
   if (cw) {
     try {
-      const dir = path.join(cwd, '.awf', 'context');
-      fs.mkdirSync(dir, { recursive: true });
+      // T1-070：argv[3] 为 per-run 落点（每 run settings 渲染 __SID__ 后 .awf/runs/<sid>/context/usage.json）；
+      // 缺省回落 <cwd>/.awf/context/usage.json（单 run 现状）
+      const outPath = process.argv[3]
+        || path.join(cwd, '.awf', 'context', 'usage.json');
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
       fs.writeFileSync(
-        path.join(dir, 'usage.json'),
+        outPath,
         JSON.stringify(
           {
             used_percentage: pct,

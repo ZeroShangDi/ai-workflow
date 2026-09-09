@@ -12,19 +12,35 @@ const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
 const LOCK_PATH = path.join(PROJECT_ROOT, '.awf', 'state.lock');
 
 // ---- file helpers ----
+// 持久化优先走 store-core（src/lib，单写序列化 + 原子写，与 CLI/server 同一实现）。
+// 该 server 的可用路径总是包根之上的副本（自托管/跨项目 .mcp.json 绝对路径），
+// 故 require 相对包根可达；仅当运行在无 src/ 的纯插件副本（connect-only、不暴露工具）
+// 时才回退到本地同语义最小实现——真实工具面永远走 store-core。
+let storeCore = null;
+try {
+  storeCore = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'lib', 'store-core.cjs'));
+} catch {
+  storeCore = null;
+}
 
 function readState() {
+  if (storeCore) {
+    const s = storeCore.readJsonSync(STATE_PATH);
+    if (!s) {
+      const err = new Error(`ENOENT: state file missing at ${STATE_PATH}`);
+      err.code = 'ENOENT';
+      throw err;
+    }
+    return s;
+  }
   const raw = fs.readFileSync(STATE_PATH, 'utf-8');
   return JSON.parse(raw);
 }
 
 // state 写锁：CLI 与 MCP 共用 .awf/state.lock。所有 MCP 变更必须把完整的
 // read → mutate → write 放在锁内，避免 pause 与任务落账相互覆盖。
-function syncSleep(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 function withStateLock(fn) {
+  if (storeCore) return storeCore.withFileLock(LOCK_PATH, fn);
   const deadline = Date.now() + 5000;
   for (;;) {
     try {
@@ -34,7 +50,7 @@ function withStateLock(fn) {
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
       if (Date.now() > deadline) throw new Error(`state.lock timeout: ${LOCK_PATH}`);
-      syncSleep(50);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
   try { return fn(); } finally { try { fs.unlinkSync(LOCK_PATH); } catch {} }
@@ -42,11 +58,49 @@ function withStateLock(fn) {
 
 function writeState(s) {
   s.lastUpdated = new Date().toISOString();
-  fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+  if (storeCore) storeCore.writeJsonAtomicSync(STATE_PATH, s);
+  else fs.writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
 }
 
 function textResult(obj) {
   return { content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] };
+}
+
+// ---- T1-077：server run api 单写者模式（env CC_AWF_STATE_SERVER=1 启用）----
+// 18 tools 语义仍由本 MCP 判定/mutate；仅读/写边界经 server：读 GET /awf/state、写 POST
+// /run/state/apply（server 以 state.js 锁 + 原子落盘，MCP 不再直写文件/自持锁）。缺省关 →
+// 离线/plan/单测沿用直写文件（现状不变）。
+const http = require('node:http');
+const SERVER_MODE = process.env.CC_AWF_STATE_SERVER === '1';
+const SERVER_PORT = Number(process.env.CC_PORT || 8787);
+// T1-078：MCP 只碰本 sid run（软约束）——带上自身 CC_SID，server 按 sid 分片 state。
+const SID_QS = process.env.CC_SID ? `?sid=${encodeURIComponent(String(process.env.CC_SID))}` : '';
+
+function httpJson(method, pathname, obj) {
+  return new Promise((resolve) => {
+    const data = obj ? JSON.stringify(obj) : '';
+    const req = http.request({
+      host: '127.0.0.1', port: SERVER_PORT, path: pathname, method,
+      headers: { 'content-type': 'application/json' },
+    }, (r) => {
+      let raw = '';
+      r.on('data', (c) => { raw += c; });
+      r.on('end', () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(3000, () => { req.destroy(); resolve(null); });
+    if (obj) req.write(data);
+    req.end();
+  });
+}
+async function readStateServer() {
+  const s = await httpJson('GET', `/awf/state${SID_QS}`);
+  if (s && typeof s === 'object' && 'tasks' in s) return s;
+  throw new Error(`awf-state server 读取失败（port ${SERVER_PORT} /awf/state）`);
+}
+async function writeStateServer(s) {
+  const r = await httpJson('POST', `/run/state/apply${SID_QS}`, { state: s });
+  if (!r || r.ok !== true) throw new Error('awf-state server 落盘失败（/run/state/apply）');
 }
 
 // ---- tool definitions ----
@@ -326,7 +380,7 @@ const handlers = {
     try {
       // special: read-only
       if (name === 'awf_read_state') {
-        const s = readState();
+        const s = SERVER_MODE ? await readStateServer() : readState();
         if (args?.taskId) {
           const t = (s.tasks || []).find((x) => x.id == args.taskId);
           if (!t) return textResult({ ok: false, error: `task ${args.taskId} not found` });
@@ -335,9 +389,10 @@ const handlers = {
         return textResult(s);
       }
 
-      // all other tools: lock 内完成 read → mutate → write
-      return withStateLock(() => {
-      const s = readState();
+      // all other tools：本地语义 mutate（server 模式读/写边界经 server 单写者）
+      const serverState = SERVER_MODE ? await readStateServer() : null;
+      const apply = () => {
+      const s = serverState || readState();
 
       // tasks live at root ("s.tasks")
       function getTasks() {
@@ -540,10 +595,16 @@ const handlers = {
           return textResult({ ok: false, error: `unknown tool: ${name}` });
       }
 
-      writeState(s);
+      if (!SERVER_MODE) writeState(s);
       logStderr(`${name} ${args.id || args.phase || ''} -> ok`);
       return textResult({ ok: true, tool: name });
-      });
+      };
+      if (SERVER_MODE) {
+        const res = apply();
+        await writeStateServer(serverState);
+        return res;
+      }
+      return withStateLock(apply);
     } catch (err) {
       return textResult({ ok: false, error: err.message });
     }

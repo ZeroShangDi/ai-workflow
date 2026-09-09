@@ -6,13 +6,21 @@
 
 const http = require('http');
 
-// 测试注入点：vitest 无法 mock 被原生 require 的 CJS 依赖，提供显式注入钩子。
-// 生产环境不设置 global.__CC_EXEC_SYNC__，回落到 child_process。
+// T1-079：awf-session 全经 server（HTTP，AWF_BASE 单源；+sid 命中本 run 槽）；capture 经 host
+// 端口（server /status?snapshot=1，server 经其 tmux/host 原语抓 pane）——不再本地 exec tmux。
 const _execSync = global.__CC_EXEC_SYNC__ || require('child_process').execSync;
-const SESSION = process.env.CC_SESSION || 'cc';
+// 会话名单源：经 bootstrap 注入 CC_SESSION（config runtime.session 同源下发）；不内嵌 'cc' 默认
+const SESSION = process.env.CC_SESSION || '';
 const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
-// 请求时读取 AWF_BASE，测试可随时切换 mock server
-const baseUrl = () => process.env.AWF_BASE || 'http://127.0.0.1:8787';
+// T1-078/079：MCP 只碰本 run —— 带自身 CC_SID（server 按 sid 槽定位）
+const SID_QS = process.env.CC_SID ? `?sid=${encodeURIComponent(String(process.env.CC_SID))}` : '';
+// 请求时读取 AWF_BASE（MCP env 注入，渲染自 config 单源 port）。缺失即抛——配置错误应显式暴露，
+// 而不是回退到硬编码地址；工具分发层 catch 后以错误文本返回。测试可随时切换 mock server。
+const baseUrl = () => {
+  const base = process.env.AWF_BASE;
+  if (!base) throw new Error('awf-session: AWF_BASE 未设置（应经 MCP env 注入 http://127.0.0.1:<port>）');
+  return base;
+};
 
 // ---- helpers ----
 
@@ -21,7 +29,7 @@ function httpPost(path, body) {
     const url = new URL(path, baseUrl());
     const data = body || '';
     const options = {
-      hostname: url.hostname, port: url.port, path: url.pathname,
+      hostname: url.hostname, port: url.port, path: url.pathname + (url.search || ''),
       method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
     };
     const req = http.request(options, (res) => {
@@ -41,7 +49,7 @@ function httpPost(path, body) {
 function httpGet(path) {
   return new Promise((resolve) => {
     const url = new URL(path, baseUrl());
-    const req = http.get({ hostname: url.hostname, port: url.port, path: url.pathname }, (res) => {
+    const req = http.get({ hostname: url.hostname, port: url.port, path: url.pathname + (url.search || '') }, (res) => {
       let raw = '';
       res.on('data', (c) => (raw += c));
       res.on('end', () => {
@@ -53,7 +61,11 @@ function httpGet(path) {
   });
 }
 
-function capturePane() {
+// capture 经 host 端口：优先 server GET /status?snapshot=1（server 经其 tmux/host 抓 pane）；
+// server 无快照/失败 → 降级本地 tmux（离线/旧版/单测）。
+async function capturePane() {
+  const body = await httpGet('/status?snapshot=1');
+  if (body && typeof body === 'object' && typeof body.snapshot === 'string' && body.snapshot) return body.snapshot;
   try {
     return _execSync(`tmux capture-pane -t "${SESSION}" -p -S -`, { encoding: 'utf-8', timeout: HTTP_TIMEOUT_MS });
   } catch (e) {
@@ -163,12 +175,13 @@ const handlers = {
     try {
       switch (name) {
         case 'awf_session_status': {
-          const status = await httpGet('/status');
-          status.pane = capturePane().slice(0, 500); // first 500 chars as preview
+          // T1-079：+sid → 读本 run 槽状态；pane 预览经 server snapshot
+          const status = await httpGet('/status' + SID_QS);
+          status.pane = (await capturePane()).slice(0, 500); // first 500 chars as preview
           return textResult(status);
         }
         case 'awf_capture_pane': {
-          return textResult(capturePane());
+          return textResult(await capturePane());
         }
         case 'awf_session_intervene': {
           if (!args || typeof args.text !== 'string' || !args.text.length) {

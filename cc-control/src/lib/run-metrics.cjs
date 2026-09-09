@@ -3,6 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+// run-meta 读写归位 store（JsonFileStore 原子写）；usage/config/transcript 解析仍走本地 readJson
+const store = require('./store.cjs');
 
 const RUN_META_PATH = ['.awf', 'logs', 'run-meta.json'];
 const CONTEXT_USAGE_PATH = ['.awf', 'context', 'usage.json'];
@@ -17,20 +19,19 @@ function readJson(filePath) {
   }
 }
 
-function ensureDir(filePath) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-}
-
 function runMetaFile(projectRoot) {
   return path.join(projectRoot, ...RUN_META_PATH);
 }
 
+/** run-meta store（JsonFileStore：原子写，无需跨进程锁——单写者 server） */
+function metaStore(projectRoot) {
+  return store.createJsonFileStore({ filePath: runMetaFile(projectRoot) });
+}
+
 function updateRunMeta(projectRoot, updater) {
-  const file = runMetaFile(projectRoot);
-  const prev = readJson(file) || {};
+  const prev = metaStore(projectRoot).readSync() || {};
   const next = updater({ ...prev }) || prev;
-  ensureDir(file);
-  fs.writeFileSync(file, JSON.stringify(next, null, 2));
+  metaStore(projectRoot).writeSync(next);
   return next;
 }
 
@@ -46,7 +47,7 @@ function resetRunMeta(projectRoot) {
 }
 
 function readRunMeta(projectRoot) {
-  return readJson(runMetaFile(projectRoot)) || {};
+  return metaStore(projectRoot).readSync() || {};
 }
 
 function readContextUsage(projectRoot) {
