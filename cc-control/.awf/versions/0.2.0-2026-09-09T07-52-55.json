@@ -1,5 +1,5 @@
 {
-  "mode": "idle",
+  "mode": "run",
   "currentState": "CODE",
   "version": "0.2.0",
   "milestones": [],
@@ -2451,7 +2451,7 @@
       "deps": [
         "T1-057"
       ],
-      "status": "done",
+      "status": "active",
       "plannedFiles": [
         "src/server/",
         "src/cli/run-client.js",
@@ -2466,31 +2466,8 @@
       ],
       "acceptance": "server 侧存在可启动/停止、可注入测试的 run host；单 agent 经 run-driver、多 agent 经 run-scheduler，门禁经 gateCompletionHook；run 提交/状态/轮询事件端点可用；旧 cli/run.js 与 cli/run-batch.js live 路径未切换且 server 既有回归全绿。T1-058 可在此前置上独立完成 CLI cutover。",
       "exec": {
-        "startedAt": "2026-09-09T08:45:25.738Z",
-        "result": "server run-host 前置能力落地（commit b2cffb0）：新增 src/server/run-host.cjs（常驻编排宿主，CJS 依赖注入、可启动/停止/reset、可注入测试）。宿主单 agent 路径用 state.findNextTask 顺序选任务，用 run-driver.decideChain 标注任务阶段链（review/test/doc/commit 走保守链）并落事件/快照，per-task 模型通道经注入 executor 结算（真实会话通道 v1 defaultSingleExecutor 已挂 server，CLI cutover 由 T1-058 激活）；门禁经 run-driver.gateCompletionHook 锚点派生修复/复审（单/多 agent 收敛同一锚点）；cfg.agents.max>1 → 宿主直接跑注入的 runScheduler（dispatch/waitAnyDone 传输注入）。暴露 run 提交 submitRun、状态快照 snapshot、按 seq 游标的事件轮询 pollEvents，事件类型对齐 events.cjs（run.*/task.*/gate.fix）。server.cjs 惰性装配 run host（首次 /run/* 命中触发，含 ESM 动态 import；测试可用 global.__CC_RUN_HOST_DEPS__ 整体覆盖，同 __CC_TMUX__ 注入点），挂 /run/submit(POST)、/run/status(GET)、/run/events(GET) 三个端点；stop() 停宿主、_resetForTest 复位宿主；单 run ready/busy 与旧导出面零改动。src/cli/run-client.js 补 submitRun/runSnapshot/pollRunEvents + API_ENDPOINTS 三条 run 端点（T1-058 cutover 消费面）。cli/run.js 与 cli/run-batch.js live 路径未切换（git diff 确认零改动）。验证：lint 通过；新增 run-host 单测 8 例（生命周期/单槽守卫/单 agent 顺序/deps 有序/decideChain 保守链消费/门禁闭环派生修复+复审 done/多 agent runScheduler/事件轮询游标）+ run-host 集成 3 例（真实 HTTP submit→驱动→事件收敛→state 落账）+ run-client 新断言 4 例全过；server 既有集成回归 68 例全绿；全量 703 例 696 过仅剩两个既有 E2E 失败（run.e2e EADDRINUSE:8787 为本运行占端口的环境限制；e2e-smoke 日志路径为已知基线失败）。",
-        "files": [
-          "src/server/run-host.cjs",
-          "src/server/server.cjs",
-          "src/cli/run-client.js",
-          "tests/unit/run-host.test.js",
-          "tests/integration/run-host.test.js",
-          "tests/unit/run-client.test.js"
-        ],
-        "architecture": {
-          "changeAxis": "把 run 编排迁入 server 常驻进程的宿主基座：新增可注入 run host（CJS DI），单 agent 经 run-driver 链规则/gateCompletionHook、多 agent 经 runScheduler，CLI 只留提交/轮询调用面",
-          "boundary": "src/server/run-host.cjs（纯宿主，依赖全注入，零 ESM import，CJS/ESM 由装配方 server.cjs 动态 import 桥接）；server.cjs 挂 /run/*（惰性装配、测试注入覆盖）；run-client 补调用面；cli/run.js 与 run-batch.js live 路径未切换",
-          "path": "extend",
-          "boundaryChanged": true,
-          "note": "host 用 stateApi/chain/handleGateCompletion/scheduler/executor/batch 注入组装，run-driver 的 decideChain 首次获 live 调用点（链标注），gateCompletionHook 成为 host 单/多 agent 统一门禁锚点；per-task 模型通道为 executor 注入缝，真实会话执行器 defaultSingleExecutor 已挂 server（happy-path 发送+自我结算），收尾协商/决策续跑/超时 settle 等随 T1-058 cutover 收敛；多 agent batch 传输（inbox/subagent 落账）留 cutover 任务接线。真实 run/双 run 回归留 T1-098。"
-        },
-        "completedAt": "2026-09-09T08:55:38.535Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+        "startedAt": "2026-09-09T07:42:14.216Z"
+      }
     },
     {
       "id": "T1-058",
@@ -2501,7 +2478,7 @@
       "deps": [
         "T1-105"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
@@ -2513,28 +2490,7 @@
         "保留 --resume 现有行为，扩展重连语义留 T1-059"
       ],
       "acceptance": "run.js 通过 run-client 提交 run、消费轮询事件/状态、转发人机应答并收尾；任务选择/阶段推进/多 agent 调度不再由 run.js 承担；现有 --resume 行为与单 run CLI 测试不回归；剩余直写点形成 T1-061 的明确清单。",
-      "exec": {
-        "startedAt": "2026-09-09T08:56:17.340Z",
-        "result": "cli/run.js 已切换为 run-client 薄壳（commit 4bb0d96）：单 agent（默认）runCommand → 环境拉起(server/tmux/settings/dashboard 零改动) → driveSingleViaHost：run-client.submitRun 提交到 T1-105 server run host → 观察环（waitWhilePaused → /status 中继 decisionPending[handleDecision] 与 decisionResume[seenResume 一次性注入续跑] → pollRunEvents 渲染 task.started/done/blocked、run.phase/stopped → runSnapshot 终态判定）→ done 则 mode idle+清理，run error/提交失败则保留现场供 w-monitor。run.js 内任务选择(findNextTask 循环)、阶段推进链、门禁闭环、settle/压缩逻辑已移除（runLoop/executeTask/settleTask/maybeCompactContext 删除，不再 import plugin-bridge/saveState/backupState）；模式 run/idle 复位、--resume 暂停闩锁、异常保留现场、SIGINT/TERM 清理语义保留。多 agent（--multi-agent）宿主 batch 传输未接线前暂保留 cli/run-batch live 路由（run.js 不含调度实现；run-batch.js 零改动）。T1-061 剩余直写/语义收敛清单已在 run.js 文件尾注释明示（mode 直写迁 host、多 agent run-batch/gate-fix 直写迁 API、宿主 executor settle/上下文压缩补齐、decisionResume 宿主等价）。验证：lint + node --check 通过；run.test 按薄化重写 10 例（保留 TC1/TC2b/TC2c/TC2d/TC2e/TC2f/TC6 控制流 + 新增提交/事件渲染/run error 保留现场/决策中继覆盖）+ run-resume/run-batch/run-host 等 28 例全过；全量 unit+integration 71 文件 683 例全绿；仅剩 e2e 两个既有环境失败（8787 占端口 + 日志路径，非本任务引入）。已知本环境无法做真 run 回归（端口被本 awf run 占用、禁嵌套 run），宿主单 agent 通道 happy-path 与 gate 决策续跑在 T1-098 真 run 回归验证。",
-        "files": [
-          "src/cli/run.js",
-          "tests/unit/run.test.js"
-        ],
-        "architecture": {
-          "boundary": "cli/run.js 薄化为「提交+订阅+应答」壳：编排（任务选择/阶段链/门禁）迁 server run host（run-host.cjs）；run-batch.js 保持不变（宿主 batch 传输未接线前保留多 agent live 路由）；run.js 不再 import state 写/plugin-bridge/pause 之外的驱动逻辑",
-          "boundaryChanged": true,
-          "changeAxis": "把单 agent 驱动循环从 CLI run.js 迁到 server host：run.js 只剩环境拉起 + run-client submit + 事件/状态轮询展示 + decisionPending/decisionResume 中继 + mode 复位/清理",
-          "note": "driveSingleViaHost 提交前取宿主事件尾游标防回放；观察环每轮 waitWhilePaused → /status 中继决策（handleDecision/seenResume 一次性续跑注入）→ pollRunEvents 渲染 → runSnapshot 终态判定；done→idle+清理，error/提交失败→保留现场。--resume 暂停闩锁语义保留（TC2f）。多 agent 因宿主 batch 传输（inbox/SubagentStop 落账）未接线，暂经 run-batch live 路由，不实现调度于 run.js。run.test.js 按薄化形态重写（保留控制流 + 新增 submit/observe/relay 断言）；T1-061 剩余直写清单落 run.js 文件尾注释。已知间隙（真 run 未在本环境回归）：宿主 defaultSingleExecutor 仅发 prompt+等自我结算（settle 回退/每任务上下文压缩为旧 CLI 语义，迁 host 由后续 run 域任务补）；gate 开真 run 留 T1-098 验证。",
-          "path": "refactor-then-change"
-        },
-        "completedAt": "2026-09-09T09:02:54.133Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "exec": {}
     },
     {
       "id": "T1-059",
@@ -2545,36 +2501,14 @@
       "deps": [
         "T1-058"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "--resume/--attach 重连（读 store 落盘状态续接）",
-      "exec": {
-        "result": "--resume/--attach 重连落地（commit c02e0bd）：单 agent 驱动改为连接感知 driveSingle(client, {projectRoot, connectionMode})，connectionMode 由 runCommand 依 options 判定（fresh=默认新提交 / resume / attach）。resume 与 attach 复用现有 server/tmux 现场（startSession reuseExisting）。driveSingle 先 run-client.runSnapshot 探宿主（其 counts 即 store 落盘 state 派生）：① 有活跃 run（CLI 中断但宿主仍在驱动）→ 挂接续观——不重复提交（规避宿主单槽 409），打印「store 已落盘 X/Y done」，从宿主事件尾游标续观新事件并中继 decisionPending/decisionResume（CLI 中断期间挂起的决策在宿主 executor 超时前可续接应答）；② 宿主空闲 → resume 提交续跑 store 剩余 pending（续接），attach 则报错保留现场；③ fresh 撞上宿主活跃 run 防御性转挂接。observeRun 从提交流程抽出供 submit/attach 共用。awf.js run 命令新增 --attach 旗标（--resume 描述同步更新）。保留 --resume pause 闩锁语义（mode=pause 不切 run）。多 agent --resume 仍走 run-batch live 路由（宿主 batch 未接线）。验证：node --check + lint 通过；run.test 新增 RC1-RC5 重连用例（resume 活跃挂接不提交 / resume 空闲续跑 / attach 活跃挂接 / attach 空闲报错 / fresh 活跃转挂接）+ 既有 run/resume/batch 共 25 例全过；全量 unit+integration 71 文件 688 例全绿（较前 +5），e2e 两个既有环境失败除外。真机 attach 冒烟（pause 恢复、决策挂起续接、宿主 batch 场景）留 T1-067/T1-098。",
-        "files": [
-          "src/cli/run.js",
-          "src/awf.js",
-          "tests/unit/run.test.js"
-        ],
-        "architecture": {
-          "boundary": "src/cli/run.js driveSingle 连接感知（fresh/resume/attach）+ awf run --attach 旗标；宿主/run-client 零改动（探宿主复用 runSnapshot 现有面）",
-          "boundaryChanged": true,
-          "changeAxis": "把 --resume 从「重建后重跑」扩展为 store 落盘续接：重连先探宿主活跃 run，活跃则挂接续观、空闲才提交续跑，attach 只挂接不提交",
-          "note": "续接点=宿主 snapshot 的 counts（来自 store 落盘 state），attach/resume 展示已落盘进度后从宿主事件尾游标续观新事件（不回放旧事件）；observeRun 抽出供 submit/attach 共用，decisionPending/decisionResume 中继对 attach 同样生效（CLI 中断期间挂起的决策在续跑超时前可接续应答）。保留 --resume pause 闩锁语义（state.mode=pause 不切 run）。多 agent resume 仍走 run-batch live（宿主 batch 未接线）。真机 attach 冒烟（含 pause/决策挂起续接）留 T1-067/T1-098。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:07:21.287Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "--resume/--attach 重连（读 store 落盘状态续接）"
     },
     {
       "id": "T1-060",
@@ -2585,36 +2519,14 @@
       "deps": [
         "T1-059"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "attach/follow 终端跟随展示完成",
-      "exec": {
-        "result": "attach/follow 终端跟随展示落地（commit b619125）：新增 src/lib/ui/run-follow.js —— 宿主 run 的终端跟随视图，createRunFollow({output,print})：attach() 打印 run 头部（含 store 续接 note）、status() 按 counts 快照去重打进度行（含正在执行的任务）、event() 把宿主事件路由为任务行生命周期（task.started→active spinner / done→✓ / blocked→⚠，经 createTaskList 原地重绘；run.*/gate.* 浮于动态列表上方）、finish() 打收尾摘要并停表。TTY 启用原地重绘（复用 createTaskList interactive 语义），非 TTY/重定向降级为完整状态事件行（供管道/日志捕获）。src/cli/run.js observeRun 在 process.stdout.isTTY 时创建 follow 并喂事件/进度/终态（submit 与 attach/resume 挂接共用），非 TTY 保持既有 renderHostEvent 静态事件日志（run.test 断言不受影响）。验证：node --check + lint 通过；run-follow 单测 3 例（TTY 任务行重绘 + 进度去重 + 非 TTY 降级）+ task-list/run 等 20 例相关全过；全量 unit+integration 72 文件 691 例全绿（较 T1-059 后 +3）。交互真机视觉与 TTY 时序冒烟留 T1-098。",
-        "files": [
-          "src/lib/ui/run-follow.js",
-          "src/cli/run.js",
-          "tests/unit/run-follow.test.js"
-        ],
-        "architecture": {
-          "boundary": "src/lib/ui/run-follow.js（展示层，纯 TTY 渲染 + createTaskList 复用）+ run.js observeRun 接线（仅 TTY 启用，非 TTY 走既有静态事件日志，run.test 零影响）",
-          "boundaryChanged": true,
-          "changeAxis": "给宿主驱动 run 的观察方（run/attach/resume）补终端跟随展示：任务行原地重绘 + run 头部/进度行浮于动态列表上方",
-          "note": "跟随视图只做展示、不读盘不判定：数据来自宿主事件(task.started/done/blocked)与 run 快照 counts；TTY 重绘、非 TTY/重定向降级为完整状态事件行（与既有静态日志等价，可供管道/日志文件捕获）。createTaskList 的 update(id,title,status)/log/stop 原语被复用，未改动其契约。交互真机视觉验证留 T1-098。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:10:22.901Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "attach/follow 终端跟随展示完成"
     },
     {
       "id": "T1-061",
@@ -2625,41 +2537,14 @@
       "deps": [
         "T1-060"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "cli 侧 state 写（调度/门禁派生等剩余直写）改经 server run api",
-      "exec": {
-        "result": "cli 侧 state 直写迁移 server run api 落地（commit e8280bb）：server.cjs 新增 /run/state/* 写端点（惰性装载 state.js setWorkflowMode/markTaskActive/backupState + gate-fix.handleGateCompletion 同实现进程内执行）——POST /run/state/mode{mode}、/run/state/task/active{taskId}、/run/state/gate{taskId}（读 store 快照→server 执行门禁派生/回退复审）、/run/state/backup；测试可经 __CC_RUN_HOST_DEPS__.stateApi/handleGateCompletion 覆盖。run-client 补 setRunMode/markRunTaskActive/runGateComplete/backupRun + API_ENDPOINTS 4 条。迁移：run.js mode run/idle 复位改 client.setRunMode（时序调为 server 起来后置 run、收尾置 idle；--resume pause 保留）；run-batch.js 调度 markTaskActive、门禁完成闭环、backup 全部改经 /run/state/*（移除 lib/state.js 写函数与 run-driver gateCompletionHook/cli gate-fix 的 CLI 直写导入，仅保留 loadState 读）。cli 侧不再直接调 lib/state.js 写函数；gate-fix.handleGateCompletion 实现仍单源，只在 server 进程执行。T1-062 边界未合并（读切 client 快照 + lib/state.js 写侧下线留 T1-062）。验证：lint + node --check 通过；run/batch/client/resume/scheduler 43 例 + run-host/server 集成 73 例（新增 /run/state/mode 落盘、task/active startedAt、gate fail→派生 R1-F1+回退 pending+recheck=1 集成断言）+ 全量 unit+integration 72 文件 695 例全绿（较 T1-060 后 +4），e2e 两个既有环境失败除外。",
-        "files": [
-          "src/cli/run.js",
-          "src/cli/run-batch.js",
-          "src/cli/run-client.js",
-          "src/server/server.cjs",
-          "tests/unit/run.test.js",
-          "tests/unit/run-batch.test.js",
-          "tests/unit/run-client.test.js",
-          "tests/integration/run-host.test.js"
-        ],
-        "architecture": {
-          "boundary": "写路径收口 server：/run/state/* 端点（server 进程内 state.js/gate-fix 同实现单写者）；CLI（run.js/run-batch.js）不再 import lib/state.js 写函数（gate-fix.handleGateCompletion 保留单源但只在 server 内执行：host 单 agent + gate 端点）；读路径不动（T1-062）",
-          "boundaryChanged": true,
-          "changeAxis": "把 CLI 剩余 state 直写（mode 复位 / 多 agent 调度 active / 门禁派生/复审 / 版本备份）改为经 server run api 的 HTTP 调用，写收口 server 单写者",
-          "note": "run.js 的 mode run 需 server 起来后才可置（经 /run/state/mode），时序调整为 startSession 后 setRunMode('run')、收尾 setRunMode('idle')，--resume pause 闩锁语义保留；run-batch.js dispatcher active 写与门禁完成闭环与 backup 全部改经 /run/state/*，移除 state 直写与 run-driver gateCompletionHook CLI 导入。gate-fix 单源实现仍在 cli/gate-fix.js，由 server 进程执行。T1-062 边界未合并：lib/state.js 写侧下线与读切 client 快照留后续任务。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:15:32.800Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "cli 侧 state 写（调度/门禁派生等剩余直写）改经 server run api"
     },
     {
       "id": "T1-062",
@@ -2670,45 +2555,14 @@
       "deps": [
         "T1-061"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "cli 侧直写路径/读路径清理（lib/state.js 写侧下线；读经 client 快照）",
-      "exec": {
-        "result": "cli 直写/读路径清理落地（commit 033f25b）：(1) lib/state.js 写侧下线——cli/gate-fix.js 归位 src/server/gate-fix.js（server.cjs 两处 dynamic import 与 gate-fix.test/scheduler.test/run-host.test/run-host 集成 import 更新；run-batch.test 移除 gate-fix mock），cli/ 目录自此不再承载任何 state 写模块；grep 确认 src/cli 下零 import lib/state.js 写函数，仅 run.js 保留 server 未起前的 bootstrap 只读 loadState（读非写，判存在/mode）。(2) 运行态读经 client 快照——run-batch.js 完成轮询（makeWaitAnyDone）与 onTaskComplete 落账状态/标题读全部改经 client.getState（GET /awf/state）readTasks 快照，不再直读 lib/state.js；run-client 补 getState()；runScheduler 内部 loadState 属 server 模块自有读（multi-agent 宿主 batch 接线后整体归位 server，T1-067 单写者冒烟前为已知过渡）。run.js 头/尾注释更新 T1-061/062 收敛说明（mode 写、gate-fix 单源在 server、bootstrap 读例外）。验证：node --check + lint 通过；run-batch 8/run 相关/run-client 10/scheduler/gate-fix/run-host + run-host/server 集成全绿；全量 unit+integration 72 文件 695 例全绿（与 T1-061 后持平，路径改动无行为回归），e2e 两个既有环境失败除外。T1-067（单写者/常驻/attach 冒烟）与 T1-098（真 run）收口前保持过渡态。",
-        "files": [
-          "src/cli/run-batch.js",
-          "src/cli/run-client.js",
-          "src/cli/run.js",
-          "src/lib/gate-loop.cjs",
-          "src/server/gate-fix.js",
-          "src/server/server.cjs",
-          "tests/unit/gate-fix.test.js",
-          "tests/unit/run-batch.test.js",
-          "tests/unit/run-client.test.js",
-          "tests/unit/run-host.test.js",
-          "tests/unit/scheduler.test.js",
-          "tests/integration/run-host.test.js"
-        ],
-        "architecture": {
-          "boundary": "gate-fix 归位 src/server/（cli 不再承载 state 写模块）；cli/ 零 lib/state.js 写函数 import（run.js 仅保留 server 未起前的 bootstrap 只读 loadState，读非写）；run-batch 运行态读切 client.getState（GET /awf/state）server 快照",
-          "boundaryChanged": true,
-          "changeAxis": "T1-061 写完收口后再清读：把 cli 侧 lib/state.js 写侧整体下线并把多 agent 运行态读改经 server 快照；runScheduler 内部 loadState 属 server 模块自有读（宿主 batch 接线后归位 server），T1-067 单写者冒烟前为已知过渡",
-          "note": "cli 写侧下线通过 gate-fix 迁 server + 移除 run.js/run-batch 对 state 写与（run-batch）loadState 依赖达成；readTasks = client.getState 抽取 tasks，waitAnyDone/onTaskComplete 复用同一快照读。bootstrap 读仍走 lib 只读（server 未起无 client 可用，语义为文件存在性+mode 判定）。T1-067/T1-098 对单写者与真 run 冒烟收口。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:20:06.776Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "cli 侧直写路径/读路径清理（lib/state.js 写侧下线；读经 client 快照）"
     },
     {
       "id": "T1-063",
@@ -2719,36 +2573,14 @@
       "deps": [
         "T1-062"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "ensureServer 存在即复用（去 kill-by-port；含 plan 期拉起）",
-      "exec": {
-        "result": "ensureServer 存在即复用落地（commit b4a8f95）：run.js ensureServer 重写——先 getStatus 探测现有 server：① 健康且属本项目（existing.projectRoot===workDir；含 plan/resume/attach 期已拉起）→ 直接复用并 log「复用现有服务」，绝不再 lsof kill-by-port；② 端口被其他项目 server 占用（projectRoot 存在且不同）→ throw 报错不杀（保留他项目现场）；③ 无健康 server → spawn node server.cjs 拉起，删除预 kill 与 sleep300（端口若被非 awf 进程占用，30×500ms 启动探测超时显式报「启动超时」而非静默 kill）。reuseExisting 旗标保留但不再承担 kill 语义。cli/server.js awf server start 同步对齐：健康同项目→复用、他项目占用→logger.error 并 return、无 server→spawn（cwd 对齐 projectRoot）带超时提示。kill-by-port 仅保留在显式 awf server stop 与 run 收尾 doCleanup（run 自身 teardown）。验证：node --check + lint 通过；run.test 15 例（新增 TC7 复用不 spawn/TC8 他项目占用报错不杀，TC2 拉路径以「无已有 server」探测驱动）全过；全量 unit+integration 72 文件 698 例全绿（较 T1-062 后 +3），e2e 两个既有环境失败除外。真 run/并发双项目回归留 T1-098。",
-        "files": [
-          "src/cli/run.js",
-          "src/cli/server.js",
-          "tests/unit/run.test.js"
-        ],
-        "architecture": {
-          "boundary": "run.js ensureServer 与 cli/server.js start 同步为「存在即复用」语义；kill-by-port 仅保留在显式 awf server stop 与 run 收尾 doCleanup（run 自有的正常 teardown）",
-          "boundaryChanged": true,
-          "changeAxis": "把 ensureServer 从「非 resume 一律 kill 再 spawn」改为「健康同项目 server 存在即复用、他项目占用报错不杀、无 server 才拉起（不预 kill）」",
-          "note": "reuseExisting 旗标不再承担 kill 语义（server 是否可复用由探测结果决定）；plan/resume/attach 期已拉起的 server 会被 run 直接复用，覆盖「plan 期拉起」；端口被非 awf 进程占用时启动探测超时显式暴露而非静默 kill。run 收尾 doCleanup 仍按 run 自身生命周期 teardown。真 run/并发项目回归留 T1-098。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:22:52.956Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "ensureServer 存在即复用（去 kill-by-port；含 plan 期拉起）"
     },
     {
       "id": "T1-064",
@@ -2759,39 +2591,14 @@
       "deps": [
         "T1-063"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "空闲超时回收 + awf server stop；run 结束不关 server",
-      "exec": {
-        "result": "常驻 server 生命周期落地（commit 65de8ad）：(1) 空闲超时回收——server.cjs 每请求刷新 lastActivityAt；require.main（spawn 生产进程）按 CC_SERVER_IDLE_MS（默认 30min，0=禁用）起 60s 间隔检查：宿主无 active run（hostHasActiveRun 防长任务无请求误回收）且距最近活动 ≥ 阈值 → stop+exit。判定纯逻辑收 src/lib/server-idle.cjs（isIdleDue/idleDefaultMs/IDLE_MS_DEFAULT，CJS 可测）。测试 in-process 加载（非 main）不自动回收不误退。(2) awf server stop——cli/server.js stop 先 POST /shutdown 请求常驻 server 优雅关闭（响应后 server close，main 才 process.exit），失败/旧版再 lsof kill-by-port 兜底；仍先 kill tmux session。(3) run 结束不关 server——cli/run.js doCleanup 只关 tmux 会话，移除 kill-by-port；run 自然结束/SIGINT 后 server 常驻保留（下个 run/attach 复用，空闲回收或 awf server stop 关闭），run.test 清理断言同步为「已停止运行会话」。验证：node --check + lint 通过；server-idle 单测 2 例（阈值判定 + 默认/env 覆盖/0 禁用）+ run.test 15 + 受影响 90 例全过；全量 unit+integration 73 文件 700 例全绿（较 T1-063 后 +2 文件/+2 例），e2e 两个既有环境失败除外。真 run/常驻时序（attach 期间、空闲回收触发、并发双项目）留 T1-067/T1-098 冒烟。",
-        "files": [
-          "src/lib/server-idle.cjs",
-          "src/server/server.cjs",
-          "src/cli/run.js",
-          "src/cli/server.js",
-          "tests/unit/server-idle.test.js",
-          "tests/unit/run.test.js"
-        ],
-        "architecture": {
-          "boundary": "src/lib/server-idle.cjs（纯判定）+ server.cjs main 常驻回收 & /shutdown + cli/server.js stop 优雅优先 + cli/run.js doCleanup 只关 tmux 不关 server",
-          "boundaryChanged": true,
-          "changeAxis": "常驻 server 生命周期从「run 结束即 kill」改为「保留 + 空闲自回收 / 显式 stop」：run 收尾不再 kill server，空闲由阈值（默认 30min，0=禁用）回收，stop 走 /shutdown 优雅关闭（fallback kill）",
-          "note": "任何请求刷新 lastActivityAt（有看板/轮询即非空闲）；回收需宿主无 active run（避免长任务无请求误回收）。/shutdown 响应后 close，仅 main（require.main）才 process.exit——测试 in-process 加载不自动回收不误退。真 run/常驻冒烟（含 attach 期间与空闲回收时序）留 T1-067/T1-098。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:25:28.041Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "空闲超时回收 + awf server stop；run 结束不关 server"
     },
     {
       "id": "T1-065",
@@ -2802,45 +2609,14 @@
       "deps": [
         "T1-064"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "messaging/inbox 死代码删除（crossSession 降级已定）",
-      "exec": {
-        "result": "messaging/inbox 死代码删除落地（commit 8f7c2c1）：删除 src/lib/messaging.js（cross-session inbox 注入，2.1.227 CLAUDE_CODE_HARBOR_KITE 实测 socket 不绑定，降级 tmux 已定）。收敛：run-settings.cjs generateRunSettings 去 crossSessionInbound（仅 statusLine）；run-context.cjs 去 messagingSocketPath 字段；session-launch.cjs buildClaudeArgs/buildTmuxCommand 去 messagingSocket 参数与 --messaging-socket-path（保留 STRIP_ENV env -u 剥离 + --settings）；bootstrap.sh 去 MESSAGING_SOCKET 变量、--messaging-socket-path flag 与相关注释；cli/run.js ensureSession 去 socketPath 参数与 CC_MESSAGING_SOCKET env、startSession 去 ctx.messagingSocketPath 传参；run-batch/run-scheduler/server.cjs 注释收敛为「tmux 回合补位 + SubagentStop 落账」定稿（server.cjs batch=null 注释同步）。测试：run-settings.test 去 crossSession 断言、run-context.test 删 messagingSocketPath 用例、session-launch.test 去 messaging 参数并加 not.toContain('--messaging-socket-path') 负断言。run.js/cli-aux 测试 mock 遗留的惰性字段（模块已不产出/返回）未逐一清理，零功能影响。验证：node --check + bash -n + lint 通过；受影响 run-settings/run-context/session-launch/run/cli-aux/run-batch 68 例全过；全量 unit+integration 73 文件 699 例全绿（较 T1-064 后 -1：run-context messaging 用例移除），e2e 两个既有环境失败除外。",
-        "files": [
-          "src/lib/messaging.js",
-          "src/server/run-settings.cjs",
-          "src/lib/run-context.cjs",
-          "src/server/session-launch.cjs",
-          "src/cli/run.js",
-          "src/cli/run-batch.js",
-          "src/server/run-scheduler.js",
-          "src/server/server.cjs",
-          "scripts/bootstrap.sh",
-          "tests/unit/run-settings.test.js",
-          "tests/unit/run-context.test.js",
-          "tests/unit/session-launch.test.js"
-        ],
-        "architecture": {
-          "boundary": "删除 src/lib/messaging.js 与全部 inbox/cross-session 配置/参数：run-settings 只留 statusLine、run-context 去 messagingSocketPath、session-launch/bootstrap 去 --messaging-socket-path、run.js ensureSession 去 socket env；派发定稿 tmux 回合补位",
-          "boundaryChanged": true,
-          "changeAxis": "cross-session messaging/inbox（实测不可用的降级已定）死代码整体删除，多 agent 派发语义收敛为 /send tmux 回合补位 + SubagentStop 落账",
-          "note": "保留 env -u 剥离（telemetry 类）与 bootstrap 其余语义；run.js/cli-aux 测试 mock 中遗留的 messagingSocketPath/crossSessionInbound 属惰性字段（模块不再返回/产出，运行不受影响），未逐一清理以控风险。",
-          "path": "remove"
-        },
-        "completedAt": "2026-09-09T09:27:32.251Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "messaging/inbox 死代码删除（crossSession 降级已定）"
     },
     {
       "id": "T1-066",
@@ -2851,35 +2627,14 @@
       "deps": [
         "T1-065"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "open tree CLI 渲染移除 → 指向 web WBS-Tree 视图",
-      "exec": {
-        "result": "open tree CLI 渲染移除并指向 web 视图（commit c1cad40）：src/cli/open.js 删除 renderTree（w-tree.html 模板）与 tree 分支的 .awf/state.json 读取及 .awf/w-tree.html 本地写入；openCommand 不再 import node:fs/path。target=tree 现与 dashboard/ui 一致打开 server 托管的 dashboard URL（http://localhost:PORT），日志提示「打开 WBS-Tree（web 视图）」，WBS-Tree 视图由 web 前端工程任务在 server 托管页内提供。未知 target 报错保留。测试：cli-aux openCommand tree 用例改为断言打开 web 视图 URL + 不再写文件（mockFs.writeFile not called），删除「wbs 空报错」「state 缺失」两个不再适用的旧用例。验证：node --check + lint 通过；cli-aux 23 例全过；全量 unit+integration 73 文件 697 例全绿（较 T1-065 后 -2：删除的旧渲染用例），e2e 两个既有环境失败除外。web WBS-Tree 视图本体与真机视觉留前端工程/冒烟任务。",
-        "files": [
-          "src/cli/open.js",
-          "tests/unit/cli-aux.test.js"
-        ],
-        "architecture": {
-          "boundary": "src/cli/open.js 移除 renderTree/w-tree.html/state 读，tree 与 dashboard/ui 统一打开 server 托管的 dashboard URL（WBS-Tree 为 web 前端内视图）；CLI 不再承担任何 WBS 渲染",
-          "boundaryChanged": true,
-          "changeAxis": "废弃 open tree CLI 本地 HTML 渲染 → 可视化渲染整体归 web 前端（server 托管 dashboard），CLI 只做 open browser 指向",
-          "note": "web WBS-Tree 视图由前端工程任务（dashboard/WBS-Tree 迁移）落地，本任务先拆除 CLI 侧渲染并指向 web 入口；真机视觉由前端/冒烟任务验证。",
-          "path": "remove"
-        },
-        "completedAt": "2026-09-09T09:28:58.762Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "open tree CLI 渲染移除 → 指向 web WBS-Tree 视图"
     },
     {
       "id": "T1-067",
@@ -2890,35 +2645,14 @@
       "deps": [
         "T1-066"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/",
         "src/lib/",
         "src/server/bootstrap*"
       ],
       "constraints": [],
-      "acceptance": "cli 薄化后命令面测试绿 + 单写者冒烟（server 唯一写）+ 常驻/回收/attach 冒烟",
-      "exec": {
-        "result": "冒烟收口落地（commit 770755a）：(1) cli 薄化后命令面测试绿——run/cli-aux/plan/init 等既有命令单测随全量保持 74 文件 700 例全绿（本任务不新增命令面，做冒烟钉住）。(2) 单写者冒烟——tests/integration/server-lifecycle.test.js 起 in-process server（真实 state.js），并发 20 路 POST /run/state/task/active（不同任务）+ 40 路 /run/state/mode（run/pause 交替）：state.lock + 原子写序列化下无丢写/无损坏（任务全 active、mode 末次胜出有效）。(3) 常驻/回收/shutdown 冒烟——spawn server.cjs 子进程于随机空闲端口：空闲超时（CC_SERVER_IDLE_MS=400 + 检查节拍 CC_SERVER_IDLE_CHECK_MS=80，原固定 60s 已 env 化）无请求且无 run 驱动 → 进程自动退出 code 0；POST /shutdown → 优雅退出（不再依赖 kill-by-port）。验证：node --check + lint 通过；新冒烟 3 例全过；全量 unit+integration 74 文件 700 例全绿（较 T1-066 后 +3），e2e 两个既有环境失败除外。attach 重连/双 run 并发与 gate 决策真 run 语义留 T1-098 真机回归。",
-        "files": [
-          "src/server/server.cjs",
-          "tests/integration/server-lifecycle.test.js"
-        ],
-        "architecture": {
-          "boundary": "server.cjs 空闲回收检查节拍 env 化（CC_SERVER_IDLE_CHECK_MS，默认 60s）；新增 tests/integration/server-lifecycle.test.js 冒烟层（in-process 单写者 + spawn 子进程常驻/回收/shutdown）",
-          "boundaryChanged": false,
-          "changeAxis": "验证性冒烟：把 T1-061~066 收口后的保证以可跑测试钉住——server 唯一写（state.lock 并发一致）、常驻空闲回收与优雅 shutdown、cli 薄化命令面保持绿",
-          "note": "单写者用真实 state.js 经 /run/state/* 并发写验证；常驻/回收/shutdown 用 spawn 子进程（随机端口 + CC_SERVER_IDLE_MS/CHECK 调小）真机验证 server 生命周期，不依赖嵌套 awf run。attach 重连单写者路径由 run-host/run 单测与真 run（T1-098）覆盖。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:30:56.059Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "cli 薄化后命令面测试绿 + 单写者冒烟（server 唯一写）+ 常驻/回收/attach 冒烟"
     },
     {
       "id": "T1-104",
@@ -2929,7 +2663,7 @@
       "deps": [
         "T1-067"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/cli/plan.js",
         "src/lib/state.js",
@@ -2938,29 +2672,7 @@
         ".awf/versions/"
       ],
       "constraints": [],
-      "acceptance": "带残留 state 起新 plan 先归档后重置；空 state 不重复归档；awf run 读态不受影响；有单测。",
-      "exec": {
-        "result": "plan 启动重置守卫落地（commit 401f1ea）：state.js 新增 archiveOldStateForPlan(projectRoot)——withStateLock 锁内原子：读取当前 state，若存在且含残留语义内容（tasks/wbs/plan/milestones 任一非空）且非 run/pause，则先原样归档到 .awf/versions/state-<ts>.json（ts 为 ISO 去冒号），再把当前 state 重置为 mode=plan/currentState=PLAN + 空 milestones/tasks/wbs/plan（version 沿用旧 state）的空 plan 模板；空 state（模板残留无内容）返回 none 不重复归档；mode=run/pause 返回 run-active 不触发、文件不动；state 不存在返回 none。cli/plan.js planCommand 在非 --resume 启动时先调用守卫并提示（归档路径 / run 运行中跳过）。验证：node --check + lint 通过；新增单测 4 例（残留归档+重置内容与版本延续 / 空 state 不归档 / run 模式不触发 / 无 state）+ plan/state/cli-aux 等 71 例全过；全量 unit+integration 75 文件 704 例全绿（较 T1-067 后 +4），e2e 两个既有环境失败除外。awf run 读态不受影响；运行中重规划缺原子 supersede/requeue 协议为独立缺陷（docs/bugs/t1058-prereq-appended-tail.md），不在本任务范围。",
-        "files": [
-          "src/lib/state.js",
-          "src/cli/plan.js",
-          "tests/unit/state-plan-reset.test.js"
-        ],
-        "architecture": {
-          "boundary": "src/lib/state.js archiveOldStateForPlan（锁内原子归档+重置，单一实现）+ src/cli/plan.js 非 resume 启动调用守卫",
-          "boundaryChanged": false,
-          "changeAxis": "补 plan 生命周期缺陷：新 plan 启动遇残留旧 state（非 run/pause）先归档 .awf/versions/state-<ts>.json 再重置为空 plan 模板，避免新规划叠加旧任务；run 模式不触发",
-          "note": "归档采用与 run 域一致的 withStateLock + writeJsonAtomicSync；run/pause（运行生命周期）与空 state 均 no-op；awf run 读态不受影响。运行中重规划缺原子 supersede/requeue 协议（docs/bugs/t1058...）仍为独立缺陷，本次只覆盖 plan 起始重置边界。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:32:48.877Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "带残留 state 起新 plan 先归档后重置；空 state 不重复归档；awf run 读态不受影响；有单测。"
     },
     {
       "id": "T2-021",
@@ -2971,24 +2683,11 @@
       "deps": [
         "T1-057"
       ],
-      "status": "done",
+      "status": "blocked",
       "plannedFiles": [],
       "constraints": [],
       "acceptance": "审查 W2-021 server client 改动，输出 pass/changes_requested verdict",
-      "exec": {
-        "startedAt": "2026-09-09T09:33:30.461Z",
-        "result": "审查 W2-021 client 层完成：核对 src/lib/session/client.js 与 src/cli/run-client.js 对 server.cjs 全部 27 条路由——run-client 每个方法路径（/send /respond /status /run/submit /run/status /run/events /awf/state /run/state/{mode,task/active,gate,backup} 等）在 server 端均存在且语义对齐（GET/POST、响应含 ok）；端口/基址集中 baseUrl(SERVER_PORT) 单源、决策形状经 interact、测试注入 http.{postJson,getJson,respond,status} 传输缝成立。审查结论见 verdict。非阻断建议：① API_ENDPOINTS 与 server api.cjs API_CATALOG 双表仍为并行文档/迁移态，/api/v1 路由挂载时应收拢为单一目录源；② run-client 方法体内路径为字面量而 API_ENDPOINTS 仅作表/测试锚点，后续若以表为运行时单源可消除漂移；③ httpGetJson 默认 3s 超时与其余请求超时策略未统一。以上不影响现验收。证据：run-client(10)/cli-aux/run/run-batch/server 集成 124 例全绿。",
-        "verdict": {
-          "conclusion": "W2-021 client 层审查通过：端点路径与 server 逐条一致、单写/读经 server 语义与注入缝成立、相关 124 例测试全绿；API_ENDPOINTS 双表与 httpGetJson 超时等为非阻断改进项，留 /api/v1 迁移任务收拢。",
-          "level": "pass"
-        },
-        "architecture": {
-          "reviewNote": "reviewed W2-021 client 层：src/lib/session/client.js（baseUrl/SERVER_PORT 单源、httpPost/httpPostJson/getStatus/waitForReady/autoSelect）、src/cli/run-client.js（createRunClient 注入传输 + API_ENDPOINTS + submitRun/runSnapshot/pollRunEvents/getState/setRunMode/markRunTaskActive/runGateComplete/backupRun），对照 server.cjs 全部路由逐条校验路径存在。",
-          "boundary": "client 层保持既有边界；端点路径与 server 逐条一致（含 T1-105/061/062 新增 /run/* 与 /run/state/*）；未发现阻断性缺陷",
-          "path": "none"
-        },
-        "completedAt": "2026-09-09T09:33:58.116Z"
-      }
+      "exec": {}
     },
     {
       "id": "T2-022",
@@ -2999,24 +2698,10 @@
       "deps": [
         "T1-060"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "审查 W2-022 cli run 薄化改动，输出 pass/changes_requested verdict",
-      "exec": {
-        "startedAt": "2026-09-09T09:34:24.888Z",
-        "result": "审查 W2-022 cli run 薄化层完成：run.js 结构验证——runCommand（bootstrap loadState 只读 + mode run/idle 经 client.setRunMode + 异常保留现场）→ driveSingle（connectionMode fresh/resume/attach：探宿主活跃 run 决定挂接 vs 提交、读 store 落盘进度、事件尾游标防回放）→ observeRun（decisionPending/decisionResume 中继 + pollRunEvents 展示 + runSnapshot 终态 + TTY run-follow），编排/任务选择/阶段链不再由 run.js 承担；run-batch 多 agent live 仅路由，读写经 server api（getState 快照 / /run/state/* / tmux 派发 + SubagentStop 落账）；T1-061/062 写收口 server 单写者、T1-063 ensureServer 存在即复用（无 kill-by-port、他项目占用报错）、T1-064 run 结束保留常驻 server（空闲回收/shutdown）等衔接一致。证据：run/run-resume/run-batch/run-follow/run-host 38 例全绿 + 全量 704 例绿。审查结论见 verdict。",
-        "verdict": {
-          "conclusion": "W2-022 cli run 薄化审查通过：run.js 已无任务选择/阶段推进/调度，提交+订阅+应答+中继语义与 server host/api 收敛一致，attach/resume/follow/单写者/常驻回收衔接成立，38 例 run 相关 + 全量 704 例测试绿。非阻断建议/已知风险：① 旧 CLI 语义（每任务上下文压缩、收尾 settle 回退）尚未在宿主 executor 补齐，真实长 run 需 T1-098 真机回归验证（已文件标注）；② observe 以固定 200ms 轮询 sleep，等待期间为忙等，可考虑指数退避（低优先）；③ run 正常/SIGINT 后常驻 server 保留为已定语义，单次运行后清理需显式 awf server stop（文档已注明）。均不阻塞验收。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "run.js 薄化为提交+订阅+应答（编排在 server host），run-batch 保留多 agent live 路由、读写经 server api/快照；observe/follow/attach/resume 语义收敛在 run.js",
-          "path": "none",
-          "reviewNote": "审查 W2-022 cli run 薄化层：run.js 结构（runCommand→driveSingle(fresh/resume/attach)→observeRun/follow）、run-batch（getState 读/tmux 派发/门禁与备份经 /run/state）、run-follow、mode 经 server api、ensureServer 复用与 server 常驻回收衔接。"
-        },
-        "completedAt": "2026-09-09T09:34:35.632Z"
-      }
+      "acceptance": "审查 W2-022 cli run 薄化改动，输出 pass/changes_requested verdict"
     },
     {
       "id": "T2-023",
@@ -3027,24 +2712,10 @@
       "deps": [
         "T1-062"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "审查 W2-023 写者收口改动，输出 pass/changes_requested verdict",
-      "exec": {
-        "startedAt": "2026-09-09T09:34:53.127Z",
-        "result": "审查 W2-023 写者收口完成：证据核对——① src/cli 目录零 import lib/state.js 写函数（saveState/setWorkflowMode/markTaskActive/spawnGateFixTask/backupState 均无）；② cli/gate-fix.js 已归位 src/server/gate-fix.js（写逻辑只在 server 进程执行：host 单 agent 与 /run/state/gate 端点）；③ 编排写（mode/task active/门禁派生/备份）经 server /run/state/* 单写者端点；④ 运行态读经 client 快照（runSnapshot/getState→/run/status|/awf/state），run-batch 完成轮询/落账状态读切 server；⑤ 并发一致由 server-lifecycle 单写者冒烟证实（20 路 task/active + 40 路 mode 并发，state.lock + writeJsonAtomicSync 下任务全 active、mode 末次胜出、无损坏）。审查结论见 verdict。",
-        "verdict": {
-          "conclusion": "W2-023 写者收口审查通过：CLI 零 state 直写、编排写收 server 单写者端点、gate-fix 归位 server、读经 client 快照、state.lock+原子写在并发冒烟下不丢不坏，35 例相关测试 + 全量 704 例绿。非阻断说明：在会话 AI 落账自身任务仍经 awf-state MCP（文件锁写）为既定职责（agent 自我结算），非编排写者；多 run 分槽与 /api/v1 路由挂载后的目录单源留给后续任务。均不阻塞验收。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "写者收口：CLI（run/run-batch）零 lib/state.js 写函数；编排写经 server /run/state/*（mode/task/active/gate/backup）或 server host 内部；gate-fix 归位 src/server；运行态读经 client 快照；state.lock + 原子写保证并发一致",
-          "path": "none",
-          "reviewNote": "审查 W2-023 写者收口：grep src/cli 零 saveState/setWorkflowMode/markTaskActive/spawnGateFixTask/backupState；gate-fix 已在 server；run-client 只读/写经 server；server-lifecycle 单写者冒烟（并发 20+40 写）证实锁+原子不丢不坏。"
-        },
-        "completedAt": "2026-09-09T09:35:03.670Z"
-      }
+      "acceptance": "审查 W2-023 写者收口改动，输出 pass/changes_requested verdict"
     },
     {
       "id": "T3-005",
@@ -3056,27 +2727,10 @@
         "T2-023",
         "T1-104"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。",
-      "exec": {
-        "startedAt": "2026-09-09T09:35:26.603Z",
-        "result": "非真模块核查完成（未跑整套真实测试，结构/验收点自检 + 既有绿测为佐证）：W3-005（cli 薄化+client+常驻生命周期+写者收口+死代码清理+resume/attach）七项验收点全部对表成立——① cli 薄终端面：run.js 无任务选择/阶段推进/调度，编排在 run-host；② server client：run-client submit/status/events/getState + 写端点路径与 server 全 27 路由一致（T2-021 pass）；③ 写者收口：src/cli 零 lib/state.js 写函数、gate-fix 归位 server、server-lifecycle 并发冒烟不丢不坏（T2-023 pass）；④ 常驻生命周期：ensureServer 复用（无 kill-by-port）、CC_SERVER_IDLE_MS 空闲回收 + /shutdown、server-lifecycle 空闲 code0/shutdown 冒烟；⑤ 死代码：messaging.js 删除、open tree 渲染移除（仅注释残留）；⑥ resume/attach + follow：driveSingle 挂接续观 + run-follow TTY（T2-022 pass）；⑦ 测试：unit+integration 75 文件 704 例绿（e2e 两既有环境失败为基线）。报告落 .awf/reports/test/w3-005-module-gate.md。遗留（不阻塞）：宿主 executor 收尾 settle/上下文压缩待补（T1-098 真机回归）、/api/v1 路由双表单源收拢、多 agent 宿主 batch 传输接线。无阻断问题，未派生修复任务 → verdict pass。",
-        "files": [
-          ".awf/reports/test/w3-005-module-gate.md"
-        ],
-        "verdict": {
-          "conclusion": "W3-005 模块测试门禁通过：非真结构核查七项模块验收点全部成立（cli 薄化/单写者/常驻生命周期/死代码清理/resume-attach/client 端点一致性），704 例绿测佐证；真 run 全流程回归由 T1-098 承担，三个遗留（宿主 settle/压缩补全、/api/v1 单源、宿主 batch 接线）已标注不阻塞。",
-          "level": "pass"
-        },
-        "architecture": {
-          "path": "none",
-          "boundary": "W3-005 模块（cli 薄化+client+常驻+写者收口+清理+resume/attach）；非真结构核查结论",
-          "reviewNote": "模块测试门禁产物 .awf/reports/test/w3-005-module-gate.md；结构/验收点逐条对表。"
-        },
-        "completedAt": "2026-09-09T09:35:48.619Z"
-      }
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
     },
     {
       "id": "T1-068",
@@ -3087,7 +2741,7 @@
       "deps": [
         "T3-005"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3095,28 +2749,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "registry 多槽 + per-run adapter 绑定 + run-context 多实例（W1-005 装配器按 sid 真正多开）",
-      "exec": {
-        "result": "registry 多槽 + per-run adapter 绑定 + run-context 多实例落地（commit 4286690）：新增 src/lib/run-registry.cjs createRunRegistry({projectRoot, env, adaptersFactory, smFactory, bus})——按 sid 惰性装配/缓存 run 槽：① context 多实例：每槽 buildRunContext({sid, projectRoot, env})（runSessionName=cc-<sid>、runDir=.awf/runs/<sid>/、sid 缺省/null 回落单 run 现状槽、无 per-run 目录）；② per-run adapter 绑定：默认 createCcAdapters({ sessionName: ctx.runSessionName, bus })（可注入工厂/夹具，测试断言工厂收到各 run 会话名）；③ per-run 状态机实例（缺省 createStateMachine({sid})，可注入共享 registry）；④ 槽管理 has/list/remove/reset/size（同 sid 二次取同一实例不重复装配）。为 T1-069（tmux/socket/目录 cc-<sid> 命名）、T1-070（每 run settings 渲染 __SID__）、T1-071（/hook 按 sid 路由 + 状态机隔离）提供按 sid 取槽装配面；不改写 server 单槽现状（T1-071 前不引入行为变化）。验证：node --check + lint 通过；run-registry 单测 4 例（per-sid context/adapter 隔离与缓存、缺省槽回落、槽管理、projectRoot 贯通）全过；全量 unit+integration 76 文件 708 例全绿（较 T3-005 后 +1 文件/+4 例），e2e 两个既有环境失败除外。双 run 隔离冒烟随 T1-071/T1-098 收敛。",
-        "files": [
-          "src/lib/run-registry.cjs",
-          "tests/unit/run-registry.test.js"
-        ],
-        "architecture": {
-          "boundary": "src/lib/run-registry.cjs（多 run 槽注册表）+ tests/unit/run-registry.test.js；不改写现有 server 单槽；为 sid 命名/__SID__ settings//hook 按 sid 路由提供装配面",
-          "boundaryChanged": false,
-          "changeAxis": "run-context 装配器（W1-005）按 sid 真正多开：把 sid→{ctx, per-run adapters, sm} 收拢为惰性注册表",
-          "note": "每槽 ctx 用 buildRunContext({sid})（cc-<sid>/runDir 派生，sid=null 回落单 run 现状）；adapter 绑定到各自 sessionName，可注入工厂/夹具测试；sm 可注入共享 registry（T1-071 隔离 ready/busy 时改共享实例）。后续 T1-069/070/071 消费本模块。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:37:07.753Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "registry 多槽 + per-run adapter 绑定 + run-context 多实例（W1-005 装配器按 sid 真正多开）"
     },
     {
       "id": "T1-069",
@@ -3127,7 +2760,7 @@
       "deps": [
         "T1-068"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3135,28 +2768,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "tmux/messaging/sock/目录按 cc-<sid>/<sid>.sock 命名接入",
-      "exec": {
-        "result": "sid 命名接入落地（commit a36cf51）：run-registry 新增 ensureLayout(sid)——物化 per-run 目录布局（.awf/runs/<sid>/{logs,context,decisions,meta}，经 run-context ensureRunLayoutSync；无 sid 单 run 现状槽 ensureLayout 返回 [] 不派生，保持现状）。命名接入测试（tests/unit/sid-naming.test.js）钉住：① slot(sid) 会话名 cc-<sid>，不同 sid 互异、与单 run 现状槽（无 sid）不冲突；② ensureLayout 按 .awf/runs/<sid> 建目录并断言存在；③ tmux/host 原语按 cc-<sid> 绑定（host.createHost({sessionName}) = cc-<sid>）、session-launch buildSessionEnv CC_SESSION 与 buildTmuxCommand `-s cc-<sid>` 均含该会话名。注：messaging/inbox 已于 T1-065 删除，无 <sid>.sock 产物；命名接入集中在会话名 + per-run 目录（socket 命名项按死代码不落地）。验证：node --check + lint 通过；sid-naming 3 例 + run-registry 4 例全过；全量 unit+integration 77 文件 711 例全绿（较 T1-068 后 +1 文件/+3 例），e2e 两个既有环境失败除外。多 run 实际分流与双 run 冒烟由 T1-070/071 及 T1-098 承接。",
-        "files": [
-          "src/lib/run-registry.cjs",
-          "tests/unit/sid-naming.test.js"
-        ],
-        "architecture": {
-          "boundary": "run-registry.ensureLayout(sid)（per-run 目录 .awf/runs/<sid> 物化）+ sid-naming 测试（会话名 cc-<sid>/host/session-launch 绑定）；messaging 已于 T1-065 删除，无 <sid>.sock 产物",
-          "boundaryChanged": false,
-          "changeAxis": "把 T1-068 的多槽装配进一步接入命名：sid 槽会话名 cc-<sid> 与单 run 现状槽隔离、per-run 目录按 runs/<sid> 命名物化、host/tmux 与 session-launch 命令按该会话名",
-          "note": "单 run 现状（无 sid）仍回落基础会话/不派生 per-run 目录，零行为变化；多 run 实际分流/双 run 冒烟由 T1-070/071 及 T1-098 承接。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:38:29.612Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "tmux/messaging/sock/目录按 cc-<sid>/<sid>.sock 命名接入"
     },
     {
       "id": "T1-070",
@@ -3167,7 +2779,7 @@
       "deps": [
         "T1-069"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3175,30 +2787,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "每 run settings 渲染 __SID__（bootstrap/run-settings 生成归 cc）+ gateway 透传 sid",
-      "exec": {
-        "result": "每 run settings 渲染 + gateway 透传 sid 落地（commit 0dde246）：① run-settings.cjs generateRunSettings 新增可选 usagePath——每 run 渲染 __SID__ 后 statusLine 命令带第三参（.awf/runs/<sid>/context/usage.json）；单 run（不传 usagePath）命令保持两参（node script workdir），现状零变化。② scripts/context-usage.mjs 支持 argv[3] 覆写 usage 落点（缺省回落 <cwd>/.awf/context/usage.json，兼容现状与既有测试）。③ plugin/core/hooks/gateway.cjs 从 env CC_SID 透传 sid：/hook?event=<event>&sid=<sid>（无 CC_SID 不带 sid，向后兼容），server 按 sid 路由到 run 槽由 T1-071 消费；header 协议注释同步。验证：node --check + lint 通过；run-settings（含 usagePath 两参/三参断言）/context-usage/run/sid-naming 24 例全过；全量 unit+integration 77 文件 712 例全绿（较 T1-069 后 +1 例），e2e 两个既有环境失败除外。多 run 实际 boot（每 run claude 注入 CC_SID + usagePath）与 /hook 按 sid 路由由 T1-071 及后续双 run 冒烟承接。",
-        "files": [
-          "src/server/run-settings.cjs",
-          "scripts/context-usage.mjs",
-          "plugin/core/hooks/gateway.cjs",
-          "tests/unit/run-settings.test.js"
-        ],
-        "architecture": {
-          "boundary": "run-settings.cjs usagePath 参数（每 run __SID__ 落点）+ context-usage.mjs argv[3] 覆写 + gateway.cjs CC_SID 透传 sid（/hook?event&sid）",
-          "boundaryChanged": false,
-          "changeAxis": "把 per-run settings/usage 落点与 hook sid 透传准备到生成器/脚本/gateway：单 run 无 sid 行为零变化，多 run 时 usage 落 runs/<sid>、hook 带 sid 供 server 按槽路由（T1-071）",
-          "note": "run.js 单 run 现状不注入 usagePath/CC_SID，均回退既有路径；server /hook 读 sid 路由到槽由 T1-071 实现；bootstrap 为每 run claude 注入 CC_SID 随多 run boot 接入。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:40:21.218Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "每 run settings 渲染 __SID__（bootstrap/run-settings 生成归 cc）+ gateway 透传 sid"
     },
     {
       "id": "T1-071",
@@ -3209,7 +2798,7 @@
       "deps": [
         "T1-070"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3217,30 +2806,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "server /hook 按 sid 路由到 run 槽；内存状态机按 sid 隔离（ready/busy/decision 不串 run）",
-      "exec": {
-        "result": "server /hook 按 sid 路由 + 内存状态机隔离落地（commit fd926d0）：① 新增 run-slot.cjs createRunSlot(sid)——per-run 内存状态机（state ready/busy + decisionPending/contextReady + waitReady 等待集 + setDecision/clearDecision/reset/snapshot），语义镜像 server 单槽；② server.cjs /hook 解析 query sid：带 sid 的 hook 早路到 handleSidHook——SessionStart→slot.setReady、UserPromptSubmit→slot.setBusy、Stop（gate 关默认）→clearDecision+setReady、PreToolUse(AskUserQuestion，gate 关)→slot.setDecision 捕获，全程只操作该 run 槽内存态、不触碰全局单槽；③ /status?sid 返回该槽内存态（state/decisionPending/contextReady），全局 /status（无 sid）不变；④ _resetForTest 清 runSlotsBySid 防用例串。单 run（无 sid）hook 仍走既有单槽路径、导出面不变，既有 server 回归零影响。验证：node --check + lint 通过；run-slot 单测 3 例（ready/busy 槽隔离+waitReady 不跨槽、decision 不串、contextReady/reset）+ server-lifecycle 真实 server sid 隔离集成 1 例（真实 HTTP a/b 两槽 busy/decision/Stop 独立）全过；全量 unit+integration 78 文件 716 例全绿（较 T1-070 后 +1 文件/+4 例），e2e 两个既有环境失败除外。遗留：gate 开全闸门 per 槽、curl 类事件（SessionStart/UserPromptSubmit 等）带 sid 注入、决策/落盘按槽由后续多 run 接线与 T1-098 双 run 冒烟承接。",
-        "files": [
-          "src/server/run-slot.cjs",
-          "src/server/server.cjs",
-          "tests/unit/run-slot.test.js",
-          "tests/integration/server-lifecycle.test.js"
-        ],
-        "architecture": {
-          "boundary": "run-slot.cjs（per-run 内存状态机）+ server.cjs /hook ?sid 早路到 handleSidHook + /status?sid + _resetForTest 清槽；无 sid hook 走既有全局单槽（单 run 零变化）",
-          "boundaryChanged": true,
-          "changeAxis": "把 server 单槽内存态（ready/busy/decision/contextReady）按 sid 隔离：带 sid 的 hook 路由到独立 run 槽，/status?sid 反映该槽；为双 run 并线不串提供内存隔离层",
-          "note": "sid hook 走 gate 关（默认）语义：SessionStart ready/UserPromptSubmit busy/Stop clear+ready/AskUserQuestion setDecision；gate 开全闸门与 curl 类事件带 sid、决策落盘按槽等由后续多 run 接线/T1-098 双 run 冒烟承接。单 run（无 sid）路径与导出面不变。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:43:19.003Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "server /hook 按 sid 路由到 run 槽；内存状态机按 sid 隔离（ready/busy/decision 不串 run）"
     },
     {
       "id": "T1-072",
@@ -3251,7 +2817,7 @@
       "deps": [
         "T1-071"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3259,29 +2825,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "各 run 独立 state/logs/metrics/decisions 目录（承接 W3-002 布局）；runStamp→sid 归一，决策/日志不串 run",
-      "exec": {
-        "result": "runStamp→sid 归一 + 决策 per-run 目录隔离落地（commit 376d0d8）：① run-id.cjs 新增 resolveRunStamp({sid, version, ts})——显式 sid 即 run stamp（validateRunId ≤64 校验），无 sid 回退派生 <version>-<ts>（与 run-logger 现行 runStamp 完全一致），为后续 run 域 writer 提供单源归一。② decision-store.cjs 构造函数支持 {runStamp, runsDir} 覆写：runStamp=sid 时 append 落 <sid>.jsonl（幂等去重按该文件）、runsDir 可指 W3-002 per-run 决策目录（如 ctx.runDecisionsDir = .awf/runs/<sid>/decisions）；runStamp() 优先显式值、override/_findDecision/listAll 只在本 run 目录内，决策不串 run。③ 单 run（缺省构造）沿用现状：runStamp() 扫描 .awf/logs 最新匹配 state.version、runsDir=.awf/decisions/runs，既有决策测试零变化。验证：node --check + lint 通过；run-stamp-sid 4 例（resolveRunStamp sid/派生/非法、决策 per-run 隔离 append/listAll/override 不串）+ run-id/decision-store/decision-gate 35 例全过；全量 unit+integration 79 文件 720 例全绿（较 T1-071 后 +1 文件/+4 例），e2e 两个既有环境失败除外。范围说明：W3-002 的日志/metrics/状态每 run 目录 writer 实际接线与多 run 消费者迁移（server 决策门按槽、run-logger 每 run stamp/目录）留后续 run 域任务与 T1-098 双 run 冒烟承接，本任务先落地 stamp 归一原语与决策隔离接缝。",
-        "files": [
-          "src/lib/run-id.cjs",
-          "src/server/decision-store.cjs",
-          "tests/unit/run-stamp-sid.test.js"
-        ],
-        "architecture": {
-          "boundary": "run-id.resolveRunStamp（sid-or-derived 单一实现）+ decision-store 构造 {runStamp,runsDir} 覆写（per-run 决策目录隔离）；单 run 缺省沿用现状扫描路径零变化",
-          "boundaryChanged": false,
-          "changeAxis": "runStamp→sid 归一并让决策存储可按 per-run 目录隔离：显式 sid 决策落 <sid>.jsonl（runsDir 指 .awf/runs/<sid>/decisions），override/list 只命中本 run",
-          "note": "W3-002 per-run 布局的日志/metrics/状态 writer 实际接线与多 run 消费者（server 决策门/日志）迁移留后续 run 域任务与双 run 冒烟（T1-098）；本任务提供 stamp 归一原语与决策隔离接缝。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:44:51.978Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "各 run 独立 state/logs/metrics/decisions 目录（承接 W3-002 布局）；runStamp→sid 归一，决策/日志不串 run"
     },
     {
       "id": "T1-073",
@@ -3292,7 +2836,7 @@
       "deps": [
         "T1-072"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3300,31 +2844,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "client 带 sid；run driver 注册 run 取 sid；attach 指定 run",
-      "exec": {
-        "result": "client 带 sid + attach 指定 run 落地（commit 5a2b0f6）：① run-client 新增 slotStatus(sid)——GET /status?sid 读 server per-run 槽内存态（ready/busy/decision，T1-071 隔离面），client 面可按 sid 寻址。② run.js driveSingle 支持 runId 目标寻址（runId 即 sid）：--attach/-R：指定 runId → 直接挂接该 run 观察（活跃推进或已终态汇报，无则报错保留现场）；--resume/-R：指定 run 挂接续观、宿主空闲提交续跑该 run；fresh/-R：提交命名该 run；宿主正驱动他 run 且请求新 runId → 单槽冲突报错。③ awf run 新增 -R/--run-id <runId> 旗标（attach 指定 run / fresh 命名 sid）。run-driver 注册取 sid：提交的 runId=sid 贯穿宿主 run 记录、事件与 snapshot（default 为单 run 现状），每 run 决策/日志隔离沿用 T1-072 的 runStamp=sid 目录接缝。单 run 缺省（无 runId）行为不变。验证：node --check + lint 通过；run.test 17（新增 RC6 attach 指定 r1 挂接不提交收敛 done、RC7 指定不存在 run 报错保留现场）+ run-client 11（含 slotStatus）全过；全量 unit+integration 79 文件 723 例全绿（较 T1-072 后 +3 例），e2e 两个既有环境失败除外。会话级 relay（decision 经 slotStatus 按 sid）与双 run 并发冒烟由后续任务/T1-098 承接。",
-        "files": [
-          "src/cli/run.js",
-          "src/awf.js",
-          "src/cli/run-client.js",
-          "tests/unit/run.test.js",
-          "tests/unit/run-client.test.js"
-        ],
-        "architecture": {
-          "boundary": "run.js driveSingle 支持 runId 目标寻址（attach/resume 挂接指定 run / fresh 提交命名）+ awf run -R/--run-id + run-client.slotStatus(sid)；runId=sid 作为 run 标识贯穿 host run/事件/snapshot",
-          "boundaryChanged": false,
-          "changeAxis": "给 CLI/driver 增加按 runId(=sid) 寻址：attach 可指定 run、fresh 可命名 run；run 标识贯穿到 client（/status?sid 槽内存态）",
-          "note": "注册取 sid：driver 提交用 runId 即 sid（default 为单 run 现状），宿主 run 记录即按 sid 归槽；每 run 决策/日志隔离沿用 T1-072 per-run 目录。多 run 会话级 relay（decision 经 slotStatus）与双 run 冒烟由后续任务/T1-098 承接。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:47:30.198Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "client 带 sid；run driver 注册 run 取 sid；attach 指定 run"
     },
     {
       "id": "T1-074",
@@ -3335,7 +2855,7 @@
       "deps": [
         "T1-073"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3343,28 +2863,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "前端 ?sid 路由视图（多 run 简单列表壳）",
-      "exec": {
-        "result": "前端 ?sid 路由视图 + 多 run 列表壳落地（commit fb50a27）：dashboard.html 追加 runShell（vanilla 增量，不扰动既有单 run 控件）——页面加载解析 location ?sid；fetch 宿主 /run/status 渲染多 run 简单列表（runId 链点切 ?sid=，标注 status + done/total）；当 ?sid 存在时再 fetch /run/status?runId=<sid> 显示该 run 详情（run/status/mode/counts/currentTask/error），每 3s 轮询刷新；无 run 显示「(无 run)」。新增 tests/unit/dashboard-shell.test.js 守护断言 runShell/runList//run/status/?sid 链接与详情拉取标记存在。验证：lint 通过；dashboard-shell 1 例全过；全量 unit+integration 80 文件 724 例全绿（较 T1-073 后 +1 文件/+1 例），e2e 两个既有环境失败除外。说明：本壳为托管页内多 run 简单可视入口；真实前端工程（web/ React WBS-Tree/WS 订阅/产物托管）与双 run 真机展示冒烟由前端模块及 T1-098 承接。",
-        "files": [
-          "src/server/dashboard.html",
-          "tests/unit/dashboard-shell.test.js"
-        ],
-        "architecture": {
-          "boundary": "dashboard.html 追加 runShell（?sid 路由 + /run/status 多 run 列表 + 详情），纯前端 vanilla 增量，不扰既有单 run 控件/控件路由",
-          "boundaryChanged": false,
-          "changeAxis": "给托管页加简单多 run 壳：URL ?sid 选 run，列表点选切换，详情由 /run/status?runId 拉取",
-          "note": "真实前端工程（React/web WBS-Tree/WS）另由前端模块承接；本壳仅先打通多 run 简单可视入口。真机多 run 展示冒烟随双 run（T1-098）验证。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:48:26.825Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "前端 ?sid 路由视图（多 run 简单列表壳）"
     },
     {
       "id": "T1-075",
@@ -3375,7 +2874,7 @@
       "deps": [
         "T1-074"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3383,27 +2882,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "同机两独立项目并发 run 冒烟（各自 .awf/settings/workdir）：不互杀、hook 路由正确、隔离成立、registry 列两 run",
-      "exec": {
-        "result": "同机两独立项目并发 run 冒烟落地（commit a36d562）：新增 tests/integration/two-project-smoke.test.js——A) 两个独立 projectRoot 的 run-host 实例并发推进到 done：各自 .awf/state 独立完成（exec.result ok）、各自 registry 各列其 run（h1→runA、h2→runB）、互不干扰；B) 两个真实 server.cjs 进程（不同空闲端口 + 不同项目 .awf、CC_SERVER_IDLE_MS=0 关回收）同时驻留：均存活不互杀（exitCode null）、/status projectRoot 各异（隔离成立）；hook sid 路由只在 s1 生效——s1 喂 SessionStart+UserPromptSubmit?sid=rA 后 /status?sid=rA busy、s1 内另一槽 rB ready（槽隔离）、s2 /status?sid=rA 保持 ready（hook 不串 server），结束后两进程仍存活。验证：node --check + lint 通过；冒烟 2 例全过；全量 unit+integration 81 文件 726 例全绿（较 T1-074 后 +1 文件/+2 例），e2e 两个既有环境失败除外。范围：真实 claude 双 run（tmux 会话、决策闸门、per-run 日志/决策落盘随行）仍由 T1-098 自托管真 run 冒烟承接；本冒烟验证 server/host 层隔离（registry 多 run、进程不互杀、/status?sid 槽路由）。",
-        "files": [
-          "tests/integration/two-project-smoke.test.js"
-        ],
-        "architecture": {
-          "boundary": "tests/integration/two-project-smoke.test.js（冒烟层：两 host 并发 + 两 server 进程并发驻留）",
-          "boundaryChanged": false,
-          "changeAxis": "把同机两独立项目并发 run 的隔离保证（不互杀/project 独立/hook sid 路由/registry 各列 run）以可跑冒烟钉住",
-          "note": "A 用两个独立 projectRoot 的 createRunHost 并发驱动；B 用两个 spawn server 进程（不同端口/项目、空闲回收关闭）验证同时驻留不互杀 + /status?sid 槽隔离。真实 claude 双 run（含 tmux/决策/日志落盘）仍由 T1-098 自托管真 run 承担。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:49:37.206Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "同机两独立项目并发 run 冒烟（各自 .awf/settings/workdir）：不互杀、hook 路由正确、隔离成立、registry 列两 run"
     },
     {
       "id": "T1-076",
@@ -3414,7 +2893,7 @@
       "deps": [
         "T1-075"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "src/server/",
         "src/cli/",
@@ -3422,27 +2901,7 @@
         "scripts/bootstrap.sh"
       ],
       "constraints": [],
-      "acceptance": "双 run 并发冒烟全过 + 单/双 run 状态/日志/决策归属断言",
-      "exec": {
-        "result": "双 run 并发冒烟 + 归属断言落地（commit bba78ae）：two-project-smoke.test.js 追加 T1-076 describe——① 单 run：host 驱动到 done（该 .awf 状态 done），DecisionStore（runStamp=runId、runsDir=.awf/runs/<runId>/decisions）append 决策落 <runId>.jsonl、listAll 恰一条、文件路径断言。② 双 run 并发：P1/P2 各自 host done（各自 .awf 状态独立）、决策 D1/D2 经各自 store 落各自 run 文件、listAll 各只含本 run 决策、对端 .awf/runs/<runId> 目录不存在（不串写）。验证：lint + 冒烟 4 例（T1-075 2 + T1-076 2）全过；全量 unit+integration 81 文件 728 例全绿（较 T1-075 后 +2 例），e2e 两个既有环境失败除外。范围：真实 claude 双 run（run-logger/指标/决策随每 run 实际写入链路）仍由 T1-098 自托管真 run 冒烟承接；本任务以 host/DecisionStore 层把单/双 run 归属与隔离钉死。",
-        "files": [
-          "tests/integration/two-project-smoke.test.js"
-        ],
-        "architecture": {
-          "boundary": "tests/integration/two-project-smoke.test.js 追加 T1-076 归属断言 describe（单/双 run 状态与决策归属）",
-          "boundaryChanged": false,
-          "changeAxis": "把单/双 run 的状态与决策归属以断言钉住：每 run 决策落 .awf/runs/<runId>/decisions/<runId>.jsonl 只含本 run、对端目录不串写",
-          "note": "沿用 T1-072 DecisionStore runStamp=runsDir 接缝；真实 claude 双 run（run-logger/指标每 run 写入随行）仍由 T1-098 自托管真 run 承担。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:50:36.603Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "双 run 并发冒烟全过 + 单/双 run 状态/日志/决策归属断言"
     },
     {
       "id": "T2-028",
@@ -3453,24 +2912,10 @@
       "deps": [
         "T1-071"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "审查 W2-028 hook 反向路由改动，输出 pass/changes_requested verdict",
-      "exec": {
-        "startedAt": "2026-09-09T09:50:57.633Z",
-        "result": "审查 W2-028 hook 反向路由完成：结构核对——① gateway.cjs 从 env CC_SID 拼 &sid 透传（/hook?event&sid）；② server.cjs runSlotFor(sid) 惰性建 per-run 内存槽、/hook 带 sid 早路到 handleSidHook（SessionStart ready / UserPromptSubmit busy / Stop gate 关 clear+ready / AskUserQuestion gate 关 setDecision），全程不触碰全局单槽；/status?sid 返回该槽态；③ run-client slotStatus(sid)（/status?sid）；④ 支撑层：run-registry 多槽 + per-run adapter/context（cc-<sid>）、run-slot 隔离对象、runStamp→sid + decision per-run 目录、T1-075/076 双项目/双 run 冒烟（进程不互杀 + 归属不串）。单 run（无 sid）hook 走既有单槽路径、导出面不变，server 既有回归（68 例）绿。证据：run-slot(3)/run-stamp-sid(4)/run-registry(4)/sid-naming(3)/server-lifecycle(4 incl sid hook)/two-project-smoke(4)/server(68) 等 90 例全绿。审查结论见 verdict。",
-        "verdict": {
-          "conclusion": "W2-028 hook 反向路由审查通过：/hook?sid 早路到 per-run run-slot、ready/busy/decision 内存隔离成立、gateway 透传 sid、client 可经 slotStatus 寻址，单 run 无 sid 路径零回归；90 例相关（含两进程/双 run 冒烟）全绿。非阻断已知限制：curl 类 hook 事件（SessionStart/UserPromptSubmit/Subagent 等，hooks.json 未带 &sid）与每 run CC_SID 注入随多 run boot 接线补齐（T1-098 双 run 真 run 前完成），不影响本模块反向路由 seam 验收。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "hook 反向路由 seam：gateway CC_SID→?sid、server runSlotFor/handleSidHook /status?sid、client slotStatus、registry multi-slot + run-slot 隔离、decision per-run 目录；单 run 无 sid 路径不变",
-          "path": "none",
-          "reviewNote": "审查 W2-028 hook 反向路由：覆盖 T1-068（registry 多槽/adapter 绑定/context 多实例）、T1-069（cc-<sid>/per-run 目录命名）、T1-070（settings usagePath + gateway 透传 sid）、T1-071（/hook 按 sid 路由 + 内存状态机隔离）、T1-072-076（runStamp=sid/决策归属/双 run 冒烟）。"
-        },
-        "completedAt": "2026-09-09T09:51:08.726Z"
-      }
+      "acceptance": "审查 W2-028 hook 反向路由改动，输出 pass/changes_requested verdict"
     },
     {
       "id": "T3-006",
@@ -3481,27 +2926,10 @@
       "deps": [
         "T1-076"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。",
-      "exec": {
-        "startedAt": "2026-09-09T09:51:26.262Z",
-        "result": "非真模块核查完成（未跑整套真实测试，结构/验收自检 + 既有绿测佐证）：W3-006（多 run sessionid 贯穿，T1-068…076）六项验收点全部对表成立——① server 多槽 registry（run-registry slot/has/list/ensureLayout，per-sid ctx+adapter+sm 惰性装配/缓存）；② tmux cc-<sid>（run-context runSessionName=sid?cc-<sid>、host 原语绑定、sid-naming 测试）；③ hook 反向路由（run-settings usagePath per-run、gateway CC_SID→?sid、server /hook?sid 早路 handleSidHook + /status?sid、内存状态机 run-slot 隔离）；④ state/决策按 sid 分片（run-id resolveRunStamp、DecisionStore runStamp/runsDir per-run 目录不串、per-run layout ensureLayout、host runId=sid 记录）；⑤ MCP/client/前端带 sid（run-client slotStatus、dashboard ?sid runShell）；⑥ 同机并发冒烟（server-lifecycle sid hook a/b 隔离、two-project-smoke 两进程不互杀 + 双 host 并发 + 单/双 run 归属断言）。单 run（无 sid）路径零变化，server 既有回归 68、全量 unit+integration 81 文件 728 例绿（e2e 两既有基线失败除外）。报告落 .awf/reports/test/w3-006-module-gate.md。遗留（不阻塞）：curl 类 hook 事件带 &sid 与每 run CC_SID 注入、run-logger/指标每 run writer 迁移、决策闸门 per-run 全分支、真 claude 双 run 随行 → 均由 T1-098 自托管真 run 冒烟前补齐/验证。无阻断问题，未派生修复任务 → verdict pass。",
-        "files": [
-          ".awf/reports/test/w3-006-module-gate.md"
-        ],
-        "verdict": {
-          "conclusion": "W3-006 模块测试门禁通过：非真结构核查六项模块验收点（多槽 registry/cc-<sid>/hook 反向路由/按 sid 分片/client 与前端带 sid/并发冒烟隔离）全部成立，单 run 无回归，728 例绿测佐证；真 claude 双 run 由 T1-098 承担。四个遗留（curl hooks 带 sid 与 CC_SID 注入、run-logger/指标每 run writer、决策闸门 per-run 分支）已标注不阻塞。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "W3-006 模块（多 run sid 贯穿：registry/cc-<sid>/hook 反向路由/per-run 分片/client&前端带 sid/并发冒烟）；非真结构核查结论",
-          "path": "none",
-          "reviewNote": "模块测试门禁产物 .awf/reports/test/w3-006-module-gate.md；结构/验收点逐条对表。"
-        },
-        "completedAt": "2026-09-09T09:51:50.252Z"
-      }
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
     },
     {
       "id": "T1-077",
@@ -3512,7 +2940,7 @@
       "deps": [
         "T3-006"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3520,31 +2948,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "awf-state 18 tools 语义保留，底层改经 server run api（带 sid env）；直写文件/锁逻辑下线",
-      "exec": {
-        "result": "awf-state MCP 底层经 server run api 落地（commit 6de4395）：① server.cjs 新增 POST /run/state/apply（校验 body.state object → stateApi.saveState（state.js 锁+原子）落盘，单写者收口），ensureRunStateApi 增 saveState（override/真实双路径）。② awf-state MCP server.cjs：env CC_AWF_STATE_SERVER=1 启用 server 模式——tools/call 读边界经 GET /awf/state（readStateServer）、写边界经 POST /run/state/apply（writeStateServer）；18 tools 语义（判定/mutate）仍在本 MCP 的 TOOLS switch 保留，仅最终写收 server；executor 重构为 apply() 闭包（file 模式 withStateLock(apply)，server 模式 apply()+await writeStateServer），无本地锁文件。③ 缺省（env 未设）关 → 离线/plan/单测沿用直写文件/锁，awf-state 既有集成 29 例零回归。④ run.js ensureSession 注入 CC_AWF_STATE_SERVER=1 + CC_PORT：run 会话内 MCP 走 server 单写者（不再直写/自持锁）；plan 无 server 仍离线（T1-104 plan 起始重置依赖本地写）。验证：node --check + lint 通过；MCP→server 端到端 1 例（真 server + stdio MCP 子进程：awf_read_state 经 server 读、awf_task_status 经 apply 落盘文件与 server GET 均 done）+ /run/state/apply 集成 1 例 + awf-state 29 例 + 全量 unit+integration 82 文件 730 例全绿（较 T1-076 后 +2 文件/+2 例），e2e 两个既有环境失败除外。说明：per-run state（.awf/runs/<sid>）分片仍为单文件单写者演进（CC_SID 环境预留），后续 per-run 布局任务接入。",
-        "files": [
-          "src/server/server.cjs",
-          "plugin/core/mcp/awf-state/server.cjs",
-          "src/cli/run.js",
-          "tests/integration/server-lifecycle.test.js",
-          "tests/integration/awf-state-server.test.js"
-        ],
-        "architecture": {
-          "boundary": "awf-state MCP 读/写边界经 server run api（/awf/state 读 + /run/state/apply 写，env CC_AWF_STATE_SERVER=1 启用）；18 tools 语义保留在 MCP（判定/mutate 本地），最终写收 server 单写者（state.js 锁+原子）",
-          "boundaryChanged": true,
-          "changeAxis": "把 awf-state MCP 的直写文件/自持锁下线为「语义本地 + 写收 server」：tools/call 读经 GET /awf/state、写经 POST /run/state/apply；缺省关保留离线/plan/单测直写",
-          "note": "run.js ensureSession 注入 CC_AWF_STATE_SERVER=1 + CC_PORT，run 会话内 MCP 走 server 单写者；plan（无 server）仍离线直写（T1-104 plan 重置需本地写）。缺省关保证 awf-state 既有集成（29 例）与离线语义零回归。per-run state（sid 分片）仍为单文件单写者，sid 环境带 CC_SID 预留后续。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:56:22.428Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "awf-state 18 tools 语义保留，底层改经 server run api（带 sid env）；直写文件/锁逻辑下线"
     },
     {
       "id": "T1-078",
@@ -3555,7 +2959,7 @@
       "deps": [
         "T1-077"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3563,29 +2967,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "MCP 代理鉴权/边界：只碰本 sid run（软约束，U3）",
-      "exec": {
-        "result": "MCP 代理边界（run-state 按 sid 分片，软约束 U3）落地（commit f4f7132）：① server.cjs 新增 runStateFile/runStateLockFile/writeRunStateSid 帮助器（store-core 原子写 + 每 run 独立 lock）——GET /awf/state 读与 POST /run/state/apply 写支持 ?sid：sid 提供时读写 .awf/runs/<sid>/state.json（只碰本 sid run，互不影响），缺省回落项目根 state（单 run 现状，含 404 文案）。② awf-state MCP server 模式读/写路径带自身 CC_SID（SID_QS：?sid=...），MCP 代理只命中本 sid run；无 CC_SID 不带参数（回默认）。③ 软约束属性：以「MCP 带自身 sid + server 按 sid 定位文件」实现，无硬鉴权/越权防护（U3 明示软约束）。host 编排仍写项目根 state（单 run 现状），per-run state 为 MCP 会话内按 sid 落盘边界。验证：node --check + lint 通过；server-lifecycle 新增 sid 分片边界 1 例（?sid=ra/rb apply 各自写 .awf/runs/<sid>/state.json、?sid 读回各自任务不串）+ 全量 unit+integration 82 文件 731 例全绿（较 T1-077 后 +1 例），e2e 两个既有环境失败除外。",
-        "files": [
-          "src/server/server.cjs",
-          "plugin/core/mcp/awf-state/server.cjs",
-          "tests/integration/server-lifecycle.test.js"
-        ],
-        "architecture": {
-          "boundary": "server /awf/state(读) 与 /run/state/apply(写) 支持 ?sid → .awf/runs/<sid>/state.json（store-core 原子+独立 lock）；awf-state MCP server 模式带 CC_SID 命中本 run；缺省回落项目根 state",
-          "boundaryChanged": true,
-          "changeAxis": "给 server run-state 端点加按 sid 分片软边界，MCP 代理只碰本 sid run（U3）",
-          "note": "软约束：由 MCP 带自身 CC_SID、server 按 sid 定位文件实现；无硬鉴权/越权防护（U3 明示软约束）。host 编排仍写项目根 state（单 run 现状），per-run state 供 MCP 会话内按 sid 落；单 run（无 sid）行为零变化。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T09:58:27.203Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "MCP 代理鉴权/边界：只碰本 sid run（软约束，U3）"
     },
     {
       "id": "T1-079",
@@ -3596,7 +2978,7 @@
       "deps": [
         "T1-078"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3604,28 +2986,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "awf-session 全经 server（+sid）；capture 经 host 端口",
-      "exec": {
-        "result": "awf-session 全经 server（+sid）+ capture 经 host 端口落地（commit 7103b48）：① awf-session MCP capturePane 改经 server——优先 GET /status?snapshot=1（server 经其 tmux/host 原语抓 pane，即「capture 经 host 端口」），server 无快照/失败再降级本地 execSync tmux（离线/旧版/单测），不抛。② 修复 httpGet/httpPost 构造 path 时保留 url.search（原只用 pathname，?snapshot=1 与 ?sid 会丢）——这使 snapshot 与 sid 查询真正送达。③ 带 sid：session_status 经 '/status'+SID_QS（CC_SID 命中本 run 槽）、intervene/interrupt/choice/ask/context-ready 均走既有 server 端点（语义不变）；await_choice/input 仍经 /choice /ask。测试同步：awf-session 集成 18 例更新（TC10 capture 先打 server /status?snapshot=1 再降级 exec、TC19 异常返回字符串 await）。验证：node --check + lint 通过；awf-session 18 例全过；全量 unit+integration 82 文件 731 例全绿（行为无净增/净减，断言改造），e2e 两个既有环境失败除外。无 CC_SID 时与旧行为一致，离线/单测零回归。",
-        "files": [
-          "plugin/core/mcp/awf-session/server.cjs",
-          "tests/integration/awf-session.test.js"
-        ],
-        "architecture": {
-          "boundary": "awf-session MCP 全经 server HTTP（AWF_BASE 单源）：capturePane 改经 server GET /status?snapshot=1（host 端口/tmux 原语），降级本地 exec 仅离线/旧版；httpGet/httpPost 保留 url.search；工具带 CC_SID（+sid 命中本 run 槽）",
-          "boundaryChanged": true,
-          "changeAxis": "把 awf-session 的 capture 从本地 exec tmux 改经 server host 快照端点，并让全部 server 调用按需带 sid",
-          "note": "修复 httpGet/httpPost 丢弃 query（原实现只用 pathname，导致 ?snapshot/?sid 丢失）；server /status?snapshot=1 返回 out.snapshot（tmuxlib.capture）。无 CC_SID 时行为与旧一致（测试零回归）。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:00:38.355Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "awf-session 全经 server（+sid）；capture 经 host 端口"
     },
     {
       "id": "T1-080",
@@ -3636,7 +2997,7 @@
       "deps": [
         "T1-079"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3644,30 +3005,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "awf-oneshot 经 server /oneshot（直连 spawn claude 下线）",
-      "exec": {
-        "result": "awf-oneshot 经 server /oneshot 落地（commit 7a5d8cb）：① server.cjs 新增 POST /oneshot——body {prompt, cwd?} → oneshotLib.runOneShot（src/adapters/oneshot.cjs，claude 字面只在此 adapter，满足 R-cc；测试可 global.__CC_ONESHOT__ 注入），空/非字符串 prompt → 400；成功/失败按 {ok,text/error} 返回。② awf-oneshot MCP：env AWF_BASE 提供时 awf_oneshot 改经 serverOneShot → httpJsonPost POST <AWF_BASE>/oneshot，MCP 不再本地 spawn claude -p（直连 spawn 下线于 server 路径）；AWF_BASE 缺省（离线/纯插件副本/单测）沿用本地 spawnClaude，现有 awf-oneshot 集成零回归。③ 验证：node --check + lint 通过；awf-oneshot-server 新 1 例（mock server 验证 MCP 走 /oneshot、返回 server 文本、不 spawn 本地）+ server-lifecycle 空 prompt 400 + awf-oneshot 既有 18 例 + 全量 unit+integration 83 文件 733 例全绿（较 T1-079 后 +1 文件/+2 例），e2e 两个既有环境失败除外。AWF_BASE 由 run 会话/插件 MCP env 下发（与 awf-session 同一注入源），真实 claude -p 只存在于 server oneshot adapter。",
-        "files": [
-          "src/server/server.cjs",
-          "plugin/core/mcp/awf-oneshot/server.cjs",
-          "tests/integration/server-lifecycle.test.js",
-          "tests/integration/awf-oneshot-server.test.js"
-        ],
-        "architecture": {
-          "boundary": "server POST /oneshot（oneshotLib.runOneShot，cc 收口 adapter）+ awf-oneshot MCP env AWF_BASE 时走 server（不再本地 spawn claude -p）；缺省离线/单测沿用本地 spawn",
-          "boundaryChanged": true,
-          "changeAxis": "把 awf-oneshot 的无状态 claude -p 调用收口 server /oneshot：MCP 变纯 HTTP client（AWF_BASE），spawn 只在 server oneshot adapter",
-          "note": "测试可 global.__CC_ONESHOT__ 注入避免真实 claude；AWF_BASE 由 run 会话/插件 MCP env 下发（与 awf-session 同一注入源）；无 AWF_BASE 时保持本地路径（离线/纯插件副本/单测零回归）。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:02:23.238Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "awf-oneshot 经 server /oneshot（直连 spawn claude 下线）"
     },
     {
       "id": "T1-081",
@@ -3678,7 +3016,7 @@
       "deps": [
         "T1-080"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3686,29 +3024,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "config 单源扩展：任意插件可声明自身 mcp/hooks（engineDir-only 取消）+ render 改输出",
-      "exec": {
-        "result": "config 单源扩展落地（commit fe71a83）：① plugin-config.js 新增 resolvePluginAssets(plugin, {mcpServers,hooks,engineDir})——任意插件自身 mcpServers/hooks 优先；引擎插件（plugin.dir===config.engineDir）自身无声明时回落顶层 config.mcpServers/hooks（向后兼容）；其余插件无声明 → {mcpServers:null,hooks:null}（引擎运行时资产不外泄）。② scripts/render-config.mjs 模式 1 渲染循环改按插件输出：每插件 plugin.json（有自身/引擎 hooks 才 withHooks）+ 自身 .mcp.json（有 mcpServers 才写）+ hooks/hooks.json（有 hooks 才写），不再「只写引擎插件」；引擎插件经回落仍获得顶层 mcp/hooks。引擎产物重渲染与提交基线一致（重跑 render-config 后 git status plugin 为空）。③ 验证：node --check + lint 通过；render-config 测试 9 例（原 6 + 新增 3：引擎回落顶层/非引擎不外泄/任意插件用自身声明）全过；全量 unit+integration 83 文件 736 例全绿（较 T1-080 后 +3 例），e2e 两个既有环境失败除外。说明：插件自身 mcp 的 args 以 ${CLAUDE_PLUGIN_ROOT} 前缀（claude 按该插件根展开，天然按 dir 归位）；当前无非引擎插件声明 mcp/hooks，引擎输出保持现状。",
-        "files": [
-          "src/lib/plugin-config.js",
-          "scripts/render-config.mjs",
-          "tests/unit/render-config.test.js"
-        ],
-        "architecture": {
-          "boundary": "plugin-config.js resolvePluginAssets（插件自身 mcp/hooks 优先；引擎回落顶层；非引擎无声明→null）+ render-config.mjs 循环按插件输出（plugin.json withHooks + .mcp.json/hooks.json 各自 dir）",
-          "boundaryChanged": true,
-          "changeAxis": "config 单源从「engineDir-only」扩展为任意插件可声明自身 mcp/hooks；渲染改按插件拆分输出",
-          "note": "引擎 .mcp/hooks 顶层 config 资产经回落路径渲染进 engineDir，重渲染与提交基线一致；非引擎插件若无声明不再渲染引擎资产（不外泄）。插件声明自身的 mcp args 以 ${CLAUDE_PLUGIN_ROOT} 相对自身 dir（claude 按插件根展开）。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:04:31.081Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "config 单源扩展：任意插件可声明自身 mcp/hooks（engineDir-only 取消）+ render 改输出"
     },
     {
       "id": "T1-082",
@@ -3719,7 +3035,7 @@
       "deps": [
         "T1-081"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3727,30 +3043,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "settings.json 本仓段改由 config 渲染产物；根 .mcp.json 消除；figma 等第三方留手工合并层",
-      "exec": {
-        "result": "settings 本仓段渲染 + 根 .mcp.json 消除落地（commit 5fba8bd）：① plugin-config.js 新增 renderRepoSettings(pluginSettings, pluginRoot)——把 plugin/settings.json（安装清单，含 figma@claude-plugins-official 等第三方手工合并层）渲染为本仓 .claude/settings.json：仅解析 extraKnownMarketplaces 各 source.path 的 <pkg> 占位为绝对 plugin 根（repoRoot=<pkg>、source.path '<pkg>/plugin'→pluginRoot），plugins/enabledPlugins/第三方条目原样保留（第三方留手工合并层）。② render-config.mjs 模式 1 追加写 <repoRoot>/.claude/settings.json（renderRepoSettings(pluginSettings, pluginRoot)），每次构建重生成本机开发注入文件。③ 删除根 .mcp.json：引擎（awf-state/awf-session/awf-oneshot）MCP 现由启用的 ai-workflow-core 插件 .mcp.json 注册提供（本会话 awf-* 工具即由该插件加载，实证 plugin enabled 注册即暴露），仓库根不再需要绝对兜底（且旧文件路径已失效）；run 项目级 installProjectMcp 仍按需写项目 .mcp.json，不受影响。验证：node --check + lint 通过；render-config 测试 10 例（原 9 + 新增 1：<pkg> 解析 + 第三方 figma 保留）全过；全量 unit+integration 83 文件 737 例全绿（较 T1-081 后 +1 例），e2e 两个既有环境失败除外。说明：.claude/settings.json 为本机开发注入文件（gitignore/untracked），由 render-config 每次重写为当前绝对 plugin 根，不入库。",
-        "files": [
-          "src/lib/plugin-config.js",
-          "scripts/render-config.mjs",
-          ".mcp.json",
-          "tests/unit/render-config.test.js"
-        ],
-        "architecture": {
-          "boundary": "render-config 模式 1 增写 .claude/settings.json（renderRepoSettings：plugin/settings.json <pkg>→绝对 plugin 根，第三方手工层原样保留）；删除根 .mcp.json（引擎 mcp 经启用插件 .mcp.json 提供）",
-          "boundaryChanged": true,
-          "changeAxis": "本仓开发 settings.json 改由 config/plugin/settings.json 渲染产物驱动（不再手工）；根 .mcp.json 兜底消除，插件 enabled 注册即暴露引擎 MCP",
-          "note": ".claude/settings.json 为本机开发注入文件（gitignore/untracked），每次 render-config 重写为本机绝对 plugin 根；run 项目级 installProjectMcp 仍按需写项目 .mcp.json（不受影响）。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:06:32.348Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "settings.json 本仓段改由 config 渲染产物；根 .mcp.json 消除；figma 等第三方留手工合并层"
     },
     {
       "id": "T1-083",
@@ -3761,7 +3054,7 @@
       "deps": [
         "T1-082"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3769,16 +3062,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "命令/skill 描述去\"运行实现字面\"（引用行为语义；低强度，接 U5 粗略档）",
-      "exec": {
-        "result": "命令/skill 描述去运行实现字面（低强度，U5 粗略档）完成（commit 73d7196）：全量扫描 plugin 下的命令（*.md 标题+关联 Skill 指引）、36 个 SKILL.md 描述、agent 描述与 plugin.json description/summary 字段——命令与 skill 描述已为行为语义（引用行为/触发条件，不含运行实现字面）；唯一命中机制字面的是 awf-monitor-probe agent 描述「读取 tmux Claude Code 现场」，改为行为语义「读取运行中的 Claude Code 会话现场、运行日志与工作流状态」（tmux 为传输机制非行为语义，已去）。低强度 pass：无行为/代码改动，仅文档描述归一；命令与技能注册（plugin.json/prompts）未受影响。验证：全量 unit+integration 83 文件 737 例绿（描述改动不涉代码，套件确认无回归）。",
-        "architecture": {
-          "boundary": "命令/skill/agent 描述低强度（U5 粗略）去运行实现字面：全量扫描 plugin 描述字段，命令与 SKILL.md 已行为语义；仅 agent 一处机制字面归一",
-          "path": "remove",
-          "reviewNote": "扫描命令 *.md/SKILL.md/agent 描述与 plugin.json description/summary：无 run 实现字面（tmux/spawn/claude -p/run-batch/server run//send//hook/MCP server 等）残留；仅 awf-monitor-probe 描述含『tmux Claude Code 现场』，改为行为语义。低强度 pass，无行为代码改动。"
-        },
-        "completedAt": "2026-09-09T10:07:55.214Z"
-      }
+      "acceptance": "命令/skill 描述去\"运行实现字面\"（引用行为语义；低强度，接 U5 粗略档）"
     },
     {
       "id": "T1-084",
@@ -3789,7 +3073,7 @@
       "deps": [
         "T1-083"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "plugin/core/mcp/",
         "plugin/config.json",
@@ -3797,16 +3081,7 @@
         "scripts/render-config.mjs"
       ],
       "constraints": [],
-      "acceptance": "MCP 全链路（主会话写状态/oneshot/await）+ 注册/渲染单测 + plugin 测试适配绿",
-      "exec": {
-        "result": "MCP 全链路 + 注册/渲染/plugin 适配绿落地（commit 61fe96d）：新增 tests/integration/mcp-fullchain.test.js——在同一真 server（CC_PROJECT tmp、CC_AWF_STATE_SERVER=1、CC_PORT/AWF_BASE、fake __CC_ONESHOT__）上贯通全部 MCP：① awf-state（stdio 子进程；该模块无 handlers 导出故按既有模式 connectMCP）主会话读 awf_read_state（server /awf/state）→ awf_task_status 经 server /run/state/apply 落盘（文件 tasks[0].done）；② awf-session（本进程导入导出 handlers）await_choice 经 /choice 置 default 槽 decisionPending.question、context_ready 经 /context-ready 置位（GET 读回 ready）；③ awf-oneshot（本进程导入）经 server /oneshot（fake adapter）返回 once-ok。注册/渲染单测（render-config 10 例）与既有 plugin 集成（awf-state 29、awf-session 18、awf-oneshot 18/1、awf-state-server 1、awf-oneshot-server 1、mcp-fullchain 1）随全量适配绿。验证：node --check + lint 通过；mcp-fullchain 1 例全过；全量 unit+integration 84 文件 738 例全绿（较 T1-083 后 +1 文件/+1 例），e2e 两个既有环境失败除外。",
-        "architecture": {
-          "boundary": "新增 tests/integration/mcp-fullchain.test.js（真 server 全链路贯通：awf-state 状态写 / awf-session await+context / awf-oneshot /oneshot）；既有注册/渲染与 plugin 集成随全量绿",
-          "path": "extend",
-          "reviewNote": "awf-state 无 handlers 导出 → stdio 子进程驱动；awf-session/oneshot 导出 handlers → 本进程导入。server /oneshot 用 global.__CC_ONESHOT__ 注入避免真 claude spawn。"
-        },
-        "completedAt": "2026-09-09T10:09:37.380Z"
-      }
+      "acceptance": "MCP 全链路（主会话写状态/oneshot/await）+ 注册/渲染单测 + plugin 测试适配绿"
     },
     {
       "id": "T2-033",
@@ -3817,24 +3092,10 @@
       "deps": [
         "T1-078"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "审查 W2-033 MCP 薄代理 state 改动，输出 pass/changes_requested verdict",
-      "exec": {
-        "startedAt": "2026-09-09T10:09:53.864Z",
-        "result": "审查 W2-033 MCP 薄代理 state 完成：结构核对——① awf-state 18 tools 语义保留在 MCP（判定/mutate 本地），读写边界经 server（GET /awf/state / POST /run/state/apply，state.js 单写者锁+原子），env CC_AWF_STATE_SERVER 启用；缺省关保留离线/plan/单测直写（awf-state 集成 29 例零回归）。② runStamp→sid：server run-state 端点 ?sid 分片 .awf/runs/<sid>/state.json（软约束 U3，只碰本 sid），MCP 带自身 CC_SID。③ awf-session 全经 server（+sid）：capture 经 /status?snapshot=1（host 端口），修复 httpGet/Post 丢 query；await/context-ready 经 /choice /context-ready。④ awf-oneshot 经 server /oneshot（oneshot adapter cc 收口，外部零 claude，可注入）。⑤ render/settings 单源：renderRepoSettings 由 plugin/settings.json 渲染本仓 .claude/settings.json（第三方 figma 手工层保留）；根 .mcp.json 消除。⑥ 全链路测试 mcp-fullchain（主会话写状态/await/oneshot 同一 server）贯通。证据：render-config 10 / mcp-fullchain 1 / awf-state-server 1 / awf-oneshot-server 1 / awf-session 18 / awf-state 29 / server-lifecycle 含 sid 等 67 例 + 全量 738 例绿。审查结论见 verdict。",
-        "verdict": {
-          "conclusion": "W2-033 MCP 薄代理 state 审查通过：awf-state/awf-session/awf-oneshot 读写边界经 server 单写者（runStamp→sid 软边界），18 tools 语义保留、缺省离线直写零回归，render/settings 单源输出成立，全链路 67 例相关测试绿。非阻断：① apply 为完整 state 覆盖（last-writer-wins），并发互改缺 CAS 版本校验（soft，多 run 真机前评估）；② curl 类 hook 事件带 &sid 与每 run CC_SID/会话 env 注入仍在多 run boot 接线（T1-098 双 run 前完成）；③ 决策闸门 per-run 全分支待补。均不阻塞本模块验收。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "MCP 薄代理 state：awf-state 经 server /run/state/apply + /awf/state 读（env CC_AWF_STATE_SERVER）、awf-session/oneshot 经 server（AWF_BASE，capture /oneshot），runStamp→sid 分片软边界；render 单源输出本仓 settings",
-          "path": "none",
-          "reviewNote": "审查 W2-033 MCP 薄代理 state：覆盖 T1-077..084（awf-state server 单写者 apply、runStamp=sid/软边界、awf-session 全经 server+capture host、awf-oneshot /oneshot、render/settings 单源、MCP 全链路测试）。"
-        },
-        "completedAt": "2026-09-09T10:10:05.797Z"
-      }
+      "acceptance": "审查 W2-033 MCP 薄代理 state 改动，输出 pass/changes_requested verdict"
     },
     {
       "id": "T2-035",
@@ -3845,24 +3106,10 @@
       "deps": [
         "T1-082"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "审查 W2-035 注册与渲染单源改动，输出 pass/changes_requested verdict",
-      "exec": {
-        "startedAt": "2026-09-09T10:10:20.489Z",
-        "result": "审查 W2-035 注册与渲染单源完成：结构核对——① plugin-config.js 提供 renderPluginJson/renderMarketplace/renderMcpServers/resolvePluginAssets/renderRepoSettings，唯一源 plugin/config.json + plugin/settings.json；② render-config.mjs 模式 1 依 marketplace.plugins 输出各 plugin.json（引擎回落顶层 hooks 时带 hooks）、引擎 .mcp/hooks 经回落渲染进 core、任意插件自身 mcp/hooks 也按 dir 输出；并追加写本仓 .claude/settings.json（renderRepoSettings 解析 <pkg>→绝对 plugin 根，figma 等第三方手工合并层原样保留）；③ 根 .mcp.json 已删除（引擎 mcp 由启用的 ai-workflow-core 插件 .mcp.json 提供，实证 awf-* 工具由插件加载）；run 项目级 installProjectMcp 仍按需写项目 .mcp.json（独立）。④ 渲染产物：重跑 render-config 后 plugin 提交资产与基线一致（引擎输出无漂移）。证据：render-config.test 10 例（含 T1-081 解析 3、T1-082 <pkg>/第三方 1）+ plugin-config.test 3 例共 13 例 + 全量 738 例绿。审查结论见 verdict。",
-        "verdict": {
-          "conclusion": "W2-035 注册与渲染单源审查通过：plugin/config.json + plugin/settings.json 单源成立，resolvePluginAssets/renderRepoSettings 等渲染器输出与提交基线一致、根 .mcp.json 消除、第三方手工层保留；13 例渲染/plugin-config 测试 + 全量 738 例绿。非阻断：① 当前无非引擎插件声明 mcp/hooks，per-plugin 能力为可测试接缝（resolvePluginAssets 已锁）；② .claude/settings.json 为本机开发注入文件（gitignore/untracked），每次 render-config 重写绝对 plugin 根，不入库；③ 项目级 .mcp.json（installProjectMcp）为 run 所需、独立于本仓单源。均不阻塞验收。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "注册/渲染单源：plugin/config.json + plugin/settings.json 为唯一源；plugin-config.js resolvePluginAssets/renderRepoSettings/renderPluginJson/renderMarketplace + render-config.mjs 输出各插件注册与 .mcp/hooks 及本仓 .claude/settings.json；根 .mcp.json 移除",
-          "path": "none",
-          "reviewNote": "审查 W2-035 注册与渲染单源：覆盖 T1-081（任意插件自身 mcp/hooks，engineDir 回落）、T1-082（本仓 settings 渲染产物 + 根 .mcp.json 消除）及前序 render 泛化（render-config.test）。"
-        },
-        "completedAt": "2026-09-09T10:10:30.200Z"
-      }
+      "acceptance": "审查 W2-035 注册与渲染单源改动，输出 pass/changes_requested verdict"
     },
     {
       "id": "T3-007",
@@ -3873,27 +3120,10 @@
       "deps": [
         "T1-084"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。",
-      "exec": {
-        "startedAt": "2026-09-09T10:10:45.555Z",
-        "result": "非真模块核查完成（未跑整套真实测试，结构/验收自检 + 既有绿测佐证）：W3-007（插件层收口，T1-077…084）六项验收点全部对表成立——① awf-state 18 tools 语义保留、读写边界经 server（/run/state/apply + /awf/state，CC_AWF_STATE_SERVER，?sid 分片软边界），缺省离线直写零回归；② awf-session 全经 server（+sid，capture 经 /status?snapshot=1 host 端口、query 修复）；③ awf-oneshot 经 server /oneshot（oneshot adapter cc 收口、可注入），缺省本地 spawn；④ 插件注册/渲染单源：resolvePluginAssets（任意插件 mcp/hooks、引擎回落）+ renderRepoSettings（本仓 settings 由 plugin/settings.json 渲染、第三方保留）+ 根 .mcp.json 消除（渲染产物与提交基线一致）；⑤ 方法论资产工具无关化低强度（描述扫描去运行实现字面）；⑥ 全链路 mcp-fullchain + 插件集成/冒烟（82 例相关 + 全量 738 例绿，e2e 两既有基线失败除外）。报告落 .awf/reports/test/w3-007-module-gate.md。遗留（不阻塞，已标注）：curl hooks 带 sid 与每 run CC_SID/AWF_BASE 会话 env 注入（多 run boot 接线，T1-098 前）；/run/state/apply last-writer-wins 缺 CAS（soft）；决策闸门 per-run 与真 claude 双 run 由 T1-098 验证；per-plugin 自身 mcp/hooks 暂无实际声明（接缝已测）。无阻断问题，未派生修复任务 → verdict pass。",
-        "files": [
-          ".awf/reports/test/w3-007-module-gate.md"
-        ],
-        "verdict": {
-          "conclusion": "W3-007 模块测试门禁通过：非真结构核查六项模块验收点（三插件 MCP 薄 HTTP 代理带 sid + 注册/渲染单源 + 描述低强度）全部成立，缺省离线路径零回归，738 例绿测佐证；真 claude 双 run 由 T1-098 承担。四个遗留（curl hooks 带 sid 与会话 env 注入、apply 缺 CAS、决策闸门 per-run、per-plugin 自身声明实际化）已标注不阻塞。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "W3-007 模块（插件层收口：三插件 MCP 薄 HTTP 代理 + 注册/渲染单源 + 描述低强度）；非真结构核查结论",
-          "path": "none",
-          "reviewNote": "模块测试门禁产物 .awf/reports/test/w3-007-module-gate.md；结构/验收点逐条对表。"
-        },
-        "completedAt": "2026-09-09T10:11:04.156Z"
-      }
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
     },
     {
       "id": "T1-085",
@@ -3904,7 +3134,7 @@
       "deps": [
         "T3-007"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -3912,35 +3142,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "web/ 初始化（Vite+React+lint）+ api client（http+ws 封装，带 sid）",
-      "exec": {
-        "result": "web/ 初始化 + api client 落地（commit 17df9cb）：① web/ Vite+React 脚手架——package.json（react 18/vite 5/@vitejs/plugin-react/eslint flat + @eslint/js/eslint-plugin-react/react-hooks，scripts dev/build/preview/lint）、vite.config.js（dev server 端口 env AWF_WEB_PORT 缺省 5173；proxy /run、/awf、/status 到 server env AWF_SERVER 缺省 127.0.0.1:8787，含 ws:true 支持 WS 事件）、index.html、src/main.jsx（StrictMode createRoot）、src/App.jsx（前端壳占位）、eslint.config.js（js+react+hooks rules）、web/.gitignore（node_modules/dist）。② web/src/api/client.js 纯 ESM api client：createApiClient({base, sid, httpFetch, wsFactory})——get/post 自动附 ?sid（保留原 query 合并，new URL 归一）；stream(path) 把 http(s) 基址换算 ws/wss 并带 sid 后经注入 wsFactory 建连；fetch/WebSocket 全可注入（测试/降级），返回 {get,post,stream,url,base,sid}。视图（Dashboard/WBS-Tree/Decisions/Diagnostics + WS 订阅）由后续前端任务在 App/容器装配；dev proxy 让前端以同源相对路径访问 server 端点。验证：lint（仓库语法）通过；web-api-client 单测 3 例（无 sid 路径、sid 附 query 合并、stream ws 换算带 sid）全过；全量 unit+integration 85 文件 741 例全绿（较 T1-084 后 +1 文件/+3 例）。web 依赖 npm install 需在真实 dev 环境执行（本沙箱不联网）。",
-        "files": [
-          "web/package.json",
-          "web/vite.config.js",
-          "web/index.html",
-          "web/src/main.jsx",
-          "web/src/App.jsx",
-          "web/src/api/client.js",
-          "web/eslint.config.js",
-          "web/.gitignore",
-          "tests/unit/web-api-client.test.js"
-        ],
-        "architecture": {
-          "boundary": "web/（Vite+React+eslint 脚手架）+ web/src/api/client.js（纯 ESM http+ws api client，带 sid，fetch/WebSocket 可注入）",
-          "boundaryChanged": false,
-          "changeAxis": "启动前端工程化：web/ 项目骨架 + 统一 api client（http 端点与 ws 事件流均附 sid，按 run 寻址）",
-          "note": "api client 零依赖可单测（vitest 已覆盖）；React 视图（Dashboard/WBS-Tree/Decisions/Diagnostics/WS）由后续前端任务在 App/容器装配；vite dev 代理 /run /awf /status 到 server（env AWF_SERVER）。依赖安装留真实 dev 环境（npm install）。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:12:43.791Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "web/ 初始化（Vite+React+lint）+ api client（http+ws 封装，带 sid）"
     },
     {
       "id": "T1-086",
@@ -3951,7 +3153,7 @@
       "deps": [
         "T1-085"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -3959,34 +3161,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "主题/共享组件库建成（抽 4 html 公共的 CSS 变量/esc/format/task 列表等）",
-      "exec": {
-        "result": "主题/共享组件库落地（commit 434bab8）：① 新增 src/server/theme.css——:root CSS 变量（--bg/--card/--accent/--text/--muted/--border/--done/--active/--blocked/--warn/--info/--mono）与基础类（.done/.active/.blocked/.muted/.mono），抽取自 4 托管页内联样式公共 token。② 新增 src/server/common.js——window.AWF_COMMON 共享工具：esc（HTML 转义防注入）、fmtDuration（ms→s/m/h）、taskRow（按 status 生成任务行 DOM 字符串）、renderTaskList（渲染到容器），抽取自各页内联脚本公共逻辑。③ server.cjs 托管共享资产：GET /theme.css（text/css）与 /common.js（text/javascript），从 htmlDir（src/server）读取（修复上一轮对 /ui 后注释行的误并后重建行）。④ 4 托管页（dashboard/ui/decisions/diagnostics）head 注入 <link /theme.css> 与 <script defer /common.js>，页面可调用 AWF_COMMON；内联实现逐步替换留后续前端任务。验证：node --check + lint 通过；server-lifecycle 新增资产 serve 1 例（/theme.css 200+text/css+含 --bg；/common.js 200+text/javascript+含 AWF_COMMON）；全量 unit+integration 85 文件 742 例全绿（较 T1-085 后 +1 例），e2e 两个既有环境失败除外。",
-        "files": [
-          "src/server/theme.css",
-          "src/server/common.js",
-          "src/server/server.cjs",
-          "src/server/dashboard.html",
-          "src/server/ui.html",
-          "src/server/decisions.html",
-          "src/server/diagnostics.html",
-          "tests/integration/server-lifecycle.test.js"
-        ],
-        "architecture": {
-          "boundary": "src/server/theme.css + common.js（共享主题 token 与 esc/format/task 工具）+ server 托管 GET 资产 + 4 托管页 head 注入引用",
-          "boundaryChanged": false,
-          "changeAxis": "把 4 个 server 托管页（dashboard/ui/decisions/diagnostics）的公共主题变量与工具抽取为共享资产统一托管",
-          "note": "common.js 暴露 window.AWF_COMMON（esc/fmtDuration/taskRow/renderTaskList）供页面调用；页面内联样式/脚本逐步替换为共享实现留后续前端任务（本次先建共享层并接入引用）。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:14:12.639Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "主题/共享组件库建成（抽 4 html 公共的 CSS 变量/esc/format/task 列表等）"
     },
     {
       "id": "T1-087",
@@ -3997,7 +3172,7 @@
       "deps": [
         "T1-086"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4005,30 +3180,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "Dashboard 迁移：run 总览/任务列表/阶段/指标/send·respond·stop/启停（经 server api + WS）",
-      "exec": {
-        "result": "Dashboard 迁移到 web 落地（commit 23a4b68）：① web/views/dashboard-model.js（纯函数零依赖，vitest 可测）：toDashboardModel({runStatus,status,metrics})——GET /run/status（runs 选活跃/首个 run：runId/runStatus/mode/counts/progress/currentTaskTitle/currentStage）+ /status（projectRoot/sessionState/decisionPending/contextReady/activeAgents）+ /awf/metrics 归一为展示模型（无 run → idle 兜底 progress 0/0）；phaseLabel（阶段文案映射）；applyRunEvent（WS 事件增量：task.* 更新 lastEvent、run.stopped 更新 runStatus）。② web/views/Dashboard.jsx（React）：client=createApiClient({sid}) 经 useMemo 防重建（修复默认参每渲染重建导致死循环）；挂载拉三端 + 3s 轮询兜底 + WS stream('/run/events') 增量刷新；渲染 run 总览/任务列表（runs）/阶段/指标卡片；控件 send（POST /send）、decision respond（POST /respond options index）、stop（POST /stop）、启停（POST /run/state/mode run|idle）。③ App.jsx 按 ?sid 装配 Dashboard。验证：node --check（模型）+ lint 通过；web 模型单测 7 例（toDashboardModel 归一含 progress 1/3 与 metrics、空 run 兜底、phaseLabel、applyRunEvent）全过；全量 unit+integration 86 文件 746 例全绿（较 T1-086 后 +1 文件/+4 例）。说明：Dashboard 视觉/交互在 web dev 真机（npm run dev，dev proxy AWF_SERVER 指向 cc-control server）验证；ui/decisions/diagnostics 视图迁移与产物托管为后续前端任务。本沙箱不联网/不装 web 依赖，React 组件未纳入仓库 vitest（模型层已测）。",
-        "files": [
-          "web/src/views/dashboard-model.js",
-          "web/src/views/Dashboard.jsx",
-          "web/src/App.jsx",
-          "tests/unit/web-dashboard-model.test.js"
-        ],
-        "architecture": {
-          "boundary": "web/views/dashboard-model.js（纯模型，可单测）+ Dashboard.jsx（React 视图，经 createApiClient ?sid + WS stream）+ App 按 ?sid 装配",
-          "boundaryChanged": false,
-          "changeAxis": "把 server 托管 dashboard.html 的 Dashboard 能力迁到 web React：展示逻辑收进纯 model，组件经 server api + WS 驱动",
-          "note": "模型层零依赖可测（vitest）；组件视觉/交互在 web dev（npm run dev，AWF_SERVER 代理）真机验证（本沙箱不联网不装依赖）；ui/decisions/diagnostics 等后续视图另任务迁移。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:15:31.736Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "Dashboard 迁移：run 总览/任务列表/阶段/指标/send·respond·stop/启停（经 server api + WS）"
     },
     {
       "id": "T1-088",
@@ -4039,7 +3191,7 @@
       "deps": [
         "T1-087"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4047,30 +3199,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "Decisions 迁移：决策列表/Review/override（api + WS 更新）",
-      "exec": {
-        "result": "Decisions 迁移到 web 落地（commit ac108e5）：① web/views/decisions-model.js（纯函数零依赖，vitest 可测）：normalizeDecision（容忍 decision_id/decisionId 字段差异、event/override/overridable 判定：override 事件不可再 override、completed 且含 answer 可 override）、toDecisionsModel（GET /awf/decisions {total,decisions} 归一）、decisionSummary（id+兜底标记+answer 摘要，无 id 占位）。② web/views/Decisions.jsx（React）：client=createApiClient({sid})（useMemo）；挂载 GET /awf/decisions 渲染决策列表（runStamp/at/type/answer/兜底/override 指令），completed 决策行 override 输入框 → POST /awf/decisions/:id/override {instruction}（ok 后清输入 refresh）；WS stream('/run/events') decision.record 事件增量 refresh + 4s 轮询兜底。③ App.jsx 按 ?view=decisions|dashboard + ?sid 路由装配。验证：node --check（模型）+ lint 通过；web 模型单测 3 例（toDecisionsModel 归一含 override/overridable、decisionSummary 兜底摘要、normalizeDecision decisionId 容忍）全过；全量 unit+integration 87 文件 749 例全绿（较 T1-087 后 +1 文件/+3 例）。说明：Decisions 视觉/交互在 web dev 真机（npm run dev + AWF_SERVER）验证；沙箱不装 web 依赖，React 组件未纳入仓库 vitest（模型层已测）。",
-        "files": [
-          "web/src/views/decisions-model.js",
-          "web/src/views/Decisions.jsx",
-          "web/src/App.jsx",
-          "tests/unit/web-decisions-model.test.js"
-        ],
-        "architecture": {
-          "boundary": "web/views/decisions-model.js（纯模型）+ Decisions.jsx（列表/Review/override，经 /awf/decisions api + WS decision.record）+ App ?view=decisions 路由",
-          "boundaryChanged": false,
-          "changeAxis": "把 server decisions.html 迁移到 web React：决策列表/override 展示与交互逻辑迁入前端（模型可单测）",
-          "note": "模型层零依赖可测；组件视觉/交互在 web dev 真机验证（沙箱不联网）；override 端点沿用 /awf/decisions/:id/override。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:16:30.866Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "Decisions 迁移：决策列表/Review/override（api + WS 更新）"
     },
     {
       "id": "T1-089",
@@ -4081,7 +3210,7 @@
       "deps": [
         "T1-088"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4089,31 +3218,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "Diagnostics 迁移（诊断触发/展示）",
-      "exec": {
-        "startedAt": "2026-09-09T10:19:59.071Z",
-        "result": "Diagnostics 迁移（诊断触发/展示）完成，对齐 T1-087/088 的 web 迁移模式（纯 web/ + 模型测试，遗留 hosted html 留待 T1-094 废弃、open.js 不动）。\n\n新增：\n- web/src/views/diagnostics-model.js — 纯模型：toDiagnosticsModel({metrics,diagnosis}) 把 GET /awf/metrics 快照 + GET /awf/diagnostics 记录归一为展示模型（tokens/throughput/elapsed/context/agentMode/coverage + diagnosisStatus none|running|failed|complete + result{severity,summary,findings,dataGaps}），字段按 src/lib/run-metrics.cjs 实际输出 & run-diagnosis.cjs 记录形状防御式读取；附带 fmtTokens/fmtDuration/statusLabel/severityLabel 展示助手（可单测）。\n- web/src/views/Diagnostics.jsx — 视图：summary 卡片（总Token/端到端吞吐/总耗时/上下文）+ AI 诊断结论卡（severity badge/findings/dataGaps）+ Token 明细/统计范围两栏 + 未诊断/失败态「诊断本次运行/重新诊断」触发按钮（POST /awf/diagnostics，busy 防抖、错误内联展示、running 态禁用并自动刷新）；3s 轮询 + client.stream('/run/events') onmessage 即时刷新（当前 server 为 afterSeq 轮询端点，ws 惰性，轮询保底）。\n- web/src/App.jsx — 路由 ?view=diagnostics。\n- tests/unit/web-diagnostics-model.test.js — 6 例（complete 归一含 findings/dataGaps、running/failed/none、指标缺失兜底取 average、格式化/标签）。\n\n验证：模型测试 6/6 过；全量 unit+integration 88 文件 / 755 例绿（此前 87/749）；repo lint 过；新增 JSX 经 @babel/parser(jsx) 语法解析 OK（web 依赖沙箱不装，不能跑 web eslint/build，遵循既有「React 组件不入仓 vitest、web 构建留真实 dev」约定）。commit a6bfc40 不带 Co-Authored-By、未 push。",
-        "files": [
-          "web/src/views/diagnostics-model.js",
-          "web/src/views/Diagnostics.jsx",
-          "web/src/App.jsx",
-          "tests/unit/web-diagnostics-model.test.js"
-        ],
-        "architecture": {
-          "changeAxis": "把 server 托管 diagnostics.html 的诊断展示/触发逻辑迁到 web React 视图（模型层纯函数先测），延续 T1-087/088 视图迁移模式",
-          "boundary": "web/src/views/diagnostics-model.js（纯模型，单测面）+ Diagnostics.jsx（经 createApiClient 读 /awf/metrics+/awf/diagnostics、写 POST /awf/diagnostics）+ App.jsx ?view 路由；server 端点已存在不改",
-          "path": "extend",
-          "boundaryChanged": false,
-          "note": "遗留 hosted diagnostics.html 与 open.js 路由不动，待 T1-094 ui.html/托管页废弃任务统一收口；WS 事件推送（诊断完成主动刷新）属 T1-091 轮询→事件订阅范围，本任务以固定轮询保底 + stream onmessage 即时刷新双保险"
-        },
-        "completedAt": "2026-09-09T10:21:58.507Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "Diagnostics 迁移（诊断触发/展示）"
     },
     {
       "id": "T1-090",
@@ -4124,7 +3229,7 @@
       "deps": [
         "T1-089"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4132,31 +3237,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "WBS-Tree 独立视图组件（替代 open tree CLI 渲染）",
-      "exec": {
-        "startedAt": "2026-09-09T10:25:25.206Z",
-        "result": "WBS-Tree 独立视图组件完成（替代 open tree CLI 渲染），延续 T1-087~089 web 迁移模式（纯 web/ + 模型测试，open.js/server 不动，SPA 由 server 托管与 open tree 改指向留 build→public/收尾任务）。\n\n新增：\n- web/src/views/wbs-tree-model.js — 纯模型：levelOf(id)（W{1..4}- 取语义层级）+ buildWbsTree({wbs,tasks})。核心判断：state.wbs 是扁平可交付表、父子边不落盘（awf_wbs_create 无 children；查历史 plan 落盘 e7ee86c/1124f43 与现行 state 均全 deps:[]），故按「显式 children（id 数组）声明才成边 → 未声明平铺为根、保持原序」重建，不臆造父层，与旧 renderTree 扁平兜底（data.children||data）一致；每节点按任务 wbsRef 绑定 task{id,kind,status}（取首个），返回 {roots, stats{total,withTask,byStatus}}。\n- web/src/views/WbsTree.jsx — 视图：header 汇总（项数/绑定任务数/各状态 chip），根节点递归 NodeRow 渲染（状态字形 ✓/●/✕/○ + [id] + name + task 状态 chip + desc，深度缩进），空态「尚未规划」；3s 轮询 + client.stream('/run/events') 即时刷新。\n- web/src/App.jsx — 路由 ?view=wbs-tree。\n- tests/unit/web-wbs-tree-model.test.js — 5 例（levelOf 层级/非法、嵌套 children 真树 + 父/子节点独立绑任务 + stats、扁平无 children 平铺保序不臆造、悬空 wbsRef/缺省入参兜底）。\n\n验证：模型测试 5/5 过；全量 unit+integration 89 文件 / 760 例绿（此前 88/755）；repo lint 过；新增 JSX 经 @babel/parser(jsx) 语法解析 OK。commit f6e9aed 不带 Co-Authored-By、未 push。",
-        "files": [
-          "web/src/views/wbs-tree-model.js",
-          "web/src/views/WbsTree.jsx",
-          "web/src/App.jsx",
-          "tests/unit/web-wbs-tree-model.test.js"
-        ],
-        "architecture": {
-          "boundary": "web/src/views/wbs-tree-model.js（纯模型，单测面）+ WbsTree.jsx（经 GET /awf/state 读 wbs+tasks）+ App.jsx ?view=wbs-tree；server/open.js 不改",
-          "boundaryChanged": false,
-          "changeAxis": "把 T1-066 移除的 open tree CLI 渲染（renderTree）以 web 独立视图形式补回——模型重建 + 组件，延续 T1-087~089 视图迁移模式",
-          "note": "关键判断：state.wbs 在本架构为扁平可交付表，父子边不落盘（awf_wbs_create 无 children，历史 plan 均 deps:[]），故模型以「显式 children 声明成边 + 无声明则平铺为根」重建，不臆造父层——与旧 renderTree 对扁平 wbs 走 data.children||data 兜底一致；open.js 的 tree 指向待 T1-093 build→public 后由收尾任务改指向 ?view=wbs-tree（现 SPA 未由 server 托管，指向会落空）",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:26:19.000Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "WBS-Tree 独立视图组件（替代 open tree CLI 渲染）"
     },
     {
       "id": "T1-091",
@@ -4167,7 +3248,7 @@
       "deps": [
         "T1-090"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4175,38 +3256,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "轮询→事件订阅（task.done/decision.required/run 状态推送刷新）",
-      "exec": {
-        "startedAt": "2026-09-09T10:26:32.746Z",
-        "result": "轮询→事件订阅完成：server /run/events 升级为真实 WS 实时推送通道，并把 decision.required/record 接入 run host 事件环；前端四视图刷新主通道从固定轮询改为事件驱动（保留低频心跳兜底）。全量 90 文件 / 771 例绿（此前 89/760）。\n\nServer 侧：\n- run-host.cjs：新增 subscribe(fn)→unsubscribe 与 publish(type,payload,{runId})；emit 除原 ring/bus/onEvent 外实时扇出到订阅者（单订阅者异常不影响宿主）。\n- src/server/ws.cjs（新）：极简 RFC6455 服务端助手——acceptKey（RFC 向量验证）、encodeFrame/encodeTextFrame（长度 7/16/64-bit 边界，服务端不掩码）、parseFrameHeader（识别客户端 close/ping）、upgrade（握手 101 + 挂 socket 生命周期；客户端半关回 FIN 完成关闭）。\n- server.cjs：http server 挂 'upgrade'，pathname=/run/events 时惰性装配 run host → runHost.subscribe → wsUpgrade 逐条把宿主事件以文本帧推送；非 /run/events 拒绝。决策闸门：setDecision（null→有 首次挂起）→ host 推 decision.required{type,question,options,source}；persistDecision → 推 decision.record{decisionId,answer,type,finality,fallback}（host 未装配静默跳过，不影响主流程/既有测试）。\n- 保留 /run/events afterSeq HTTP 轮询端点（零回归，兼容旧 client）。\n\n前端（Dashboard/Decisions/Diagnostics/WbsTree）：ws.onmessage 事件到达即 refresh；固定 setInterval 由 3~4s 降为 10s 心跳兜底（事件订阅为主）；Diagnostics 因诊断完成无对应事件，'running' 期保留 2s 轮询、其余 10s。Dashboard 移除事件 partial 合并（模型 applyRunEvent 保留导出），统一事件→全量 refresh 更准。\n\n测试：tests/unit/ws.test.js 5 例（acceptKey RFC 向量 / 短/126/127 长度编码 / close 帧解析）；tests/unit/run-host.test.js +3（subscribe 实时收事件+退订即停、publish 入环+扇出+runId 缺省/显式、非函数抛错）；tests/integration/run-host.test.js +3（ws 订阅实时收到 run/task 事件帧且 payload/runId 归一、decision.required 推送、非 /run/events 握手拒绝）；新增 tests/helpers/ws-client.js（Node20 raw-net 最小 WS 客户端，供集成测试）。调试确认：server 端 socket 半关需回 FIN，否则客户端 close() 悬挂致测试超时——已在 ws.cjs 补 'end'→socket.end()。\n\n验证：lint + JSX 语法（@babel/parser）全过；web 构建留真实 dev（依赖未装）。commit 3026f9c 不带 Co-Authored-By、未 push。",
-        "files": [
-          "src/server/ws.cjs",
-          "src/server/run-host.cjs",
-          "src/server/server.cjs",
-          "web/src/views/Dashboard.jsx",
-          "web/src/views/Decisions.jsx",
-          "web/src/views/Diagnostics.jsx",
-          "web/src/views/WbsTree.jsx",
-          "tests/helpers/ws-client.js",
-          "tests/unit/ws.test.js",
-          "tests/unit/run-host.test.js",
-          "tests/integration/run-host.test.js"
-        ],
-        "architecture": {
-          "boundary": "server 侧：run-host 加 subscribe/publish + 事件环实时扇出、src/server/ws.cjs 极简 RFC6455 升级助手、server.cjs /run/events 升级走 WS + 决策闸门 setDecision/persistDecision 推 host 事件；前端四视图（Dashboard/Decisions/Diagnostics/WbsTree）由固定轮询改事件订阅（10s 心跳兜底，Diagnostics 分析中 2s）",
-          "boundaryChanged": true,
-          "changeAxis": "把前端刷新的主通道从固定间隔轮询换成 server→client 事件推送：/run/events 由 afterSeq 轮询端点扩展出 WS 实时订阅（保留原端点零回归），并把决策事件（decision.required/record）接入宿主事件环——让 task.done/decision.required/run 状态变化实时推送驱动视图刷新",
-          "note": "transport 选择：仓库零依赖 + Node20 无 ws 客户端，故 ws.cjs 只实现本场景必需（握手+服务端文本帧+close/ping 识别，不分片），单测用 RFC 向量/长度边界 + 集成用 raw-net 最小客户端（tests/helpers/ws-client.js）验证端到端；服务端 socket 半关需回 FIN，否则 close() 悬挂。决策事件 runId 缺省取 host activeRun（无则 null），publish 在 host 未装配时静默跳过不影响主流程；/run/events afterSeq HTTP 端点保留兼容。真实决策闸门在 host 驱动 run 下的全分支留 T1-098 真 run 回归验证。遗留：多 run 下 decision 事件未按 sid 过滤（当前单槽，前端按 sid 订阅后仍会收到本项目所有决策事件——软边界）",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:41:49.251Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "轮询→事件订阅（task.done/decision.required/run 状态推送刷新）"
     },
     {
       "id": "T1-092",
@@ -4217,7 +3267,7 @@
       "deps": [
         "T1-091"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4225,30 +3275,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "?sid 路由视图 + 多 run 简单列表壳",
-      "exec": {
-        "startedAt": "2026-09-09T10:42:08.360Z",
-        "result": "?sid 路由视图 + 多 run 列表壳完成（把 T1-074 hosted runShell 迁到 web React App 层，hosted 版本保留待 T1-094 废弃）。\n\n新增/改动：\n- web/src/views/run-shell-model.js — 纯模型：normalizeRun（counts→progress/currentTaskTitle 等兜底）+ toRunShellModel（GET /run/status → {runs, active, total, isEmpty}，active=running>queued>首条）+ runSummary 摘要文案。\n- web/src/App.jsx — 重构为受控壳：mount 从 ?view&?sid 读入；header 渲染四视图导航（总览/决策/诊断/WBS）+ 宿主 /run/status 多 run chip 列表（3s 轮询 + /run/events ws 即时刷新）；选 run → setSid（再点当前回项目根 sid=null），视图/sid 用 history.replaceState 与 URL 同步（不整页刷新）；body 以 key={view:sid||root} 渲染子视图（切换即重挂载，各自 client 带 sid）。非法 view 回落 dashboard。\n- tests/unit/web-run-shell-model.test.js — 5 例（normalizeRun 缺省兜底/counts 派生、active running>queued 优先级、空 runs isEmpty、runSummary 文案）。\n\n验证：模型测试 5/5 过；全量 unit+integration 91 文件 / 776 例绿（此前 90/771）；repo lint 过；App.jsx JSX 经 @babel/parser 解析 OK。commit 80a0718 不带 Co-Authored-By、未 push。",
-        "files": [
-          "web/src/views/run-shell-model.js",
-          "web/src/App.jsx",
-          "tests/unit/web-run-shell-model.test.js"
-        ],
-        "architecture": {
-          "boundary": "web/src/views/run-shell-model.js（纯模型，单测面）+ App.jsx 重构为受控壳（四视图导航 + /run/status 多 run chip 切换，URL replaceState 同步）；server/既有视图不改",
-          "boundaryChanged": false,
-          "changeAxis": "把 T1-074 hosted dashboard.html 的 runShell（?sid 路由 + 多 run 列表）迁到 web React App 层，让四视图可在 run 间切换并保留 ?sid 寻址；子视图经 key={view:sid} 重挂载以各自 client",
-          "note": "hosted runShell（dashboard.html + dashboard-shell 守护测试）保留，待 T1-094 废弃；host 为单 active run，active 选择 running>queued>首条；run 列表走 /run/status（宿主全局），子视图数据仍各自带 sid",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:43:39.150Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "?sid 路由视图 + 多 run 简单列表壳"
     },
     {
       "id": "T1-093",
@@ -4259,7 +3286,7 @@
       "deps": [
         "T1-092"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4267,35 +3294,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "build→server/public 静态托管 + dev 代理 /api+WS",
-      "exec": {
-        "startedAt": "2026-09-09T10:43:51.296Z",
-        "result": "build→server/public 静态托管 + dev 代理 /api+WS 完成。全量 91 文件 / 780 例绿（此前 91/776），lint 过。\n\n接线：\n- web/vite.config.js — build.outDir → ../src/server/public（emptyOutDir 清空重建），server 由此静态承载 React；dev 代理扩展为 web client 直调的全部前缀（/run /awf /api /status /send /cmd /respond /choice /ask /stop /intervene /context-ready /diagnostics /decisions.html /ui），其中 /run /awf /api 开 ws:true（/run/events 升级随行转发）。\n- server.cjs — web 产物静态托管：产物目录 CC_WEB_PUBLIC env 覆盖（测试用）、缺省 path.join(__dirname,'public')=src/server/public；index.html 存在即「就绪」：GET / root 由 React SPA 承载（原 legacy dashboard 作为未构建回落），请求尾兜底（最终 404 前）serve 产物 assets + 无扩展名路径 SPA 回退 index；显式 API/托管页端点仍优先（不被静态托管吞掉）。未构建（缺省目录无 index）→ 完全旧行为，既有测试零改动通过。\n- src/server/static.cjs — createStaticHost 增可选 spa index 回退（默认关）：无扩展名路径在文件/.html 未命中时回退 index；带扩展名缺失仍 null（资源 404 不被吞）；真实文件优先于回退。\n- src/cli/open.js — tree 目标改开 {url}/?view=wbs-tree（web 产物承载后 WBS-Tree 视图可达），dashboard/ui 不变。\n- .gitignore — 忽略 src/server/public/（构建产物）。\n\n测试：static.test.js +1（SPA 回退/文件优先/资源 404 不被吞）；server.test.js +2 集成（CC_WEB_PUBLIC fixture：root→index、/assets 托管、/wbs-tree SPA 回退、/status API 不受影响；产物缺失回落 legacy + 未知 GET 404）；cli-aux.test.js TC18 更新 tree URL=…/?view=wbs-tree。\n\n验证：lint + 全量绿。真实 build（web 依赖安装后 npm run build）留真实 dev 执行（沙箱无网）；产物目录已 gitignore。commit 786031a 不带 Co-Authored-By、未 push。下一 pending dev 为 T1-094 ui.html 废弃。",
-        "files": [
-          "web/vite.config.js",
-          "src/server/static.cjs",
-          "src/server/server.cjs",
-          "src/cli/open.js",
-          ".gitignore",
-          "tests/unit/static.test.js",
-          "tests/unit/cli-aux.test.js",
-          "tests/integration/server.test.js"
-        ],
-        "architecture": {
-          "boundary": "web/vite.config.js（build.outDir→src/server/public + dev 代理清单）+ server.cjs（web 产物静态托管：CC_WEB_PUBLIC env 覆盖、缺省 <src>/server/public；root 有 index 即由 React SPA 承载，尾兜底 serve assets/SPA 回退）+ static.cjs（createStaticHost 增 spa index 回退选项）+ open.js tree→?view=wbs-tree + .gitignore 忽略产物目录",
-          "boundaryChanged": true,
-          "changeAxis": "把 web React 前端接上 server 静态承载（build 产物直落 server/public，root 切换为 SPA），并让 vite dev 代理完整覆盖 web 直调的 API/WS 端点；同时 open tree 指向 web 的 WBS-Tree 视图，完成「替代 open tree CLI 渲染」的落地通道",
-          "note": "本仓沙箱无网装不了 web 依赖，真实 build（cd web && npm i && npm run build）留真实 dev；server 按「产物目录 index.html 存在与否」二态切换：存在→SPA 承载 root/assets、legacy 托管页与 API 不受影响，缺失→原 legacy 行为（现有测试零改动全绿）。SPA 回退只对无扩展名 GET 路径生效，assets 缺失（带扩展名）仍 404 不被吞。CC_WEB_PUBLIC 仅供测试/独立目录覆盖，缺省 src/server/public 已 gitignore。遗留：T1-094 收尾时移除 legacy 托管页与 open ui 指向",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:47:49.078Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "build→server/public 静态托管 + dev 代理 /api+WS"
     },
     {
       "id": "T1-094",
@@ -4306,7 +3305,7 @@
       "deps": [
         "T1-093"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "web/",
         "src/server/public/",
@@ -4314,34 +3313,7 @@
         "src/cli/open.js"
       ],
       "constraints": [],
-      "acceptance": "ui.html 废弃删除",
-      "exec": {
-        "result": "ui.html 废弃删除完成（控制/调试页能力已由 web Dashboard send/respond/stop 覆盖）。全量 91 文件 / 778 例绿（此前 91/780），lint 过。\n\n删除/移除：\n- 删 src/server/ui.html 文件。\n- server.cjs：移除 GET /ui 路由（原 500 'ui.html not found'）；root '/' 不再回退 ui.html（dashboard 缺失即 500）；web 产物（T1-093）存在时 root 仍由 React SPA 承载。\n- static.cjs 默认别名去 /ui、/ui.html；api.cjs 端点目录去 ui 行。\n- open.js + awf.js：ui 目标下线（open ui → 报错提示 tree | dashboard；命令帮助去 ui）。\n\n测试适配：server.test.js 去 htmlOnlyUi/htmlOnlyDash fixture，TC2/TC5 移除（ui 回退/ui 500 场景消亡），新增 TC4 'GET /ui → 404'、TC3 改为「dashboard 缺失 → 500（无 ui 回退）」；cli-aux.test.js TC17 改为「ui 目标报错」、TC22 未知目标可用清单更新。dashboard/decisions/diagnostics.html 及 theme.css/common.js 保留（web 未构建时的 legacy 观测页，dashboard-shell/server 断言继续覆盖，是否退役不在 v0.2.0 计划内）。\n\n验证：lint + 全量绿。commit 99fc77a 不带 Co-Authored-By、未 push。下一 pending dev 为 T1-095 unit/integration → 新结构。",
-        "files": [
-          "src/server/ui.html（删除）",
-          "src/server/server.cjs",
-          "src/server/static.cjs",
-          "src/server/api.cjs",
-          "src/cli/open.js",
-          "src/awf.js",
-          "tests/integration/server.test.js",
-          "tests/unit/cli-aux.test.js"
-        ],
-        "architecture": {
-          "boundary": "删 src/server/ui.html（调试/控制页）；server.cjs 去 GET /ui 路由 + root 不再回退 ui.html；static.cjs 默认别名去 /ui、/ui.html；api.cjs 目录去 ui 行；open.js/awf.js 下线 ui 目标（open ui 报错 + 帮助去 ui）",
-          "boundaryChanged": true,
-          "changeAxis": "按计划「废弃 ui.html / inbox messaging / open tree CLI 渲染」最后一项：删除 legacy 调试控制页（其能力已由 web Dashboard send/respond/stop 覆盖），root 在未构建 web 时只回落 dashboard.html",
-          "note": "保留 dashboard/decisions/diagnostics.html 及 theme.css/common.js（web React 未构建时的 legacy 观测页，仍被 dashboard-shell/server 断言覆盖；是否随 T1-100/后续整体退役未在 v0.2.0 计划内）。共享资产注释里「4 托管页」历史措辞未逐一清理（非功能）。open ui 目标下线为破坏性命令面改动，已同步 cli-aux 用例",
-          "path": "remove"
-        },
-        "completedAt": "2026-09-09T10:51:05.627Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "ui.html 废弃删除"
     },
     {
       "id": "T3-008",
@@ -4352,27 +3324,10 @@
       "deps": [
         "T1-094"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
-      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。",
-      "exec": {
-        "result": "非真模块核查完成（未跑整套真实测试；结构/验收自检 + 各任务既有绿测佐证）。W3-008（前端工程 web/，T1-085…094）六项模块验收点全部对表成立：\n\n① 四视图迁移 —— Dashboard/Decisions/Diagnostics/WBS-Tree 均 views/*.jsx + 纯模型（单测面），App 路由 ?view=…，数据经 server api（/run/status、/awf/metrics|diagnostics|decisions|state、/awf/diagnostics POST、decisions override）+ WS；模型单测 5 组绿。\n② 轮询→WS 事件驱动 —— src/server/ws.cjs（RFC6455 极简）+ server.cjs /run/events upgrade→runHost.subscribe 实时文本帧推送；run-host 增 subscribe/publish；决策闸门推 decision.required/record；视图 ws 即时刷新 + 10s 心跳兜底；原 afterSeq 轮询保留。集成 ws 推送/decision.required 绿。\n③ ?sid 路由 + 多 run 列表壳 —— run-shell-model + App 壳（GET /run/status 多 run chip，active=running>queued>首条，切换 ?sid、URL replaceState）。\n④ 共享主题/组件库 —— theme.css+common.js（AWF_COMMON）注入 3 托管页（dashboard/decisions/diagnostics；ui 已删，消费方 3 页），server 承载。\n⑤ build→server/public + dev 代理 /api+WS —— vite build.outDir=../src/server/public、dev 代理覆盖 /run /awf /api(ws) 等；server web 静态托管（CC_WEB_PUBLIC 覆盖/缺省 public；root→React SPA、assets+SPA 回退、资源 404 不被吞）；static.cjs spa 回退；产物目录 gitignore。CC_WEB_PUBLIC fixture 集成覆盖「有/无产物」二态。\n⑥ ui.html 废弃 —— 删文件 + 去 GET /ui 路由/root 回退/别名/api 目录行 + open ui 目标下线（cli-aux/server 用例同步，GET /ui→404）。\n\n佐证：最新全量 91 文件 / 778 例绿（e2e 两既有基线失败除外，docs/bugs/recovery-baseline-e2e-failures.md）；模块改动基线 61fe96d..99fc77a 结构一致。\n\n遗留（标注不阻塞，随 T1-098/后续收尾）：L1 真实 web build/vite dev 视觉验证（沙箱无网装依赖）；L2 dev 5173 跨源需同源 base/CORS 收敛（proxy 已配）；L3 WS/决策推送 host 装配边界（真 claude 决策闸门 per-run+双 run 由 T1-098）；L4 WBS 层级 edges 不落盘→平铺为根（数据模型边界）；L5 小清理（applyRunEvent 仅单测引用、共享资产注释历史措辞）。\n\n无阻断问题，未派生修复任务 → verdict pass。报告落 .awf/reports/test/w3-008-module-gate.md。",
-        "files": [
-          ".awf/reports/test/w3-008-module-gate.md"
-        ],
-        "verdict": {
-          "conclusion": "W3-008 模块测试门禁通过：前端工程 web/ 六项验收点（四视图迁移+WS 事件驱动+?sid/多 run 壳+主题组件+build→public 托管/dev 代理+ui.html 废弃）结构与代码落点全部成立，模型/ws/集成绿测佐证（全量 91 文件/778 例绿）；真实 build 与前端视觉验证因沙箱无网留真实环境。五个遗留（真实 web 验证、dev 同源 base、WS/决策推送 host 装配边界、WBS 层级不落盘、小清理）已标注不阻塞，随 T1-098 真 run 与后续收尾承接。",
-          "level": "pass"
-        },
-        "architecture": {
-          "boundary": "W3-008 模块（前端工程 web/ React+Vite：四视图迁移 + WS 事件驱动 + ?sid/多 run 壳 + 主题组件 + build→public 托管/dev 代理 + ui.html 废弃），T1-085…094 全 done；非真结构核查结论",
-          "note": "结构/验收自检不跑整套真实测试；改动 diff 61fe96d..99fc77a（31 文件 +1271/-214）逐项对表；遗留 L1-L5（真实 web build/dev 验证、dev 同源 base 软边界、WS/决策推送 host 装配边界、WBS 层级不落盘平铺、小清理）标注不阻塞，随 T1-098 真 run/后续收尾",
-          "path": "none",
-          "reviewNote": "模块测试门禁产物 .awf/reports/test/w3-008-module-gate.md；未派生修复任务（无阻断问题）"
-        },
-        "completedAt": "2026-09-09T10:52:29.831Z"
-      }
+      "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。"
     },
     {
       "id": "T1-095",
@@ -4383,38 +3338,12 @@
       "deps": [
         "T3-008"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "tests/"
       ],
       "constraints": [],
-      "acceptance": "unit/integration 改指向新结构（server client mock/事件路由/store 路径）",
-      "exec": {
-        "result": "unit/integration 指向新结构收尾完成（server client mock / 事件路由 / store 路径三轴核查 + 补缺/清残留）。全量 91 文件 / 779 例绿（此前 778），lint 过。\n\n审计结论（三轴均已收敛到新结构，本任务前大体由 T1-056…067/后续增量承担）：\n- server client mock：run.test/run-batch.test 均已 mock run-client（submitRun/pollRunEvents/runSnapshot/setRunMode）而非旧 session 直拼——已对齐；\n- 事件路由：run-host.test 覆盖 /run/events afterSeq 增量 + WS 推送（T1-091），run-client.pollRunEvents 单测覆盖游标形状——已对齐；\n- store 路径：store/store-core/layout-migrate/run-registry/sid-naming 单测 + client.getState（T1-062 CLI 运行态读经 server GET /awf/state）——已对齐。\n\n本任务补的两处空档：\n1. 真实 run-client 对 live server 的闭环集成此前无覆盖（run-client.test 只测注入 http 的形状、run-host.test 用裸 fetch 打端点）→ 新增 run-host.test 集成：createRunClient(真实 http) submitRun → pollRunEvents(afterSeq) 到 run.stopped（事件路由）→ runSnapshot done/counts → getState 读 store（.awf/state.json tasks 全 done），证明「新 client→server→store」单条链路成立。\n2. 清 CLI 测试 mock 中 T1-065 已删 inbox/messaging 残留：run.test 的 generateRunSettings mock 去掉 crossSessionInbound、run.test/cli-aux.test 的 run-context mock 去掉 messagingSocketPath（产码 run-context/run-settings 已不输出这些字段，纯残留）。\n\n验证：lint + 全量 779 例绿（e2e 两既有基线失败除外）。commits 0d1baf4 + 9a7c2b1 不带 Co-Authored-By、未 push。下一 pending dev 为 T1-096 adapter/store/迁移/config/装配/run-id/client/sid 单测。",
-        "files": [
-          "tests/unit/run.test.js",
-          "tests/unit/cli-aux.test.js",
-          "tests/integration/run-host.test.js"
-        ],
-        "architecture": {
-          "boundary": "tests/（仅测试侧）：run.test/cli-aux.test 清理 CLI mock 中已删子系统残留字段；run-host.test 增真实 createRunClient 经 server 的闭环集成（提交→afterSeq 轮询→快照→getState store 读）",
-          "boundaryChanged": false,
-          "changeAxis": "核查并确认 unit/integration 已指向新结构（server client 薄化经 run-client、事件按 afterSeq/run host、store 读经 server GET /awf/state）——主要已在 T1-056…067 增量适配完成；本任务补最后一处空档：真实 run-client（非 mock）对 live run host 的闭环未覆盖 + 清 CLI mock 残留",
-          "note": "审计结论：client mock（run.test/run-batch.test 均 mock run-client 提交/poll/快照/setMode）、事件路由（run-host afterSeq + WS 推送 + run-client.pollRunEvents）、store 路径（store/store-core/layout-migrate/run-registry/sid-naming + client.getState 读 server）均已有新结构测试覆盖，无漂移；残留仅为 mock 里 T1-065 已删 inbox/messaging 字段与真实 client 对 host 闭环缺集成。已补/清理。",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:56:22.121Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        },
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "unit/integration 改指向新结构（server client mock/事件路由/store 路径）"
     },
     {
       "id": "T1-096",
@@ -4425,33 +3354,12 @@
       "deps": [
         "T1-095"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "tests/"
       ],
       "constraints": [],
-      "acceptance": "adapter mock 测试、store/迁移/config/装配/run-id/client/sid 路由单测补齐",
-      "exec": {
-        "result": "T1-096 组件单测补齐完成（adapter mock / store / 迁移 / config / 装配 / run-id / client / sid 路由）。全量 93 文件 / 789 例绿（此前 91/779），lint 过。\n\n审计（逐一核对六轴对源模块的直接单测引用，找出真正缺直测的模块）：\n- adapter：ports.cjs / cc-shapes.cjs / probe.cjs / tooling.cjs / interactive.cjs / oneshot.cjs / mock.cjs /（server）hook-adapter.cjs + cc-adapters-smoke —— 均已有对应单测；\n- store / 迁移 / config / 装配 / run-id / client / sid 路由：store.test+store-core.test、migrate.test+layout-migrate.test、config-loader/plugin-config/render-config/run-config/decision-config、run-context.test（装配）、run-id.test、run-client.test+web-api-client.test、sid-naming/run-stamp-sid/run-slot/run-registry/awf-state-server —— 均已在前序任务建立覆盖。\n- 唯一两处无直接单测的域内模块：state-schema.cjs、runtime-config.cjs。\n\n新增（各 5 例，共 10 例）：\n- tests/unit/state-schema.test.js —— version=0.2.0、四类枚举清单、顶层/任务/exec/WBS/里程碑键位自洽（FIELD_DEFS.enum===对应枚举）、isValid 判定、validateStateShape 合法过/非法逐条报错（mode/currentState/task id·status·kind/milestone status）、非对象拒绝。\n- tests/unit/runtime-config.test.js —— 缺省 env 回落 plugin/config.json 单源默认、CC_PORT/CC_SESSION 覆盖、getServerPort/getSessionName 别名一致、strict 校验（非法整数/越界/空 session 抛错）、runtimeConfigPath 指向 plugin/config.json 绝对路径。\n\n验证：新测试 10/10 过；lint + 全量 789 例绿。commit 6b24e13 不带 Co-Authored-By、未 push。下一 pending 为 T1-097 前端 api/ws 单测。",
-        "files": [
-          "tests/unit/state-schema.test.js",
-          "tests/unit/runtime-config.test.js"
-        ],
-        "architecture": {
-          "boundary": "tests/unit（新增 state-schema.test.js + runtime-config.test.js，10 例）；无产码改动",
-          "boundaryChanged": false,
-          "changeAxis": "T1-096 组件单测补齐：逐一审计六轴（adapter mock / store / 迁移 / config / 装配 / run-id/client/sid）既有覆盖，仅 state-schema（字段/枚举单源）与 runtime-config（运行期常量 config 单源+CC_* env 覆盖）缺直接单测 → 补上",
-          "note": "审计：adapter（ports/cc-shapes/probe/tooling/interactive/oneshot/hook/mock+smoke）、store/store-core、migrate/layout-migrate、config-loader/plugin-config/render-config/run-config/decision-config、装配 run-context、run-id、client（run-client/web-api-client）、sid 路由（sid-naming/run-stamp-sid/run-slot/run-registry/awf-state-server）均已在前序任务（T1-004/008/011/015/025/042/055/084 等）建立覆盖；本次补齐唯一两处未直测模块。store-core 经 ESM 壳 store-core.js 由 store-core.test 覆盖（直测 cjs 本身亦在同一实现）",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:57:56.868Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "adapter mock 测试、store/迁移/config/装配/run-id/client/sid 路由单测补齐"
     },
     {
       "id": "T1-097",
@@ -4462,32 +3370,12 @@
       "deps": [
         "T1-096"
       ],
-      "status": "done",
+      "status": "pending",
       "plannedFiles": [
         "tests/"
       ],
       "constraints": [],
-      "acceptance": "前端 api/ws 层单测补齐",
-      "exec": {
-        "result": "前端 api/ws 层单测补齐完成。全量 93 文件 / 795 例绿（此前 93/789），lint 过。\n\n在 tests/unit/web-api-client.test.js 追加 6 例 createApiClient 边界（新增 describe「createApiClient — 边界/容忍（T1-097）」）：\n1. 服务端非 JSON / 错误码 → 兜底 { ok:false, error:`http <status>` }；\n2. 成功响应原样返回 JSON body（透传）；\n3. 网络拒绝（fetch reject）→ 原样 reject（视图 .catch(()=>null) 兜底路径）；\n4. stream：https base → wss 协议换算且保留 sid（wss://…/run/events?sid=r1）；\n5. 空/缺 sid 不附 ?sid；特殊字符 sid（空格/斜杠）encodeURIComponent 编码；\n6. url() 返回含 sid 的绝对地址。\n\n既有已覆盖：get/post 路径+body、sid 合并 query、stream http→ws 带 sid。server 侧 WS（ws.cjs 握手/帧/close）与 run host WS 推送由 ws.test + run-host 集成覆盖；浏览器 WS 事件消费在视图层（React 不入仓 vitest 约定，真实 dev 验证）。\n\n验证：新增 6/6 过；lint + 全量 795 例绿。commit 5bd0b4f 不带 Co-Authored-By、未 push。下一 pending dev 为 T1-098 真 run 全流程回归（含双 run）。",
-        "files": [
-          "tests/unit/web-api-client.test.js"
-        ],
-        "architecture": {
-          "boundary": "tests/unit/web-api-client.test.js（仅测试侧；createApiClient http/ws 层边界 6 例补齐）；无产码改动",
-          "boundaryChanged": false,
-          "changeAxis": "前端 api/ws 层单测补齐：在既有 get/post/sid/stream URL 换算基础上补错误容忍（非 JSON/错误码兜底）、网络拒绝原样 reject、https→wss 协议换算、空 sid 不附参/特殊字符 encode、url() 绝对地址断言",
-          "note": "server 侧 WS（ws.cjs 握手/帧）与 run host WS 推送已有 ws.test + run-host 集成覆盖；前端 client 只负责 URL 换算/建连，浏览器 WS 事件消费在视图层（无组件单测，遵循 React 不入仓约定）；本轮把 client 自身行为边界补齐",
-          "path": "extend"
-        },
-        "completedAt": "2026-09-09T10:58:44.308Z"
-      },
-      "commits": [
-        {
-          "hash": "343997d",
-          "message": "feat: 完成 v0.2.0 控制平面与 Web 前端重构"
-        }
-      ]
+      "acceptance": "前端 api/ws 层单测补齐"
     },
     {
       "id": "T1-098",
@@ -5480,7 +4368,7 @@
       "deps": []
     }
   ],
-  "lastUpdated": "2026-09-09T11:08:11.371Z",
+  "lastUpdated": "2026-09-09T07:50:55.532Z",
   "plan": {
     "summary": "AWF 架构重构 v0.2.0（全量一次性）—— server 收敛为常驻控制平面(run 域/store/metrics/adapters/cc 收口)、cli 薄化、前端 web/ React 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。",
     "reqDoc": "",

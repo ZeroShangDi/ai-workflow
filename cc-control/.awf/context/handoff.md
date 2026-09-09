@@ -1,80 +1,44 @@
-# Handoff Snapshot — T1-105 server run-host 接线（待实现）
+# Handoff Snapshot — AWF v0.2.0 重构执行现场
 
-> **2026-09-09 恢复审计更新（优先于下文旧现场）**：落地边界已固定为 A（严格分工），不再询问用户。T1-105 只做 server run-host + 提交/状态/轮询事件端点，禁止切换 `cli/run.js`/`run-batch.js` live driver；T1-058 再独立完成 CLI cutover，T1-061 迁剩余 state/gate 直写。任务定义已同步到 `.awf/state.json`，审计见 `.awf/reports/refactor-recovery-audit.md`。旧路径 `/Users/shangjunhao/...` 已失效，当前执行根为 `/Users/v-shangjunhao/MyProject/cc-control-wt-v0.2.0/cc-control`。恢复阶段 `.awf/config.json` 固定单 Agent，state.mode 已从遗留 `run` 重置为 `idle`。
-
-> 生成：2026-09-08（会话为 17:52 run 的主会话，任务 T1-105 已派发、未实现）
-> 目录：`/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control`
-> 分支：`wt/cc-control-v0.2.0`（git worktree，隔离开发基线，基线 commit `1a9c6bd`）
-> 交接对象：重开后的 Claude（冷启动读本文件 + 下方 architecture 引用即可续接 T1-105）
+> 生成 2026-09-09（awf run 主会话压缩点）。目录：`/Users/v-shangjunhao/MyProject/cc-control-wt-v0.2.0/cc-control`
+> 分支 `wt/cc-control-v0.2.0`（repo root=cc-control-wt-v0.2.0，本项目为子目录 cc-control）。端口 8787 被当前 awf run 占用（禁嵌套真 run；真 run/双 run 回归留 T1-098）。本快照供冷启动续接。
 
 ## Goal
 
-实现 **T1-105**（恢复审计后 wbsRef `W1-105`，deps `T1-057`，当前 `pending`）：
-让 **server 真正托管 run 编排** —— `server.cjs` 接线 `run-driver.cjs`（单 agent 阶段链）+ `run-scheduler.js`（多 agent）+ `gateCompletionHook` 进**常驻 run 循环**，暴露 **run 提交端点 + 事件订阅（先轮询/可订阅桩，真实 WS 留 T1-091）**；使 `cli/run.js` 可改薄为「提交 run→订阅事件展示→人机应答中继→收尾」。**保持单 run 全流程行为不变**（正跑在自托管 live run 上，不得破坏 cli/server 现行路径）。
-
-验收（T1-105 acceptance）：server 实际托管 run 编排（单 agent 阶段链经 run-driver、多 agent 经 run-scheduler live 接线 + run 提交/事件端点）；run.js 提交后由 server 驱动；单 run 全流程行为不变；相关单测绿。
+在 AWF v0.2.0 重构上继续执行剩余任务（当前进度：dev 到 T1-088、门禁至 T3-007 及 review T2-*，全量 87 文件 / 749 例绿）。剩余按 .awf/state.json 任务图推进：前端工程（web/ React：Diagnostics / WBS-Tree / 产物托管 等后续）、真实 run 自托管回归 T1-098、各模块/review 门禁。纪律：只本地 commit 不 push；commit 不带 Co-Authored-By；按任务 ID 用 MCP 落账 awf_task_complete(done, result/files/architecture/commits/verdict)；问题按门禁闭环派生修复。
 
 ## State
 
-- T1-105 本次派发后**尚未实现**（工作树无对应改动）。基线 commit `1a9c6bd` 只含「W3-003 各接缝模块 + 单测」，全部**零 live 接线**。
-- 已上抛**落地边界决策给用户（A/B/C，见 Decisions），decisionPending 挂起、尚未选**。用户上一条指令改为「记录当前上下文到 .awf 确保重开可续」→ 本轮只落盘，不写实现代码。
-- 现状代码事实（均已实测确认，标识符原文）：
-  - `src/server/server.cjs`（967 行）＝旧 relay 单块：HTTP + `/hook` 中继（SessionStart/Stop/SubagentStart/Stop/PreToolUse AskUserQuestion/PostToolUse）+ ready/busy + decision gate + SubagentStop 落账（`settleSubagent` 解析 `RESULT` 写 state）。**无 run 提交端点、无常驻 run 循环、未 import 下方任一接缝模块**（仍走 `tmux.cjs` 单会话）。导出：`server/start/stop/_getState/_resetForTest/setDecision/clearDecision/setReady/setBusy/waitReady`。
-  - `src/cli/run.js`（526 行）＝**唯一真实 driver**：`runCommand`（起环境 ensureServer/ensureSession/writeRunSettings + dashboard）→ `runLoop`（单 agent：`findNextTask`→`maybeCompactContext`→`executeTask`(`/send`→`waitForReady`→决策处理→`settleTask` 收尾协商)→门禁 `handleGateCompletion`）→ 收尾 `mode=idle`+cleanup。多 agent 时动态 import `run-batch.js`。
-  - `src/cli/run-batch.js`（189 行）＝多 agent 集成：调 `src/server/run-scheduler.js` 的 `runScheduler`（CLI 拥有调度权），dispatcher 经 `subagentDispatch` 模板 + `POST /send`，`waitAnyDone`=轮询 state + `/status` decisionPending + 读 `subagent-failed.jsonl`/`subagent-needs-input.jsonl`，门禁走 `run-driver.gateCompletionHook(handleGateCompletion)`。
-  - `src/server/run-driver.cjs`（71 行，纯规则，CJS）：`STAGE_CHAINS`(simple=DEV→COMMIT/medium=DEV→TEST→COMMIT/complex=DEV→DOCS→REVIEW→TEST→COMMIT)、`decideChain/classifyComplexity/nextStage/assertStage`、`gateCompletionHook(projectRoot,{handleGateCompletion,kinds=['review','test']})`。**阶段链函数无 live 调用**；`gateCompletionHook` 仅被 run-batch live。
-  - `src/server/run-scheduler.js`（168 行，纯逻辑，**ESM**）：`runScheduler({projectRoot,cfg,dispatcher,waitAnyDone,onTaskComplete})`。被 cli/run-batch live。内部 makeQuota/makeRunning/pickFromPool 未导出。
-  - `src/cli/run-client.js`（79 行，scaffold）：`createRunClient({port,http,sleep})` → submit(`/send`)/respond(`/respond`)/status()/waitReady()/subscribe()（轮询 status 桩，事件仅 `{type:'status'}`）。`API_ENDPOINTS` 端点表。**生产无人调用**。
-  - `src/server/api.cjs`（scaffold）：`API_CATALOG`(20+ 条 legacy + `/api/v1/*` 别名)、`createRouter().dispatch`、`assertHandlersComplete`。**live server 未挂载 router**（`/api/v1/*` 目前 404）。
-  - `src/server/app.cjs`（scaffold）：`createServerApp({projectRoot,sid,env})`→ctx/stores/config.infra/config.run/health/onShutdown/shutdown。不监听端口。
-  - `src/server/host.cjs`（scaffold）：`createHost({sessionName})` tmux 原语参数化（多 run 用 `cc-<sid>`）。仅被 `src/adapters/ports.cjs:21` 引用。
-  - `src/server/hook-adapter.cjs`（scaffold）：`translateHook/createHookAdapter`。PreToolUse/PostToolUse/未知 → `[]`（**不产 AskUserQuestion/决策事件**——决策闸门若经 adapter 接会丢，须另设消费者）。
-  - `src/server/statemachine.cjs`（scaffold）：`createStateMachine/createStateMachineRegistry`（idle/ready/busy/deciding/paused/error；**无 stopped 态**）。used-by-nobody。
-  - `src/lib/events.cjs`（scaffold）：`EVENT_DEFS`(run.started/stopped/phase、task.started/done/blocked、agent.started/stopped、usage/metrics/decision.record)、`HOOK_EVENT_MAP`、`createEventBus`、`wirePersist`。
-  - `src/lib/gate-loop.cjs`（live）：`buildFixTarget/verdictSummary`。`src/cli/gate-fix.js`（live）：`handleGateCompletion`（loadState→gateFixMeta→gateFixPrompt→spawnGateFixTask→saveState）。
-  - `src/lib/state.js`（ESM，live）：loadState/saveState/setWorkflowMode/markTaskActive/getNextTask/findNextTask/peekReadyTasks/EXCLUSIVE_KINDS(commit)/buildScopeIndex/filesConflict/MAX_RECHECK=3/gateFixMeta/spawnGateFixTask/backupState。
-  - `src/lib/session/client.js`（live）：SERVER_PORT（config 单源）/`READY_TIMEOUT=1800000`(30min 已改)/POLL_INTERVAL/baseUrl/httpPost/httpPostJson/getStatus/sendText/sendCmd/sendRespond/getContextReady/waitForReady/autoSelect/sleep。run.js/run-batch 依赖它。
-  - `src/lib/run-context.cjs`（live）：buildRunContext({sid,projectRoot,env})→runSessionName/port/各路径；无 sid 时单 run 布局。
-  - CJS/ESM 边界注意：server.cjs 与 run-driver.cjs 是 CJS；run-scheduler.js / state.js / plugin-bridge.js / run.js 是 ESM。server 侧组装 run-host 需处理该边界（现由 run-batch 这个 ESM 桥接）。
+- 主线 commit 至 `ac108e5`（T1-088 Decisions 迁移）；此前依次 b2cffb0(T1-105)/4bb0d96/…/6de4395(T1-077)/f4f7132(T1-078)/7103b48(T1-079)/7a5d8cb(T1-080)/fe71a83(T1-081)/5fba8bd(T1-082)/73d7196(T1-083)/17df9cb(T1-085)/434bab8(T1-086)/23a4b68(T1-087)。门禁 pass：T2-021/022/023/028/033/035、T3-005/006/007。
+- 代码事实（标识符原样）：
+  - server 常驻控制平面：`src/server/run-host.cjs`（createRunHost：单 agent 经 run-driver.decideChain/gateCompletionHook，多 agent 经注入 runScheduler；submit/status/pollEvents 事件环；default 单 run 'default'=单写）；`run-slot.cjs`（per-sid ready/busy/decision/contextReady 内存隔离）；`run-registry.cjs`（多槽 ctx+adapter+sm，ensureLayout per-run 目录 .awf/runs/<sid>）。server.cjs 挂 `/run/*`（submit/status/events/state/{mode,task/active,gate,backup,apply}/oneshot）、`/shutdown`、`/awf/state`(?sid 分片 .awf/runs/<sid>/state.json)、`/status`(?sid 槽态)、`/hook`(sid 早路 handleSidHook)、`/theme.css` `/common.js`（共享资产托管）；空闲回收 main 进程 CC_SERVER_IDLE_MS + CC_SERVER_IDLE_CHECK_MS。
+  - cli 薄化：`run.js` runCommand→driveSingle(fresh/resume/attach, runId=sid)→observeRun(follow TTY/决策中继)；mode 经 client.setRunMode；ensureServer 存在即复用（去 kill-by-port，他项目占用报错）；run 结束只关 tmux 保留 server；`run-batch.js` 多 agent 仅路由（宿主 batch 传输未接线）；`run-client.js` 提交/轮询/读/写端点方法 + slotStatus(sid)。
+  - 单写者：src/cli 零 lib/state.js 写函数；gate-fix 在 `src/server/gate-fix.js`；awf-state MCP 18 tools 语义保留、env CC_AWF_STATE_SERVER=1 时读/写经 server（GET /awf/state + POST /run/state/apply，带 CC_SID）；run 会话 env 注入 CC_AWF_STATE_SERVER=1/CC_PORT（ensureSession）；plan（无 server）离线直写。
+  - sid 贯穿：run-context runSessionName=cc-<sid>；run-id resolveRunStamp；DecisionStore {runStamp,runsDir} per-run 决策隔离；gateway/session/oneshot MCP 带 sid。
+  - 注册/渲染单源：plugin/config.json + plugin/settings.json；plugin-config.js resolvePluginAssets/renderRepoSettings；render-config 输出各 plugin.json+.mcp/hooks + 本仓 .claude/settings.json（<pkg>→绝对 plugin 根，gitignore 不提交）；根 .mcp.json 已删。
+  - 前端 `web/`（Vite+React，依赖未装、沙箱不联网）：`src/api/client.js` createApiClient({base,sid,httpFetch,wsFactory}) http+ws 带 sid；`views/dashboard-model.js`+Dashboard.jsx（T1-087：总览/任务/阶段/指标/send/respond/stop/启停，WS+3s 轮询）、`views/decisions-model.js`+Decisions.jsx（T1-088：列表/override，WS decision.record）；App 按 ?view=dashboard|decisions&sid；web dev proxy /run /awf /status → AWF_SERVER（缺省 127.0.0.1:8787）。
+  - 托管页共享资产 src/server/theme.css + common.js（window.AWF_COMMON esc/fmtDuration/taskRow/renderTaskList），4 html head 已注入 link/script。
+- 测试：`npx vitest run tests/unit tests/integration` = 87 文件 / 749 例绿；e2e 两既有失败为已知基线（run.e2e 端口占用、e2e-smoke 日志路径，docs/bugs/recovery-baseline-e2e-failures.md）。关键套件：run/run-batch/run-client/run-slot/run-registry/sid-naming/run-stamp-sid/run-host/scheduler/server-lifecycle/two-project-smoke/awf-state*/awf-session*/awf-oneshot*/render-config/dashboard-shell/web-* 模型。
+- .awf/state.json 只能经 awf-state MCP 改；任务 exec/verdict 均在 state。
 
 ## Tried
 
-- 已用两个 Explore 子代理（只读）完成设计意图 + 代码/测试双地图，结论一致：
-  - 设计意图源：`.awf/logs/0.2.0-2026-09-07T13-32-37/main.log`（L1625-1665、L3134-3194：T1-058 曾因「run.js 是唯一真实 driver，server 常驻托管未落地」被推迟）；`0.2.0-2026-09-07T16-54-59/main.log`（L129-171：用户选「重排」→ 新建 T1-105 作 T1-058 前置，T1-058 deps 改 `['T1-105']`）。`docs/discuss/architecture-notes.md` L100-141、`docs/discuss/multi-run-server-architecture.md`（单实例常驻+sid 远期方向）。bug 记录 `docs/bugs/t1058-prereq-appended-tail.md`（T1-105/104 曾排队尾致依赖倒挂，已手工重排）。
-  - 目标形态（多日志原文）：编排（调度/阶段链/决策/门禁）搬进**常驻 server 进程**；cli 只剩「提交 run→订阅事件→应答→收尾」。真实 run/双 run 回归留给 **T1-098**。
-- 方案三选一（重排时用户已选一次）：**重排（推荐）** = 先 server run-host 接线、T1-058 保持 pending 后再薄化（即本任务 T1-105 的本意）。扩 T1-058 / 强制薄化 均被否。
+- 按 /w-dev <id> 顺序执行 40+ 任务（T1-105…T1-088）与门禁（全 pass），固定流程：读 state 定义 → 改/补测试 → lint+全量 → commit → awf_task_complete。React 组件不纳入仓库 vitest（纯模型层测）；web 依赖留真实 dev 安装。
 
 ## Decisions
 
-- 【已闭合】T1-105 落地边界采用 A（严格分工）；以下 B/C 仅保留历史复盘：
-  - **A（严格分工，推荐）**：只做 server 侧 —— server.cjs 接线 run-driver+run-scheduler+gateCompletionHook 常驻 run 循环 + run 提交/事件端点 + 单测；run.js 本任务不动（保持 driver），薄化留 T1-058。不重复 T1-058、不碰 live driver 宿主；「run.js 提交后由 server 驱动」到 T1-058 才真闭环。
-  - **B**：server 托管 + run.js 改提交/订阅/应答一次做掉（与 T1-058 验收重叠；改 live driver 风险最高）。
-  - **C**：最小切片 —— 先加 run 提交/事件端点 + run-client.submit/subscribe 桩 + 单测；run-driver/run-scheduler 常驻接线做成可注入纯逻辑层，不真迁 driver 宿主。
-- 已确认的既有方向（前序 run 决策，勿推翻）：T1-058 薄化依赖 server 真托管 → **先 W3-003(server 常驻) 后 W3-005(cli 薄化)**；保持单 run 全流程行为不变是硬约束；真实回归在 T1-098。
-- 旧现场曾判断 `tests/unit/run.test.js` TC17 会因超时常量漂移失败；2026-09-09 完整基线已证实该用例通过。当前仅有两个既有 E2E 失败，见 `docs/bugs/recovery-baseline-e2e-failures.md`。
+- 已定勿翻：server 常驻单写者控制平面、cli 薄化经 run-client、sid 贯穿多 run、MCP 收 server 薄代理（env 门控，缺省离线直写零回归）、注册/渲染单源、前端 web 迁移经 api+WS（模型层先测）。
+- 遗留（exec 已标注，不阻塞已过门禁；真 run 前补/验证）：宿主 batch 传输、curl hooks 带 &sid + 每 run CC_SID/AWF_BASE env 注入、决策闸门 per-run 全分支、/run/state/apply last-writer-wins 缺 CAS、前端 Diagnostics/WBS-Tree/产物托管。
 
 ## Evidence
 
-- 单测基线：相关 13 文件 / 155 例，**154 过、1 败**（run.test.js TC17，原因见上）。改前基线绿：run-driver 6 例、scheduler TC-S1~S8 滑动窗口+门禁闭环+MAX_RECHECK、run-batch、server-api、server-app、host、statemachine、run-client、events、hook-adapter、run-context/run-settings/run-resume。
-- `tests/integration/server.test.js` 是 server.cjs monolith 行为最大回归网（~58 项，直接调 `setBusy/setReady/waitReady/_resetForTest`；TC7 锁「启动即绑 CC_PROJECT、换 env 不改绑」——server 顶层单例 ctx，改造勿破坏导出面/ready-busy 语义）。
-- `run-driver` 阶段链函数生产无 live 调用者（仅 gateCompletionHook live）→ server run-host 引入阶段链推进属**新增行为**，纯规则已被 run-driver.test.js 钉死可复用。
-- `run-scheduler` 契约由 scheduler.test.js 最强锁定（真实 loadState 读写 tmp .awf/state.json；dispatcher/waitAnyDone 注入）。
-- `hook-adapter` 明确「不产 AskUserQuestion/决策事件」且被 hook-adapter.test.js 锁定；决策闸门仍内联 server.cjs `/hook`。若改 `/hook` 收口须补决策消费者，否则行为断裂。
-- events 类型与 statemachine 状态集不同构（Stop→run.stopped，但 statemachine 无 stopped 态；Stop 多解析为回 ready/busy 延续）。
-- 端口 8787 为 config 单源（`plugin/config.json` port，CC_PORT 可覆盖；run-context 装配），非硬编码。
-- 相关 task 详情在 `.awf/state.json`：T1-105 / T1-058(薄化 run.js, deps=[T1-105]) / T1-056(client 基座 done) / T1-057(去硬编码 done) / T1-091(轮询→事件订阅) / T1-098(真 run 回归)。
+- 最近 commit ac108e5 后全量 87 文件/749 例绿。回退锚点若回归：跑 run-related + server-lifecycle + awf-* + render-config + web 模型套件。
+- 各任务 exec/verdict 留存 .awf/state.json。
 
 ## Feedback
 
-- 用户本次指示：**把当前已知上下文记录到 .awf，确保下次重开不需要重新梳理**（非「开始实现」）。故本轮只落盘本文件，不写 T1-105 实现代码。
-- 前序用户选择（logs 记录）：T1-058 结构性缺口 → 选「重排」，接受新建前置 T1-105；倾向「server 侧先行、run.js 薄化后置」的推进顺序。
+- 全局：只 commit 不 push、无 Co-Authored-By、直接执行、听指挥不扩范围。压缩轮只判断+快照。
 
 ## Next
 
-接手者（重开后）：
-1. 读本文件与 `.awf/reports/refactor-recovery-audit.md`，直接按已闭合的 A 边界继续，不再发起范围选择。
-2. 实现 T1-105：新 server run-host 组装点（建议 CJS 模块或经 app.cjs 装配）+ server.cjs 挂 run 提交/状态/轮询事件端点 + run-client 补对应 client 方法 + 单测；run-driver 阶段链/gateCompletionHook 与 run-scheduler 由 server 注入接线。ESM/CJS 边界照 run-batch 桥接法处理。不得修改 `cli/run.js`/`cli/run-batch.js` live driver。
-3. 不再修改 TC17；先以 `docs/bugs/recovery-baseline-e2e-failures.md` 的两个 E2E 作为已知基线，T1-105 不得新增失败。
-4. 保持 `tests/integration/server.test.js` 与相关单测绿；单 run 行为不变。
-5. 完成时落账：`awf_task_complete`(T1-105, status done, files/commits/result)。
-6. 计划链：完成后 T1-058(薄化 run.js) → T1-059(--resume/--attach) → … → T1-067(单写者/常驻/attach 冒烟) → T1-098(真 run 全流程回归)。
+读 .awf/state.json 取下一 pending dev（预计 web Diagnostics/WBS-Tree 等前端、或进入 T1-098 前的接线任务）→ 固定流程执行 → 保持全量绿 → T1-098 自托管真 run（含双 run/决策闸门）前补齐 exec 标注的遗留。上下文再告警时重复本流程。

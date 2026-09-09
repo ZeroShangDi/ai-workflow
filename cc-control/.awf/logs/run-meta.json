@@ -1,41 +1,8 @@
 {
-  "projectRoot": "/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control",
-  "startedAt": "2026-09-07T17:52:45.541Z",
+  "projectRoot": "/Users/v-shangjunhao/MyProject/cc-control-wt-v0.2.0/cc-control",
+  "startedAt": "2026-09-09T10:17:27.766Z",
   "endedAt": null,
-  "mainSessionId": "e26235ec-3a65-4433-8f60-e97832060e83",
-  "subagents": {
-    "aa8238ec59ec425b2": {
-      "agentId": "aa8238ec59ec425b2",
-      "sessionId": "e26235ec-3a65-4433-8f60-e97832060e83",
-      "status": "stopped",
-      "startedAt": "2026-09-07T17:55:05.556Z",
-      "stoppedAt": "2026-09-07T17:57:16.164Z",
-      "transcriptPath": "/Users/shangjunhao/.claude/projects/-Users-shangjunhao-Project-ai-workflow-ai-workflow-cc-control-wt-cc-control/e26235ec-3a65-4433-8f60-e97832060e83/subagents/agent-aa8238ec59ec425b2.jsonl"
-    },
-    "aad518b3b667ad5fc": {
-      "agentId": "aad518b3b667ad5fc",
-      "sessionId": "e26235ec-3a65-4433-8f60-e97832060e83",
-      "status": "stopped",
-      "startedAt": "2026-09-07T17:55:09.859Z",
-      "stoppedAt": "2026-09-07T17:58:32.758Z",
-      "transcriptPath": "/Users/shangjunhao/.claude/projects/-Users-shangjunhao-Project-ai-workflow-ai-workflow-cc-control-wt-cc-control/e26235ec-3a65-4433-8f60-e97832060e83/subagents/agent-aad518b3b667ad5fc.jsonl"
-    },
-    "a1786cf6ab27e313d": {
-      "agentId": "a1786cf6ab27e313d",
-      "sessionId": "e26235ec-3a65-4433-8f60-e97832060e83",
-      "status": "stopped",
-      "startedAt": "2026-09-07T17:55:37.169Z",
-      "stoppedAt": "2026-09-07T17:55:37.169Z",
-      "transcriptPath": "/Users/shangjunhao/.claude/projects/-Users-shangjunhao-Project-ai-workflow-ai-workflow-cc-control-wt-cc-control/e26235ec-3a65-4433-8f60-e97832060e83/subagents/agent-a1786cf6ab27e313d.jsonl"
-    },
-    "a46acc85a82ee0ec9": {
-      "agentId": "a46acc85a82ee0ec9",
-      "sessionId": "e26235ec-3a65-4433-8f60-e97832060e83",
-      "status": "stopped",
-      "startedAt": "2026-09-07T17:56:14.251Z",
-      "stoppedAt": "2026-09-07T17:56:14.251Z",
-      "transcriptPath": "/Users/shangjunhao/.claude/projects/-Users-shangjunhao-Project-ai-workflow-ai-workflow-cc-control-wt-cc-control/e26235ec-3a65-4433-8f60-e97832060e83/subagents/agent-a46acc85a82ee0ec9.jsonl"
-    }
-  },
-  "updatedAt": "2026-09-07T17:58:32.758Z"
+  "mainSessionId": "cb58c08b-879e-48cd-b83d-edfaf889bf4b",
+  "subagents": {},
+  "updatedAt": "2026-09-09T10:17:27.766Z"
 }
