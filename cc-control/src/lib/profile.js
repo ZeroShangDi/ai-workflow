@@ -119,7 +119,10 @@ export function installProjectMcp(projectRoot, repoRoot, port) {
   }
 
   existing.mcpServers = existing.mcpServers || {};
-  for (const [name, srv] of Object.entries(mcpServers)) existing.mcpServers[name] = srv;
+  for (const [name, srv] of Object.entries(mcpServers)) {
+    // 单 server 多项目：注入本项目根，使 MCP server 模式读写请求带 ?p 路由到本项目上下文
+    existing.mcpServers[name] = { ...srv, env: { ...(srv.env || {}), AWF_PROJECT_ROOT: projectRoot } };
+  }
 
   fs.writeFileSync(mcpPath, JSON.stringify(existing, null, 2) + '\n');
   return { written: true, path: mcpPath, servers: Object.keys(mcpServers) };

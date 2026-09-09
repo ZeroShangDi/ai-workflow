@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SessionStart\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
           }
         ]
       }
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=UserPromptSubmit\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
           }
         ]
       }
@@ -105,7 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SubagentStart\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
           }
         ]
       }
@@ -115,7 +115,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=SubagentStop\" -H \"content-type: application/json\" -d @- >/dev/null 2>&1; exit 0'"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
           }
         ]
       }
@@ -136,7 +136,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 -X POST \"http://127.0.0.1:__PORT__/hook?event=PostToolUse\" -H 'content-type: application/json' -d @- >/dev/null 2>&1 || true"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
           }
         ]
       }

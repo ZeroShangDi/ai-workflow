@@ -74,7 +74,15 @@ const http = require('node:http');
 const SERVER_MODE = process.env.CC_AWF_STATE_SERVER === '1';
 const SERVER_PORT = Number(process.env.CC_PORT || 8787);
 // T1-078：MCP 只碰本 sid run（软约束）——带上自身 CC_SID，server 按 sid 分片 state。
-const SID_QS = process.env.CC_SID ? `?sid=${encodeURIComponent(String(process.env.CC_SID))}` : '';
+// 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
+const PROJ_ROOT = process.env.AWF_PROJECT_ROOT || process.env.CC_PROJECT || '';
+/** server 请求 query：sid(命中本 run 槽) + p(多项目路由到本项目)；无则空串 */
+function stateQuery() {
+  const parts = [];
+  if (process.env.CC_SID) parts.push(`sid=${encodeURIComponent(String(process.env.CC_SID))}`);
+  if (PROJ_ROOT) parts.push(`p=${encodeURIComponent(PROJ_ROOT)}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
 
 function httpJson(method, pathname, obj) {
   return new Promise((resolve) => {
@@ -94,12 +102,12 @@ function httpJson(method, pathname, obj) {
   });
 }
 async function readStateServer() {
-  const s = await httpJson('GET', `/awf/state${SID_QS}`);
+  const s = await httpJson('GET', `/awf/state${stateQuery()}`);
   if (s && typeof s === 'object' && 'tasks' in s) return s;
   throw new Error(`awf-state server 读取失败（port ${SERVER_PORT} /awf/state）`);
 }
 async function writeStateServer(s) {
-  const r = await httpJson('POST', `/run/state/apply${SID_QS}`, { state: s });
+  const r = await httpJson('POST', `/run/state/apply${stateQuery()}`, { state: s });
   if (!r || r.ok !== true) throw new Error('awf-state server 落盘失败（/run/state/apply）');
 }
 

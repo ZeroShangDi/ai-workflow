@@ -11,10 +11,10 @@ function loadConfig() {
   return { config: JSON.parse(raw), raw };
 }
 
-// 需要回传 ccOutput 的事件走 gateway（转发 server /hook + 透传 ccOutput）；
-// 其余事件保持裸 curl（只需上报，不读回包）。
-const GATEWAY_EVENTS = ['Stop', 'PreToolUse'];
-const CURL_EVENTS = ['SessionStart', 'UserPromptSubmit', 'SubagentStart', 'SubagentStop', 'PostToolUse'];
+// 单 server 多项目：全部事件走 gateway（统一转发 /hook 并附 ?p/&sid），不再区分裸 curl；
+// gateway 只把 server 返回的 ccOutput 透传 stdout（其余事件无 ccOutput → 无输出、不阻断）。
+const GATEWAY_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Stop', 'SubagentStart', 'SubagentStop', 'PreToolUse', 'PostToolUse'];
+const CURL_EVENTS = [];
 
 describe('plugin config.json hooks', () => {
   // ── TC1: 文件存在且为合法 JSON ──
@@ -90,16 +90,14 @@ describe('plugin config.json hooks', () => {
 
   // ── TC18: SessionStart curl 命令（M2：透传 stdin 携带 session_id）──
 
-  it('TC18: SessionStart curl 命令格式验证（透传 stdin）', () => {
+  it('TC18: SessionStart 命令走 gateway（透传 stdin 携带 session_id；多项目统一附 ?p/&sid）', () => {
     const { config } = loadConfig();
     const cmd = config.hooks.SessionStart[0].hooks[0].command;
 
-    expect(cmd).toContain('curl');
-    expect(cmd).toContain('-X POST');
-    expect(cmd).toContain('?event=SessionStart');
-    expect(cmd).toContain('-d @-'); // 透传原始 payload（server 据此记录 mainSessionId）
-    expect(cmd).toContain("sh -c '");
-    expect(cmd).toContain('; exit 0');
+    expect(cmd).toContain('node');
+    expect(cmd).toContain('${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs');
+    expect(cmd).toContain('__PORT__');
+    expect(cmd).not.toContain('curl');
   });
 
   // ── TC19: Stop 命令改走 gateway（转发 /hook + ccOutput 透传），不再裸 curl ──

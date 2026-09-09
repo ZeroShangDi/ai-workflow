@@ -28,6 +28,8 @@ const port = Number.isFinite(Number(process.argv[2]))
 
 // T1-070：透传 run sid 给 server /hook（bootstrap 为每 run 注入 CC_SID；server 按 sid 路由到槽）。
 const SID_QS = process.env.CC_SID ? `&sid=${encodeURIComponent(String(process.env.CC_SID))}` : '';
+// 单 server 多项目：透传项目根（bootstrap 注入 CC_PROJECT；server 按 ?p 路由到该项目上下文）。
+const P_QS = process.env.CC_PROJECT ? `&p=${encodeURIComponent(String(process.env.CC_PROJECT))}` : '';
 
 /** 读取 stdin 全部内容 */
 function readStdin() {
@@ -47,7 +49,7 @@ function postToServer(event, body) {
       {
         host: HOST,
         port,
-        path: `/hook?event=${encodeURIComponent(event)}${SID_QS}`,
+        path: `/hook?event=${encodeURIComponent(event)}${SID_QS}${P_QS}`,
         method: 'POST',
         headers: { 'content-type': 'application/json' },
       },

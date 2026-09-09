@@ -13,7 +13,15 @@ const _execSync = global.__CC_EXEC_SYNC__ || require('child_process').execSync;
 const SESSION = process.env.CC_SESSION || '';
 const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
 // T1-078/079：MCP 只碰本 run —— 带自身 CC_SID（server 按 sid 槽定位）
-const SID_QS = process.env.CC_SID ? `?sid=${encodeURIComponent(String(process.env.CC_SID))}` : '';
+// 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
+const PROJ_ROOT = process.env.AWF_PROJECT_ROOT || process.env.CC_PROJECT || '';
+/** server 请求 query：sid(命中本 run 槽) + p(多项目路由到本项目)；无则空串 */
+function sessionQuery() {
+  const parts = [];
+  if (process.env.CC_SID) parts.push(`sid=${encodeURIComponent(String(process.env.CC_SID))}`);
+  if (PROJ_ROOT) parts.push(`p=${encodeURIComponent(PROJ_ROOT)}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
 // 请求时读取 AWF_BASE（MCP env 注入，渲染自 config 单源 port）。缺失即抛——配置错误应显式暴露，
 // 而不是回退到硬编码地址；工具分发层 catch 后以错误文本返回。测试可随时切换 mock server。
 const baseUrl = () => {
@@ -176,7 +184,7 @@ const handlers = {
       switch (name) {
         case 'awf_session_status': {
           // T1-079：+sid → 读本 run 槽状态；pane 预览经 server snapshot
-          const status = await httpGet('/status' + SID_QS);
+          const status = await httpGet('/status' + sessionQuery());
           status.pane = (await capturePane()).slice(0, 500); // first 500 chars as preview
           return textResult(status);
         }

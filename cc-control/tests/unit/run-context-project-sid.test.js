@@ -39,4 +39,10 @@ describe('projectSessionName — tmux 会话名唯一化', () => {
     const ctx = buildRunContext({ projectRoot: '/p/a', env: {} });
     expect(ctx.projectRoot).toBe('/p/a');
   });
+
+  it('CLI/server 会话名一致：buildRunContext({sid:projectSid(root)}).runSessionName === projectSessionName(root)', () => {
+    const root = '/Users/x/Project/cc';
+    const cliCtx = buildRunContext({ projectRoot: root, sid: projectSid(root), env: {} });
+    expect(cliCtx.runSessionName).toBe(projectSessionName(root, { env: {} }));
+  });
 });

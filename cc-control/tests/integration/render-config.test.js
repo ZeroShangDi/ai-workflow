@@ -32,7 +32,8 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     expect(res.status).toBe(0);
     const settings = fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf-8');
     expect(settings).not.toContain('__PORT__');
-    expect(settings).toContain('http://127.0.0.1:9999/hook');
+    expect(settings).toContain('gateway.cjs');
+    expect(settings).toContain('9999');
     // 唯一配置源不变（hooks 仍用 __PORT__ 占位）
     expect(fs.readFileSync(PLUGIN_CONFIG, 'utf-8')).toContain('__PORT__');
   });
@@ -78,7 +79,8 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     const work = path.join(TMP, 'w6');
     render(work, 9999);
     const settings = fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf-8');
-    expect(settings).toContain('http://127.0.0.1:9999/hook');
+    expect(settings).toContain('gateway.cjs');
+    expect(settings).toContain('9999');
     expect(settings).not.toContain('__PORT__');
     const mcp = readJson(path.join(work, '.mcp.json'));
     expect(mcp.mcpServers['awf-session'].env.AWF_BASE).toBe('http://127.0.0.1:9999');

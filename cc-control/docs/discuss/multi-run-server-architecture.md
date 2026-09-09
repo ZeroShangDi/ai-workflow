@@ -1,6 +1,14 @@
 # 单实例常驻 Session Server + 多项目并发 run（设计方向）
 
-> 日期：2026-09-07 · 状态：**方向记录（未实现）** · 关联 Issue `.awf/issues/002`
+> 2026-09-09 **已实现**（v0.2.0 收口落地，主键定为 projectRoot）：一个常驻 server 进程按
+> `Map<projectRoot, ProjectCtx>` 服务多个项目目录；请求/hook 带 `?p=`（gateway 从 env CC_PROJECT 附，
+> CLI/run-client/MCP 同源）路由到对应项目上下文。磁盘仍锚各自 `.awf/state.json`，**不做 `.awf/runs/<sid>`
+> 磁盘分片**（Q1 用户裁定：同目录不同时跑多 run）；sid 仅作 run 标签（tmux 会话名 `cc-<projectSid>` + hook 路由）。
+> tmux/logger/decision-gate 每项目一份，互不串；空闲回收在全部项目无活跃 run 且空闲超时后触发。
+> 关联实现：`src/server/project-context.cjs`（容器+注册表）、`src/server/server.cjs`（pcx 路由）、
+> `src/server/one-server-two-projects.test.js`（验收）。原方向文（未实现阶段）留档如下。
+
+> 日期：2026-09-07 · 状态：**方向记录（未实现）**（已于 2026-09-09 落地，见上）· 关联 Issue `.awf/issues/002`
 > 触发：T1-027 嵌套 run 自毁父基础设施 → 明确未来不靠「每 run 重启」解决，改单实例常驻。
 
 ## 目标
