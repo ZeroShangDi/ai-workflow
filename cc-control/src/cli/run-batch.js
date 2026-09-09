@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import { runScheduler } from '../server/run-scheduler.js';
 import { createRunClient } from './run-client.js';
 import { subagentDispatch } from '../lib/plugin-bridge.js';
-import { httpPostJson, sleep, SERVER_PORT, getStatus } from '../lib/session/client.js';
+import { httpPostJson, sleep, SERVER_PORT, getStatus, projectQuery } from '../lib/session/client.js';
 import { handleDecision } from './run.js';
 import { logStep } from '../lib/ui/log.js';
 import { createTaskList } from '../lib/ui/task-list.js';
@@ -108,7 +108,7 @@ function makeWaitAnyDone(projectRoot, dispatcher, taskList, readTasks) {
       deadline += Date.now() - pauseStarted;
       // 响应主 Agent 决策（AskUserQuestion 原生上抛）：hook → server decisionPending → 本层处理 → /respond。
       // 决策处理期间阻塞 = 调度器不返回 = 暂停补位；处理完（AskUserQuestion 结束）恢复。
-      const status = await getStatus(SERVER_PORT);
+      const status = await getStatus(SERVER_PORT, projectRoot);
       const dp = status?.decisionPending;
       if (dp && !dp.answered) {
         await handleDecision(dp);
@@ -138,6 +138,7 @@ function makeWaitAnyDone(projectRoot, dispatcher, taskList, readTasks) {
  */
 export async function runBatchLoop(projectRoot, cfg) {
   const taskList = createTaskList();
+  const pq = projectQuery(projectRoot); // 单 server 多项目：URL 附 ?p= 路由到本项目
   const client = createRunClient({});
   // run 态读经 server 快照（client.getState → GET /awf/state），不直读 lib/state.js（T1-062）
   const readTasks = async () => {
@@ -157,15 +158,15 @@ export async function runBatchLoop(projectRoot, cfg) {
         taskPrompt: task.prompt || task.title || '',
       });
       // 经 Session Server /send（tmux）注入：主会话收到指令 → 派生后台子 Agent → 回合结束
-      const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text: prompt });
+      const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send${pq}`, { text: prompt });
       if (!resp?.ok) throw new Error(`派发 ${task.id} 失败: ${resp?.error || 'unknown'}`);
       // T1-061：调度 active 写经 server run api（server 单写者），不再 CLI 直写 state
-      await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/task/active`, { taskId: task.id });
+      await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/task/active${pq}`, { taskId: task.id });
       taskList.update(task.id, task.title, 'active');
     },
     async sendRaw(text) {
       await waitWhilePaused(projectRoot);
-      const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
+      const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send${pq}`, { text });
       if (!resp?.ok) throw new Error(`补发失败: ${resp?.error || 'unknown'}`);
     },
   };
@@ -183,7 +184,7 @@ export async function runBatchLoop(projectRoot, cfg) {
         const title = settled?.title || task.title || '未命名任务';
         const status = settled?.status || task.status;
         taskList.update(id, title, status === 'done' ? 'done' : 'blocked');
-        await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/gate`, { taskId: id });
+        await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/gate${pq}`, { taskId: id });
       },
     }));
   } finally {
@@ -191,7 +192,7 @@ export async function runBatchLoop(projectRoot, cfg) {
   }
 
   // T1-061：版本备份经 server run api（server 单写者）
-  await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/backup`, {});
+  await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/run/state/backup${pq}`, {});
   console.log('');
   console.log(`  ${GREEN}✔ 工作流结束（${dispatched} 任务）${RESET}\n`);
 }

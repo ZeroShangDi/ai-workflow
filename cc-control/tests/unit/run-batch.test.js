@@ -21,7 +21,7 @@ const m = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/lib/plugin-bridge.js', () => ({ subagentDispatch: m.mockSubagentDispatch }));
-vi.mock('../../src/lib/session/client.js', () => ({ httpPostJson: m.mockHttpPostJson, sleep: m.mockSleep, SERVER_PORT: 8787, getStatus: m.mockGetStatus }));
+vi.mock('../../src/lib/session/client.js', () => ({ httpPostJson: m.mockHttpPostJson, sleep: m.mockSleep, SERVER_PORT: 8787, getStatus: m.mockGetStatus, projectQuery: (root) => (root ? `?p=${encodeURIComponent(root)}` : '') }));
 vi.mock('../../src/cli/run-client.js', () => ({ createRunClient: vi.fn(() => m.client) }));
 vi.mock('../../src/server/run-scheduler.js', () => ({ runScheduler: m.mockRunScheduler }));
 vi.mock('../../src/cli/run.js', () => ({ handleDecision: m.mockHandleDecision }));
@@ -52,7 +52,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     const args = m.mockRunScheduler.mock.calls[0][0];
     expect(args.projectRoot).toBe('/tmp/proj');
     expect(args.cfg).toEqual({ agents: { max: 2 } });
-    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/backup', {});
+    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/backup?p=%2Ftmp%2Fproj', {});
   });
 
   it('TC-B: dispatcher.send 经 subagentDispatch + /send 派发到主会话', async () => {
@@ -68,8 +68,8 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     await captured.send({ id: 'T1', title: '做任务', prompt: 'do it' });
     expect(m.mockWaitWhilePaused).toHaveBeenCalledWith('/tmp/proj');
     expect(m.mockSubagentDispatch).toHaveBeenCalledWith({ taskId: 'T1', taskTitle: '做任务', taskPrompt: 'do it' });
-    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/send', { text: 'DISPATCH_PROMPT' });
-    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/task/active', { taskId: 'T1' });
+    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/send?p=%2Ftmp%2Fproj', { text: 'DISPATCH_PROMPT' });
+    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/task/active?p=%2Ftmp%2Fproj', { taskId: 'T1' });
     expect(m.mockTaskListUpdate).toHaveBeenCalledWith('T1', '做任务', 'active');
   });
 
@@ -110,7 +110,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
 
     // 补发：经 /send 注入「SendMessage 恢复子 Agent」指令（含 agent-bad）
     expect(m.mockHttpPostJson).toHaveBeenCalledWith(
-      'http://127.0.0.1:8787/send',
+      'http://127.0.0.1:8787/send?p=%2Ftmp%2Fproj',
       expect.objectContaining({ text: expect.stringContaining('agent-bad') }),
     );
   });
@@ -160,7 +160,7 @@ describe('runBatchLoop — 滑动窗口集成（薄封装）', () => {
     // 触发完成回调：门禁任务 blocked → handleGateCompletion 被调用（projectRoot/id/task 透传）
     const gateTask = { id: 'R1', kind: 'review', status: 'blocked', exec: { verdict: { level: 'fail' } } };
     await captured('R1', gateTask);
-    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/gate', { taskId: 'R1' });
+    expect(m.mockHttpPostJson).toHaveBeenCalledWith('http://127.0.0.1:8787/run/state/gate?p=%2Ftmp%2Fproj', { taskId: 'R1' });
   });
 
   it('TC-I: 任务落账后输出完成状态与标题', async () => {
