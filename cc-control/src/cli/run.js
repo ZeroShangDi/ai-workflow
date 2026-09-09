@@ -145,7 +145,7 @@ async function startSession({ ctx, workDir, reuseExisting = false }) {
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
   await ensureServer(ctx.serverScriptPath, ctx.infraRoot, workDir, reuseExisting);
   await writeRunSettings(ctx, workDir);
-  await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting, ctx.sid);
+  await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting);
 }
 
 /** 确保 Session Server 已启动（单 server 多项目）。T1-063+：任何健康 server 直接复用——
@@ -175,7 +175,7 @@ async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = fa
 }
 
 /** 确保 tmux session 存在（会话名按项目唯一化）；resume 时优先复用现场，否则重建 */
-async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false, sid) {
+async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false) {
   if (reuseExisting) {
     try {
       const sessionCwd = execSync(
@@ -196,7 +196,9 @@ async function ensureSession(bootstrapScript, workDir, sessionName, reuseExistin
       CC_WORKDIR: workDir,
       CC_SESSION: sessionName,
       CC_PROJECT: workDir,
-      ...(sid ? { CC_SID: sid } : {}),
+      // 单 server 多项目（主键=projectRoot）：run 会话内 hook/MCP 只带 ?p 路由到本项目单槽/主 state。
+      // 不注入 CC_SID —— 否则 awf-state/session MCP 会把主 run 路由到不存在的 .awf/runs/<sid> 分片（404）；
+      // sid 仅用于 tmux 会话名唯一化（projectSid），不作为主 run 的寻址。
       // T1-077：run 会话内 awf-state MCP 底层经 server run api（server 单写者，不直写文件/锁）
       CC_AWF_STATE_SERVER: '1',
       CC_PORT: String(SERVER_PORT),

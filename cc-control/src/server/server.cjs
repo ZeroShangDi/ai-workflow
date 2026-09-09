@@ -482,14 +482,22 @@ function defaultSingleExecutor(pcx) {
       setBusy(pcx);
       pcx.logger.logPrompt(text);
       await submit(pcx, text);
-      const deadline = Date.now() + READY_TIMEOUT_MS;
-      while (Date.now() < deadline) {
+      // 等任务自我结算：CC 仍在跑（busy）→ 不计时、永不误判超时（真 run 这类长任务可远超墙钟上限）；
+      // 仅当 CC 已就绪(idle)且任务仍未结算时，累计「无变化窗口」，超窗才算超时
+      // （docs/bugs/timeout-must-confirm-no-cc-change.md：需确认 CC 无变化才算超时）。
+      let idleSince = null;
+      for (;;) {
         await sleep(500);
         const s = pcx.stores.state.readSync();
         const t = s?.tasks?.find((x) => x.id === taskId);
         if (t && (t.status === 'done' || t.status === 'blocked')) return { status: t.status };
+        if (pcx.state === 'busy') { idleSince = null; continue; } // CC 仍在推进 → 重置无变化窗口
+        const now = Date.now();
+        if (idleSince == null) idleSince = now;
+        else if (now - idleSince >= READY_TIMEOUT_MS) {
+          throw new Error(`task ${taskId} 已就绪但长时间未自我结算（空闲 ${Math.round(READY_TIMEOUT_MS / 1000)}s 无变化，仍 ${t?.status || 'unknown'}）；保留现场待 w-monitor`);
+        }
       }
-      throw new Error(`task ${taskId} 超时未自我结算（仍 ${pcx.stores.state.readSync()?.tasks?.find((x) => x.id === taskId)?.status || 'unknown'}）`);
     },
   };
 }
