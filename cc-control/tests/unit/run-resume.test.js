@@ -10,6 +10,7 @@ vi.mock('../../src/lib/session/client.js', () => ({
   sleep: vi.fn(),
   sendCmd: vi.fn(),
   getContextReady: vi.fn(),
+  projectQuery: () => '',
   SERVER_PORT: 8787,
 }));
 

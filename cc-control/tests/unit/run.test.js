@@ -35,6 +35,7 @@ vi.mock('../../src/lib/run-context.cjs', () => ({
     serverScriptPath: '/tmp/server.cjs', bootstrapScriptPath: '/tmp/bootstrap.sh',
     runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
   })),
+  projectSid: vi.fn(() => 'p12ab'),
 }));
 vi.mock('../../src/server/run-settings.cjs', () => ({ generateRunSettings: m.generateRunSettings }));
 vi.mock('../../src/cli/run-client.js', () => ({ createRunClient: vi.fn(() => m.client) }));
@@ -44,6 +45,7 @@ vi.mock('../../src/lib/session/client.js', () => ({
   autoSelect: m.autoSelect,
   waitForReady: m.waitForReady,
   getStatus: m.getStatus,
+  projectQuery: () => '',
   SERVER_PORT: 8787,
 }));
 
@@ -250,14 +252,20 @@ describe('runCommand（T1-058 薄化：提交 + 观察 + 收尾）', () => {
     expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
   });
 
-  it('TC8: 端口被其他项目 server 占用 → 报错不杀（保留现场）', async () => {
+  it('TC8: 端口被其他项目 server 占用 → 复用（单 server 多项目，?p 路由；不 spawn 不 kill）', async () => {
+    vi.useFakeTimers();
     vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
     m.loadState.mockReturnValue(stateWith({ mode: 'run' }));
     m.getStatus.mockResolvedValue({ state: 'ready', projectRoot: '/tmp/other' });
 
-    await expect(runCommand(undefined, {})).rejects.toThrow('其他项目 server 占用');
+    const promise = runCommand(undefined, {});
+    await boot(promise);
+
     expect(m.spawn).not.toHaveBeenCalledWith('node', ['/tmp/server.cjs'], expect.any(Object));
     expect(m.execSync).not.toHaveBeenCalledWith(expect.stringContaining('lsof'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('复用现有服务'));
+    expect(m.client.setRunMode).toHaveBeenCalledWith('idle');
   });
 });
 

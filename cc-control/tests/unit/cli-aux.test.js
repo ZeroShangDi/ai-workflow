@@ -45,6 +45,7 @@ vi.mock('../../src/lib/run-context.cjs', () => ({
     bootstrapScriptPath: '/tmp/bootstrap.sh',
     runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
   })),
+  projectSid: vi.fn(() => 'p123'),
 }));
 
 // ── http mock for server check ──

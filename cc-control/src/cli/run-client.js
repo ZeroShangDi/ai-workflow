@@ -54,13 +54,17 @@ export const API_ENDPOINTS = {
 };
 
 /**
- * @param {{ port?: number, http?: { postJson, getJson, respond, status }, sleep?: Function, onEvent?: Function }} deps
+ * @param {{ port?: number, project?: string, http?: { postJson, getJson, respond, status }, sleep?: Function, onEvent?: Function }} deps
+ *   - project  项目根（单 server 多项目）：给所有端点追加 ?p= 路由到该项目；缺省不加（存量路径不变）
  */
-export function createRunClient({ port, http, sleep } = {}) {
-  const postJson = http?.postJson || ((path, body) => httpPostJson(`${base(port)}${path}`, body));
-  const getJson = http?.getJson || ((path) => httpGetJson(`${base(port)}${path}`));
-  const respond = http?.respond || ((value) => httpPostJson(`${base(port)}/respond`, { value }));
-  const status = http?.status || (() => getStatus(port));
+export function createRunClient({ port, project, http, sleep } = {}) {
+  const enc = project ? encodeURIComponent(project) : null;
+  /** 给路径合并 ?p=（有既有 query 则 & 追加）；无 project 原样返回 */
+  const addP = (p) => (enc == null ? p : (p.includes('?') ? `${p}&p=${enc}` : `${p}?p=${enc}`));
+  const postJson = http?.postJson || ((path, body) => httpPostJson(`${base(port)}${addP(path)}`, body));
+  const getJson = http?.getJson || ((path) => httpGetJson(`${base(port)}${addP(path)}`));
+  const respond = http?.respond || ((value) => httpPostJson(`${base(port)}${addP('/respond')}`, { value }));
+  const status = http?.status || (() => getStatus(port, project));
   const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
 
   return {

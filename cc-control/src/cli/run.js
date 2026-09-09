@@ -5,10 +5,10 @@ import { installProjectMcp } from '../lib/profile.js';
 import { loadState } from '../lib/state.js';
 import { loadRunConfig } from '../lib/run-config.js';
 import { waitWhilePaused } from '../lib/pause.js';
-import { buildRunContext } from '../lib/run-context.cjs';
+import { buildRunContext, projectSid } from '../lib/run-context.cjs';
 import { generateRunSettings } from '../server/run-settings.cjs';
 import { createRunClient } from './run-client.js';
-import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, SERVER_PORT } from '../lib/session/client.js';
+import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, SERVER_PORT, projectQuery } from '../lib/session/client.js';
 import { logSection, logStep } from '../lib/ui/log.js';
 import { createRunFollow } from '../lib/ui/run-follow.js';
 import { CYAN, GREEN, YELLOW, RED, DIM, RESET } from '../lib/ui/colors.js';
@@ -41,9 +41,14 @@ import { CYAN, GREEN, YELLOW, RED, DIM, RESET } from '../lib/ui/colors.js';
  *   本文件不再承担 —— 相关函数已移除，剩余「读 state 直接判定/直写 state/gate」的落点
  *   以注释锚点在文件尾标注，供 T1-061 逐一收敛。 */
 
+// 单 server 多项目：本次 run 的项目根（?p 路由到该项目上下文；缺省 null → 存量路径不变）
+let activeProject = null;
+
 export async function runCommand(task, options) {
   const projectRoot = process.cwd(); // run 项目（.awf 宿主）
-  const ctx = buildRunContext({ projectRoot }); // 装配 infra/路径/会话名/端口（server/client/MCP 共用）
+  activeProject = projectRoot;
+  // 会话名唯一化（单 server 多项目：不同目录不再共用基础名 `cc` 而互相 kill）
+  const ctx = buildRunContext({ projectRoot, sid: projectSid(projectRoot) }); // 装配 infra/路径/会话名/端口（server/client/MCP 共用）
   // T1-059 重连语义：fresh=新提交 / resume=重启续接（活跃 run 挂接、空闲则提交续跑）/
   // attach=仅挂接活跃 run（读 store 落盘进度续观，不重复提交）
   const connectionMode = options?.attach ? 'attach' : options?.resume ? 'resume' : 'fresh';
@@ -98,7 +103,7 @@ export async function runCommand(task, options) {
   //    多 agent：宿主 batch 传输未接线前暂保留 run-batch live 路径（run.js 不实现调度）
   let runCompleted = false;
   try {
-    const client = createRunClient({});
+    const client = createRunClient({ project: projectRoot });
     // T1-061：mode 写经 server run api（server 已由 startSession 拉起）——置 run 供 w-monitor 识别
     if (needSetRun) {
       const modeResp = await client.setRunMode('run');
@@ -140,20 +145,18 @@ async function startSession({ ctx, workDir, reuseExisting = false }) {
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
   await ensureServer(ctx.serverScriptPath, ctx.infraRoot, workDir, reuseExisting);
   await writeRunSettings(ctx, workDir);
-  await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting);
+  await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting, ctx.sid);
 }
 
-/** 确保 Session Server 已启动。T1-063：存在即复用（去 kill-by-port）——
- *  健康 server 且属本项目 → 直接复用（含 plan/resume/attach 期已拉起的 server）；
- *  端口被其他项目 server 占用 → 报错不杀（避免误伤他项目现场）；无健康 server → 拉起
- *  （不再 lsof kill-by-port；端口若被非 awf 进程占用，启动探测超时会显式暴露）。 */
+/** 确保 Session Server 已启动（单 server 多项目）。T1-063+：任何健康 server 直接复用——
+ *  不同项目目录也可复用同一常驻 server（请求带 ?p 路由到各自项目上下文），不再因跨项目报错；
+ *  无健康 server → 拉起（本项目为 boot 项目；其余项目随后以 ?p 注册自身上下文）。 */
 async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = false) {
   const existing = await getStatus(SERVER_PORT).catch(() => false);
   if (existing?.state) {
-    if (existing.projectRoot && existing.projectRoot !== workDir) {
-      throw new Error(`端口 ${SERVER_PORT} 已被其他项目 server 占用（${existing.projectRoot}）；请先 awf server stop 或改用隔离端口`);
-    }
-    logStep('tmux-http', 'ok', '复用现有服务');
+    logStep('tmux-http', 'ok', existing.projectRoot === workDir
+      ? '复用现有服务'
+      : `复用现有服务（单 server 多项目：${existing.projectRoot} 已驻留，本项目经 ?p 路由）`);
     return;
   }
 
@@ -171,8 +174,8 @@ async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = fa
   throw new Error('Session Server 启动超时（端口可能被非 awf 进程占用）');
 }
 
-/** 确保 tmux session 存在；resume 时优先复用现场，否则重建 */
-async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false) {
+/** 确保 tmux session 存在（会话名按项目唯一化）；resume 时优先复用现场，否则重建 */
+async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false, sid) {
   if (reuseExisting) {
     try {
       const sessionCwd = execSync(
@@ -192,6 +195,8 @@ async function ensureSession(bootstrapScript, workDir, sessionName, reuseExistin
       ...process.env,
       CC_WORKDIR: workDir,
       CC_SESSION: sessionName,
+      CC_PROJECT: workDir,
+      ...(sid ? { CC_SID: sid } : {}),
       // T1-077：run 会话内 awf-state MCP 底层经 server run api（server 单写者，不直写文件/锁）
       CC_AWF_STATE_SERVER: '1',
       CC_PORT: String(SERVER_PORT),
@@ -331,7 +336,7 @@ async function observeRun(client, { runId, projectRoot, afterSeq = 0, header = n
 
     // 1) 会话级人机应答中继：decisionPending（choice/ask/AskUserQuestion）→ 用户回应写回
     //    decisionResume（gate 捕获的续跑）→ 注入续跑消息（一次）
-    const st = await getStatus(SERVER_PORT).catch(() => null);
+    const st = await getStatus(SERVER_PORT, projectRoot).catch(() => null);
     if (st) {
       if (st.decisionPending) {
         await handleDecision(st.decisionPending);
@@ -421,11 +426,12 @@ function renderHostEvent(e) {
 
 /** 注入 gate 决策续跑消息（一次）；失败仅告警不阻断观察 */
 async function injectResumeOnce(resume) {
+  const pj = projectQuery(activeProject); // 多项目：/send 路由到本项目
   const note = resume.fallback ? '（兜底：无法可靠决策，按延后处理继续）' : '';
   logStep('decision', 'ok', `决策 ${resume.decision_id} → 续跑: ${String(resume.answer).slice(0, 60)}`);
   const text = `已收到 AWF 决策结果：${resume.answer}${note}\n请据此继续执行当前任务，完成后结束本回合；如再遇需要决策之处，按既定标记处理。`;
   try {
-    const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
+    const resp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send${pj}`, { text });
     if (!resp?.ok) logStep('', 'error', `决策续跑注入失败: ${resp?.error || 'unknown'}`);
   } catch (e) {
     logStep('', 'error', `决策续跑注入失败: ${e.message}`);
@@ -444,6 +450,7 @@ const seenAnswers = new Set();
  *   text            → readline 手动输入
  */
 export async function handleDecision(d) {
+  const pj = projectQuery(activeProject); // 多项目：/respond 路由到本项目
   if (d.source === 'AskUserQuestion') {
     if (d.answered) {
       if (!seenAnswers.has(d.question)) { console.log(`     ${GREEN}✔ 已选择: ${d.answer}${RESET}`); seenAnswers.add(d.question); }
@@ -453,9 +460,9 @@ export async function handleDecision(d) {
     if (d.options?.length) d.options.forEach((o, i) => console.log(`     ${DIM}${i + 1}.${RESET} ${o}`));
     const sel = await autoSelect(d);
     if (sel) {
-      if (sel.multiSelect) await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, { value: sel.selected.join(',') });
-      else if (sel.index > 0) await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, { value: String(sel.index) });
-      else if (sel.customInput) await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, { value: sel.customInput });
+      if (sel.multiSelect) await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, { value: sel.selected.join(',') });
+      else if (sel.index > 0) await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, { value: String(sel.index) });
+      else if (sel.customInput) await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, { value: sel.customInput });
     }
     return;
   }
@@ -469,7 +476,7 @@ export async function handleDecision(d) {
     d.options.forEach((o, i) => console.log(`     ${DIM}${i + 1}.${RESET} ${o}`));
     const answer = await new Promise((resolve) => rl.question(`  ${DIM}选择 (1-${d.options.length}): ${RESET}`, (a) => { rl.close(); resolve(a.trim()); }));
     const value = d.options[parseInt(answer, 10) - 1] || answer;
-    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value }));
+    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, JSON.stringify({ value }));
     console.log(`     ${GREEN}✔ 已选择: ${value}${RESET}\n`);
     return;
   }
@@ -477,7 +484,7 @@ export async function handleDecision(d) {
   console.log(`  ${CYAN}${d.question}${RESET}`);
   const answer = await new Promise((resolve) => rl.question(`  ${DIM}输入: ${RESET}`, (a) => { rl.close(); resolve(a.trim()); }));
   if (answer) {
-    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond`, JSON.stringify({ value: answer }));
+    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, JSON.stringify({ value: answer }));
     console.log(`     ${GREEN}✔ 已发送${RESET}\n`);
   }
 }
@@ -488,19 +495,20 @@ export async function handleDecision(d) {
  * 使用（避免与宿主等待冲突），改由 driveSingleViaHost 的 seenResume 一次性注入代替。
  */
 export async function drainDecisionResume(projectRoot) {
+  const pj = projectQuery(projectRoot);
   for (let i = 0; i < 10; i++) {
-    const status = await getStatus();
+    const status = await getStatus(SERVER_PORT, projectRoot);
     const resume = status?.decisionResume;
     if (!resume || !resume.decision_id) return;
     const note = resume.fallback ? '（兜底：无法可靠决策，按延后处理继续）' : '';
     logStep('decision', 'ok', `决策 ${resume.decision_id} → 续跑: ${String(resume.answer).slice(0, 60)}`);
     const text = `已收到 AWF 决策结果：${resume.answer}${note}\n请据此继续执行当前任务，完成后结束本回合；如再遇需要决策之处，按既定标记处理。`;
-    const sendResp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send`, { text });
+    const sendResp = await httpPostJson(`http://127.0.0.1:${SERVER_PORT}/send${pj}`, { text });
     if (!sendResp?.ok) {
       logStep('', 'error', `决策续跑注入失败: ${sendResp?.error || 'unknown'}`);
       return;
     }
-    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
+    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot), project: projectRoot });
   }
 }
 

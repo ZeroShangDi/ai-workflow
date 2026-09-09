@@ -1,24 +1,23 @@
 import { spawn, execSync } from 'child_process';
 import { getStatus, sleep } from '../lib/session/client.js';
 import { logger } from '../lib/ui/log.js';
-import { buildRunContext } from '../lib/run-context.cjs';
+import { buildRunContext, projectSid } from '../lib/run-context.cjs';
 
 /**
  * awf server — tmux-http 服务生命周期管理（路径/会话名/端口经 run-context 装配）
  */
 export async function serverCommand(action) {
-  const ctx = buildRunContext({ projectRoot: process.cwd() });
+  // 会话名按项目唯一化（单 server 多项目：不同目录不共用 `cc` 而互相 kill）
+  const ctx = buildRunContext({ projectRoot: process.cwd(), sid: projectSid(process.cwd()) });
 
   switch (action) {
     case 'start': {
-      // T1-063：存在即复用（不 kill-by-port）；他项目 server 占用 → 报错不覆盖
+      // T1-063+：存在即复用（单 server 多项目）；他项目 server 占用也复用（经 ?p 路由到本项目）
       const existing = await getStatus(ctx.port);
       if (existing?.state) {
-        if (existing.projectRoot && existing.projectRoot !== ctx.projectRoot) {
-          logger.error(`端口 ${ctx.port} 已被其他项目 server 占用（${existing.projectRoot}）；请先 awf server stop`);
-          return;
-        }
-        logger.info('tmux-http 已运行 → 复用');
+        logger.info(existing.projectRoot === ctx.projectRoot
+          ? 'tmux-http 已运行 → 复用'
+          : `tmux-http 已运行（${existing.projectRoot} 驻留）→ 复用（单 server 多项目，本项目经 ?p 路由）`);
       } else {
         logger.info('启动 tmux-http ...');
         const proc = spawn('node', [ctx.serverScriptPath], {
