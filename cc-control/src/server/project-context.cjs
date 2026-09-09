@@ -22,7 +22,7 @@ const fs = require('node:fs');
 const { buildRunContext, projectSid } = require('../lib/run-context.cjs');
 const { createRunStores } = require('../lib/store.cjs');
 const storeCore = require('../lib/store-core.cjs');
-const { RunLogger } = require('./run-logger.cjs');
+const { RunLogger: RealRunLogger } = require('./run-logger.cjs');
 const { createRunSlot } = require('./run-slot.cjs');
 const { createTmux } = require('./tmux.cjs');
 const { isDecisionEnabled } = require('../lib/decision-config.cjs');
@@ -36,8 +36,9 @@ const { DecisionStore } = require('./decision-store.cjs');
  *   - env          环境（缺省 process.env；会话名/端口经 runtime-config）
  *   - sid          显式 run 标签；缺省用确定性 projectSid(projectRoot)（跨进程一致）
  *   - tmuxFactory  (sessionName) => tmux 原语集；缺省 createTmux（测试可注入）
+ *   - RunLogger     RunLogger 类；缺省真实 RunLogger（测试经 global.__CC_RUNLOGGER__ 注入 mock）
  */
-function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory } = {}) {
+function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory, RunLogger = RealRunLogger } = {}) {
   const root = path.resolve(projectRoot || env.CC_PROJECT || process.cwd());
   const runSid = sid || projectSid(root);
   // 命名 ctx：带 sid 标签（tmux 会话名 cc-<sid>）；磁盘 ctx：无 sid（.awf/state.json 现行布局）
@@ -129,9 +130,9 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
 
 /**
  * 项目注册表：懒建 ProjectCtx，缺省 root → boot（兼容不带 p 的存量请求/测试）。
- * @param {{ env?: object, bootRoot?: string, tmuxFactory?: Function }} [deps]
+ * @param {{ env?: object, bootRoot?: string, tmuxFactory?: Function, RunLogger?: Function }} [deps]
  */
-function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory } = {}) {
+function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory, RunLogger } = {}) {
   const boot = path.resolve(bootRoot || env.CC_PROJECT || process.cwd());
   const map = new Map();
   let bootCtx = null; // boot 上下文最先构造，保证 no-p 落到与旧单槽一致的项目
@@ -144,7 +145,7 @@ function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory } = {}
     const key = norm(root);
     const existing = map.get(key);
     if (existing) return existing;
-    const created = createProjectContext({ projectRoot: key, env, tmuxFactory });
+    const created = createProjectContext({ projectRoot: key, env, tmuxFactory, RunLogger });
     map.set(key, created);
     if (key === boot && !bootCtx) bootCtx = created;
     return created;
@@ -164,6 +165,11 @@ function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory } = {}
       decisionPending: c.decisionPending,
       contextReady: c.contextReady,
     }));
+  }
+
+  /** 返回全部上下文实例（供 stop/idle/测试遍历，勿改其 key） */
+  function all() {
+    return [...map.values()];
   }
 
   function reset() {
@@ -193,7 +199,7 @@ function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory } = {}
   // 预置 boot 上下文（构造即注册，保证 /status 无 p 时可立即响应且与原行为等价）
   ctxFor(boot);
 
-  return { bootRoot: boot, ctxFor, resolveCtx, list, reset, get size() { return map.size; } };
+  return { bootRoot: boot, ctxFor, resolveCtx, list, all, reset, get size() { return map.size; } };
 }
 
 module.exports = { createProjectContext, createProjectRegistry };

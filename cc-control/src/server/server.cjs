@@ -9,7 +9,7 @@ const { encodeTextFrame, upgrade: wsUpgrade } = require('./ws.cjs');
 const { createStaticHost } = require('./static.cjs');
 // 测试注入点：vitest 无法 mock 被原生 require 加载的 CJS 依赖，提供显式注入钩子。
 // 生产环境不设置 global.__CC_TMUX__/__CC_RUNLOGGER__，回落到真实模块。
-const tmuxlib = global.__CC_TMUX__ || require('./tmux.cjs');
+const { createTmux } = require('./tmux.cjs');
 const { RunLogger } = global.__CC_RUNLOGGER__ || require('./run-logger.cjs');
 const { readRunMetrics, readRunMeta, resetRunMeta, updateRunMeta } = require('../lib/run-metrics.cjs');
 const {
@@ -23,75 +23,60 @@ const extract = require('../lib/extract.cjs');
 const interact = require('./interact.cjs');
 const { DecisionStore } = require('./decision-store.cjs');
 const decisionInstruction = require('./decision-instruction.cjs');
-// run-context 装配：server 当前承载单 run（无 sid），项目根/路径/端口/会话名统一经装配器派生。
-// 多 run 分槽（每 run 独立上下文）由 T1-068/T1-071 接入。
-const { buildRunContext } = require('../lib/run-context.cjs');
-const { isIdleDue, idleDefaultMs } = require('../lib/server-idle.cjs');
-const { createRunSlot } = require('./run-slot.cjs');
 // T1-080：oneshot（claude -p）收口 server /oneshot——cc 经 oneshot adapter；测试可注入 global.__CC_ONESHOT__
 const oneshotLib = global.__CC_ONESHOT__ || require('../adapters/oneshot.cjs');
-// T1-071：per-run 内存槽（ready/busy/decision/contextReady 按 sid 隔离，不串 run）。
-// 缺省（无 sid）hook 仍走下方既有全局单槽路径，本映射仅承载 sid 显式路由的 run。
-const runSlotsBySid = new Map();
-function runSlotFor(sid) {
-  if (sid == null || sid === '') return null;
-  const key = String(sid);
-  let slot = runSlotsBySid.get(key);
-  if (!slot) { slot = createRunSlot(key); runSlotsBySid.set(key, slot); }
-  return slot;
+const storeCore = require('../lib/store-core.cjs'); // per-run state 通用路径原子读写（T1-078）
+const { isIdleDue, idleDefaultMs } = require('../lib/server-idle.cjs');
+
+// 单 server 多项目（用户裁定，主键=projectRoot）：每项目一份 ProjectCtx（磁盘锚点/mutable 槽/host），
+// 请求带 ?p=<归一化 projectRoot> 路由；不带 p → boot 上下文（与旧单项目行为字节一致）。
+const { createProjectRegistry } = require('./project-context.cjs');
+
+/** tmux 工厂：测试注入 global.__CC_TMUX__（对象 mock）时直接复用；生产按会话名建实例（跨项目唯一） */
+function tmuxFor(sessionName) {
+  return global.__CC_TMUX__ || createTmux(sessionName);
 }
-/** sid run 槽 hook 处理（T1-071：路由到独立内存态；gate 关等价 complete，gate 开全闸门留决策接入） */
-function handleSidHook(sid, event, body, res) {
-  const slot = runSlotFor(sid);
-  console.log(`[hook:${sid}] ${event} -> ${slot.state}`);
-  if (event === 'SessionStart') {
-    slot.setReady();
-  } else if (event === 'UserPromptSubmit') {
-    slot.setBusy();
-  } else if (event === 'Stop') {
-    if (!isDecisionEnabled(PROJECT_ROOT)) slot.clearDecision();
-    slot.setReady();
-  } else if (event === 'PreToolUse' && body?.tool_name === 'AskUserQuestion') {
-    const questions = body?.tool_input?.questions;
-    const q = Array.isArray(questions) ? questions[0] : null;
-    if (q && !isDecisionEnabled(PROJECT_ROOT)) {
-      slot.setDecision({
-        type: q.multiSelect ? 'multiSelect' : 'choice',
-        multiSelect: !!q.multiSelect,
-        question: q.question,
-        options: (q.options || []).map((o) => o.label),
-        header: q.header || null,
-        source: 'AskUserQuestion',
-      });
-    }
-  }
-  return send(res, 200, { ok: true, event: event || null, state: slot.state, sid });
+
+// boot 上下文最先建立（projectRoot 由 env.CC_PROJECT||cwd 决定，等同旧定死的 PROJECT_ROOT）
+const registry = createProjectRegistry({ env: process.env, tmuxFactory: tmuxFor, RunLogger });
+const BOOT = () => registry.ctxFor(); // boot 上下文（no-p 请求 / 遗留单槽导出均定向它）
+const PROJECT_ROOT = registry.ctxFor().projectRoot;
+const PORT = registry.ctxFor().port; // 单 server 单端口（config port / CC_PORT）
+
+const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
+const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
+const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
+const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);
+// dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
+const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
+let lastActivityAt = Date.now(); // T1-064 空闲回收：每次请求刷新
+
+// ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
+/** 解析子 Agent 固定格式 RESULT（`RESULT: {json}`）；成功返回结果对象，失败返回 null */
+function parseSubagentResult(body) {
+  return extract.parseSubagentResult(body?.last_assistant_message);
 }
-const ctx = buildRunContext({ env: process.env });
 
-const PROJECT_ROOT = ctx.projectRoot;
-const logger = new RunLogger(PROJECT_ROOT);
-if (logger.enabled) console.log(`[server] run logs: ${logger.dir}`);
+/** 解析子 Agent 的 NEEDS_INPUT（`NEEDS_INPUT: {json}`）；成功返回 { taskId, question, options?, context? }，否则 null */
+function parseSubagentNeedsInput(body) {
+  return extract.parseNeedsInput(body?.last_assistant_message);
+}
 
-// ---- subagent 事件日志：SubagentStart/Stop 的完整 payload 追加写入（实证/观测用）----
-const SUBAGENT_LOG = path.join(ctx.logsDir, 'subagent-events.jsonl');
+// ---- per-project 落账 / 日志（pcx 首参） ----
 
-function logSubagentEvent(event, body) {
+function logSubagentEvent(pcx, event, body) {
   try {
-    fs.mkdirSync(path.dirname(SUBAGENT_LOG), { recursive: true });
-    fs.appendFileSync(SUBAGENT_LOG, JSON.stringify({ ts: new Date().toISOString(), event, body }) + '\n');
+    fs.mkdirSync(path.dirname(pcx.subagentEventPath), { recursive: true });
+    fs.appendFileSync(pcx.subagentEventPath, JSON.stringify({ ts: new Date().toISOString(), event, body }) + '\n');
   } catch (e) {
     console.log(`[subagent-log] ${e.message}`);
   }
 }
 
-// ---- 落账失败记录：CLI 据此触发补发（SendMessage 恢复子 Agent 补齐 RESULT）----
-const SUBAGENT_FAILED_LOG = path.join(ctx.logsDir, 'subagent-failed.jsonl');
-
-function logSubagentFailure(body, settled) {
+function logSubagentFailure(pcx, body, settled) {
   try {
-    fs.mkdirSync(path.dirname(SUBAGENT_FAILED_LOG), { recursive: true });
-    fs.appendFileSync(SUBAGENT_FAILED_LOG, JSON.stringify({
+    fs.mkdirSync(path.dirname(pcx.subagentFailedPath), { recursive: true });
+    fs.appendFileSync(pcx.subagentFailedPath, JSON.stringify({
       ts: new Date().toISOString(),
       agentId: body.agent_id || body.session_id || 'unknown',
       reason: settled.reason,
@@ -102,20 +87,10 @@ function logSubagentFailure(body, settled) {
   }
 }
 
-// ---- 决策上抛记录（NEEDS_INPUT）：CLI 据此暂停补位、主 Agent 原生 AskUserQuestion 问用户 ----
-const SUBAGENT_NEEDS_LOG = path.join(ctx.logsDir, 'subagent-needs-input.jsonl');
-
-/** 解析子 Agent 的 NEEDS_INPUT（`NEEDS_INPUT: {json}`）；成功返回 { taskId, question, options?, context? }，否则 null */
-function parseSubagentNeedsInput(body) {
-  // 提取逻辑归位 extract.cjs
-  return extract.parseNeedsInput(body?.last_assistant_message);
-}
-
-/** 写决策上抛记录（不落账，任务保持等待；CLI 暂停补位直到决策解决） */
-function logSubagentNeedsInput(body, needs) {
+function logSubagentNeedsInput(pcx, body, needs) {
   try {
-    fs.mkdirSync(path.dirname(SUBAGENT_NEEDS_LOG), { recursive: true });
-    fs.appendFileSync(SUBAGENT_NEEDS_LOG, JSON.stringify({
+    fs.mkdirSync(path.dirname(pcx.subagentNeedsPath), { recursive: true });
+    fs.appendFileSync(pcx.subagentNeedsPath, JSON.stringify({
       ts: new Date().toISOString(),
       agentId: body.agent_id || body.session_id || 'unknown',
       taskId: needs.taskId,
@@ -128,45 +103,27 @@ function logSubagentNeedsInput(body, needs) {
   }
 }
 
-/** 每次 run 启动清空驱动 CLI 补发/决策的日志，避免跨 run 残留触发伪补发。
- *  仅清驱动类日志（failed/needs）；subagent-events.jsonl 是纯观测日志，保留便于取证。 */
-function resetRunLogs() {
-  for (const p of [SUBAGENT_FAILED_LOG, SUBAGENT_NEEDS_LOG]) {
+/** 每次 run 启动清空驱动 CLI 补发/决策的日志，避免跨 run 残留触发伪补发。 */
+function resetRunLogs(pcx) {
+  for (const p of [pcx.subagentFailedPath, pcx.subagentNeedsPath]) {
     try { fs.rmSync(p, { force: true }); } catch { /* 无权限时忽略 */ }
   }
 }
 
-// ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
-// 多 agent 滑动窗口的落账由 hook 驱动（用户定稿），不依赖主 Agent 收尾。
-// run state 写读统一经 store.state（JsonFileStore：state.lock + 原子写，承接 store.cjs / store-core）
-const runStores = require('../lib/store.cjs').createRunStores(ctx);
-const storeCore = require('../lib/store-core.cjs'); // per-run state 通用路径原子读写（T1-078）
-
-/** 解析子 Agent 固定格式 RESULT（`RESULT: {json}`）；成功返回结果对象，失败返回 null */
-function parseSubagentResult(body) {
-  // 提取逻辑归位 extract.cjs（RESULT/状态集单源）
-  return extract.parseSubagentResult(body?.last_assistant_message);
-}
-
 /** SubagentStop 落账：写 state（task status + exec.result/files/commits）；返回 { ok, taskId?, reason?, recoverable? } */
-function settleSubagent(body) {
+function settleSubagent(pcx, body) {
   const result = parseSubagentResult(body);
   if (!result) return { ok: false, reason: 'no valid RESULT in last_assistant_message' };
   let out;
-  runStores.state.updateSync((s) => {
-    // s = null 表示缺失/非法 → 不落账
+  pcx.stores.state.updateSync((s) => {
     if (!s) { out = { ok: false, reason: 'state.json unreadable', recoverable: false }; return false; }
     const task = (s.tasks || []).find((t) => t.id === result.taskId);
     if (!task) { out = { ok: false, reason: `task ${result.taskId} not found` }; return false; }
-    // 指向已完成/已阻塞任务 → 拒绝：RESULT taskId 可能错写（如 X1 子 Agent 误写成已 done 的 T3），
-    // 否则落账"假成功"（错标已有任务），真实任务永不落账且不触发补发。
-    // recoverable:false → 良性（phantom 先落账/重复 Stop），不写失败记录、不触发 CLI 补发
     if (task.status === 'done' || task.status === 'blocked') {
       out = { ok: false, reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）`, recoverable: false };
       return false;
     }
     if (!task.exec) task.exec = {};
-    // failed/fail 是协议允许的终态（awf-worker.md: done|blocked|failed），但调度只认 blocked 为终态，映射之
     task.status = (result.status === 'failed' || result.status === 'fail') ? 'blocked' : result.status;
     task.exec.completedAt = new Date().toISOString();
     if (result.result !== undefined) task.exec.result = result.result;
@@ -181,11 +138,10 @@ function settleSubagent(body) {
   return out;
 }
 
-/** override → 向任务列表追加纠偏任务（kind=dev / source=decision_review，携带 decision_id/instruction/original_answer）。
- *  store.state.updateSync 锁内读改写；deps/plannedFiles 空 = 保守串行；不写 wbsRef（非原 WBS 叶子）。 */
-function appendDecisionReviewTask({ decision_id, instruction, original_answer }) {
+/** override → 向任务列表追加纠偏任务（kind=dev / source=decision_review） */
+function appendDecisionReviewTask(pcx, { decision_id, instruction, original_answer }) {
   let out;
-  runStores.state.updateSync((s) => {
+  pcx.stores.state.updateSync((s) => {
     if (!s) { out = { ok: false, error: 'state.json unreadable' }; return false; }
     const id = `${decision_id}-REV`;
     const existing = (s.tasks || []).find((t) => t.id === id);
@@ -214,37 +170,28 @@ function appendDecisionReviewTask({ decision_id, instruction, original_answer })
   return out;
 }
 
-const PORT = ctx.port; // 单源：config port（CC_PORT 覆盖），经 run-context 装配
-const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
-const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
-const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
-const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);
-// dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
-const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
-let lastActivityAt = Date.now(); // T1-064 空闲回收：每次请求刷新
-let metricsCache = { at: 0, value: null };
-let diagnosisInFlight = false;
+// ---- metrics / diagnosis（pcx 化） ----
 
-function getMetricsSnapshot() {
-  reconcileDiagnosisSession();
-  if (Date.now() - metricsCache.at < 1000 && metricsCache.value) return metricsCache.value;
-  metricsCache = {
+function getMetricsSnapshot(pcx) {
+  reconcileDiagnosisSession(pcx);
+  if (Date.now() - pcx.metricsCache.at < 1000 && pcx.metricsCache.value) return pcx.metricsCache.value;
+  pcx.metricsCache = {
     at: Date.now(),
-    value: readRunMetrics(PROJECT_ROOT, {
-      mainSessionId,
-      activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
+    value: readRunMetrics(pcx.projectRoot, {
+      mainSessionId: pcx.mainSessionId,
+      activeAgents: [...pcx.agents.values()].filter((a) => a.status === 'running').length,
     }),
   };
-  return metricsCache.value;
+  return pcx.metricsCache.value;
 }
 
-function reconcileDiagnosisSession() {
-  const record = readDiagnosis(PROJECT_ROOT);
+function reconcileDiagnosisSession(pcx) {
+  const record = readDiagnosis(pcx.projectRoot);
   const snapshot = record?.status === 'running' ? record.metrics : null;
   const snapshotSessionId = snapshot?.sources?.mainSessionId;
-  if (!snapshotSessionId || snapshotSessionId === mainSessionId) return;
+  if (!snapshotSessionId || snapshotSessionId === pcx.mainSessionId) return;
 
-  const meta = readRunMeta(PROJECT_ROOT);
+  const meta = readRunMeta(pcx.projectRoot);
   const existingSubagents = meta.subagents || {};
   const restoredSubagents = Object.keys(existingSubagents).length > 0 ? existingSubagents : Object.fromEntries(
     (snapshot.sources.transcriptPaths || [])
@@ -254,40 +201,40 @@ function reconcileDiagnosisSession() {
         return [agentId, { agentId, status: 'unknown', transcriptPath }];
       }),
   );
-  mainSessionId = snapshotSessionId;
-  updateRunMeta(PROJECT_ROOT, (current) => ({
+  pcx.mainSessionId = snapshotSessionId;
+  updateRunMeta(pcx.projectRoot, (current) => ({
     ...current,
-    projectRoot: PROJECT_ROOT,
+    projectRoot: pcx.projectRoot,
     startedAt: snapshot.startedAt || current.startedAt || null,
     mainSessionId: snapshotSessionId,
     subagents: restoredSubagents,
     updatedAt: new Date().toISOString(),
   }));
-  metricsCache = { at: 0, value: null };
+  pcx.metricsCache = { at: 0, value: null };
   console.log('[diagnosis] restored main session from diagnostic snapshot');
 }
 
-function readProjectState() {
-  return runStores.state.readSync() || {};
+function readProjectState(pcx) {
+  return pcx.stores.state.readSync() || {};
 }
 
-async function startRunDiagnosis() {
-  if (diagnosisInFlight) return { ok: false, error: 'diagnosis already running' };
+async function startRunDiagnosis(pcx) {
+  if (pcx.diagnosisInFlight) return { ok: false, error: 'diagnosis already running' };
 
-  const metrics = getMetricsSnapshot();
-  const stateSnapshot = readProjectState();
-  const pending = writeDiagnosis(PROJECT_ROOT, {
+  const metrics = getMetricsSnapshot(pcx);
+  const stateSnapshot = readProjectState(pcx);
+  const pending = writeDiagnosis(pcx.projectRoot, {
     status: 'running',
     requestedAt: new Date().toISOString(),
     metrics,
     state: stateSnapshot,
-    runMeta: readRunMeta(PROJECT_ROOT),
+    runMeta: readRunMeta(pcx.projectRoot),
   });
-  diagnosisInFlight = true;
+  pcx.diagnosisInFlight = true;
 
-  Promise.resolve(diagnoseWithClaude(buildDiagnosisPrompt(metrics, stateSnapshot), PROJECT_ROOT))
+  Promise.resolve(diagnoseWithClaude(buildDiagnosisPrompt(metrics, stateSnapshot), pcx.projectRoot))
     .then((result) => {
-      writeDiagnosis(PROJECT_ROOT, {
+      writeDiagnosis(pcx.projectRoot, {
         ...pending,
         status: result.ok ? 'complete' : 'failed',
         completedAt: new Date().toISOString(),
@@ -296,7 +243,7 @@ async function startRunDiagnosis() {
       });
     })
     .catch((error) => {
-      writeDiagnosis(PROJECT_ROOT, {
+      writeDiagnosis(pcx.projectRoot, {
         ...pending,
         status: 'failed',
         completedAt: new Date().toISOString(),
@@ -304,31 +251,30 @@ async function startRunDiagnosis() {
         error: error.message,
       });
     })
-    .finally(() => { diagnosisInFlight = false; });
+    .finally(() => { pcx.diagnosisInFlight = false; });
 
   return { ok: true, diagnosis: pending };
 }
 
-// ---- ready/busy state machine, driven by Claude Code hooks ----
-let state = 'ready'; // 'ready' | 'busy'
-let decisionPending = null; // null | { type: 'choice'|'text', question: string, options?: string[] }
-let waiters = [];
-let fallbackTimer = null; // /cmd /respond 的兜底恢复定时器（测试中需可清除）
-let contextReady = false; // awf_context_ready 置位，CLI 一次性消费后 /clear
-let mainSessionId = readRunMeta(PROJECT_ROOT).mainSessionId || null; // 主 Claude 会话的 session_id（SessionStart 透传 payload 记录）
-const agents = new Map(); // 子 agent 观测: key(session_id/agent_id) → { sessionId, status, startedAt }
+// ---- ready/busy state machine（pcx 化） ----
 
 /** 是否为影响主 ready/busy 的会话：mainSessionId 未记录或 payload 无 session_id 时向后兼容，全接受 */
-function isMainSession(body) {
-  return !mainSessionId || !body.session_id || body.session_id === mainSessionId;
+function isMainSession(pcx, body) {
+  return !pcx.mainSessionId || !body.session_id || body.session_id === pcx.mainSessionId;
 }
 
-function setDecision(d) {
-  const opening = decisionPending == null && d != null;
-  decisionPending = d;
-  // T1-091：决策挂起 → 推 run host 事件环（决策.required 前端实时订阅刷新）
+/** T1-091：把决策闸门事件推入 run host 事件环（host 未装配时静默跳过） */
+function publishHostEvent(pcx, type, payload) {
+  if (pcx.runHost && typeof pcx.runHost.publish === 'function') {
+    try { pcx.runHost.publish(type, payload); } catch { /* 推送失败不影响决策/执行主流程 */ }
+  }
+}
+
+function setDecision(pcx, d) {
+  const opening = pcx.decisionPending == null && d != null;
+  pcx.decisionPending = d;
   if (opening) {
-    publishHostEvent('decision.required', {
+    publishHostEvent(pcx, 'decision.required', {
       type: d.type || null,
       question: d.question || null,
       options: d.options || null,
@@ -337,32 +283,80 @@ function setDecision(d) {
   }
 }
 
-function clearDecision() {
-  decisionPending = null;
+function clearDecision(pcx) {
+  pcx.decisionPending = null;
 }
 
-/** T1-091：把决策闸门事件推入 run host 事件环（host 未装配时静默跳过，不影响主流程） */
-function publishHostEvent(type, payload) {
-  if (runHost && typeof runHost.publish === 'function') {
-    try { runHost.publish(type, payload); } catch { /* 推送失败不影响决策/执行主流程 */ }
+function setReady(pcx) {
+  pcx.state = 'ready';
+  const pending = pcx.waiters;
+  pcx.waiters = [];
+  for (const fn of pending) fn();
+}
+
+function setBusy(pcx) {
+  pcx.state = 'busy';
+}
+
+function waitReady(pcx, timeout) {
+  if (pcx.state === 'ready') return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let done = false;
+    const fn = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      pcx.waiters = pcx.waiters.filter((w) => w !== fn);
+      resolve(false);
+    }, timeout);
+    pcx.waiters.push(fn);
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function submit(pcx, text) {
+  pcx.tmux.sendText(text);
+  await sleep(ENTER_DELAY_MS);
+  pcx.tmux.sendEnter();
+}
+
+/** sid run 槽 hook 处理（T1-071：路由到独立内存态；gate 关等价 complete，gate 开全闸门留决策接入） */
+function handleSidHook(pcx, sid, event, body, res) {
+  const slot = pcx.runSlotFor(sid);
+  console.log(`[hook:${sid}] ${event} -> ${slot.state}`);
+  if (event === 'SessionStart') {
+    slot.setReady();
+  } else if (event === 'UserPromptSubmit') {
+    slot.setBusy();
+  } else if (event === 'Stop') {
+    if (!pcx.decisionEnabled()) slot.clearDecision();
+    slot.setReady();
+  } else if (event === 'PreToolUse' && body?.tool_name === 'AskUserQuestion') {
+    const questions = body?.tool_input?.questions;
+    const q = Array.isArray(questions) ? questions[0] : null;
+    if (q && !pcx.decisionEnabled()) {
+      slot.setDecision({
+        type: q.multiSelect ? 'multiSelect' : 'choice',
+        multiSelect: !!q.multiSelect,
+        question: q.question,
+        options: (q.options || []).map((o) => o.label),
+        header: q.header || null,
+        source: 'AskUserQuestion',
+      });
+    }
   }
+  return send(res, 200, { ok: true, event: event || null, state: slot.state, sid });
 }
 
-// ---- decision gate（v0.2.0，单 agent）：Stop 统一决策闸门 ----
-// gate 关（缺省）→ Stop 行为与现状完全一致（clearDecision + setReady + 采集）。
-// gate 开 → Stop 进入统一闸门三分支：
-//   ① 普通完成（结束文本无必需标记）→ clearDecision + setReady + 采集；
-//   ② 结束文本以 <AWF_DECISION_REQUIRED>…</…> 结尾 且 !stop_hook_active → phase=deciding，
-//      不 setReady（保持 busy 延续），返回 block ccOutput（continuePrompt = 决策模式指令，当前会话继续产出结果）；
-//   ③ deciding 中再 Stop：含有效 <AWF_DECISION_RESULT> → parse → store 落盘 → decisionResume → setReady；
-//      无有效结果 → 构造 deferred fallback 落盘 → decisionResume → setReady。
-// 闸门期间不额外翻转 ready/busy，防止 CLI 在决策事务未闭合时提前派发。
-let decisionGate = null; // null | { phase: 'deciding', startedAt }
-let decisionResume = null; // 最近一次闭合决策摘要（/status 暴露）；新事务开始时清空
-// 决策 id 生成规则归位 decision-gate（createDecisionSeq）
-const decisionSeqGen = gateRules.createDecisionSeq();
-function nextDecisionId() {
-  return decisionSeqGen.nextId();
+// ---- decision gate（v0.2.0，单 agent）：Stop 统一决策闸门（pcx 化） ----
+function nextDecisionId(pcx) {
+  return pcx.decisionSeqGen.nextId();
 }
 
 /** 无有效结果兜底（构造归位 decision-gate.deferredFallbackResult） */
@@ -370,29 +364,27 @@ function deferredFallbackResult() {
   return gateRules.deferredFallbackResult();
 }
 
-/** 捕获落盘 + 置 decisionResume（正式结果与 fallback 共用；落一条完整 decision_completed 记录） */
-function persistDecision(result, source) {
-  const decisionId = nextDecisionId();
+/** 捕获落盘 + 置 decisionResume */
+function persistDecision(pcx, result, source) {
+  const decisionId = nextDecisionId(pcx);
   const createdAt = new Date().toISOString();
-  // decision_completed 记录构造归位 decision-gate.buildCompletedRecord
   const record = gateRules.buildCompletedRecord({ decisionId, result, source, createdAt });
-  const appended = new DecisionStore(PROJECT_ROOT).append(record);
+  const appended = pcx.newDecisionStore().append(record);
   if (!appended.appended) console.log(`[decision-gate] append skipped for ${decisionId}`);
-  logger.logDecision({
+  pcx.logger.logDecision({
     at: createdAt,
     decisionId,
     event: 'decision_completed',
     detail: result.fallback === true ? `fallback type=${result.type}` : `resolved type=${result.type}`,
   });
-  decisionResume = {
+  pcx.decisionResume = {
     decision_id: decisionId,
     answer: result.answer,
     type: result.type,
     finality: result.finality,
     fallback: result.fallback === true,
   };
-  // T1-091：决策落盘 → 推 run host 事件环（decision.record 前端 Decisions/Review 实时刷新）
-  publishHostEvent('decision.record', {
+  publishHostEvent(pcx, 'decision.record', {
     decisionId,
     answer: result.answer ?? null,
     type: result.type ?? null,
@@ -402,24 +394,17 @@ function persistDecision(result, source) {
   return decisionId;
 }
 
-/**
- * AskUserQuestion 的 PreToolUse 决策化。
- *   gate 关 → 维持现状：setDecision 捕获（不拦截）；
- *   gate 开 & 非 deciding → deny，reason 指引模型把问题以 <AWF_DECISION_REQUIRED>…</…> 放本回合最后一行收尾
- *     （勿再问/勿继续），与文字入口在 Stop 闸门 ② 处合一；
- *   gate 开 & deciding → 重复提问拒绝（决策闭合前禁再问），不重新置 deciding。
- * deny reason 不内嵌 DC 决策模式指令（那由 Stop block 的 continuePrompt 注入）。
- */
-function handleAskUserQuestion(body) {
+/** AskUserQuestion 的 PreToolUse 决策化（pcx 化） */
+function handleAskUserQuestion(pcx, body) {
   const questions = body.tool_input?.questions;
   if (!questions || questions.length === 0) return null;
 
-  const deciding = decisionGate?.phase === 'deciding';
-  const action = gateRules.classifyAskQuestion({ enabled: isDecisionEnabled(PROJECT_ROOT), deciding, questions });
+  const deciding = pcx.decisionGate?.phase === 'deciding';
+  const action = gateRules.classifyAskQuestion({ enabled: pcx.decisionEnabled(), deciding, questions });
 
   if (action.kind === 'capture') {
     const q = action.question || questions[0];
-    setDecision({
+    setDecision(pcx, {
       type: q.multiSelect ? 'multiSelect' : 'choice',
       multiSelect: !!q.multiSelect,
       question: q.question,
@@ -438,23 +423,22 @@ function handleAskUserQuestion(body) {
   return action.output;
 }
 
-/** Stop 统一闸门；返回可选 { ccOutput }（② 触发时 block 当前会话让其产出结果） */
-function handleStop(body) {
+/** Stop 统一闸门；返回可选 { ccOutput }（pcx 化） */
+function handleStop(pcx, body) {
   const text = typeof body?.last_assistant_message === 'string' ? body.last_assistant_message : '';
-  const deciding = decisionGate?.phase === 'deciding';
+  const deciding = pcx.decisionGate?.phase === 'deciding';
   const branch = gateRules.classifyStop({
-    enabled: isDecisionEnabled(PROJECT_ROOT),
+    enabled: pcx.decisionEnabled(),
     text,
     deciding,
     stopHookActive: body?.stop_hook_active,
   });
 
   if (branch.branch === 'deciding') {
-    // ② 触发
     const startedAt = new Date().toISOString();
-    decisionGate = { phase: 'deciding', startedAt };
-    decisionResume = null;
-    logger.logDecision({ at: startedAt, decisionId: null, event: 'decision_started', detail: '决策入口（<AWF_DECISION_REQUIRED>）' });
+    pcx.decisionGate = { phase: 'deciding', startedAt };
+    pcx.decisionResume = null;
+    pcx.logger.logDecision({ at: startedAt, decisionId: null, event: 'decision_started', detail: '决策入口（<AWF_DECISION_REQUIRED>）' });
     let instruction;
     try {
       instruction = decisionInstruction.readDecisionInstruction();
@@ -465,115 +449,56 @@ function handleStop(body) {
   }
 
   if (branch.branch === 'resolve') {
-    // ③ deciding 中收尾：有效结果捕获，否则 deferred fallback；随后 ready
     const parsed = parseDecisionResult(text);
     if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
-    persistDecision(parsed.valid ? parsed.result : deferredFallbackResult(), 'text');
-    decisionGate = null;
-    clearDecision();
-    setReady();
-    logger.captureFromTranscript();
+    persistDecision(pcx, parsed.valid ? parsed.result : deferredFallbackResult(), 'text');
+    pcx.decisionGate = null;
+    clearDecision(pcx);
+    setReady(pcx);
+    pcx.logger.captureFromTranscript();
     return null;
   }
 
-  // complete：gate 关 或 ① 普通完成 —— 清 decisionPending + ready + transcript 采集
-  clearDecision();
-  decisionGate = null;
-  decisionResume = null;
-  setReady();
-  logger.captureFromTranscript();
+  // complete
+  clearDecision(pcx);
+  pcx.decisionGate = null;
+  pcx.decisionResume = null;
+  setReady(pcx);
+  pcx.logger.captureFromTranscript();
   return null;
 }
 
-function setReady() {
-  state = 'ready';
-  const pending = waiters;
-  waiters = [];
-  for (const fn of pending) fn();
-}
+// ---- 常驻 run host（T1-105）：每项目一份 ----
 
-function setBusy() {
-  state = 'busy';
-}
-
-function waitReady(timeout) {
-  if (state === 'ready') return Promise.resolve(true);
-  return new Promise((resolve) => {
-    let done = false;
-    const fn = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(true);
-    };
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      waiters = waiters.filter((w) => w !== fn);
-      resolve(false);
-    }, timeout);
-    waiters.push(fn);
-  });
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function submit(text) {
-  tmuxlib.sendText(text);
-  await sleep(ENTER_DELAY_MS);
-  tmuxlib.sendEnter();
-}
-
-// ---- 常驻 run host（T1-105）：server 托管 run 编排的宿主 + /run/* 提交/状态/轮询端点 ----
-// 惰性装配（首次 /run/* 命中时触发），旧端点零影响；导出面与单 run ready/busy 不变。
-// 依赖注入：run-driver(chain)/run-scheduler/state/gate-fix 经动态 import + require 组装，
-// 与 run-batch ESM 桥接同法；测试可用 global.__CC_RUN_HOST_DEPS__ 整体覆盖（同 __CC_TMUX__ 注入点）。
-let runHost = null; // 已装配的 host 实例
-let runHostReady = null; // bootstrap promise（供端点 await）
-let runHostBootErr = null; // bootstrap 失败原因（端点 503 可读）
-const { createRunHost } = require('./run-host.cjs');
-
-/** 宿主是否有 run 在驱动（空闲回收 / shutdown 判定用：有则绝不回收） */
-function hostHasActiveRun() {
-  if (!runHost) return false;
-  try {
-    const all = runHost.snapshot();
-    return (all?.runs || []).some((r) => r.status === 'queued' || r.status === 'running');
-  } catch {
-    return false;
-  }
-}
-
-/** 单 agent 默认执行器（真实模型通道 v1）：发任务 prompt 到交互会话 → 等任务在 state 自我结算。
- *  收尾协商/决策续跑/超时 settle 等 run.js 会话语义随 T1-058 cutover 迁移后在此收敛。 */
-function defaultSingleExecutor() {
+/** 单 agent 默认执行器（真实模型通道 v1）：发任务 prompt 到本项目交互会话 → 等任务自我结算。 */
+function defaultSingleExecutor(pcx) {
   return {
     runTask: async ({ taskId, task }) => {
       const text = task.prompt || task.title || task.id;
-      if (!tmuxlib.hasSession()) throw new Error(`tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh`);
-      const ready = await waitReady(READY_TIMEOUT_MS);
+      if (!pcx.tmux.hasSession()) throw new Error(`tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh`);
+      const ready = await waitReady(pcx, READY_TIMEOUT_MS);
       if (!ready) throw new Error('still busy (ready timeout)');
-      logger.captureFromTranscript();
-      setBusy();
-      logger.logPrompt(text);
-      await submit(text);
+      pcx.logger.captureFromTranscript();
+      setBusy(pcx);
+      pcx.logger.logPrompt(text);
+      await submit(pcx, text);
       const deadline = Date.now() + READY_TIMEOUT_MS;
       while (Date.now() < deadline) {
         await sleep(500);
-        const s = runStores.state.readSync();
+        const s = pcx.stores.state.readSync();
         const t = s?.tasks?.find((x) => x.id === taskId);
         if (t && (t.status === 'done' || t.status === 'blocked')) return { status: t.status };
       }
-      throw new Error(`task ${taskId} 超时未自我结算（仍 ${runStores.state.readSync()?.tasks?.find((x) => x.id === taskId)?.status || 'unknown'}）`);
+      throw new Error(`task ${taskId} 超时未自我结算（仍 ${pcx.stores.state.readSync()?.tasks?.find((x) => x.id === taskId)?.status || 'unknown'}）`);
     },
   };
 }
 
-/** 装配 run host（单例；首次调用建立 promise，失败记录原因不抛——旧路径不依赖 host） */
-async function bootstrapRunHost() {
-  if (runHostReady) return runHostReady;
-  runHostReady = (async () => {
-    const override = global.__CC_RUN_HOST_DEPS__; // 测试整体覆盖（见 tests/integration/run-host.test.js）
+/** 装配 run host（每项目惰性单例；失败记录原因不抛） */
+async function bootstrapRunHost(pcx) {
+  if (pcx.runHostReady) return pcx.runHostReady;
+  pcx.runHostReady = (async () => {
+    const override = global.__CC_RUN_HOST_DEPS__; // 测试整体覆盖
     let stateApi;
     let cfg;
     let chain;
@@ -599,17 +524,18 @@ async function bootstrapRunHost() {
         setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
       };
       const rc = await import('../lib/run-config.js');
-      cfg = rc.loadRunConfig(PROJECT_ROOT);
+      cfg = rc.loadRunConfig(pcx.projectRoot);
       const sch = await import('./run-scheduler.js');
       schedulerFn = sch.runScheduler;
       const gf = await import('./gate-fix.js');
       gateFix = gf.handleGateCompletion;
       chain = require('./run-driver.cjs');
-      executor = defaultSingleExecutor();
-      batch = null; // 多 agent 传输（tmux 派发 / SubagentStop 落账）随 CLI cutover 任务接线
+      executor = defaultSingleExecutor(pcx);
+      batch = null; // 多 agent 传输随 CLI cutover 任务接线
     }
+    const { createRunHost } = require('./run-host.cjs');
     const host = createRunHost({
-      projectRoot: PROJECT_ROOT,
+      projectRoot: pcx.projectRoot,
       cfg,
       state: stateApi,
       chain,
@@ -619,51 +545,57 @@ async function bootstrapRunHost() {
       batch,
     });
     host.start();
-    runHost = host;
+    pcx.runHost = host;
     return host;
   })().catch((err) => {
-    runHostBootErr = err;
+    pcx.runHostBootErr = err;
     console.error(`[server] run host bootstrap 失败: ${err.message}`);
     return null;
   });
-  return runHostReady;
+  return pcx.runHostReady;
 }
 
-/** /run/* 端点共用：取装配好的 host；未就绪 → 503（可读原因） */
+/** 任一项目上下文宿主有 run 在驱动（空闲回收 / shutdown 判定） */
+function anyHostActive() {
+  for (const c of registry.all()) {
+    if (!c.runHost) continue;
+    try {
+      const all = c.runHost.snapshot();
+      if ((all?.runs || []).some((r) => r.status === 'queued' || r.status === 'running')) return true;
+    } catch { /* ignore */ }
+  }
+  return false;
+}
 
-// ---- server run api 写端点底层（T1-061）：cli 侧 state 直写下线，写收口 server 单写者 ----
-let runStateApi = null;
-let runStateApiReady = null;
-
-/** 惰性装载 state 写原语（setWorkflowMode/markTaskActive/backupState）；测试可经 __CC_RUN_HOST_DEPS__.stateApi 覆盖 */
-async function ensureRunStateApi() {
-  if (runStateApiReady) return runStateApiReady;
-  runStateApiReady = (async () => {
+/** 惰性装载 state 写原语；测试可经 __CC_RUN_HOST_DEPS__.stateApi 覆盖 */
+async function ensureRunStateApi(pcx) {
+  if (pcx.runStateApiReady) return pcx.runStateApiReady;
+  pcx.runStateApiReady = (async () => {
     const override = global.__CC_RUN_HOST_DEPS__?.stateApi;
     if (override) {
-      runStateApi = {
+      pcx.runStateApi = {
         saveState: override.saveState || (() => false),
         setWorkflowMode: override.setWorkflowMode || (() => false),
         markTaskActive: override.markTaskActive || (() => false),
         backupState: override.backupState || (() => undefined),
       };
-      return runStateApi;
+      return pcx.runStateApi;
     }
     const state = await import('../lib/state.js');
-    runStateApi = {
+    pcx.runStateApi = {
       saveState: (r, s) => state.saveState(r, s),
       setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
       markTaskActive: (r, id) => state.markTaskActive(r, id),
       backupState: (r) => state.backupState(r),
     };
-    return runStateApi;
+    return pcx.runStateApi;
   })().catch((err) => {
-    runStateApi = null;
-    runStateApiReady = null;
+    pcx.runStateApi = null;
+    pcx.runStateApiReady = null;
     console.error(`[server] state api 装载失败: ${err.message}`);
     return null;
   });
-  return runStateApiReady;
+  return pcx.runStateApiReady;
 }
 
 /** 门禁完成处理函数（server 进程内执行 gate-fix 同一实现；测试可经 deps 覆盖） */
@@ -672,24 +604,6 @@ async function runStateGateHandler() {
   if (override) return override;
   const gf = await import('./gate-fix.js');
   return gf.handleGateCompletion;
-}
-
-// ---- T1-078：run-state 边界按 sid 分片（软约束 U3）----
-// sid 提供时读/写 .awf/runs/<sid>/state.json（只碰本 sid run）；缺省回落项目根 state（单 run 现状）。
-function runStateFile(sid) {
-  return sid
-    ? path.join(PROJECT_ROOT, '.awf', 'runs', sid, 'state.json')
-    : path.join(PROJECT_ROOT, '.awf', 'state.json');
-}
-function runStateLockFile(sid) {
-  return sid
-    ? path.join(PROJECT_ROOT, '.awf', 'runs', sid, 'state.lock')
-    : path.join(PROJECT_ROOT, '.awf', 'state.lock');
-}
-function writeRunStateSid(sid, state) {
-  const file = runStateFile(sid);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  return storeCore.withFileLock(runStateLockFile(sid), () => storeCore.writeJsonAtomicSync(file, state));
 }
 
 // ---- HTTP plumbing ----
@@ -715,16 +629,14 @@ function send(res, code, obj) {
 }
 
 /** 自动介入只允许在 CLI pause 闩锁已生效后执行。 */
-function requirePaused(res) {
-  const s = runStores.state.readSync();
+function requirePaused(pcx, res) {
+  const s = pcx.stores.state.readSync();
   if (s?.mode === 'pause') return true;
   send(res, 409, { ok: false, error: `intervention requires mode=pause (current: ${s?.mode || 'unknown'})` });
   return false;
 }
 
-// ── T1-093 web 构建产物静态托管（React SPA）──
-// 产物目录：CC_WEB_PUBLIC 覆盖（测试/独立目录），缺省 <src>/server/public（web/vite build outDir）。
-// index.html 存在 → 就绪（root 给 React、assets/SPA 由尾兜底托管）；未构建 → 回落 legacy 托管页（现状）。
+// ---- T1-093 web 构建产物静态托管 ----
 const WEB_PUBLIC_DEFAULT = path.join(__dirname, 'public');
 function webPublicRoot() {
   return process.env.CC_WEB_PUBLIC || WEB_PUBLIC_DEFAULT;
@@ -738,12 +650,18 @@ function webHostInstance() {
   return createStaticHost({ root: webPublicRoot(), aliases: { '/': 'index.html' }, spa: 'index.html' });
 }
 
+// 解析一次请求的项目上下文：p 归一化；缺省 → boot（兼容存量无 p 请求/测试）
+function resolveCtxForUrl(url) {
+  return registry.resolveCtx({ p: url.searchParams.get('p') });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
   lastActivityAt = Date.now(); // 任何请求视为活动（空闲回收计时刷新）
+  const pcx = resolveCtxForUrl(url); // 顶层解一次；后续分支均操作 pcx
 
-  // dashboard (default)；T1-093：web 构建产物存在 → root 由 React SPA 承载；T1-094：ui.html 已废弃不再回退
+  // dashboard (default)；T1-093：web 构建产物存在 → root 由 React SPA 承载
   if (req.method === 'GET' && pathname === '/') {
     const idx = webIndexHtml();
     if (idx) {
@@ -779,7 +697,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // T1-086：共享主题/工具资产（theme.css / common.js，托管页公共抽取）
+  // T1-086：共享主题/工具资产
   if (req.method === 'GET' && (pathname === '/theme.css' || pathname === '/common.js')) {
     const name = pathname === '/theme.css' ? 'theme.css' : 'common.js';
     const ctype = name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8';
@@ -792,61 +710,57 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // hook callback: life-cycle + AskUserQuestion capture
+  // hook callback
   if (req.method === 'POST' && pathname === '/hook') {
     const body = (await readJson(req)) || {};
     const event = body.event || url.searchParams.get('event');
-    let hookCcOutput = null; // server 需回传的 hook 输出（decision gate block/deny），gateway 透传到 stdout
+    let hookCcOutput = null;
 
-    // T1-071：带 sid 的 hook → 按 sid 路由到独立 run 槽（不触碰全局单槽）；无 sid 走既有单槽路径
+    // T1-071：带 sid 的 hook → 按 sid 路由到该项目内独立 run 槽；无 sid 走该项目单槽
     const hookSid = url.searchParams.get('sid');
     if (hookSid) {
-      handleSidHook(hookSid, event, body, res);
+      handleSidHook(pcx, hookSid, event, body, res);
       return;
     }
 
     if (event === 'SessionStart') {
-      if (diagnosisInFlight && body.session_id && body.session_id !== mainSessionId) {
+      if (pcx.diagnosisInFlight && body.session_id && body.session_id !== pcx.mainSessionId) {
         console.log(`[diagnosis] ignored isolated SessionStart ${body.session_id}`);
-        return send(res, 200, { ok: true, event: event || null, state });
+        return send(res, 200, { ok: true, event: event || null, state: pcx.state });
       }
-      if (body.session_id && body.session_id !== mainSessionId) {
-        resetRunLogs();
-        resetRunMeta(PROJECT_ROOT);
-        metricsCache = { at: 0, value: null };
+      if (body.session_id && body.session_id !== pcx.mainSessionId) {
+        resetRunLogs(pcx);
+        resetRunMeta(pcx.projectRoot);
+        pcx.metricsCache = { at: 0, value: null };
       }
-      if (body.session_id) mainSessionId = body.session_id;
-      updateRunMeta(PROJECT_ROOT, (meta) => ({
+      if (body.session_id) pcx.mainSessionId = body.session_id;
+      updateRunMeta(pcx.projectRoot, (meta) => ({
         ...meta,
-        projectRoot: PROJECT_ROOT,
+        projectRoot: pcx.projectRoot,
         startedAt: meta.startedAt || new Date().toISOString(),
         endedAt: null,
         mainSessionId: body.session_id || meta.mainSessionId || null,
         updatedAt: new Date().toISOString(),
       }));
-      setReady();
-      logger.resetTranscript();
+      setReady(pcx);
+      pcx.logger.resetTranscript();
     } else if (event === 'UserPromptSubmit') {
-      // 子 agent 的 prompt 不翻转主闩锁（子 agent 完成是 SubagentStop，不触发主 Stop，引用计数会悬挂）
-      if (isMainSession(body)) setBusy();
+      if (isMainSession(pcx, body)) setBusy(pcx);
     } else if (event === 'Stop') {
-      if (isMainSession(body)) {
-        const out = handleStop(body);
+      if (isMainSession(pcx, body)) {
+        const out = handleStop(pcx, body);
         if (out) hookCcOutput = out.ccOutput;
       }
     } else if (event === 'SubagentStart') {
-      logSubagentEvent(event, body);
-      // 只接纳 tmux 主会话派生的 worker。外部 w-monitor 会话的 probe/repair 也会上报
-      // Subagent hooks，但绝不能进入 worker 落账/补发链路。
-      if (mainSessionId && body.session_id && body.session_id !== mainSessionId) {
+      logSubagentEvent(pcx, event, body);
+      if (pcx.mainSessionId && body.session_id && body.session_id !== pcx.mainSessionId) {
         console.log(`[subagent-start] skip external session ${body.session_id}`);
       } else {
-        // 只观测，不驱动主闩锁。以 agent_id 键控（子 agent 共享父会话 session_id，用它做 key 会塌缩成一个）
         const key = body.agent_id || body.session_id || 'unknown';
-        agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
-        updateRunMeta(PROJECT_ROOT, (meta) => ({
+        pcx.agents.set(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
+        updateRunMeta(pcx.projectRoot, (meta) => ({
           ...meta,
-          projectRoot: PROJECT_ROOT,
+          projectRoot: pcx.projectRoot,
           subagents: {
             ...(meta.subagents || {}),
             [key]: {
@@ -864,15 +778,15 @@ const server = http.createServer(async (req, res) => {
       }
     } else if (event === 'SubagentStop') {
       const key = body.agent_id || body.session_id || 'unknown';
-      logSubagentEvent(event, body);
-      if (mainSessionId && body.session_id && body.session_id !== mainSessionId) {
+      logSubagentEvent(pcx, event, body);
+      if (pcx.mainSessionId && body.session_id && body.session_id !== pcx.mainSessionId) {
         console.log(`[subagent-stop] skip external session ${body.session_id}`);
       } else {
-        const a = agents.get(key);
+        const a = pcx.agents.get(key);
         if (a) a.status = 'stopped';
-        updateRunMeta(PROJECT_ROOT, (meta) => ({
+        updateRunMeta(pcx.projectRoot, (meta) => ({
           ...meta,
-          projectRoot: PROJECT_ROOT,
+          projectRoot: pcx.projectRoot,
           subagents: {
             ...(meta.subagents || {}),
             [key]: {
@@ -887,26 +801,20 @@ const server = http.createServer(async (req, res) => {
           },
           updatedAt: new Date().toISOString(),
         }));
-      // 未跟踪的 Stop（无 SubagentStart：伪事件/非本 run 派发）仅观测，不落账、不写失败记录 ——
-      // 否则会为不存在的子 Agent 生成失败记录 → CLI 补发到幽灵 agent，反复 RESET/等待
       if (!a) {
         console.log(`[subagent-stop] skip untracked agent ${key} (no SubagentStart)`);
       } else {
-        // 决策上抛优先：NEEDS_INPUT → 写记录（不落账，任务等待；CLI 暂停补位、主 Agent 原生 AskUserQuestion）
         const needs = parseSubagentNeedsInput(body);
         const result = needs ? null : parseSubagentResult(body);
-        // 子 Agent 的完整对话只在其 Stop hook 中可可靠定位；按 taskId/agentId 归档。
-        logger.captureSubagentTranscript(body, needs?.taskId || result?.taskId, key);
+        pcx.logger.captureSubagentTranscript(body, needs?.taskId || result?.taskId, key);
         if (needs) {
-          logSubagentNeedsInput(body, needs);
+          logSubagentNeedsInput(pcx, body, needs);
           console.log(`[subagent-needs] ${needs.taskId}: ${needs.question.slice(0, 40)}`);
         } else {
-          // 落账：解析 RESULT → 写 state；失败记录（CLI 据此补发）
-          const settled = settleSubagent(body);
+          const settled = settleSubagent(pcx, body);
           if (!settled.ok) {
             console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
-            // recoverable:false = 良性（already done / state 不可读），不触发补发
-            if (settled.recoverable !== false) logSubagentFailure(body, settled);
+            if (settled.recoverable !== false) logSubagentFailure(pcx, body, settled);
           } else {
             console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
           }
@@ -915,17 +823,17 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // PreToolUse(AskUserQuestion)：gate 关=捕获现状（不拦截）；gate 开=deny（redirect 到决策标签 / deciding 内拒绝）
+    // PreToolUse(AskUserQuestion)
     if (event === 'PreToolUse' && body.tool_name === 'AskUserQuestion') {
-      const out = handleAskUserQuestion(body);
+      const out = handleAskUserQuestion(pcx, body);
       if (out) hookCcOutput = out.ccOutput;
     }
 
-    // PostToolUse: 兜底（如果没拦截成功，原生 UI 回答后更新结果）
+    // PostToolUse 兜底
     if (event === 'PostToolUse' && body.tool_name === 'AskUserQuestion') {
-      const prev = decisionPending;
+      const prev = pcx.decisionPending;
       const resp = body.tool_response;
-      console.log(`[hook] AskUserQuestion answered, raw: ${JSON.stringify(resp).slice(0,300)}`);
+      console.log(`[hook] AskUserQuestion answered, raw: ${JSON.stringify(resp).slice(0, 300)}`);
       if (prev && prev.source === 'AskUserQuestion') {
         let answer = '';
         if (typeof resp === 'string') {
@@ -937,12 +845,12 @@ const server = http.createServer(async (req, res) => {
         } else {
           answer = JSON.stringify(resp);
         }
-        setDecision({ ...prev, answer, answered: true });
+        setDecision(pcx, { ...prev, answer, answered: true });
       }
     }
 
-    console.log(`[hook] ${event} -> ${state}`);
-    const hookResp = { ok: true, event: event || null, state };
+    console.log(`[hook] ${event} -> ${pcx.state}`);
+    const hookResp = { ok: true, event: event || null, state: pcx.state };
     if (hookCcOutput) hookResp.ccOutput = hookCcOutput;
     return send(res, 200, hookResp);
   }
@@ -950,51 +858,51 @@ const server = http.createServer(async (req, res) => {
   // ---- state.json ----
   if (req.method === 'GET' && pathname === '/awf/state') {
     const sid = url.searchParams.get('sid');
-    // T1-078：?sid 提供 → 只读该 run 槽 state（.awf/runs/<sid>/state.json，软边界）；否则项目根 state
-    const s = sid ? storeCore.readJsonSync(runStateFile(sid)) : runStores.state.readSync();
+    const s = sid ? storeCore.readJsonSync(pcx.runStateFile(sid)) : pcx.stores.state.readSync();
     if (s == null) return send(res, 404, { ok: false, error: `state.json not found${sid ? ` for run ${sid}` : ''}` });
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify(s, null, 2));
   }
 
   if (req.method === 'GET' && pathname === '/awf/metrics') {
-    return send(res, 200, { ok: true, metrics: getMetricsSnapshot() });
+    return send(res, 200, { ok: true, metrics: getMetricsSnapshot(pcx) });
   }
 
   if (req.method === 'GET' && pathname === '/awf/diagnostics') {
-    return send(res, 200, { ok: true, diagnosis: readDiagnosis(PROJECT_ROOT) });
+    return send(res, 200, { ok: true, diagnosis: readDiagnosis(pcx.projectRoot) });
   }
 
   if (req.method === 'POST' && pathname === '/awf/diagnostics') {
-    const result = await startRunDiagnosis();
+    const result = await startRunDiagnosis(pcx);
     return send(res, result.ok ? 202 : 409, result);
   }
 
-  // ---- Review 数据：决策聚合列表（各 run 倒序）----
+  // ---- Review 数据：决策聚合列表 ----
   if (req.method === 'GET' && pathname === '/awf/decisions') {
-    const store = new DecisionStore(PROJECT_ROOT);
-    const decisions = store.listAll(); // 已按 runStamp 倒序扁平聚合
+    const store = pcx.newDecisionStore();
+    const decisions = store.listAll();
     return send(res, 200, { ok: true, total: decisions.length, decisions });
   }
 
-  // ---- Review override：追加 decision_overridden 事件（不改写原记录）----
+  // ---- Review override ----
   if (req.method === 'POST' && pathname.startsWith('/awf/decisions/') && pathname.endsWith('/override')) {
     const decisionId = decodeURIComponent(pathname.slice('/awf/decisions/'.length, -'/override'.length));
     const body = (await readJson(req)) || {};
     const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : '';
     if (!instruction) return send(res, 400, { ok: false, error: 'override 需要非空 instruction' });
     try {
-      const r = new DecisionStore(PROJECT_ROOT).override(decisionId, {
+      const store = pcx.newDecisionStore();
+      const r = store.override(decisionId, {
         instruction,
         original_answer: typeof body.original_answer === 'string' ? body.original_answer : null,
       });
-      logger.logDecision({
+      pcx.logger.logDecision({
         at: new Date().toISOString(),
         decisionId,
         event: 'decision_overridden',
         detail: `instruction=${instruction.slice(0, 40)}`,
       });
-      const task = appendDecisionReviewTask({
+      const task = appendDecisionReviewTask(pcx, {
         decision_id: decisionId,
         instruction,
         original_answer: typeof body.original_answer === 'string' ? body.original_answer : null,
@@ -1008,62 +916,63 @@ const server = http.createServer(async (req, res) => {
 
   // ---- status ----
   if (req.method === 'GET' && pathname === '/status') {
-    // T1-071：?sid= 返回该 run 槽内存态（ready/busy/decision 隔离）
     const statusSid = url.searchParams.get('sid');
     if (statusSid) {
-      const slot = runSlotFor(statusSid);
+      const slot = pcx.runSlotFor(statusSid);
       return send(res, 200, {
         ok: true, sid: statusSid,
         state: slot.state,
         decisionPending: slot.decisionPending,
         contextReady: slot.contextReady,
-        projectRoot: PROJECT_ROOT,
+        projectRoot: pcx.projectRoot,
       });
     }
     const out = {
-      ok: true, state, session: tmuxlib.hasSession(), projectRoot: PROJECT_ROOT, decisionPending, contextReady,
-      decisionGate, decisionResume,
-      mainSessionId,
-      activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
+      ok: true, state: pcx.state, session: pcx.tmux.hasSession(), projectRoot: pcx.projectRoot,
+      decisionPending: pcx.decisionPending, contextReady: pcx.contextReady,
+      decisionGate: pcx.decisionGate, decisionResume: pcx.decisionResume,
+      mainSessionId: pcx.mainSessionId,
+      activeAgents: [...pcx.agents.values()].filter((a) => a.status === 'running').length,
     };
+    // 单 server 多项目：无 p（boot）请求增量返回已注册项目列表；?p 请求不带该列表
+    if (!url.searchParams.get('p')) out.projects = registry.list();
     if (url.searchParams.get('snapshot')) {
-      try { out.snapshot = tmuxlib.capture(); } catch { out.snapshot = null; }
+      try { out.snapshot = pcx.tmux.capture(); } catch { out.snapshot = null; }
     }
     return send(res, 200, out);
   }
 
-  // 上下文压缩快照就绪标记：AI 写快照后经 awf_context_ready → POST 置位，CLI 读后消费
+  // 上下文压缩快照就绪标记
   if (req.method === 'POST' && pathname === '/context-ready') {
-    contextReady = true;
+    pcx.contextReady = true;
     console.log('[context-ready] 快照就绪，待 CLI /clear');
-    return send(res, 200, { ok: true, contextReady });
+    return send(res, 200, { ok: true, contextReady: pcx.contextReady });
   }
 
-  // 一次性消费：读取后立即复位，避免重复触发
   if (req.method === 'GET' && pathname === '/context-ready') {
-    const ready = contextReady;
-    contextReady = false;
+    const ready = pcx.contextReady;
+    pcx.contextReady = false;
     return send(res, 200, { ok: true, ready });
   }
 
-  // AI 通知：需要人做选择（带选项）——决策模型构造经 interact.validateDecisionRequest
+  // AI 通知：需要人做选择
   if (req.method === 'POST' && pathname === '/choice') {
     const body = await readJson(req);
     const v = interact.validateDecisionRequest('choice', body);
     if (!v.ok) return send(res, 400, { ok: false, error: v.error });
-    setDecision(v.decision);
+    setDecision(pcx, v.decision);
     console.log(`[choice] ${v.decision.question}`);
-    return send(res, 200, { ok: true, decisionPending });
+    return send(res, 200, { ok: true, decisionPending: pcx.decisionPending });
   }
 
-  // AI 通知：需要人自由输入——决策模型构造经 interact.validateDecisionRequest
+  // AI 通知：需要人自由输入
   if (req.method === 'POST' && pathname === '/ask') {
     const body = await readJson(req);
     const v = interact.validateDecisionRequest('text', body);
     if (!v.ok) return send(res, 400, { ok: false, error: v.error });
-    setDecision(v.decision);
+    setDecision(pcx, v.decision);
     console.log(`[ask] ${v.decision.question}`);
-    return send(res, 200, { ok: true, decisionPending });
+    return send(res, 200, { ok: true, decisionPending: pcx.decisionPending });
   }
 
   if (req.method === 'POST' && pathname === '/send') {
@@ -1071,17 +980,15 @@ const server = http.createServer(async (req, res) => {
     if (!body || typeof body.text !== 'string' || body.text.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {text: non-empty string}' });
     }
-    if (!tmuxlib.hasSession()) {
-      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    if (!pcx.tmux.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh` });
     }
-    const ok = await waitReady(READY_TIMEOUT_MS);
+    const ok = await waitReady(pcx, READY_TIMEOUT_MS);
     if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
-    // 捕获上一任务的尾部响应，必须在 PROMPT 之前写入
-    logger.captureFromTranscript();
-    setBusy();
-    // PROMPT 必须在 submit 之前写入日志，否则 Stop hook 的响应可能先写入
-    logger.logPrompt(body.text);
-    await submit(body.text);
+    pcx.logger.captureFromTranscript();
+    setBusy(pcx);
+    pcx.logger.logPrompt(body.text);
+    await submit(pcx, body.text);
     return send(res, 200, { ok: true, sent: body.text });
   }
 
@@ -1090,137 +997,130 @@ const server = http.createServer(async (req, res) => {
     if (!body || typeof body.cmd !== 'string' || body.cmd.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {cmd: non-empty string}' });
     }
-    if (!tmuxlib.hasSession()) {
-      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    if (!pcx.tmux.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh` });
     }
-    const ok = await waitReady(READY_TIMEOUT_MS);
+    const ok = await waitReady(pcx, READY_TIMEOUT_MS);
     if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
-    setBusy();
-    await submit(body.cmd);
-    // Local commands (e.g. /clear) may not emit a Stop hook; recover after a fallback.
-    if (fallbackTimer) clearTimeout(fallbackTimer);
-    fallbackTimer = setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
+    setBusy(pcx);
+    await submit(pcx, body.cmd);
+    if (pcx.fallbackTimer) clearTimeout(pcx.fallbackTimer);
+    pcx.fallbackTimer = setTimeout(() => { if (pcx.state === 'busy') setReady(pcx); }, LOCAL_CMD_FALLBACK_MS);
     return send(res, 200, { ok: true, sent: body.cmd });
   }
 
-  // w-monitor 受控介入：允许在 busy 时排队发送恢复提示，但必须先暂停 CLI 编排。
+  // w-monitor 受控介入
   if (req.method === 'POST' && pathname === '/intervene') {
     const body = await readJson(req);
     if (!body || typeof body.text !== 'string' || body.text.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {text: non-empty string, reason?: string}' });
     }
-    if (!requirePaused(res)) return;
-    if (!tmuxlib.hasSession()) {
-      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    if (!requirePaused(pcx, res)) return;
+    if (!pcx.tmux.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh` });
     }
-    logger.logPrompt(`[w-monitor intervention] ${body.reason || 'unspecified'}\n${body.text}`);
-    setBusy();
-    await submit(body.text);
+    pcx.logger.logPrompt(`[w-monitor intervention] ${body.reason || 'unspecified'}\n${body.text}`);
+    setBusy(pcx);
+    await submit(pcx, body.text);
     return send(res, 200, { ok: true, sent: body.text, intervention: true });
   }
 
-  // w-monitor 升级中断：与 dashboard 的人工 /stop 分离，自动调用必须受 pause 闩锁保护。
+  // w-monitor 升级中断
   if (req.method === 'POST' && pathname === '/intervene/interrupt') {
     const body = (await readJson(req)) || {};
-    if (!requirePaused(res)) return;
-    if (!tmuxlib.hasSession()) {
-      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    if (!requirePaused(pcx, res)) return;
+    if (!pcx.tmux.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh` });
     }
-    tmuxlib.sendCtrlC();
-    clearDecision();
-    if (fallbackTimer) clearTimeout(fallbackTimer);
-    fallbackTimer = setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
+    pcx.tmux.sendCtrlC();
+    clearDecision(pcx);
+    if (pcx.fallbackTimer) clearTimeout(pcx.fallbackTimer);
+    pcx.fallbackTimer = setTimeout(() => { if (pcx.state === 'busy') setReady(pcx); }, LOCAL_CMD_FALLBACK_MS);
     return send(res, 200, { ok: true, interrupted: true, reason: body.reason || null });
   }
 
-  // 中断当前正在运行的 Claude 流（等价于交互式 Ctrl+C）
+  // 中断当前正在运行的 Claude 流
   if (req.method === 'POST' && pathname === '/stop') {
-    if (!tmuxlib.hasSession()) {
-      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    if (!pcx.tmux.hasSession()) {
+      return send(res, 503, { ok: false, error: `tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh` });
     }
-    tmuxlib.sendCtrlC();
-    clearDecision();
-    // Ctrl+C 中断可能不触发 Stop hook，兜底恢复 ready
-    if (fallbackTimer) clearTimeout(fallbackTimer);
-    fallbackTimer = setTimeout(() => { if (state === 'busy') setReady(); }, LOCAL_CMD_FALLBACK_MS);
+    pcx.tmux.sendCtrlC();
+    clearDecision(pcx);
+    if (pcx.fallbackTimer) clearTimeout(pcx.fallbackTimer);
+    pcx.fallbackTimer = setTimeout(() => { if (pcx.state === 'busy') setReady(pcx); }, LOCAL_CMD_FALLBACK_MS);
     return send(res, 200, { ok: true, stopped: true });
   }
 
-  // CLI 回应决策（有 decisionPending 时跳过 ready 检查，避免死锁）
+  // CLI 回应决策
   if (req.method === 'POST' && pathname === '/respond') {
     const body = await readJson(req);
     if (!body || typeof body.value !== 'string' || body.value.length === 0) {
-      clearDecision();
+      clearDecision(pcx);
       return send(res, 400, { ok: false, error: 'body must be {value: non-empty string}' });
     }
-    if (!tmuxlib.hasSession()) {
-      clearDecision();
-      return send(res, 503, { ok: false, error: `tmux session '${tmuxlib.SESSION}' not found; run bootstrap.sh` });
+    if (!pcx.tmux.hasSession()) {
+      clearDecision(pcx);
+      return send(res, 503, { ok: false, error: `tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh` });
     }
-    // 有 pending decision 时 CC 正在等待用户输入，不检查 ready（否则死锁）
-    if (!decisionPending) {
-      const ok = await waitReady(READY_TIMEOUT_MS);
+    if (!pcx.decisionPending) {
+      const ok = await waitReady(pcx, READY_TIMEOUT_MS);
       if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
     }
-    const hadDecision = !!decisionPending;
-    const question = decisionPending ? decisionPending.question : null;
-    setBusy();
-    // 记录 CHOICE（所有决策统一走 /respond，不再分散在 CLI）
+    const hadDecision = !!pcx.decisionPending;
+    const question = pcx.decisionPending ? pcx.decisionPending.question : null;
+    setBusy(pcx);
     if (hadDecision) {
-      logger.logChoice(question, body.value);
+      pcx.logger.logChoice(question, body.value);
     }
-    // 用户已回应，立即清除决策，UI 切回输入模式（ready 恢复由 Stop 钩子/fallback 负责）
-    clearDecision();
-    await submit(body.value);
-    // fallback timer：Stop hook 可能因 curl 超时等原因未触发，兜底恢复 ready
+    clearDecision(pcx);
+    await submit(pcx, body.value);
     const fallbackMs = hadDecision ? DECISION_FALLBACK_MS : LOCAL_CMD_FALLBACK_MS;
-    if (fallbackTimer) clearTimeout(fallbackTimer);
-    fallbackTimer = setTimeout(() => {
-      if (state === 'busy') setReady();
+    if (pcx.fallbackTimer) clearTimeout(pcx.fallbackTimer);
+    pcx.fallbackTimer = setTimeout(() => {
+      if (pcx.state === 'busy') setReady(pcx);
     }, fallbackMs);
     return send(res, 200, { ok: true, sent: body.value });
   }
 
-  // ---- run host：提交 run / 状态快照 / 轮询事件（T1-105；CLI cutover 在 T1-058） ----
-  // 惰性装配：首次命中触发 bootstrap（含 ESM 动态 import），随后 runHost 常驻。
+  // ---- run host：提交 run / 状态快照 / 轮询事件 ----
   if (req.method === 'POST' && pathname === '/run/submit') {
     const body = (await readJson(req)) || {};
-    await bootstrapRunHost();
-    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    await bootstrapRunHost(pcx);
+    if (!pcx.runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${pcx.runHostBootErr?.message || 'unknown'}` });
     const runId = typeof body.runId === 'string' && body.runId.length > 0 ? body.runId : undefined;
-    const r = runHost.submitRun({ runId });
+    const r = pcx.runHost.submitRun({ runId });
     if (!r.ok) return send(res, 409, { ok: false, error: r.error, runId: r.runId });
     return send(res, 202, { ok: true, runId: r.runId, mode: r.mode });
   }
 
   if (req.method === 'GET' && pathname === '/run/status') {
-    await bootstrapRunHost();
-    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    await bootstrapRunHost(pcx);
+    if (!pcx.runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${pcx.runHostBootErr?.message || 'unknown'}` });
     const runId = url.searchParams.get('runId') || undefined;
-    return send(res, 200, runHost.snapshot(runId));
+    return send(res, 200, pcx.runHost.snapshot(runId));
   }
 
   if (req.method === 'GET' && pathname === '/run/events') {
-    await bootstrapRunHost();
-    if (!runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${runHostBootErr?.message || 'unknown'}` });
+    await bootstrapRunHost(pcx);
+    if (!pcx.runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${pcx.runHostBootErr?.message || 'unknown'}` });
     const afterSeqRaw = url.searchParams.get('afterSeq');
     const afterSeq = Number(afterSeqRaw);
     const q = {
       afterSeq: Number.isInteger(afterSeq) && afterSeq >= 0 ? afterSeq : 0,
       runId: url.searchParams.get('runId') || undefined,
     };
-    return send(res, 200, runHost.pollEvents(q));
+    return send(res, 200, pcx.runHost.pollEvents(q));
   }
 
-  // ---- server run api 写端点（T1-061）：cli 调度/门禁派生等剩余直写收口 server 单写者 ----
+  // ---- server run api 写端点 ----
   if (req.method === 'POST' && pathname === '/run/state/mode') {
     const body = (await readJson(req)) || {};
     if (!body || typeof body.mode !== 'string' || !['run', 'idle', 'pause'].includes(body.mode)) {
       return send(res, 400, { ok: false, error: 'body must be {mode: run|idle|pause}' });
     }
-    await ensureRunStateApi();
-    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
-    const ok = runStateApi.setWorkflowMode(PROJECT_ROOT, body.mode);
+    await ensureRunStateApi(pcx);
+    if (!pcx.runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    const ok = pcx.runStateApi.setWorkflowMode(pcx.projectRoot, body.mode);
     return send(res, 200, { ok: !!ok, mode: body.mode });
   }
 
@@ -1229,9 +1129,9 @@ const server = http.createServer(async (req, res) => {
     if (!body || typeof body.taskId !== 'string' || body.taskId.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {taskId: non-empty string}' });
     }
-    await ensureRunStateApi();
-    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
-    const ok = runStateApi.markTaskActive(PROJECT_ROOT, body.taskId);
+    await ensureRunStateApi(pcx);
+    if (!pcx.runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    const ok = pcx.runStateApi.markTaskActive(pcx.projectRoot, body.taskId);
     return send(res, 200, { ok: !!ok, taskId: body.taskId });
   }
 
@@ -1240,38 +1140,36 @@ const server = http.createServer(async (req, res) => {
     if (!body || typeof body.taskId !== 'string' || body.taskId.length === 0) {
       return send(res, 400, { ok: false, error: 'body must be {taskId: non-empty string}' });
     }
-    const s = runStores.state.readSync();
+    const s = pcx.stores.state.readSync();
     const task = s?.tasks?.find((x) => x.id === body.taskId) || null;
     if (!task) return send(res, 200, { ok: true, applied: false, reason: 'task not found' });
     const handler = await runStateGateHandler();
-    await handler(PROJECT_ROOT, body.taskId, task);
+    await handler(pcx.projectRoot, body.taskId, task);
     return send(res, 200, { ok: true, applied: true, taskId: body.taskId });
   }
 
   if (req.method === 'POST' && pathname === '/run/state/backup') {
-    await ensureRunStateApi();
-    if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
-    runStateApi.backupState(PROJECT_ROOT);
+    await ensureRunStateApi(pcx);
+    if (!pcx.runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+    pcx.runStateApi.backupState(pcx.projectRoot);
     return send(res, 200, { ok: true });
   }
 
-  // T1-077：awf-state MCP 语义保留、底层写收口 server 单写者——MCP 客户端按工具语义算出
-  // 完整 state，POST 此处由 server 用 state.js 单写者（锁 + 原子）落盘；MCP 不再直写文件/锁。
+  // T1-077：awf-state MCP 语义保留、底层写收口 server 单写者
   if (req.method === 'POST' && pathname === '/run/state/apply') {
     const body = (await readJson(req)) || {};
     const state = body?.state;
     if (!state || typeof state !== 'object' || Array.isArray(state)) {
       return send(res, 400, { ok: false, error: 'body must be {state: object}' });
     }
-    await ensureRunStateApi();
+    await ensureRunStateApi(pcx);
     const sid = url.searchParams.get('sid');
     try {
       if (sid) {
-        // T1-078：sid → 只写该 run 槽 state（软边界），互不影响其它 run
-        writeRunStateSid(sid, state);
+        pcx.writeRunStateSid(sid, state);
       } else {
-        if (!runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
-        runStateApi.saveState(PROJECT_ROOT, state);
+        if (!pcx.runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+        pcx.runStateApi.saveState(pcx.projectRoot, state);
       }
       return send(res, 200, { ok: true });
     } catch (e) {
@@ -1279,7 +1177,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // T1-080：awf-oneshot 经 server——无状态 claude -p 调用收口 server（oneshot adapter，外部零 claude）
+  // T1-080：awf-oneshot 经 server
   if (req.method === 'POST' && pathname === '/oneshot') {
     const body = (await readJson(req)) || {};
     if (!body || typeof body.prompt !== 'string' || body.prompt.length === 0) {
@@ -1290,7 +1188,7 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, r);
   }
 
-  // 优雅关闭（T1-064）：awf server stop / 空闲回收调用；响应送达后 close（main 才退出进程）
+  // 优雅关闭（T1-064）
   if (req.method === 'POST' && pathname === '/shutdown') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true, shutting: true }));
@@ -1300,7 +1198,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // T1-093：web 构建产物静态托管——GET 未命中既有端点 → 走产物 host（assets + 无扩展名 SPA 回退 index）
+  // T1-093：web 构建产物静态托管
   if (req.method === 'GET') {
     const host = webHostInstance();
     if (host && host.serve(req, res, pathname)) return;
@@ -1309,10 +1207,8 @@ const server = http.createServer(async (req, res) => {
   return send(res, 404, { ok: false, error: 'not found' });
 });
 
-// ---- lifecycle: CLI 以子进程方式运行；测试中可显式 start/stop ----
-// ── WebSocket 升级：/run/events 实时事件推送（T1-091）──
-// 前端 createApiClient.stream('/run/events') 建立 ws；升级前惰性装配 run host，把宿主事件
-// 逐条以文本帧推给订阅客户端；socket 关闭即退订。路径非 /run/events（含他路径/静态）一律拒绝。
+// ---- lifecycle ----
+// WebSocket 升级：/run/events 实时事件推送（T1-091）
 server.on('upgrade', (req, socket) => {
   let pathname = '/';
   try { pathname = new URL(req.url || '/', 'http://localhost').pathname; } catch { /* 保持默认 */ }
@@ -1320,13 +1216,14 @@ server.on('upgrade', (req, socket) => {
     try { socket.destroy(); } catch { /* ignore */ }
     return;
   }
-  bootstrapRunHost()
+  const pcx = (() => { try { return resolveCtxForUrl(new URL(req.url, 'http://localhost')); } catch { return BOOT(); } })();
+  bootstrapRunHost(pcx)
     .then(() => {
-      if (!runHost) { try { socket.destroy(); } catch { /* ignore */ } return; }
-      const unsub = runHost.subscribe((event) => {
+      if (!pcx.runHost) { try { socket.destroy(); } catch { /* ignore */ } return; }
+      const unsub = pcx.runHost.subscribe((event) => {
         try {
           if (socket.writable) socket.write(encodeTextFrame(JSON.stringify(event)));
-        } catch { /* 客户端断开等写入失败：退订由 onClose 兜底 */ }
+        } catch { /* ignore */ }
       });
       wsUpgrade(req, socket, { onClose: unsub, onError: unsub });
     })
@@ -1334,8 +1231,7 @@ server.on('upgrade', (req, socket) => {
 });
 
 function start(port = PORT) {
-  resetRunLogs();
-  metricsCache = { at: 0, value: null };
+  for (const c of registry.all()) resetRunLogs(c);
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
@@ -1347,69 +1243,54 @@ function start(port = PORT) {
 }
 
 function stop() {
-  if (runHost) { try { runHost.stop(); } catch { /* host 停止失败不影响 server 关闭 */ } }
+  for (const c of registry.all()) {
+    if (c.runHost) { try { c.runHost.stop(); } catch { /* ignore */ } }
+  }
   return new Promise((resolve) => {
     server.close(() => resolve());
     if (server.closeAllConnections) server.closeAllConnections();
   });
 }
 
-// ---- test helpers ----
+// ---- test helpers（定向 boot 上下文，与旧单槽导出等价） ----
 function _getState() {
+  const b = BOOT();
   return {
-    state, decisionPending, waiters: [...waiters], contextReady,
-    decisionGate, decisionResume,
-    mainSessionId,
-    activeAgents: [...agents.values()].filter((a) => a.status === 'running').length,
+    state: b.state, decisionPending: b.decisionPending, waiters: [...b.waiters], contextReady: b.contextReady,
+    decisionGate: b.decisionGate, decisionResume: b.decisionResume,
+    mainSessionId: b.mainSessionId,
+    activeAgents: [...b.agents.values()].filter((a) => a.status === 'running').length,
   };
 }
 
 function _resetForTest() {
-  if (fallbackTimer) {
-    clearTimeout(fallbackTimer);
-    fallbackTimer = null;
-  }
-  state = 'ready';
-  decisionPending = null;
-  decisionGate = null;
-  decisionResume = null;
-  decisionSeqGen.reset();
-  runSlotsBySid.clear(); // T1-071 per-run 槽清理（用例隔离）
-  waiters = [];
-  contextReady = false;
-  mainSessionId = null;
-  agents.clear();
-  metricsCache = { at: 0, value: null };
-  resetRunMeta(PROJECT_ROOT);
-  diagnosisInFlight = false;
-  // run host（T1-105）：复位以便用例隔离；有 active run 时 reset 拒绝，调用方应先等 run 收敛
-  if (runHost) {
-    try { runHost.stop(); runHost.reset(); } catch { /* host 复位失败不阻塞 server 复位 */ }
-  }
-  runHost = null;
-  runHostReady = null;
-  runHostBootErr = null;
+  registry.reset();
+  // run-meta 复位到 boot 项目（与旧行为一致）
+  resetRunMeta(BOOT().projectRoot);
 }
 
 module.exports = {
   server, start, stop, _getState, _resetForTest,
-  setDecision, clearDecision, setReady, setBusy, waitReady,
+  setDecision: (d) => setDecision(BOOT(), d),
+  clearDecision: () => clearDecision(BOOT()),
+  setReady: () => setReady(BOOT()),
+  setBusy: () => setBusy(BOOT()),
+  waitReady: (timeout) => waitReady(BOOT(), timeout),
 };
 
 if (require.main === module) {
-  resetRunLogs();
+  const bootPcx = BOOT();
+  for (const c of registry.all()) resetRunLogs(c);
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${tmuxlib.SESSION}')`);
+    console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${bootPcx.runSessionName}')`);
   });
 
-  // T1-064/067 常驻空闲回收：run 结束后 server 保留；空闲阈值（CC_SERVER_IDLE_MS，0=禁用）无活动
-  // 且宿主无 run 驱动 → 自动关闭。任何请求都刷新 lastActivityAt，故有看板/轮询即非空闲。
-  // 检查节拍 CC_SERVER_IDLE_CHECK_MS（默认 60s，测试冒烟可调小）。
+  // T1-064/067 常驻空闲回收：全部项目无 run 驱动且空闲超时 → 自动关闭
   const idleMs = idleDefaultMs();
   if (idleMs > 0) {
     const idleCheckMs = Number(process.env.CC_SERVER_IDLE_CHECK_MS || 60000);
     const idleTimer = setInterval(() => {
-      if (hostHasActiveRun()) return; // 宿主有 run 在驱动绝不回收
+      if (anyHostActive()) return;
       if (isIdleDue({ now: Date.now(), lastActivityAt, idleMs })) {
         clearInterval(idleTimer);
         console.log(`[server] 空闲 ${Math.round(idleMs / 60000)}min 无活动且无 run 驱动，自动关闭（常驻回收）`);
