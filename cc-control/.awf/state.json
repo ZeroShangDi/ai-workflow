@@ -1,5 +1,5 @@
 {
-  "mode": "run",
+  "mode": "idle",
   "currentState": "PLAN",
   "version": "0.2.0",
   "milestones": [],
@@ -1692,7 +1692,7 @@
       "title": "W3-003 模块测试门禁",
       "kind": "test",
       "prompt": "执行 /ai-workflow-code:w-test T3-003：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。",
-      "wbsRef": "W3-003",
+      "wbsRef": "W1-105",
       "deps": [
         "T1-041"
       ],
@@ -2446,7 +2446,7 @@
       "id": "T1-105",
       "title": "server run-host 接线：编排 live 迁入 + run 提交/事件端点",
       "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-105：server 真正托管 run 编排（补齐 W3-003 live 接线，解除 T1-058 结构性前置）——把 cli/run.js 仍是唯一 driver 的现状改为 server 实际托管：server.cjs 接线 run-driver（单 agent 阶段链）+ run-scheduler（多 agent）+ gateCompletionHook 进入常驻 run 循环，暴露 run 提交端点与事件订阅（先轮询/可订阅桩，真实 WS 留 T1-091），使 run.js 可改薄为「提交 run→订阅事件展示→人机应答中继→收尾」。保持单 run 全流程行为不变。",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-105：只完成 server 侧 run-host 前置能力——新增可测试的常驻 run host，接线 run-driver（单 agent 阶段链）、run-scheduler（多 agent）与 gateCompletionHook；暴露 run 提交、状态快照和轮询事件端点。保持现有 cli/run.js 与 cli/run-batch.js 的 live driver 路径不变，禁止在本任务切换 CLI；CLI 切换由下一任务 T1-058 完成。",
       "wbsRef": "W3-003",
       "deps": [
         "T1-057"
@@ -2454,20 +2454,23 @@
       "status": "pending",
       "plannedFiles": [
         "src/server/",
-        "src/cli/run.js",
-        "src/cli/run-batch.js",
         "src/cli/run-client.js",
         "src/lib/session/",
-        "tests/unit/"
+        "tests/unit/",
+        "tests/integration/"
       ],
-      "constraints": [],
-      "acceptance": "server 实际托管 run 编排（单 agent 阶段链经 run-driver、多 agent 经 run-scheduler live 接线 + run 提交/事件端点）；run.js 提交后由 server 驱动；单 run 全流程行为不变；相关单测绿"
+      "constraints": [
+        "本任务只做 server 侧前置，不修改 cli/run.js 与 cli/run-batch.js 的 live driver 宿主",
+        "不得在正在执行本任务的 awf run 内启动嵌套 awf run；真 run 回归留 T1-098",
+        "端点与 run host 必须可注入测试，旧 server 导出面和单 run ready/busy 行为不变"
+      ],
+      "acceptance": "server 侧存在可启动/停止、可注入测试的 run host；单 agent 经 run-driver、多 agent 经 run-scheduler，门禁经 gateCompletionHook；run 提交/状态/轮询事件端点可用；旧 cli/run.js 与 cli/run-batch.js live 路径未切换且 server 既有回归全绿。T1-058 可在此前置上独立完成 CLI cutover。"
     },
     {
       "id": "T1-058",
       "title": "run.js 改提交/订阅/应答",
       "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-058：run.js 改为：提交 run→订阅事件展示→人机应答中继→收尾；编排逻辑(已迁 W3-003)移除",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-058：在 T1-105 的 server run-host 已通过测试后，将 cli/run.js 切换为 run-client：提交 run→轮询订阅事件/状态展示→人机应答中继→收尾；移除 run.js 内任务选择、阶段推进和调度循环。不要迁移剩余 state/gate 直写，后者留 T1-061。",
       "wbsRef": "W1-058",
       "deps": [
         "T1-105"
@@ -2478,8 +2481,12 @@
         "src/lib/",
         "src/server/bootstrap*"
       ],
-      "constraints": [],
-      "acceptance": "run.js 改为：提交 run→订阅事件展示→人机应答中继→收尾；编排逻辑(已迁 W3-003)移除",
+      "constraints": [
+        "T1-105 未 done 或 server run-host 契约测试未通过时不得开始",
+        "只做 CLI driver cutover；剩余 state/gate 直写迁移留 T1-061",
+        "保留 --resume 现有行为，扩展重连语义留 T1-059"
+      ],
+      "acceptance": "run.js 通过 run-client 提交 run、消费轮询事件/状态、转发人机应答并收尾；任务选择/阶段推进/多 agent 调度不再由 run.js 承担；现有 --resume 行为与单 run CLI 测试不回归；剩余直写点形成 T1-061 的明确清单。",
       "exec": {}
     },
     {

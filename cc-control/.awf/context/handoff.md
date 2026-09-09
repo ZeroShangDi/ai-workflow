@@ -1,5 +1,7 @@
 # Handoff Snapshot — T1-105 server run-host 接线（待实现）
 
+> **2026-09-09 恢复审计更新（优先于下文旧现场）**：落地边界已固定为 A（严格分工），不再询问用户。T1-105 只做 server run-host + 提交/状态/轮询事件端点，禁止切换 `cli/run.js`/`run-batch.js` live driver；T1-058 再独立完成 CLI cutover，T1-061 迁剩余 state/gate 直写。任务定义已同步到 `.awf/state.json`，审计见 `.awf/reports/refactor-recovery-audit.md`。旧路径 `/Users/shangjunhao/...` 已失效，当前执行根为 `/Users/v-shangjunhao/MyProject/cc-control-wt-v0.2.0/cc-control`。恢复阶段 `.awf/config.json` 固定单 Agent，state.mode 已从遗留 `run` 重置为 `idle`。
+
 > 生成：2026-09-08（会话为 17:52 run 的主会话，任务 T1-105 已派发、未实现）
 > 目录：`/Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control-wt/cc-control`
 > 分支：`wt/cc-control-v0.2.0`（git worktree，隔离开发基线，基线 commit `1a9c6bd`）
@@ -7,7 +9,7 @@
 
 ## Goal
 
-实现 **T1-105**（wbsRef `W3-003`，deps `T1-057`，当前 `pending`）：
+实现 **T1-105**（恢复审计后 wbsRef `W1-105`，deps `T1-057`，当前 `pending`）：
 让 **server 真正托管 run 编排** —— `server.cjs` 接线 `run-driver.cjs`（单 agent 阶段链）+ `run-scheduler.js`（多 agent）+ `gateCompletionHook` 进**常驻 run 循环**，暴露 **run 提交端点 + 事件订阅（先轮询/可订阅桩，真实 WS 留 T1-091）**；使 `cli/run.js` 可改薄为「提交 run→订阅事件展示→人机应答中继→收尾」。**保持单 run 全流程行为不变**（正跑在自托管 live run 上，不得破坏 cli/server 现行路径）。
 
 验收（T1-105 acceptance）：server 实际托管 run 编排（单 agent 阶段链经 run-driver、多 agent 经 run-scheduler live 接线 + run 提交/事件端点）；run.js 提交后由 server 驱动；单 run 全流程行为不变；相关单测绿。
@@ -44,12 +46,12 @@
 
 ## Decisions
 
-- 【本轮挂起】T1-105 **落地边界 A/B/C 待用户选择**（decisionPending 已上抛，未答）：
+- 【已闭合】T1-105 落地边界采用 A（严格分工）；以下 B/C 仅保留历史复盘：
   - **A（严格分工，推荐）**：只做 server 侧 —— server.cjs 接线 run-driver+run-scheduler+gateCompletionHook 常驻 run 循环 + run 提交/事件端点 + 单测；run.js 本任务不动（保持 driver），薄化留 T1-058。不重复 T1-058、不碰 live driver 宿主；「run.js 提交后由 server 驱动」到 T1-058 才真闭环。
   - **B**：server 托管 + run.js 改提交/订阅/应答一次做掉（与 T1-058 验收重叠；改 live driver 风险最高）。
   - **C**：最小切片 —— 先加 run 提交/事件端点 + run-client.submit/subscribe 桩 + 单测；run-driver/run-scheduler 常驻接线做成可注入纯逻辑层，不真迁 driver 宿主。
 - 已确认的既有方向（前序 run 决策，勿推翻）：T1-058 薄化依赖 server 真托管 → **先 W3-003(server 常驻) 后 W3-005(cli 薄化)**；保持单 run 全流程行为不变是硬约束；真实回归在 T1-098。
-- 测试漂移待修：`tests/unit/run.test.js` TC17 必失败（假设 waitForReady 超时 300s、`advanceTimersByTimeAsync(310000)`，但 `client.js READY_TIMEOUT` 已改 30min/1800000）→ 须同步常量或测试。
+- 旧现场曾判断 `tests/unit/run.test.js` TC17 会因超时常量漂移失败；2026-09-09 完整基线已证实该用例通过。当前仅有两个既有 E2E 失败，见 `docs/bugs/recovery-baseline-e2e-failures.md`。
 
 ## Evidence
 
@@ -70,9 +72,9 @@
 ## Next
 
 接手者（重开后）：
-1. 读本文件 → 问用户 **T1-105 落地边界 A/B/C**（若上抛的 decisionPending 已因会话重开丢失，直接用普通提问/awf_await_choice 重新收集）。
-2. 按所选边界实现 T1-105；推荐 A：新 server run-host 组装点（建议 CJS 模块或经 app.cjs 装配）+ server.cjs 挂 run 提交端点 + 事件订阅轮询端点 + run-client 补 submitRun/subscribe 方法 + 单测；run-driver 阶段链/gateCompletionHook 与 run-scheduler 由 server 注入接线。ESM/CJS 边界照 run-batch 桥接法处理。
-3. 修 `tests/unit/run.test.js` TC17（READY_TIMEOUT 同步）。
+1. 读本文件与 `.awf/reports/refactor-recovery-audit.md`，直接按已闭合的 A 边界继续，不再发起范围选择。
+2. 实现 T1-105：新 server run-host 组装点（建议 CJS 模块或经 app.cjs 装配）+ server.cjs 挂 run 提交/状态/轮询事件端点 + run-client 补对应 client 方法 + 单测；run-driver 阶段链/gateCompletionHook 与 run-scheduler 由 server 注入接线。ESM/CJS 边界照 run-batch 桥接法处理。不得修改 `cli/run.js`/`cli/run-batch.js` live driver。
+3. 不再修改 TC17；先以 `docs/bugs/recovery-baseline-e2e-failures.md` 的两个 E2E 作为已知基线，T1-105 不得新增失败。
 4. 保持 `tests/integration/server.test.js` 与相关单测绿；单 run 行为不变。
 5. 完成时落账：`awf_task_complete`(T1-105, status done, files/commits/result)。
 6. 计划链：完成后 T1-058(薄化 run.js) → T1-059(--resume/--attach) → … → T1-067(单写者/常驻/attach 冒烟) → T1-098(真 run 全流程回归)。

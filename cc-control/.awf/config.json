@@ -1,10 +1,13 @@
 {
   "run": {
+    "decision": {
+      "enabled": true
+    },
     "agents": {
-      "max": 10,
-      "maxModules": 10,
-      "maxPerModule": 10,
-      "maxPerFeature": 10
+      "max": 1,
+      "maxModules": 1,
+      "maxPerModule": 1,
+      "maxPerFeature": 1
     }
   },
   "docs": {
