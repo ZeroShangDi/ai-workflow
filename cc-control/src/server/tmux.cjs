@@ -6,39 +6,51 @@ const execFileSync = global.__CC_EXEC_FILE_SYNC__ || require('child_process').ex
 
 // 会话名单源：经 run-context 装配（config runtime.session / CC_SESSION；无 sid 回落基础名）
 const { buildRunContext } = require('../lib/run-context.cjs');
-const SESSION = buildRunContext({ env: process.env }).runSessionName;
 
-function tmux(args) {
-  return execFileSync('tmux', args, { encoding: 'utf8' });
-}
+/**
+ * 按会话名构建 tmux 原语集合（单 server 多项目时每项目一个实例，会话名唯一）。
+ * @param {string} sessionName tmux 会话名（如 `cc` / `cc-<projectSid>`）
+ */
+function createTmux(sessionName) {
+  const SESSION = sessionName;
 
-function hasSession() {
-  try {
-    tmux(['has-session', '-t', SESSION]);
-    return true;
-  } catch {
-    return false;
+  function tmux(args) {
+    return execFileSync('tmux', args, { encoding: 'utf8' });
   }
+
+  function hasSession() {
+    try {
+      tmux(['has-session', '-t', SESSION]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Send literal text (no tmux key interpretation), e.g. the message body.
+  function sendText(text) {
+    tmux(['send-keys', '-t', SESSION, '-l', text]);
+  }
+
+  // Press Enter to submit the current input.
+  function sendEnter() {
+    tmux(['send-keys', '-t', SESSION, 'Enter']);
+  }
+
+  // Send Ctrl+C to interrupt the running Claude response (like Ctrl+C in interactive mode).
+  function sendCtrlC() {
+    tmux(['send-keys', '-t', SESSION, 'C-c']);
+  }
+
+  // Read the full pane history (-S - 从回滚起点开始，否则只抓可见区，旧消息会丢)。
+  function capture() {
+    return tmux(['capture-pane', '-t', SESSION, '-p', '-S', '-']);
+  }
+
+  return { SESSION, hasSession, sendText, sendEnter, sendCtrlC, capture };
 }
 
-// Send literal text (no tmux key interpretation), e.g. the message body.
-function sendText(text) {
-  tmux(['send-keys', '-t', SESSION, '-l', text]);
-}
+// 默认单会话实例（兼容既有 import：buildRunContext 无 sid → runSessionName = 基础会话名）
+const defaultTmux = createTmux(buildRunContext({ env: process.env }).runSessionName);
 
-// Press Enter to submit the current input.
-function sendEnter() {
-  tmux(['send-keys', '-t', SESSION, 'Enter']);
-}
-
-// Send Ctrl+C to interrupt the running Claude response (like Ctrl+C in interactive mode).
-function sendCtrlC() {
-  tmux(['send-keys', '-t', SESSION, 'C-c']);
-}
-
-// Read the full pane history (-S - 从回滚起点开始，否则只抓可见区，旧消息会丢)。
-function capture() {
-  return tmux(['capture-pane', '-t', SESSION, '-p', '-S', '-']);
-}
-
-module.exports = { SESSION, hasSession, sendText, sendEnter, sendCtrlC, capture };
+module.exports = { ...defaultTmux, createTmux };

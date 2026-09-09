@@ -17,6 +17,11 @@ export function baseUrl(port = SERVER_PORT) {
   return `http://127.0.0.1:${port}`;
 }
 
+/** 追加项目根 query：`?p=<enc>`；无 project 返回空串（保持既有路径/存量调用不变） */
+export function projectQuery(project) {
+  return project ? `?p=${encodeURIComponent(project)}` : '';
+}
+
 // ── HTTP 请求 ──
 
 /** HTTP POST 原始请求（返回 raw string） */
@@ -44,10 +49,10 @@ export async function httpPostJson(url, body) {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-/** GET /status — 查询 Session Server 当前状态 */
-export function getStatus(port = SERVER_PORT) {
+/** GET /status — 查询 Session Server 当前状态（多项目：project 指定项目根） */
+export function getStatus(port = SERVER_PORT, project) {
   return new Promise((resolve) => {
-    const req = http.get(`${baseUrl(port)}/status`, (res) => {
+    const req = http.get(`${baseUrl(port)}/status${projectQuery(project)}`, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
@@ -62,24 +67,24 @@ export function getStatus(port = SERVER_PORT) {
 // ── 命令发送 ──
 
 /** POST /send — 发送 prompt */
-export function sendText(text, port = SERVER_PORT) {
-  return httpPostJson(`${baseUrl(port)}/send`, { text });
+export function sendText(text, port = SERVER_PORT, project) {
+  return httpPostJson(`${baseUrl(port)}/send${projectQuery(project)}`, { text });
 }
 
 /** POST /cmd — 发送 slash command */
-export function sendCmd(command, port = SERVER_PORT) {
-  return httpPostJson(`${baseUrl(port)}/cmd`, { cmd: command });
+export function sendCmd(command, port = SERVER_PORT, project) {
+  return httpPostJson(`${baseUrl(port)}/cmd${projectQuery(project)}`, { cmd: command });
 }
 
 /** POST /respond — 向等待输入的 CC 发送回应 */
-export function sendRespond(value, port = SERVER_PORT) {
-  return httpPost(`${baseUrl(port)}/respond`, { value });
+export function sendRespond(value, port = SERVER_PORT, project) {
+  return httpPost(`${baseUrl(port)}/respond${projectQuery(project)}`, { value });
 }
 
 /** GET /context-ready — 一次性消费上下文就绪标记（读取后服务端自动复位） */
-export function getContextReady(port = SERVER_PORT) {
+export function getContextReady(port = SERVER_PORT, project) {
   return new Promise((resolve) => {
-    const req = http.get(`${baseUrl(port)}/context-ready`, (res) => {
+    const req = http.get(`${baseUrl(port)}/context-ready${projectQuery(project)}`, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
@@ -100,7 +105,7 @@ export function getContextReady(port = SERVER_PORT) {
  * 若未提供 onDecision，使用内置 autoSelect（等 5s 默认选第一项）。
  * whilePaused 可注入外部 pause 闩锁；暂停耗时不计入 ready 超时，且暂停期间不处理决策。
  */
-export function waitForReady({ onDecision, whilePaused, port = SERVER_PORT } = {}) {
+export function waitForReady({ onDecision, whilePaused, port = SERVER_PORT, project } = {}) {
   return new Promise((resolve, reject) => {
     let start = Date.now();
     let lastDecision = null;
@@ -114,14 +119,14 @@ export function waitForReady({ onDecision, whilePaused, port = SERVER_PORT } = {
       if (Date.now() - start >= READY_TIMEOUT) {
         return reject(new Error('等待 Claude Code 就绪超时'));
       }
-      const status = await getStatus(port);
+      const status = await getStatus(port, project);
       if (status.decisionPending) {
         const key = JSON.stringify(status.decisionPending);
         if (key !== lastDecision) {
           const handler = onDecision || autoSelect;
           const value = await handler(status.decisionPending);
           if (value !== undefined && value !== null) {
-            await sendRespond(value, port);
+            await sendRespond(value, port, project);
           }
           lastDecision = key;
         }

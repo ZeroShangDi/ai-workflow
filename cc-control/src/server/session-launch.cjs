@@ -17,9 +17,11 @@ const path = require('node:path');
 /** 需剥离的变量（telemetry/feature-flag 类，会压低会话可用性）——与 bootstrap.sh env -u 对齐 */
 const STRIP_ENV = ['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'DISABLE_TELEMETRY', 'DO_NOT_TRACK', 'DISABLE_GROWTHBOOK'];
 
-/** claude 进程 env：继承 process.env 但注入 CC_SESSION，并去剥离项 */
+/** claude 进程 env：继承 process.env 但注入 CC_SESSION/CC_PROJECT/CC_SID，并去剥离项 */
 function buildSessionEnv(ctx, { baseEnv = process.env } = {}) {
   const env = { ...baseEnv, CC_SESSION: ctx.runSessionName };
+  if (ctx.projectRoot) env.CC_PROJECT = ctx.projectRoot;
+  if (ctx.sid != null && ctx.sid !== '') env.CC_SID = String(ctx.sid);
   for (const k of STRIP_ENV) delete env[k];
   return env;
 }
@@ -42,7 +44,10 @@ function buildClaudeArgs(ctx, { settingsPath }) {
  */
 function buildTmuxCommand(ctx, { workdir, settingsPath, width = 200, height = 50 }) {
   const env = buildSessionEnv(ctx);
-  const envPrefix = `env -u ${STRIP_ENV.join(' -u ')} CC_SESSION="${env.CC_SESSION}"`;
+  const envAssigns = [`CC_SESSION="${env.CC_SESSION}"`];
+  if (env.CC_PROJECT) envAssigns.push(`CC_PROJECT="${env.CC_PROJECT}"`);
+  if (env.CC_SID) envAssigns.push(`CC_SID="${env.CC_SID}"`);
+  const envPrefix = `env -u ${STRIP_ENV.join(' -u ')} ${envAssigns.join(' ')}`;
   const claude = ['claude', '--permission-mode', 'bypassPermissions',
     `--settings "${settingsPath}"`].join(' ');
   return `tmux new-session -d -s "${ctx.runSessionName}" -x ${width} -y ${height} -c "${workdir}" "${envPrefix} ${claude}"`;

@@ -36,4 +36,27 @@ describe('session-launch — claude 会话启动构建（cc/host 基座）', () 
   it('runSettingsPath 落在 .awf/run-settings.json', () => {
     expect(runSettingsPath('/proj')).toBe('/proj/.awf/run-settings.json');
   });
+
+  it('buildSessionEnv：ctx 带 projectRoot/sid 时注入 CC_PROJECT/CC_SID（多项目路由）', () => {
+    const ctx2 = { runSessionName: 'cc-pabc123', projectRoot: '/proj/b', sid: 'pabc123' };
+    const env = buildSessionEnv(ctx2, { baseEnv: { A: '1' } });
+    expect(env.CC_SESSION).toBe('cc-pabc123');
+    expect(env.CC_PROJECT).toBe('/proj/b');
+    expect(env.CC_SID).toBe('pabc123');
+    expect(env.A).toBe('1');
+  });
+
+  it('buildSessionEnv：仅 projectRoot（无 sid）只注入 CC_PROJECT', () => {
+    const env = buildSessionEnv({ runSessionName: 'cc-x', projectRoot: '/proj/b' }, { baseEnv: {} });
+    expect(env.CC_PROJECT).toBe('/proj/b');
+    expect(env.CC_SID).toBeUndefined();
+  });
+
+  it('buildTmuxCommand：envPrefix 携带 CC_PROJECT/CC_SID', () => {
+    const ctx2 = { runSessionName: 'cc-pabc123', projectRoot: '/proj/b', sid: 'pabc123' };
+    const cmd = buildTmuxCommand(ctx2, { workdir: '/proj/b', settingsPath: '/proj/b/.awf/run-settings.json' });
+    expect(cmd).toContain('CC_PROJECT="/proj/b"');
+    expect(cmd).toContain('CC_SID="pabc123"');
+    expect(cmd).toContain('CC_SESSION="cc-pabc123"');
+  });
 });

@@ -17,6 +17,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { getSessionName, getServerPort } = require('./runtime-config.cjs');
 const { SID_PATTERN, validateRunId } = require('./run-id.cjs');
 
@@ -120,4 +121,27 @@ function ensureRunLayoutSync(ctx) {
   return dirs;
 }
 
-module.exports = { buildRunContext, SID_PATTERN, INFRA_ROOT, ensureRunLayoutSync };
+/**
+ * 确定性项目 sid（run 标签）：由归一化 projectRoot 的 SHA-1 派生固定短 id。
+ * 保证同一项目跨 CLI/server/重启产生同一会话名（tmux `cc-<sid>` 可被 --resume/--attach 重发现），
+ * 且 SID_PATTERN 合法（`p` + 12 位 hex，48bit 冲突概率对少量并存项目足够低）。
+ * 仅供命名/路由标签用：不落盘、不派生 `.awf/runs/<sid>/`。
+ * @param {string} projectRoot run 项目根（.awf 宿主）
+ */
+function projectSid(projectRoot) {
+  const root = path.resolve(projectRoot || '');
+  const digest = crypto.createHash('sha1').update(root).digest('hex').slice(0, 12);
+  return `p${digest}`;
+}
+
+/**
+ * 该项目 run 的 tmux 会话名：`${session}-${projectSid(projectRoot)}`。
+ * 单 server 多项目时每个项目会话名唯一（不再共用基础名 `cc` 而互相 kill）。
+ * @param {string} projectRoot
+ * @param {{ env?: object }} [opts]
+ */
+function projectSessionName(projectRoot, { env = process.env } = {}) {
+  return `${getSessionName(env)}-${projectSid(projectRoot)}`;
+}
+
+module.exports = { buildRunContext, projectSid, projectSessionName, SID_PATTERN, INFRA_ROOT, ensureRunLayoutSync };
