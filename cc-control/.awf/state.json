@@ -778,7 +778,7 @@
           "boundary": "server.cjs run state 写读段 → store.state（createRunStores(ctx).state，JsonFileStore：state.lock + 原子写）",
           "boundaryChanged": false,
           "changeAxis": "settleSubagent/appendDecisionReviewTask/readProjectState/requirePaused//awf/state 路由从裸 store-core 原语收敛到 store.state 写读 API",
-          "note": "server 建立 runStores=createRunStores(ctx)（无 sid → .awf 根现行布局，state 带 state.lock）。settleSubagent/appendDecisionReviewTask 改 store.state.updateSync(mutator)：闭包 out + 拒绝路径 return false 不写（保留原语义：unreadable/task-not-found/already-done 返回对象且不落账；变更路径 return true 落盘补 lastUpdated）；remove 本地 withStateLock/STATE_PATH/storeCore。readProjectState/requirePaused//awf/state 改 runStores.state.readSync()。为此 JsonFileStore.updateSync 语义改为向 mutator 传原始 read（null=缺失/非法，不预合并 {}），返回 false 不写，mutator 需自建对象；异步 update 复用同一语义（队列串行）。行为保持：settle 拒绝分支写 skip、error 消息同前；524 例回归绿。MCP/CLI 的 state 直写归位已完成于 T1-013/011；本任务收口 server 侧业务写读段。",
+          "note": "server 建立 runStores=createRunStores(ctx)（无 sid → .awf 根现行布局，state 带 state.lock）。settleSubagent/appendDecisionReviewTask 改 store.state.updateSync(mutator)：闭包 out + 拒绝路径 return false 不写（保留原语义：unreadable/task-not-found/already-done 返回对象且不落账；变更路径 return true 落盘补 lastUpdated）；remove 本地 withStateLock/STATE_PATH/storeCore。readProjectState/requirePaused//awf/state 改 runStores.state.readSync()。为此 JsonFileStore.updateSync 语义改为向 mutator 传原始 read（null=缺失/非法，不预合并 {}），返回 false 不写，mutator 需自建对象；异步 update 复用同一语义（队列串行）。行为��持：settle 拒绝分支写 skip、error 消息同前；524 例回归绿。MCP/CLI 的 state 直写归位已完成于 T1-013/011；本任务收口 server 侧业务写读段。",
           "path": "refactor-then-change"
         },
         "completedAt": "2026-09-07T14:24:40.944Z"
@@ -2145,7 +2145,7 @@
       "constraints": [],
       "acceptance": "移除 cli/server/MCP 残留 cc 命令字面与路径（改经端口）",
       "exec": {
-        "result": "移除 cli/server/MCP 残留 cc 命令字面完成：plugin/core/mcp/awf-oneshot/server.cjs 的 spawnClaude 改为经 oneshot adapter（require 包根 src/adapters/oneshot.cjs，失败则回退 legacySpawnClaude 纯插件副本实现）——adapter.spawnClaudeP({prompt,cwd,timeoutMs:300000,spawn:_spawn(保留全局注入),stdio:['pipe','pipe','pipe'](保留 MCP 旧契约)}) 后映射 {ok,text,error}，claude 字面只在 adapter。src/cli/init.js 的 claude 可用性探针（command -v claude）改 tooling.claudeAvailable({execSync})，cli 不再含 claude 探针命令字面（仅安装提示文案）。oneshot adapter 为此补齐：stdout/stderr 可选链容错（测试 mock 无 stderr emitter）、stdio 可注入。残留：init 用户向提示文案、awf-oneshot legacy 回退分支（工具面不可达，文档化）。测试：awf-oneshot integration 11 例（TC11 cmd/args/stdio/timeout/env 语义保留）全过；tooling/init/oneshot-adapter 绿；oneshot-adapter 4 例。验证：node --check + npm run lint 通过；完整单测 477 例全绿。",
+        "result": "移除 cli/server/MCP 残留 cc 命令字面完成：plugin/core/mcp/awf-oneshot/server.cjs 的 spawnClaude 改为经 oneshot adapter（require 包根 src/adapters/oneshot.cjs，失败则回退 legacySpawnClaude 纯插件副本实现）——adapter.spawnClaudeP({prompt,cwd,timeoutMs:300000,spawn:_spawn(保留全局注入),stdio:['pipe','pipe','pipe'](保留 MCP 旧契约)}) 后映射 {ok,text,error}，claude 字面只在 adapter。src/cli/init.js 的 claude 可用性探针（command -v claude）改 tooling.claudeAvailable({execSync})，cli 不再含 claude 探针命令字面（仅安装提示文案）。oneshot adapter 为此补齐：stdout/stderr 可选链容错（测试 mock 无 stderr emitter）、stdio 可注入。残留���init 用户向提示文案、awf-oneshot legacy 回退分支（工具面不可达，文档化）。测试：awf-oneshot integration 11 例（TC11 cmd/args/stdio/timeout/env 语义保留）全过；tooling/init/oneshot-adapter 绿；oneshot-adapter 4 例。验证：node --check + npm run lint 通过；完整单测 477 例全绿。",
         "files": [
           "plugin/core/mcp/awf-oneshot/server.cjs",
           "src/adapters/oneshot.cjs",
@@ -2362,7 +2362,7 @@
       "constraints": [],
       "acceptance": "非真模块核查：对照本模块 acceptance 与改动 diff 做结构/验收自检，不运行整套真实测试、不强求新增真实用例；真实运行验证由 run 最终自托管真 run（T1-098）承担。",
       "exec": {
-        "result": "W3-004 adapters/cc 工具适配收口 非真核查 通过（verdict pass）。结构/验收点自检：A. adapters 层模块齐备 12 个（ports 7 端口契约+mock 夹具、cc-shapes、interactive、oneshot、tooling、probe、extract、host、hook-adapter、session-launch、run-settings）均有单测；B. cli/server 无 claude 执行字面（grep spawn('claude') 空），plugin.js/init.js/plan.js 分别经 tooling/interactive adapter，awf-oneshot MCP 工具面经 oneshot adapter；cc 回写形状（cc-shapes）与提取（extract）真实归位被 server/run-logger 使用；C. 行为不变依据：全量非真单测 484 例全绿（含 cc 批次 cc-adapters-smoke 7 等），早前全量 637（含 integration）亦绿；相关门禁 T2-014（ports）、T2-015（cc host）、T2-016（hook+extract）、T2-018（tooling/interactive/probe）均 pass；D. U5 标注报告 .awf/reports/u5-scan.md 落盘。真实工具执行（claude plugin install/plan 直开 claude/w-monitor probe 真连 server）、纯插件副本 claude 字面残余收口、run-settings __SID__ 渲染等按口径留 T1-098 真 run / W1-069/070 后续。按「非真」口径不新增真实用例、不跑整套真实 run。未发现需门禁闭环的问题。",
+        "result": "W3-004 adapters/cc 工具适配收口 非真核查 ��过（verdict pass）。结构/验收点自检：A. adapters 层模块齐备 12 个（ports 7 端口契约+mock 夹具、cc-shapes、interactive、oneshot、tooling、probe、extract、host、hook-adapter、session-launch、run-settings）均有单测；B. cli/server 无 claude 执行字面（grep spawn('claude') 空），plugin.js/init.js/plan.js 分别经 tooling/interactive adapter，awf-oneshot MCP 工具面经 oneshot adapter；cc 回写形状（cc-shapes）与提取（extract）真实归位被 server/run-logger 使用；C. 行为不变依据：全量非真单测 484 例全绿（含 cc 批次 cc-adapters-smoke 7 等），早前全量 637（含 integration）亦绿；相关门禁 T2-014（ports）、T2-015（cc host）、T2-016（hook+extract）、T2-018（tooling/interactive/probe）均 pass；D. U5 标注报告 .awf/reports/u5-scan.md 落盘。真实工具执行（claude plugin install/plan 直开 claude/w-monitor probe 真连 server）、纯插件副本 claude 字面残余收口、run-settings __SID__ 渲染等按口径留 T1-098 真 run / W1-069/070 后续。按「非真」口径不新增真实用例、不跑整套真实 run。未发现需门禁闭环的问题。",
         "verdict": {
           "conclusion": "W3-004 结构与验收点自检全过：adapters/cc 层齐备、cli 无 claude 执行字面、484+ 例非真套件绿、门禁 T2-014/015/016/018 pass；真实工具执行留 T1-098。",
           "level": "pass"
@@ -2860,7 +2860,7 @@
       "constraints": [],
       "acceptance": "open tree CLI 渲染移除 → 指向 web WBS-Tree 视图",
       "exec": {
-        "result": "open tree CLI 渲染移除并指向 web 视图（commit c1cad40）：src/cli/open.js 删除 renderTree（w-tree.html 模板）与 tree 分支的 .awf/state.json 读取及 .awf/w-tree.html 本地写入；openCommand 不再 import node:fs/path。target=tree 现与 dashboard/ui 一致打开 server 托管的 dashboard URL（http://localhost:PORT），日志提示「打开 WBS-Tree（web 视图）」，WBS-Tree 视图由 web 前端工程任务在 server 托管页内提供。未知 target 报错保留。测试：cli-aux openCommand tree 用例改为断言打开 web 视图 URL + 不再写文件（mockFs.writeFile not called），删除「wbs 空报错」「state 缺失」两个不再适用的旧用例。验证：node --check + lint 通过；cli-aux 23 例全过；全量 unit+integration 73 文件 697 例全绿（较 T1-065 后 -2：删除的旧渲染用例），e2e 两个既有环境失败除外。web WBS-Tree 视图本体与真机视觉留前端工程/冒烟任务。",
+        "result": "open tree CLI 渲染移除并指向 web 视图（commit c1cad40）：src/cli/open.js 删除 renderTree（w-tree.html 模板）与 tree 分支的 .awf/state.json 读取及 .awf/w-tree.html 本地写入；openCommand 不再 import node:fs/path。target=tree 现与 dashboard/ui 一致打开 server 托管的 dashboard URL（http://localhost:PORT），日志提示「打开 WBS-Tree（web 视图）」，WBS-Tree 视图由 web 前端工程任务在 server 托管页内提供。未知 target 报错保留。测试：cli-aux openCommand tree 用例改为断言打开 web 视图 URL + 不再写文件（mockFs.writeFile not called），删除「wbs 空报错」「state 缺失」两个不再适用的旧用例。验证：node --check + lint 通过；cli-aux 23 例全过；全量 unit+integration 73 文件 697 例全绿（较 T1-065 后 -2：删除的旧渲染用例），e2e 两个既有环境失败除外。web WBS-Tree 视图本体与真机视觉留前端工程/冒烟任��。",
         "files": [
           "src/cli/open.js",
           "tests/unit/cli-aux.test.js"
@@ -4432,7 +4432,7 @@
       "constraints": [],
       "acceptance": "adapter mock 测试、store/迁移/config/装配/run-id/client/sid 路由单测补齐",
       "exec": {
-        "result": "T1-096 组件单测补齐完成（adapter mock / store / 迁移 / config / 装配 / run-id / client / sid 路由）。全量 93 文件 / 789 例绿（此前 91/779），lint 过。\n\n审计（逐一核对六轴对源模块的直接单测引用，找出真正缺直测的模块）：\n- adapter：ports.cjs / cc-shapes.cjs / probe.cjs / tooling.cjs / interactive.cjs / oneshot.cjs / mock.cjs /（server）hook-adapter.cjs + cc-adapters-smoke —— 均已有对应单测；\n- store / 迁移 / config / 装配 / run-id / client / sid 路由：store.test+store-core.test、migrate.test+layout-migrate.test、config-loader/plugin-config/render-config/run-config/decision-config、run-context.test（装配）、run-id.test、run-client.test+web-api-client.test、sid-naming/run-stamp-sid/run-slot/run-registry/awf-state-server —— 均已在前序任务建立覆盖。\n- 唯一两处无直接单测的域内模块：state-schema.cjs、runtime-config.cjs。\n\n新增（各 5 例，共 10 例）：\n- tests/unit/state-schema.test.js —— version=0.2.0、四类枚举清单、顶层/任务/exec/WBS/里程碑键位自洽（FIELD_DEFS.enum===对应枚举）、isValid 判定、validateStateShape 合法过/非法逐条报错（mode/currentState/task id·status·kind/milestone status）、非对象拒绝。\n- tests/unit/runtime-config.test.js —— 缺省 env 回落 plugin/config.json 单源默认、CC_PORT/CC_SESSION 覆盖、getServerPort/getSessionName 别名一致、strict 校验（非法整数/越界/空 session 抛错）、runtimeConfigPath 指向 plugin/config.json 绝对路径。\n\n验证：新测试 10/10 过；lint + 全量 789 例绿。commit 6b24e13 不带 Co-Authored-By、未 push。下一 pending 为 T1-097 前端 api/ws 单测。",
+        "result": "T1-096 组件单测补齐完成（adapter mock / store / 迁移 / config / 装配 / run-id / client / sid 路由）。全量 93 文件 / 789 例绿（此前 91/779），lint 过。\n\n审计（逐一核对六轴对源模块的直接单测引用，找出真正缺直测的模块）：\n- adapter：ports.cjs / cc-shapes.cjs / probe.cjs / tooling.cjs / interactive.cjs / oneshot.cjs / mock.cjs /（server）hook-adapter.cjs + cc-adapters-smoke —— 均已有对应单测；\n- store / 迁移 / config / 装配 / run-id / client / sid 路由：store.test+store-core.test、migrate.test+layout-migrate.test、config-loader/plugin-config/render-config/run-config/decision-config、run-context.test（装配）、run-id.test、run-client.test+web-api-client.test、sid-naming/run-stamp-sid/run-slot/run-registry/awf-state-server —— 均已��前序任务建立覆盖。\n- 唯一两处无直接单测的域内模块：state-schema.cjs、runtime-config.cjs。\n\n新增（各 5 例，共 10 例）：\n- tests/unit/state-schema.test.js —— version=0.2.0、四类枚举清单、顶层/任务/exec/WBS/里程碑键位自洽（FIELD_DEFS.enum===对应枚举）、isValid 判定、validateStateShape 合法过/非法逐条报错（mode/currentState/task id·status·kind/milestone status）、非对象拒绝。\n- tests/unit/runtime-config.test.js —— 缺省 env 回落 plugin/config.json 单源默认、CC_PORT/CC_SESSION 覆盖、getServerPort/getSessionName 别名一致、strict 校验（非法整数/越界/空 session 抛错）、runtimeConfigPath 指向 plugin/config.json 绝对路径。\n\n验证：新测试 10/10 过；lint + 全量 789 例绿。commit 6b24e13 不带 Co-Authored-By、未 push。下一 pending 为 T1-097 前端 api/ws 单测。",
         "files": [
           "tests/unit/state-schema.test.js",
           "tests/unit/runtime-config.test.js"
@@ -4498,13 +4498,15 @@
       "deps": [
         "T1-097"
       ],
-      "status": "pending",
+      "status": "active",
       "plannedFiles": [
         "tests/"
       ],
       "constraints": [],
       "acceptance": "沙箱/独立项目跑真 run 全流程（plan→run 单/多 agent 决策·门禁）经新链路回归（含 W3-006 双 run 回归）",
-      "exec": {}
+      "exec": {
+        "startedAt": "2026-09-09T16:21:12.425Z"
+      }
     },
     {
       "id": "T1-099",
@@ -5481,7 +5483,7 @@
       "deps": []
     }
   ],
-  "lastUpdated": "2026-09-09T16:20:29.194Z",
+  "lastUpdated": "2026-09-09T16:21:18.513Z",
   "plan": {
     "summary": "AWF 架构重构 v0.2.0（全量一次性）—— server 收敛为常驻控制平面(run 域/store/metrics/adapters/cc 收口)、cli 薄化、前端 web/ React 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。",
     "reqDoc": "",
