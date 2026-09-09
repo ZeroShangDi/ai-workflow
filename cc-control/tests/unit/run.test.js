@@ -303,6 +303,24 @@ describe('runCommand', () => {
     expect(mockFindNextTask).toHaveBeenCalled();
   });
 
+  it('TC10b: 无可派发任务但存在 active 时异常退出并保留现场', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    const tasks = [{ id: 'T1', title: 't1', status: 'active', prompt: 'p' }];
+    mockLoadState.mockReturnValue(stateWith({ mode: 'run', tasks }));
+    mockFindNextTask.mockReturnValue(null);
+
+    const promise = runCommand(undefined, {});
+    const rejected = expect(promise).rejects.toThrow('无可派发任务，但工作流仍未完成（T1:active）');
+    await vi.advanceTimersByTimeAsync(2000);
+    await rejected;
+
+    expect(mockSetWorkflowMode).not.toHaveBeenCalledWith('/tmp/mock-cwd', 'idle');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('保留 tmux 与 Session Server'));
+  });
+
   // ── TC6 ──
 
   it('TC6: SIGINT 注册清理处理器', async () => {
@@ -427,6 +445,37 @@ describe('runCommand', () => {
     vi.useRealTimers();
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('超时但任务 T1 已完成'));
+  });
+
+  it('TC17b: 等待窗口超时但会话仍 busy → 继续等待原任务且不重复 /send', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+
+    httpState.statusSequence = [JSON.stringify({ state: 'ready' })]; // ensureServer
+    httpState.statusResponse = JSON.stringify({ state: 'busy' });
+
+    const pending = [{ id: 'T1', title: 't1', status: 'pending', prompt: 'p' }];
+    const active = [{ ...pending[0], status: 'active' }];
+    const done = tasksDone(pending);
+    mockLoadState
+      .mockReturnValueOnce(stateWith({ tasks: pending }))
+      .mockReturnValueOnce(stateWith({ tasks: pending }))
+      .mockReturnValueOnce(stateWith({ tasks: active }))
+      .mockReturnValueOnce(stateWith({ tasks: done }))
+      .mockReturnValue(stateWith({ tasks: done, currentState: 'FINISH' }));
+    mockFindNextTask.mockReturnValueOnce(pending[0]);
+
+    const promise = runCommand(undefined, {});
+    await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 10000);
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('继续等待原会话'));
+
+    httpState.statusResponse = JSON.stringify({ state: 'ready' });
+    await vi.advanceTimersByTimeAsync(5000);
+    await promise;
+
+    const sent = httpState.sentBodies.map((body) => JSON.parse(body).text);
+    expect(sent.filter((text) => text === 'p')).toHaveLength(1);
   });
 
   // ── TC16 ──

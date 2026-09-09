@@ -204,8 +204,8 @@ async function writeRunSettings(workDir, pkgRoot) {
 // ── 任务循环 ──
 
 /**
- * 主任务循环：遍历 state 中的所有 pending 任务，依次执行直到 FINISH
- * 包含重试机制：连续 2 次超时则跳过该任务
+ * 主任务循环：遍历 state 中的所有 pending 任务，依次执行直到 FINISH。
+ * 仅未开始的 pending 任务允许重试；active 任务必须继续等待原会话，不得跨越派发。
  */
 async function runLoop(projectRoot) {
   let currentState = loadState(projectRoot);
@@ -220,7 +220,14 @@ async function runLoop(projectRoot) {
     if (resumed) currentState = loadState(projectRoot);
     if (!currentState || currentState.currentState === 'FINISH') break;
     const nextTask = findNextTask(currentState);
-    if (!nextTask) break;
+    if (!nextTask) {
+      const unfinished = (currentState.tasks || []).filter((t) => t.status === 'active' || t.status === 'pending');
+      if (unfinished.length > 0) {
+        const summary = unfinished.map((t) => `${t.id}:${t.status}`).join(', ');
+        throw new Error(`无可派发任务，但工作流仍未完成（${summary}）`);
+      }
+      break;
+    }
 
     const idx = allTasks.findIndex(t => t.id === nextTask.id) + 1;
     logBanner(`任务 ${idx}/${total}: ${nextTask.title}`);
@@ -234,12 +241,16 @@ async function runLoop(projectRoot) {
 
     if (result === 'timeout') {
       consecutiveTimeouts++;
-      const taskStillPending = findNextTask(currentState);
-      if (taskStillPending && taskStillPending.id === nextTask.id) {
+      const executedTask = currentState?.tasks?.find((t) => t.id === nextTask.id);
+      if (executedTask?.status === 'active') {
+        throw new Error(`任务 ${nextTask.id} 仍为 active，中止调度以避免跨越派发`);
+      }
+      if (executedTask?.status === 'pending') {
         logStep('', 'warn', `任务 ${nextTask.id} 仍为 pending，即将重试`);
         if (consecutiveTimeouts >= 2) {
           logStep('', 'error', `连续 ${consecutiveTimeouts} 次超时，跳过任务 ${nextTask.id}（已标 blocked，需人工介入）`);
           markTaskBlocked(nextTask.id, projectRoot);
+          currentState = loadState(projectRoot);
           consecutiveTimeouts = 0;
         }
       } else {
@@ -295,7 +306,12 @@ async function executeTask(prompt, taskId, projectRoot) {
 
   const spin = createSpinner('executing...');
   try {
-    await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
+    const waitResult = await waitForTaskReady(taskId, projectRoot);
+    if (waitResult === 'done') {
+      spin.stop();
+      logStep('', 'warn', `超时但任务 ${taskId} 已完成（Stop hook 可能延迟）`);
+      return 'done';
+    }
     // gate on 自动决策捕获后：若会话以 decisionResume 收尾，注入续跑消息让原任务继续
     await drainDecisionResume(projectRoot);
     spin.stop();
@@ -311,6 +327,31 @@ async function executeTask(prompt, taskId, projectRoot) {
     }
     logStep('', 'error', `超时: ${err.message}`);
     return 'timeout';
+  }
+}
+
+/**
+ * 等待当前会话收尾。READY_TIMEOUT 是观测窗口，不是长任务的失败判定：
+ * Session Server 仍 busy 时继续等待原会话，绝不向后派发新任务。
+ */
+async function waitForTaskReady(taskId, projectRoot) {
+  for (;;) {
+    try {
+      await waitForReady({ onDecision: handleDecision, whilePaused: () => waitWhilePaused(projectRoot) });
+      return 'ready';
+    } catch (err) {
+      const taskStatus = taskId ? getTaskStatus(taskId, projectRoot) : null;
+      if (taskStatus === 'done') return 'done';
+
+      const sessionStatus = await getStatus();
+      if (sessionStatus?.state === 'ready') return 'ready';
+      if (sessionStatus?.state === 'busy' || sessionStatus?.decisionPending) {
+        logStep('', 'warn', `任务 ${taskId || ''} 仍在执行（state=${taskStatus || 'unknown'}），继续等待原会话`);
+        continue;
+      }
+
+      throw new Error(`等待任务 ${taskId || ''} 时 Session Server 不可用：${err.message}`);
+    }
   }
 }
 
