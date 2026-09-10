@@ -162,15 +162,15 @@ describe('decision gate — Stop 统一闸门', () => {
     expect(readDecisionLines()).toHaveLength(0);
   });
 
-  it('gate on ② 触发：结尾含 <AWF_DECISION_REQUIRED> 且 !stop_hook_active → deciding + block ccOutput（continuePrompt=指令），busy 不翻转', async () => {
+  it('gate on ② 触发：结尾含 <AWF_DECISION_REQUIRED> 且 !stop_hook_active → deciding + block ccOutput（reason=指令），busy 不翻转', async () => {
     writeGate(true);
     await registerMain();
     await setBusy();
     const res = await stopPayload({ last_assistant_message: REQ_TAG('选 A 还是 B？'), stop_hook_active: false });
 
     expect(res.body.ccOutput.decision).toBe('block');
-    expect(res.body.ccOutput.continuePrompt).toContain('AWF_DECISION_RESULT');
-    expect(res.body.ccOutput.continuePrompt).toContain('禁止再向用户提问');
+    expect(res.body.ccOutput.reason).toContain('AWF_DECISION_RESULT');
+    expect(res.body.ccOutput.reason).toContain('禁止再向用户提问');
     // 不 setReady：busy 延续（deciding）
     const st = server._getState();
     expect(st.decisionGate.phase).toBe('deciding');

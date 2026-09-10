@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // 编排在 server run host；本套件 mock run-client/session/子进程，聚焦 run.js 保留的
 // 控制流（mode 复位、--resume 闩锁、环境拉起、异常保留现场）与新的 submit/observe/relay。
 
+// 本套件无真实 tmux/SessionStart → 会话就绪等待直接放行（该等待由 session-ready-wait 单测覆盖）
+process.env.CC_SESSION_READY_TIMEOUT_MS = '0';
+
 const m = vi.hoisted(() => ({
   loadState: vi.fn(() => null),
   installProjectMcp: vi.fn(() => ({ written: false, servers: [] })),

@@ -97,3 +97,39 @@ describe('createApiClient — 边界/容忍（T1-097）', () => {
     expect(api.url('/awf/state')).toBe('http://127.0.0.1:9000/awf/state?sid=r2');
   });
 });
+
+// 单 server 多项目：project（?p=）是后端路由主键，缺它页面会落到 server 的 boot 项目。
+
+describe('createApiClient — 项目作用域（?p）', () => {
+  it('project → 请求附 ?p=（保留既有 query）', async () => {
+    const { calls, fetch } = mockFetch();
+    const api = createApiClient({ project: '/tmp/proj-1', httpFetch: fetch });
+    await api.get('/run/status');
+    await api.get('/run/status?runId=r1');
+    expect(calls[0].url).toBe('http://127.0.0.1:8787/run/status?p=%2Ftmp%2Fproj-1');
+    expect(calls[1].url).toBe('http://127.0.0.1:8787/run/status?runId=r1&p=%2Ftmp%2Fproj-1');
+  });
+
+  it('project + sid 同时带（p 在前，sid 在后）', async () => {
+    const { calls, fetch } = mockFetch();
+    const api = createApiClient({ project: '/tmp/p', sid: 'default', httpFetch: fetch });
+    await api.get('/run/status');
+    expect(calls[0].url).toBe('http://127.0.0.1:8787/run/status?p=%2Ftmp%2Fp&sid=default');
+  });
+
+  it('无 project → 不附 ?p（= server boot 项目，存量行为不变）', async () => {
+    const { calls, fetch } = mockFetch();
+    await createApiClient({ httpFetch: fetch }).get('/status');
+    expect(calls[0].url).toBe('http://127.0.0.1:8787/status');
+  });
+
+  it('stream 带 ?p=（项目作用域也作用于 WS 事件流）', () => {
+    const seen = [];
+    const api = createApiClient({
+      project: '/tmp/p', sid: 'r1',
+      wsFactory: (url) => { seen.push(url); return { __ws: true }; },
+    });
+    api.stream('/run/events');
+    expect(seen[0]).toBe('ws://127.0.0.1:8787/run/events?p=%2Ftmp%2Fp&sid=r1');
+  });
+});

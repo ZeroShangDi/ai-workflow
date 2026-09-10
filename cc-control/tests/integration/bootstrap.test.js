@@ -134,6 +134,34 @@ describe('Session 管理', () => {
     expect(line).toContain(`-c ${WORKDIR}`);
     expect(line).not.toContain('--plugin-dir');
   });
+
+  // T1-098 真 run 回归暴露：tmux 新建会话的进程环境来自 tmux **全局** env（启动 tmux server 那个 run
+  // 的环境），并发多 run 时会继承别项目的 CC_PROJECT → hook `&p=` 落错项目槽（run 卡 ready timeout）、
+  // 插件级 awf-state MCP 读写错项目。故 run 级变量必须在 claude 命令前显式赋值。
+  it('TC10: run 会话 env 显式注入 claude（不依赖 tmux 全局 env）', () => {
+    const PROJECT = path.join(TMP, 'proj-env');
+    const res = runBootstrap({
+      env: { CC_SESSION: 'cc-env', CC_PROJECT: PROJECT, CC_PORT: '8899', CC_AWF_STATE_SERVER: '1' },
+    });
+    expect(res.status).toBe(0);
+    const line = fs.readFileSync(STUB_LOG, 'utf-8').split('\n').find((l) => l.startsWith('tmux new-session'));
+    expect(line).toContain('CC_SESSION="cc-env"');
+    expect(line).toContain(`CC_WORKDIR="${WORKDIR}"`);
+    expect(line).toContain(`CC_PROJECT="${PROJECT}"`);
+    expect(line).toContain('CC_PORT="8899"');
+    expect(line).toContain('CC_AWF_STATE_SERVER="1"');
+    // 仍保留 telemetry 剥离项
+    expect(line).toContain('-u DISABLE_GROWTHBOOK');
+  });
+
+  it('TC11: 未提供的 run 变量不写出空赋值', () => {
+    runBootstrap({ env: { CC_PROJECT: '', CC_PORT: '', CC_AWF_STATE_SERVER: '', CC_SID: '' } });
+    const line = fs.readFileSync(STUB_LOG, 'utf-8').split('\n').find((l) => l.startsWith('tmux new-session'));
+    expect(line).not.toContain('CC_PROJECT=""');
+    expect(line).not.toContain('CC_PORT=""');
+    expect(line).not.toContain('CC_AWF_STATE_SERVER=""');
+    expect(line).not.toContain('CC_SID=""');
+  });
 });
 
 describe('边界', () => {

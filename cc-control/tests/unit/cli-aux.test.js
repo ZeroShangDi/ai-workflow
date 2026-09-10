@@ -50,6 +50,9 @@ vi.mock('../../src/lib/run-context.cjs', () => ({
 
 // ── http mock for server check ──
 const httpCheckState = vi.hoisted(() => ({ ok: true, timeout: false }));
+// 优雅关闭探测（serverCommand stop 的 requestShutdown 用全局 fetch）——
+// 必须 stub：否则会真的去打 127.0.0.1:8787，命中并发测试文件/本机真 run 的服务 → 跨文件污染。
+const fetchState = vi.hoisted(() => ({ shutdownOk: false, calls: [] }));
 
 vi.mock('node:http', async () => {
   const { EventEmitter: EE } = await import('node:events');
@@ -108,10 +111,17 @@ describe('cli-aux', () => {
     Object.values(mockFs).forEach((f) => f.mockReset());
     httpCheckState.ok = true;
     httpCheckState.timeout = false;
+    fetchState.shutdownOk = false;
+    fetchState.calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
+      fetchState.calls.push({ url: String(url), opts });
+      return { ok: fetchState.shutdownOk };
+    }));
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   // ═══════════════════ plugin ═══════════════════
@@ -269,11 +279,22 @@ describe('cli-aux', () => {
       expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('bootstrap'), expect.any(Object));
     });
 
-    it('TC11: stop — tmux kill + 端口释放', async () => {
+    it('TC11: stop — 优雅关闭探测失败时 kill tmux + lsof 端口兜底', async () => {
       await serverCommand('stop');
 
       expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('tmux kill-session'), expect.any(Object));
       expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('lsof'), expect.any(Object));
+      expect(mockLogger.success).toHaveBeenCalledWith('已停止');
+    });
+
+    it('TC11b: stop — 优雅关闭成功则不再 kill-by-port', async () => {
+      fetchState.shutdownOk = true;
+
+      await serverCommand('stop');
+
+      expect(fetchState.calls[0].url).toContain('/shutdown');
+      expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('tmux kill-session'), expect.any(Object));
+      expect(mockExecSync).not.toHaveBeenCalledWith(expect.stringContaining('lsof'), expect.any(Object));
       expect(mockLogger.success).toHaveBeenCalledWith('已停止');
     });
 
@@ -317,12 +338,15 @@ describe('cli-aux', () => {
   // ═══════════════════ open ═══════════════════
 
   describe('openCommand', () => {
-    it('TC16: dashboard — 打开 URL', async () => {
+    // 多项目作用域：打开的 URL 带 ?p=<cwd>（缺 p 会落到 server 的 boot 项目）
+    const SCOPE = 'p=%2Ftmp%2Fmock-cwd';
+
+    it('TC16: dashboard — 打开带项目作用域的 URL', async () => {
       await openCommand('dashboard');
 
-      expect(mockLogger.info).toHaveBeenCalledWith('打开 dashboard: http://localhost:8787');
+      expect(mockLogger.info).toHaveBeenCalledWith(`打开 dashboard: http://localhost:8787/?${SCOPE}`);
       // openBrowser calls spawn('open', [url], ...)
-      expect(mockSpawn).toHaveBeenCalledWith('open', ['http://localhost:8787'], expect.any(Object));
+      expect(mockSpawn).toHaveBeenCalledWith('open', [`http://localhost:8787/?${SCOPE}`], expect.any(Object));
     });
 
     it('TC17: ui 已废弃（T1-094）——作为目标报错', async () => {
@@ -331,11 +355,11 @@ describe('cli-aux', () => {
       expect(mockLogger.error).toHaveBeenCalledWith('未知目标: ui，可用: tree | dashboard');
     });
 
-    it('TC18: tree — 指向 web WBS-Tree 视图（?view=wbs-tree）', async () => {
+    it('TC18: tree — 指向 web WBS-Tree 视图（?view=wbs-tree + 项目作用域）', async () => {
       await openCommand('tree');
 
       expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('WBS-Tree'));
-      expect(mockSpawn).toHaveBeenCalledWith('open', ['http://localhost:8787/?view=wbs-tree'], expect.any(Object));
+      expect(mockSpawn).toHaveBeenCalledWith('open', [`http://localhost:8787/?view=wbs-tree&${SCOPE}`], expect.any(Object));
       expect(mockFs.writeFile).not.toHaveBeenCalled(); // 不再生成 w-tree.html
     });
 
@@ -351,7 +375,7 @@ describe('cli-aux', () => {
         await openCommand('dashboard');
         const call = mockSpawn.mock.calls.at(-1);
         expect(call[0]).toBe(cmd);
-        expect(call[1]).toEqual(['http://localhost:8787']);
+        expect(call[1]).toEqual([`http://localhost:8787/?${SCOPE}`]);
         expect(call[2]).toEqual({ stdio: 'ignore', detached: true });
         // spawn 返回的 proc 调用了 unref
         const proc = mockSpawn.mock.results.at(-1).value;

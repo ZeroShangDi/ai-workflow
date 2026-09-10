@@ -2,10 +2,23 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+
+// ── 端口 hermetic：本文件不用固定 8787（否则会与并发测试文件/本机真 run 抢端口，
+//    且 cli-aux 的 stop 用例会误探测到本文件的服务 → 跨文件污染）。启动前要一个空闲端口。 ──
+const PORT = await new Promise((resolve, reject) => {
+  const srv = net.createServer();
+  srv.once('error', reject);
+  srv.listen(0, '127.0.0.1', () => {
+    const p = srv.address().port;
+    srv.close(() => resolve(p));
+  });
+});
+process.env.CC_PORT = String(PORT);
 
 // ── 临时项目：runCommand 的 process.cwd() 指向这里，state.json 真实读写 ──
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-run-e2e-'));
@@ -42,7 +55,8 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('../../src/server/run-scheduler.js', () => ({ runScheduler: h.runScheduler }));
 
-import { runCommand } from '../../src/cli/run.js';
+// 动态 import：run.js / server.cjs 在模块顶层固化 CC_PORT，须在 env 设定后再加载
+const { runCommand } = await import('../../src/cli/run.js');
 
 // ── state.json 直接读写（模拟 AI 通过 awf-state MCP 写文件；MCP 写路径已在 e2e-smoke 覆盖）──
 function readState() {
@@ -89,10 +103,11 @@ let server;
 beforeAll(async () => {
   // 必须在 import server.cjs 之前注入：server 在模块顶层读取 env + global.__CC_TMUX__
   process.env.CC_PROJECT = TMP;
-  process.env.CC_PORT = '8787';
   process.env.CC_READY_TIMEOUT_MS = '2000';
   process.env.CC_ENTER_DELAY_MS = '0';
   process.env.CC_LOCAL_CMD_MS = '500';
+  // mock tmux 下不会有真实 SessionStart → 就绪等待直接超时放行（该行为由 session-ready-wait 单测覆盖）
+  process.env.CC_SESSION_READY_TIMEOUT_MS = '0';
   global.__CC_TMUX__ = mockTmux;
 
   // spawn('node', [server.cjs]) 只返回假句柄——真实 server 已在进程内启动。
@@ -107,13 +122,13 @@ beforeAll(async () => {
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
   server = await import(SERVER_PATH);
-  await server.start(8787);
+  await server.start(PORT);
 });
 
 afterAll(async () => {
   await server?.stop();
   delete global.__CC_TMUX__;
-  for (const k of ['CC_PROJECT', 'CC_PORT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_LOCAL_CMD_MS']) {
+  for (const k of ['CC_PROJECT', 'CC_PORT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_LOCAL_CMD_MS', 'CC_SESSION_READY_TIMEOUT_MS']) {
     delete process.env[k];
   }
   vi.restoreAllMocks();
@@ -225,7 +240,7 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
     expect(prompts[2]).toBe('task two');
   }, 20000);
 
-  it('E2E-6: 多 agent（run.agents.max>1）分流到 runBatchLoop（滑动窗口入口）', async () => {
+  it('E2E-6: cfg run.agents.max>1 → 宿主按 batch 模式驱动（runScheduler 入口）', async () => {
     fs.mkdirSync(path.join(TMP, '.awf'), { recursive: true });
     fs.writeFileSync(path.join(TMP, '.awf', 'config.json'), JSON.stringify({ run: { agents: { max: 2 } } }));
     writeState(baseState([
@@ -234,7 +249,19 @@ describe('awf run 端到端 — runCommand 主循环 + 收尾协商', () => {
 
     await runCommand(undefined, {});
 
-    // max>1 → 分流到滑动窗口调度器（真实 socket 派发 + hook 落账留给全真 eval；mock 环境只验证分流）
+    // max>1 → 宿主 driveBatch 经滑动窗口调度器派发（真实 tmux 派发 + SubagentStop 落账留给真 run 回归；
+    // mock 环境只验证「配置 → batch 模式 → scheduler 入口」这条分流）
+    expect(h.runScheduler).toHaveBeenCalled();
+    fs.rmSync(path.join(TMP, '.awf', 'config.json'), { force: true });
+  }, 20000);
+
+  it('E2E-7: --multi-agent → 显式以 batch 模式提交（不受 cfg 影响）', async () => {
+    writeState(baseState([
+      { id: 'T1', title: 'T1', prompt: 'task one', status: 'pending', deps: [], plannedFiles: ['src/a.js'] },
+    ]));
+
+    await runCommand(undefined, { multiAgent: true });
+
     expect(h.runScheduler).toHaveBeenCalled();
   }, 20000);
 });
