@@ -22,10 +22,24 @@ fi
 # bypassPermissions: 免除文件读写、命令执行等权限确认，避免阻塞自动化工作流
 # --settings .awf/run-settings.json: statusLine（上下文占用显示）
 # env -u: 去掉 telemetry/feature-flag 类变量（T1-065：cross-session messaging 已降级 tmux）
-# CC_SESSION 显式注入 claude 进程 env：插件侧（awf-session MCP / 子进程）同源读会话名，
-#   不再依赖各自硬编码 'cc' 兜底与 tmux 会话名"恰好一致"
+#
+# run 会话 env 一律显式赋值（T1-098 真 run 回归暴露）：
+#   tmux 新建会话里进程拿到的环境 = tmux **全局** env（= 当初启动 tmux server 的那个 run 的环境），
+#   而不是调用 bootstrap 的本进程 env。并发多 run / 机器上残留别项目会话时，claude 会继承
+#   别项目的 CC_PROJECT/CC_WORKDIR，后果有两处（均已在真 run 现场复现）：
+#     1. hook 网关按 CC_PROJECT 组 `&p=` 路由 → 事件落到别人的项目槽，本 run 槽永远收不到
+#        SessionStart/Stop，第二次派发卡 `still busy (ready timeout)`，run 直接异常终止；
+#     2. 插件级 awf-state MCP 的 PROJ_ROOT = AWF_PROJECT_ROOT || CC_PROJECT → 读写别的项目 state。
+#   故 CC_SESSION/CC_WORKDIR/CC_PROJECT/CC_PORT/CC_AWF_STATE_SERVER(/CC_SID) 全部在 claude 前显式赋值，
+#   不依赖 tmux 会话环境。新增 run 级变量时同步加到这里。
+ENV_ASSIGNS="CC_SESSION=\"$SESSION\" CC_WORKDIR=\"$WORKDIR\""
+if [ -n "${CC_PROJECT:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_PROJECT=\"$CC_PROJECT\""; fi
+if [ -n "${CC_PORT:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_PORT=\"$CC_PORT\""; fi
+if [ -n "${CC_AWF_STATE_SERVER:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_AWF_STATE_SERVER=\"$CC_AWF_STATE_SERVER\""; fi
+if [ -n "${CC_SID:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_SID=\"$CC_SID\""; fi
+
 tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
-  "env -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC -u DISABLE_TELEMETRY -u DO_NOT_TRACK -u DISABLE_GROWTHBOOK CC_SESSION=\"$SESSION\" claude --permission-mode bypassPermissions --settings \"$WORKDIR/.awf/run-settings.json\""
+  "env -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC -u DISABLE_TELEMETRY -u DO_NOT_TRACK -u DISABLE_GROWTHBOOK $ENV_ASSIGNS claude --permission-mode bypassPermissions --settings \"$WORKDIR/.awf/run-settings.json\""
 
 # 增大回滚缓冲，避免长会话旧消息被 tmux 截断（capture-pane -S - 依赖它）
 tmux set-option -t "$SESSION" history-limit 100000

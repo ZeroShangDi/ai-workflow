@@ -1,5 +1,5 @@
 {
-  "mode": "idle",
+  "mode": "run",
   "currentState": "CODE",
   "version": "0.2.0",
   "milestones": [],
@@ -4491,20 +4491,22 @@
     },
     {
       "id": "T1-098",
-      "title": "真机回归框架 + 主链路 case（全量/定向两入口）",
+      "title": "真 run 全流程回归（含双 run）",
       "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-098：定型真机回归框架（tests/regression/fullflow-regression.mjs + npm run test:real）——case 注册表、全量/定向两入口、证据落盘约定；保证现有 5 个 case（single/gate/multi/decision/dual）可跑可回归。框架要能挂新 case，后续补齐见 T1-107~T1-110。",
+      "prompt": "执行 /ai-workflow-code:w-dev T1-098：沙箱/独立项目跑真 run 全流程（plan→run 单/多 agent 决策·门禁）经新链路回归（含 W3-006 双 run 回归）",
       "wbsRef": "W1-098",
       "deps": [
         "T1-097"
       ],
-      "status": "pending",
+      "status": "blocked",
       "plannedFiles": [
         "tests/"
       ],
       "constraints": [],
-      "acceptance": "真机回归框架定型：case 注册表可扩展、`--case all`（全量）与 `--case <name>`（定向）两入口、证据统一落 sandbox/regression/evidence-<case>.json；现有 5 个主链路 case（single/gate/multi/decision/dual）全绿",
-      "exec": {}
+      "acceptance": "沙箱/独立项目跑真 run 全流程（plan→run 单/多 agent 决策·门禁）经新链路回归（含 W3-006 双 run 回归）",
+      "exec": {
+        "startedAt": "2026-09-10T08:17:16.298Z"
+      }
     },
     {
       "id": "T1-099",
@@ -4621,80 +4623,12 @@
       "prompt": "执行 /ai-workflow-code:w-doc T4-001：项目文档完整性核对",
       "wbsRef": "W4-001",
       "deps": [
-        "T3-010",
-        "T3-011"
+        "T3-010"
       ],
       "status": "pending",
       "plannedFiles": [],
       "constraints": [],
       "acceptance": "项目五类文档完整性核对通过（doc 门禁 verdict pass）"
-    },
-    {
-      "id": "T1-106",
-      "title": "决策两条链互斥化 + 旧入口（awf_await_choice）处置",
-      "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-106：按 docs/bugs/decision-entry-two-generations.md 收尾决策入口。两条链（人工上抛 awf_await_choice / AI 自决决策门阀）整理成互斥开关；处置旧入口本体（MCP 工具 + /choice /ask 端点 + CLI 交互应答链路）；修掉文中三处缺陷（gate off 无出口、两代共用 decisionPending 被 Stop 抹掉、/respond 与 CLI 的假成功）。先出方案交用户拍板再实现。",
-      "deps": [
-        "T4-001"
-      ],
-      "status": "pending",
-      "plannedFiles": [],
-      "constraints": [],
-      "acceptance": "【暂缓——用户 2026-09-10 裁定：互斥化还在考虑，现阶段统一走自动决策（新代门阀）】将来恢复时验收：两条决策链互斥（开启其一时另一条不可达，不共用 decisionPending 槽）；决策标签在默认配置下有出口；答案丢失有可见错误；**需要人工决策时页面上要能出选择提示**（旧代价值所在，现仅 CLI readline）。详见 docs/bugs/decision-entry-two-generations.md"
-    },
-    {
-      "id": "T1-107",
-      "title": "补核心链路真机 case（门禁失败闭环 / 多 agent 调度 / 收尾协商 / 上下文压缩）",
-      "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-107：给真机回归补核心链路 case —— gate-fail（门禁失败闭环）、multi-sched（多任务真并发调度：配额/plannedFiles 冲突/独占 commit/补位）、settle（收尾协商兜底）、compact（上下文压缩）。每个 case 独立可跑、自带沙箱隔离。清单见 docs/discuss/real-run-coverage-gaps.md 缺口 2-5。",
-      "deps": [
-        "T1-098"
-      ],
-      "status": "pending",
-      "plannedFiles": [],
-      "constraints": [],
-      "acceptance": "4 个核心链路 case 在真机通过并可定向运行：门禁失败闭环（fail→派生修复→回退复审→pass/上限）、多 agent 真并发调度（配额/plannedFiles 冲突/独占 commit/补位）、收尾协商（未落账→wrapup→3 轮追问→blocked）、上下文压缩（context-check→快照→/clear 注入）"
-    },
-    {
-      "id": "T1-108",
-      "title": "补恢复与介入真机 case（resume/attach / pause+monitor / 中断恢复）",
-      "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-108：给真机回归补「恢复与介入」case —— resume/attach 重连续接、pause 闩锁 + w-monitor intervene（/intervene、/intervene/interrupt）、run 中断后现场恢复。清单见 docs/discuss/real-run-coverage-gaps.md 缺口 6-8。",
-      "deps": [
-        "T1-098"
-      ],
-      "status": "pending",
-      "plannedFiles": [],
-      "constraints": [],
-      "acceptance": "3 个恢复/介入 case 在真机通过并可定向运行：--resume / --attach 重连续接、pause 编排闩锁 + w-monitor intervene、run 中断后的现场恢复"
-    },
-    {
-      "id": "T1-109",
-      "title": "补前端与生命周期真机 case（web 页面 / server 回收 / init 产出 / MCP 面）",
-      "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-109：给真机回归补「前端与生命周期」case —— web 四视图/项目切换/决策 override 页可达且取数正确、常驻 server 空闲回收、awf init 产出正确性、MCP 工具面冒烟。清单见 docs/discuss/real-run-coverage-gaps.md 缺口 9-12。",
-      "deps": [
-        "T1-098"
-      ],
-      "status": "pending",
-      "plannedFiles": [],
-      "constraints": [],
-      "acceptance": "真机 case 覆盖：前端四视图与项目切换页可达 + 决策 override 页、常驻 server 空闲回收、awf init 产出断言（settings 注入/.mcp.json/插件注册）、MCP 工具面冒烟"
-    },
-    {
-      "id": "T3-011",
-      "title": "全量真机回归门禁（--case all）",
-      "kind": "test",
-      "prompt": "执行 /ai-workflow-code:w-test T3-011：全量真机回归门禁 —— 跑 npm run test:real -- --case all，核对全部 case 断言与证据，产出 verdict；同步覆盖矩阵。",
-      "deps": [
-        "T1-107",
-        "T1-108",
-        "T1-109"
-      ],
-      "status": "pending",
-      "plannedFiles": [],
-      "constraints": [],
-      "acceptance": "npm run test:real -- --case all 全部已注册 case 断言通过、证据 JSON 落盘 sandbox/regression/、docs/discuss/real-run-coverage-gaps.md 覆盖矩阵同步；verdict 明确声明覆盖边界（只证已注册 case 的链路，不宣称功能全绿）。失败按门禁闭环处理"
     }
   ],
   "wbs": [
@@ -5549,7 +5483,7 @@
       "deps": []
     }
   ],
-  "lastUpdated": "2026-09-10T10:14:11.424Z",
+  "lastUpdated": "2026-09-10T08:17:16.298Z",
   "plan": {
     "summary": "AWF 架构重构 v0.2.0（全量一次性）—— server 收敛为常驻控制平面(run 域/store/metrics/adapters/cc 收口)、cli 薄化、前端 web/ React 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。",
     "reqDoc": "",

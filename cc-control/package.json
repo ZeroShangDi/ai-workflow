@@ -16,7 +16,8 @@
     "lint": "bash scripts/lint.sh",
     "build": "bash scripts/build.sh",
     "eval": "bash scripts/eval.sh",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:real": "node tests/regression/fullflow-regression.mjs"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",

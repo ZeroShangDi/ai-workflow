@@ -1,6 +1,10 @@
 docs/discuss/all_claude_prompts.md
-sandbox/
+# 仅忽略仓库根的测试沙箱；以前写成 `sandbox/` 会连带忽略 tests/sandbox/ ——
+# 真 run 回归 harness（tests/sandbox/fullflow-regression.mjs）因此一直没进库（T1-098 修复）
+/sandbox/
 .awf/run-settings.json
 # .claude/settings.json 是 init 本地注入生成物（marketplace 绝对路径机器相关），不入库
 # web/ 构建产物落 server 托管目录（T1-093），不入库
 src/server/public/
+# 运行态日志（真 run 产物，不入库；已被历史跟踪的旧文件不受影响）
+/.awf/logs/

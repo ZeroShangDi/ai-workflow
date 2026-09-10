@@ -4,7 +4,7 @@
  *
  * 定位 decision 插件并读取其决策模式短指令（decision/mode-instruction.md）。
  * server（CJS）用它在两处注入同一文案：
- *   - Stop 决策闸门：block 的 continuePrompt
+ *   - Stop 决策闸门：block 的 reason（Claude Code Stop hook block 契约字段）
  *   - PreToolUse(AskUserQuestion) 决策闸门：deny 的 reason
  * 改指令内容只改插件文件，server 零改动。
  *
