@@ -4643,19 +4643,6 @@
       "acceptance": "【暂缓——用户 2026-09-10 裁定：互斥化还在考虑，现阶段统一走自动决策（新代门阀）】将来恢复时验收：两条决策链互斥（开启其一时另一条不可达，不共用 decisionPending 槽）；决策标签在默认配置下有出口；答案丢失有可见错误；**需要人工决策时页面上要能出选择提示**（旧代价值所在，现仅 CLI readline）。详见 docs/bugs/decision-entry-two-generations.md"
     },
     {
-      "id": "T1-107",
-      "title": "补核心链路真机 case（门禁失败闭环 / 多 agent 调度 / 收尾协商 / 上下文压缩）",
-      "kind": "dev",
-      "prompt": "执行 /ai-workflow-code:w-dev T1-107：给真机回归补核心链路 case —— gate-fail（门禁失败闭环）、multi-sched（多任务真并发调度：配额/plannedFiles 冲突/独占 commit/补位）、settle（收尾协商兜底）、compact（上下文压缩）。每个 case 独立可跑、自带沙箱隔离。清单见 docs/discuss/real-run-coverage-gaps.md 缺口 2-5。",
-      "deps": [
-        "T1-098"
-      ],
-      "status": "pending",
-      "plannedFiles": [],
-      "constraints": [],
-      "acceptance": "4 个核心链路 case 在真机通过并可定向运行：门禁失败闭环（fail→派生修复→回退复审→pass/上限）、多 agent 真并发调度（配额/plannedFiles 冲突/独占 commit/补位）、收尾协商（未落账→wrapup→3 轮追问→blocked）、上下文压缩（context-check→快照→/clear 注入）"
-    },
-    {
       "id": "T1-108",
       "title": "补恢复与介入真机 case（resume/attach / pause+monitor / 中断恢复）",
       "kind": "dev",
@@ -5549,7 +5536,7 @@
       "deps": []
     }
   ],
-  "lastUpdated": "2026-09-10T10:14:11.424Z",
+  "lastUpdated": "2026-09-10T10:51:55.654Z",
   "plan": {
     "summary": "AWF 架构重构 v0.2.0（全量一次性）—— server 收敛为常驻控制平面(run 域/store/metrics/adapters/cc 收口)、cli 薄化、前端 web/ React 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。",
     "reqDoc": "",

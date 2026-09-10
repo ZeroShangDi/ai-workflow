@@ -1,5 +1,11 @@
 # 真机回归的两种粒度 + 覆盖缺口清单
 
+> ⚠️ **本文的缺口清单已失准，被 `real-run-suite-merge.md` 取代**（2026-09-10）：
+> 起草时只读了 `tests/regression/`，**没读 `tests/eval/`** —— 而 eval 已有 9 个声明式 case，
+> 门禁失败闭环（`review-gate-closure`）、多 agent 并发调度（`multi-agent-parallel`）、决策上抛
+> （`needs-input-*`）等都在里面。两套体系的来历、差异与合并方案见 `real-run-suite-merge.md`；
+> 本文的「两种粒度」设计仍然成立，缺口清单以合并方案 §5 为准。
+
 > 2026-09-10 · 状态：**待补齐**（框架已具雏形，case 远未覆盖功能面）
 > 载体：`tests/regression/fullflow-regression.mjs`（`npm run test:real`）
 
