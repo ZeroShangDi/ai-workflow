@@ -117,3 +117,12 @@ export function batchReconcile(batchId) {
 export function subagentDispatch({ taskId, taskTitle = '', taskPrompt }) {
   return resolvePrompt('subagent-dispatch', { taskId, taskTitle, taskPrompt });
 }
+
+/**
+ * 子 Agent 落账补发 prompt — RESULT 输出无效时，要求主 Agent 恢复该子 Agent 补齐 RESULT（不重做任务）
+ * @param {{ agentId: string, reason: string }} params
+ * @returns {Promise<string>}
+ */
+export function subagentResend({ agentId, reason }) {
+  return resolvePrompt('subagent-resend', { agentId, reason });
+}

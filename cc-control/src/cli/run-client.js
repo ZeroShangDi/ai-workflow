@@ -113,9 +113,13 @@ export function createRunClient({ port, project, http, sleep } = {}) {
       return () => { closed = true; };
     },
     // ── T1-105 run host 调用面（T1-058 CLI cutover 消费） ──
-    /** 提交 run 到 server run host；返回 { ok, runId, mode }（驱动异步，事件经 pollRunEvents） */
-    submitRun({ runId } = {}) {
-      return postJson('/run/submit', runId ? { runId } : {});
+    /** 提交 run 到 server run host；返回 { ok, runId, mode }（驱动异步，事件经 pollRunEvents）
+     *  mode：显式指定 'single'|'batch'（CLI --multi-agent）；缺省由宿主按 cfg.agents.max 判定 */
+    submitRun({ runId, mode } = {}) {
+      const body = {};
+      if (runId) body.runId = runId;
+      if (mode) body.mode = mode;
+      return postJson('/run/submit', body);
     },
     /** run 状态快照；runId 缺省 → 全部 run 摘要 */
     runSnapshot({ runId } = {}) {

@@ -112,6 +112,7 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
     fallbackTimer: null,
     contextReady: false,
     mainSessionId: null,
+    sessionSeq: 0,              // 会话启动序号：每次 SessionStart +1（单调；供 CLI 判定「本次会话已就绪」）
     agents: new Map(),          // 子 agent 观测（按 session/agent id）
     decisionGate: null,         // null | { phase:'deciding', startedAt }
     decisionResume: null,
@@ -125,6 +126,7 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
     runHostBootErr: null,
     runStateApi: null,
     runStateApiReady: null,
+    taskChannel: null,          // 会话通道（上下文压缩/收尾协商；server.cjs sessionChannel 惰性单例）
   };
 }
 
@@ -185,6 +187,7 @@ function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory, RunLo
       c.waiters = [];
       c.contextReady = false;
       c.mainSessionId = null;
+      c.sessionSeq = 0;
       c.agents.clear();
       c.metricsCache = { at: 0, value: null };
       c.diagnosisInFlight = false;
@@ -193,6 +196,7 @@ function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory, RunLo
       c.runHostBootErr = null;
       c.runStateApi = null;
       c.runStateApiReady = null;
+      c.taskChannel = null;
     }
   }
 

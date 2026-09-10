@@ -309,4 +309,5 @@ module.exports = {
   readRunMeta,
   resetRunMeta,
   updateRunMeta,
+  mainTranscriptPath, // 主会话 transcript 绝对路径（收尾协商的「本轮有无产出」探测用）
 };

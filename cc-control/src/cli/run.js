@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { installProjectMcp } from '../lib/profile.js';
 import { loadState } from '../lib/state.js';
-import { loadRunConfig } from '../lib/run-config.js';
 import { waitWhilePaused } from '../lib/pause.js';
 import { buildRunContext, projectSid } from '../lib/run-context.cjs';
 import { generateRunSettings } from '../server/run-settings.cjs';
@@ -95,12 +94,14 @@ export async function runCommand(task, options) {
     reuseExisting: connectionMode !== 'fresh',
   });
 
-  spawn('open', [`http://localhost:${SERVER_PORT}`], { stdio: 'ignore', detached: true }).unref();
-  logStep('dashboard', 'ok', `http://localhost:${SERVER_PORT}`);
+  // 打开页面带本项目作用域（?p）：单 server 多项目时，否则页面会落到 server 的 boot 项目
+  spawn('open', [`http://localhost:${SERVER_PORT}/?p=${encodeURIComponent(projectRoot)}`], { stdio: 'ignore', detached: true }).unref();
+  logStep('dashboard', 'ok', `http://localhost:${SERVER_PORT}/?p=${projectRoot}`);
   console.log('');
 
-  // 2. 提交 run + 订阅展示 + 应答中继（单 agent 默认走 server run host）
-  //    多 agent：宿主 batch 传输未接线前暂保留 run-batch live 路径（run.js 不实现调度）
+  // 2. 提交 run + 订阅展示 + 应答中继（单/多 agent 一律经 server run host 驱动）
+  //    多 agent（--multi-agent 或 cfg.agents.max>1）由宿主 driveBatch → runScheduler 调度，
+  //    CLI 不持有调度权、不实现滑动窗口。
   let runCompleted = false;
   try {
     const client = createRunClient({ project: projectRoot });
@@ -109,15 +110,12 @@ export async function runCommand(task, options) {
       const modeResp = await client.setRunMode('run');
       if (!modeResp?.ok) throw new Error('无法将工作流 mode 设置为 run');
     }
-    let outcome;
-    if (options?.multiAgent) {
-      const cfg = loadRunConfig(projectRoot);
-      if (cfg.agents.max <= 1) cfg.agents.max = 2;
-      const { runBatchLoop } = await import('./run-batch.js');
-      outcome = await runBatchLoop(projectRoot, cfg);
-    } else {
-      outcome = await driveSingle(client, { projectRoot, connectionMode, runId: options?.runId || null });
-    }
+    const outcome = await driveSingle(client, {
+      projectRoot,
+      connectionMode,
+      runId: options?.runId || null,
+      mode: options?.multiAgent ? 'batch' : null, // 显式多 agent（配置面 run.agents.max>1 由宿主自行判定）
+    });
     // 正常完成（宿主 run done）才标 idle（经 server run api）；异常/run error 保留现场供 w-monitor 识别
     if (outcome.ok) {
       const idleResp = await client.setRunMode('idle');
@@ -145,7 +143,56 @@ async function startSession({ ctx, workDir, reuseExisting = false }) {
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
   await ensureServer(ctx.serverScriptPath, ctx.infraRoot, workDir, reuseExisting);
   await writeRunSettings(ctx, workDir);
-  await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting);
+  const seqBefore = await sessionSeqOf(workDir);
+  const created = await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting);
+  // 新建会话才等就绪：SessionStart 到达 = claude 已接受输入（含信任弹窗已消除）
+  if (created) await waitSessionStarted(ctx, workDir, seqBefore);
+}
+
+/** 读本项目当前会话启动序号（SessionStart 计数）；拿不到 → 0 */
+async function sessionSeqOf(workDir) {
+  const st = await getStatus(SERVER_PORT, workDir).catch(() => null);
+  return st?.sessionSeq ?? 0;
+}
+
+/**
+ * 等本次会话真正就绪（SessionStart 已到达）再放行派发。
+ *
+ * bootstrap 用固定 `sleep 3` + Enter 消除文件夹信任弹窗；claude 启动稍慢时（并发起多个 run、
+ * 插件/MCP 冷启动）那一击会打空 → 弹窗仍在 → 随后派发的任务文本被打进弹窗被丢弃，
+ * 留下一个「从没收到过输入」的会话（2026-09-10 dual-b 现场：pane 空、无 transcript）。
+ * 这里等真实就绪信号（sessionSeq 增长），等待期间周期性补 Enter 兜住可能仍挂着的信任弹窗。
+ * 超时不硬失败：告警后继续（避免把偶发慢启动升级成整个 run 失败），但会留下明确日志。
+ *
+ * @param {{ status?, nudge?, sleepFn?, timeoutMs?, nudgeMs? }} [deps] 测试注入点
+ * @returns {Promise<boolean>} 是否等到就绪
+ */
+export async function waitSessionStarted(ctx, workDir, seqBefore, deps = {}) {
+  const {
+    status = (root) => getStatus(SERVER_PORT, root).catch(() => null),
+    nudge = () => { try { execSync(`tmux send-keys -t ${ctx.runSessionName} Enter 2>/dev/null`, { stdio: 'ignore' }); } catch { /* 无会话忽略 */ } },
+    sleepFn = sleep,
+    timeoutMs = Number(process.env.CC_SESSION_READY_TIMEOUT_MS ?? 60000),
+    nudgeMs = 5000, // bootstrap 已 nudge 过一次，这里再等一个间隔才补
+  } = deps;
+  const startedAt = Date.now();
+  let lastNudge = startedAt;
+  for (;;) {
+    const st = await status(workDir);
+    if ((st?.sessionSeq ?? 0) > seqBefore) {
+      logStep('session', 'ok', '会话已就绪（SessionStart）');
+      return true;
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      logStep('', 'warn', `等待会话就绪超时（${Math.round(timeoutMs / 1000)}s 未收到 SessionStart），继续派发`);
+      return false;
+    }
+    if (Date.now() - lastNudge >= nudgeMs) {
+      lastNudge = Date.now();
+      nudge(); // 补 Enter：claude 起得慢时 bootstrap 那一击可能打空，信任弹窗仍挂着
+    }
+    await sleepFn(500);
+  }
 }
 
 /** 确保 Session Server 已启动（单 server 多项目）。T1-063+：任何健康 server 直接复用——
@@ -174,7 +221,8 @@ async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = fa
   throw new Error('Session Server 启动超时（端口可能被非 awf 进程占用）');
 }
 
-/** 确保 tmux session 存在（会话名按项目唯一化）；resume 时优先复用现场，否则重建 */
+/** 确保 tmux session 存在（会话名按项目唯一化）；resume 时优先复用现场，否则重建。
+ *  @returns {Promise<boolean>} 是否新建了会话（复用 → false；调用方据此决定要不要等就绪） */
 async function ensureSession(bootstrapScript, workDir, sessionName, reuseExisting = false) {
   if (reuseExisting) {
     try {
@@ -184,7 +232,7 @@ async function ensureSession(bootstrapScript, workDir, sessionName, reuseExistin
       ).trim();
       if (path.resolve(sessionCwd) === path.resolve(workDir)) {
         logStep('session', 'ok', `${sessionName} → 复用现有会话`);
-        return;
+        return false;
       }
     } catch {}
   }
@@ -205,6 +253,7 @@ async function ensureSession(bootstrapScript, workDir, sessionName, reuseExistin
     },
   });
   logStep('session', 'ok', `${sessionName} → ${workDir}`);
+  return true;
 }
 
 /**
@@ -241,7 +290,7 @@ async function writeRunSettings(ctx, workDir) {
  *   runId - 指定目标 run（T1-073 attach 指定 run / fresh 提交命名 sid）：缺省探宿主活跃 run。
  * @returns {Promise<{ ok: boolean, status?: string, error?: string }>}
  */
-export async function driveSingle(client, { projectRoot, connectionMode = 'fresh', runId = null }) {
+export async function driveSingle(client, { projectRoot, connectionMode = 'fresh', runId = null, mode = null }) {
   // 探宿主现态（host snapshot 的 counts 来自 store 落盘 state）
   const all = await client.runSnapshot({}).catch(() => null);
   const runs = all?.runs || [];
@@ -281,7 +330,7 @@ export async function driveSingle(client, { projectRoot, connectionMode = 'fresh
     }
     // fresh / resume(空闲) → 提交（runId 命名或 default）：resume 即「读 store 落盘的剩余 pending 由宿主续跑」
     const afterSeq = await hostEventTail(client);
-    const submitted = await client.submitRun(runId ? { runId } : {});
+    const submitted = await client.submitRun({ runId: runId || undefined, mode: mode || undefined });
     if (!submitted?.ok) {
       const err = `run 提交失败: ${submitted?.error || 'unknown'}`;
       logStep('', 'error', err);
@@ -473,21 +522,39 @@ export async function handleDecision(d) {
   const { createInterface } = await import('readline');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-  if (d.type === 'choice') {
-    console.log(`  ${CYAN}${d.question}${RESET}`);
-    d.options.forEach((o, i) => console.log(`     ${DIM}${i + 1}.${RESET} ${o}`));
-    const answer = await new Promise((resolve) => rl.question(`  ${DIM}选择 (1-${d.options.length}): ${RESET}`, (a) => { rl.close(); resolve(a.trim()); }));
-    const value = d.options[parseInt(answer, 10) - 1] || answer;
-    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, JSON.stringify({ value }));
-    console.log(`     ${GREEN}✔ 已选择: ${value}${RESET}\n`);
-    return;
-  }
+  try {
+    if (d.type === 'choice' && Array.isArray(d.options) && d.options.length > 0) {
+      console.log(`  ${CYAN}${d.question}${RESET}`);
+      d.options.forEach((o, i) => console.log(`     ${DIM}${i + 1}.${RESET} ${o}`));
+      const value = await askChoice(rl, d.options);
+      await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, JSON.stringify({ value }));
+      console.log(`     ${GREEN}✔ 已选择: ${value}${RESET}\n`);
+      return;
+    }
 
-  console.log(`  ${CYAN}${d.question}${RESET}`);
-  const answer = await new Promise((resolve) => rl.question(`  ${DIM}输入: ${RESET}`, (a) => { rl.close(); resolve(a.trim()); }));
-  if (answer) {
-    await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, JSON.stringify({ value: answer }));
-    console.log(`     ${GREEN}✔ 已发送${RESET}\n`);
+    console.log(`  ${CYAN}${d.question}${RESET}`);
+    const answer = await new Promise((resolve) => rl.question(`  ${DIM}输入: ${RESET}`, (a) => resolve(a.trim())));
+    if (answer) {
+      await httpPost(`http://127.0.0.1:${SERVER_PORT}/respond${pj}`, JSON.stringify({ value: answer }));
+      console.log(`     ${GREEN}✔ 已发送${RESET}\n`);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * 反复追问直到拿到合法序号。
+ * 越界/非数字输入绝不能当答案回传——否则 "11" 这类脏值会被决策方当成真实选择
+ * （2026-09-10 真 run：连续敲键得到 "11" → options[10] 为 undefined → 原样回传 → 决策方拿到无意义答案）。
+ * @returns {Promise<string>} 选中的选项文本
+ */
+async function askChoice(rl, options) {
+  for (;;) {
+    const raw = await new Promise((resolve) => rl.question(`  ${DIM}选择 (1-${options.length}): ${RESET}`, (a) => resolve(a.trim())));
+    const idx = Number.parseInt(raw, 10);
+    if (Number.isInteger(idx) && idx >= 1 && idx <= options.length) return options[idx - 1];
+    console.log(`  ${YELLOW}请输入 1-${options.length} 之间的序号（收到「${raw}」）${RESET}`);
   }
 }
 
@@ -526,15 +593,16 @@ export function logBanner(text) { console.log(`${CYAN}  ── ${text} ──${R
 //
 // 【T1-061 已迁】（写经 server /run/state/*，server 单写者；本文件不再直写 state 写函数）
 //   - run.js：mode run/idle 复位 → client.setRunMode（POST /run/state/mode）。
-//   - run-batch.js：调度 active 写、门禁完成闭环（派生修复/复审）、版本备份 →
-//     POST /run/state/task/active · /run/state/gate · /run/state/backup。
-//   - gate-fix.handleGateCompletion：写逻辑单源已迁 src/server/gate-fix.js（server 进程内执行）
-//     执行（server host 单 agent + /run/state/gate 端点），CLI 侧不再直接调用写盘。
+//   - 调度/门禁/版本备份：全在 server 进程内执行（run-host 门禁锚点 →
+//     src/server/gate-fix.js；host drive 收尾 backupState），CLI 侧没有对应写点。
+//   - gate-fix.handleGateCompletion：写逻辑单源在 src/server/gate-fix.js。
 //
-// 【留 T1-062】读路径清理：本文件 loadState 只读校验、run-batch loadState 轮询/展示读
-//   → 切 client 快照（GET /run/status 等）；lib/state.js 写侧在 CLI 下线。
+// 【T1-062】读路径：本文件 loadState 只读校验；运行态读经 client 快照（GET /awf/state 等）。
 //
-// 【语义待补（后续 run 域任务）】宿主单 agent 通道 defaultSingleExecutor 的收尾 settle 回退
-//   与每任务前上下文压缩（本文件已移除，T1-067/T1-098 前为已知间隙）；决策续跑 CLI 经
-//   seenResume 一次性注入，宿主侧等价语义留 T1-098 真 run 回归验证。
+// 【多 agent 已收归宿主】cli/run-batch.js 已删除——调度权不再在 CLI：
+//   run.js 只提交 run（--multi-agent → mode:'batch'），宿主 driveBatch → runScheduler 调度，
+//   派发/完成感知由 src/server/batch-transport.cjs 承担。
+//
+// 【单 agent 会话内协商】宿主 defaultSingleExecutor 的收尾协商与任务前上下文压缩由
+//   src/server/task-channel.cjs 承担（迁自重构前本文件的 settleTask / maybeCompactContext）。
 // ════════════════════════════════════════════════════════════════════════════════

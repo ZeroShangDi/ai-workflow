@@ -11,7 +11,7 @@ const { createStaticHost } = require('./static.cjs');
 // 生产环境不设置 global.__CC_TMUX__/__CC_RUNLOGGER__，回落到真实模块。
 const { createTmux } = require('./tmux.cjs');
 const { RunLogger } = global.__CC_RUNLOGGER__ || require('./run-logger.cjs');
-const { readRunMetrics, readRunMeta, resetRunMeta, updateRunMeta } = require('../lib/run-metrics.cjs');
+const { readRunMetrics, readRunMeta, resetRunMeta, updateRunMeta, mainTranscriptPath } = require('../lib/run-metrics.cjs');
 const {
   buildDiagnosisPrompt, diagnoseWithClaude, readDiagnosis, writeDiagnosis,
 } = global.__CC_RUN_DIAGNOSIS__ || require('../lib/run-diagnosis.cjs');
@@ -326,6 +326,35 @@ async function submit(pcx, text) {
   pcx.tmux.sendEnter();
 }
 
+/**
+ * 注入一条 prompt 并等本回合收尾（/send 的 busy 语义 + 等回 ready）。
+ * 就绪超时不抛（由上层回查 state 决定下一步），返回 false 表示本次未能注入/未等到收尾。
+ */
+async function sendPromptAndWait(pcx, text) {
+  const ok = await waitReady(pcx, READY_TIMEOUT_MS);
+  if (!ok) return false;
+  pcx.logger.captureFromTranscript();
+  setBusy(pcx);
+  pcx.logger.logPrompt(text);
+  await submit(pcx, text);
+  return waitReady(pcx, READY_TIMEOUT_MS);
+}
+
+/**
+ * 发送本地 slash 命令（/clear 等）：等就绪 → 标 busy → 注入 → 起超时兜底。
+ * 本地命令不产生 Stop hook，故用 LOCAL_CMD_FALLBACK_MS 兜底回 ready。
+ * @returns {Promise<boolean>} 是否已注入（false = 等就绪超时）
+ */
+async function sendLocalCmd(pcx, cmd) {
+  const ok = await waitReady(pcx, READY_TIMEOUT_MS);
+  if (!ok) return false;
+  setBusy(pcx);
+  await submit(pcx, cmd);
+  if (pcx.fallbackTimer) clearTimeout(pcx.fallbackTimer);
+  pcx.fallbackTimer = setTimeout(() => { if (pcx.state === 'busy') setReady(pcx); }, LOCAL_CMD_FALLBACK_MS);
+  return true;
+}
+
 /** sid run 槽 hook 处理（T1-071：路由到独立内存态；gate 关等价 complete，gate 开全闸门留决策接入） */
 function handleSidHook(pcx, sid, event, body, res) {
   const slot = pcx.runSlotFor(sid);
@@ -473,17 +502,23 @@ function handleStop(pcx, body) {
 /** 单 agent 默认执行器（真实模型通道 v1）：发任务 prompt 到本项目交互会话 → 等任务自我结算。 */
 function defaultSingleExecutor(pcx) {
   return {
-    runTask: async ({ taskId, task }) => {
+    runTask: async ({ taskId, task, taskIndex = 1 }) => {
       const text = task.prompt || task.title || task.id;
       if (!pcx.tmux.hasSession()) throw new Error(`tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh`);
       const ready = await waitReady(pcx, READY_TIMEOUT_MS);
       if (!ready) throw new Error('still busy (ready timeout)');
+
+      // 任务前上下文压缩检查（跳过首个任务；实测 ≥ 阈值或无实测才打扰 AI，见 task-channel.cjs）
+      const channel = await sessionChannel(pcx);
+      const prompt = await channel.maybeCompactContext(text, taskIndex);
+
       pcx.logger.captureFromTranscript();
       setBusy(pcx);
-      pcx.logger.logPrompt(text);
-      await submit(pcx, text);
+      pcx.logger.logPrompt(prompt);
+      await submit(pcx, prompt);
+
       // 等任务自我结算：CC 仍在跑（busy）→ 不计时、永不误判超时（真 run 这类长任务可远超墙钟上限）；
-      // 仅当 CC 已就绪(idle)且任务仍未结算时，累计「无变化窗口」，超窗才算超时
+      // 仅当 CC 已就绪(idle)且任务仍未结算时，累计「无变化窗口」，超窗才进入收尾协商
       // （docs/bugs/timeout-must-confirm-no-cc-change.md：需确认 CC 无变化才算超时）。
       let idleSince = null;
       for (;;) {
@@ -491,15 +526,76 @@ function defaultSingleExecutor(pcx) {
         const s = pcx.stores.state.readSync();
         const t = s?.tasks?.find((x) => x.id === taskId);
         if (t && (t.status === 'done' || t.status === 'blocked')) return { status: t.status };
+        // 等人工决策应答：人类思考无上限，不计时也不进收尾协商（否则会在用户思考时把任务判死）
+        if (pcx.decisionPending && !pcx.decisionPending.answered) { idleSince = null; continue; }
         if (pcx.state === 'busy') { idleSince = null; continue; } // CC 仍在推进 → 重置无变化窗口
         const now = Date.now();
         if (idleSince == null) idleSince = now;
-        else if (now - idleSince >= READY_TIMEOUT_MS) {
-          throw new Error(`task ${taskId} 已就绪但长时间未自我结算（空闲 ${Math.round(READY_TIMEOUT_MS / 1000)}s 无变化，仍 ${t?.status || 'unknown'}）；保留现场待 w-monitor`);
-        }
+        else if (now - idleSince >= READY_TIMEOUT_MS) break; // CC 已停且无变化 → 交收尾协商
       }
+
+      // 收尾协商（迁自重构前 cli/run.js）：wrapup → 最多 3 轮 taskSettle → 标 blocked 跳过。
+      // 不再直接抛「未自我结算」——CC 忘记落账是常态，编排要能自愈并继续推进。
+      const settled = await channel.settleTask(taskId);
+      return { status: settled === 'done' ? 'done' : 'blocked' };
     },
   };
+}
+
+/**
+ * 会话通道（每项目惰性单例，缓存于 pcx.taskChannel）：把 task-channel.cjs 的端口接到本项目现场。
+ * prompts 走插件模板（plugin-bridge 边界唯一模块），state 走本项目 store，pause 走 lib/pause.js。
+ */
+function sessionChannel(pcx) {
+  if (pcx.taskChannel) return pcx.taskChannel;
+  pcx.taskChannel = (async () => {
+    const bridge = await import('../lib/plugin-bridge.js');
+    const { waitWhilePaused } = await import('../lib/pause.js');
+    const fsp = require('fs/promises');
+    const { createSessionChannel } = require('./task-channel.cjs');
+    /** 发 prompt 并等会话回 ready（与重构前 cli/run.js sendPrompt 同语义：超时由上层的状态回查兜底） */
+    const send = async (text) => {
+      await waitWhilePaused(pcx.projectRoot);
+      return sendPromptAndWait(pcx, text);
+    };
+    return createSessionChannel({
+      send,
+      readTaskStatus: (id) => (pcx.stores.state.readSync()?.tasks || []).find((t) => t.id === id)?.status || null,
+      markBlocked: (id) => pcx.stores.state.updateSync((s) => {
+        const t = (s?.tasks || []).find((x) => x.id === id);
+        if (!t) return false;
+        t.status = 'blocked';
+        return true;
+      }),
+      prompts: { wrapup: bridge.taskWrapup, settle: bridge.taskSettle, contextCheck: bridge.contextCheck },
+      readUsagePct: async () => {
+        try {
+          const pct = JSON.parse(await fsp.readFile(path.join(pcx.projectRoot, '.awf', 'context', 'usage.json'), 'utf-8')).used_percentage;
+          return typeof pct === 'number' ? pct : null;
+        } catch { return null; }
+      },
+      readHandoffSnapshot: async () => {
+        try { return await fsp.readFile(path.join(pcx.projectRoot, '.awf', 'context', 'handoff.md'), 'utf-8'); } catch { return null; }
+      },
+      consumeContextReady: () => { const r = pcx.contextReady; pcx.contextReady = false; return !!r; },
+      // 本轮有无产出：主会话 transcript 字节数（拿不到会话 id/文件 → null，退化按轮数判定）
+      readTurnBytes: () => {
+        const file = mainTranscriptPath(pcx.projectRoot, pcx.mainSessionId);
+        if (!file) return null;
+        try { return fs.statSync(file).size; } catch { return null; }
+      },
+      // 是否正在等人工决策应答（awf_await_choice/await_input 或 AskUserQuestion 上抛后未答）
+      isAwaitingHuman: () => !!pcx.decisionPending && !pcx.decisionPending.answered,
+      // /clear 是本地 slash 命令（无 Stop hook）：走 sendLocalCmd 的 busy + 兜底回 ready 语义
+      clearSession: () => sendLocalCmd(pcx, '/clear'),
+      waitWhilePaused: () => waitWhilePaused(pcx.projectRoot),
+      log: (level, msg) => console.log(`[task:${path.basename(pcx.projectRoot)}] ${msg}`),
+    });
+  })().catch((err) => {
+    pcx.taskChannel = null;
+    throw err;
+  });
+  return pcx.taskChannel;
 }
 
 /** 装配 run host（每项目惰性单例；失败记录原因不抛） */
@@ -530,6 +626,7 @@ async function bootstrapRunHost(pcx) {
         markTaskActive: (r, id) => state.markTaskActive(r, id),
         findNextTask: (s) => state.findNextTask(s),
         setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
+        backupState: (r) => state.backupState(r), // run 结束版本归档（host drive 收尾调用）
       };
       const rc = await import('../lib/run-config.js');
       cfg = rc.loadRunConfig(pcx.projectRoot);
@@ -539,7 +636,7 @@ async function bootstrapRunHost(pcx) {
       gateFix = gf.handleGateCompletion;
       chain = require('./run-driver.cjs');
       executor = defaultSingleExecutor(pcx);
-      batch = null; // 多 agent 传输随 CLI cutover 任务接线
+      batch = await batchTransportFor(pcx, stateApi);
     }
     const { createRunHost } = require('./run-host.cjs');
     const host = createRunHost({
@@ -604,6 +701,35 @@ async function ensureRunStateApi(pcx) {
     return null;
   });
   return pcx.runStateApiReady;
+}
+
+/**
+ * 多 agent 传输（宿主侧）：把 batch-transport.cjs 的端口接到本项目现场。
+ * 派发经会话注入 subagentDispatch 提示词（主会话派生后台子 Agent），完成感知轮询本项目 state
+ * + 落账失败/决策上抛日志（pcx.subagent*Path）。调度权在 run-host（driveBatch → runScheduler）。
+ */
+async function batchTransportFor(pcx, stateApi) {
+  const bridge = await import('../lib/plugin-bridge.js');
+  const { waitWhilePaused } = await import('../lib/pause.js');
+  const { createBatchTransport } = require('./batch-transport.cjs');
+  return createBatchTransport({
+    send: async (text) => {
+      await waitWhilePaused(pcx.projectRoot);
+      // 派发不能静默丢失：主会话不就绪/未收尾 → 抛错让 run 显式失败，而不是让任务悬着等超时
+      const ok = await sendPromptAndWait(pcx, text);
+      if (!ok) throw new Error(`派发未送达（主会话未在超时内就绪/收尾）：${String(text).slice(0, 60)}…`);
+    },
+    prompts: { subagentDispatch: bridge.subagentDispatch, resend: bridge.subagentResend },
+    markActive: (id) => stateApi.markTaskActive(pcx.projectRoot, id),
+    readTasks: () => pcx.stores.state.readSync()?.tasks || [],
+    isBusy: () => pcx.state === 'busy',
+    decisionPending: () => pcx.decisionPending,
+    failedPath: pcx.subagentFailedPath,
+    needsPath: pcx.subagentNeedsPath,
+    eventsPath: pcx.subagentEventPath,
+    waitWhilePaused: () => waitWhilePaused(pcx.projectRoot),
+    log: (level, msg) => console.log(`[batch:${path.basename(pcx.projectRoot)}] ${msg}`),
+  });
 }
 
 /** 门禁完成处理函数（server 进程内执行 gate-fix 同一实现；测试可经 deps 覆盖） */
@@ -742,6 +868,7 @@ const server = http.createServer(async (req, res) => {
         pcx.metricsCache = { at: 0, value: null };
       }
       if (body.session_id) pcx.mainSessionId = body.session_id;
+      pcx.sessionSeq += 1; // 会话启动序号（CLI 等「本次会话已就绪」的信号，见 run.js waitSessionStarted）
       updateRunMeta(pcx.projectRoot, (meta) => ({
         ...meta,
         projectRoot: pcx.projectRoot,
@@ -940,6 +1067,7 @@ const server = http.createServer(async (req, res) => {
       decisionPending: pcx.decisionPending, contextReady: pcx.contextReady,
       decisionGate: pcx.decisionGate, decisionResume: pcx.decisionResume,
       mainSessionId: pcx.mainSessionId,
+      sessionSeq: pcx.sessionSeq,
       activeAgents: [...pcx.agents.values()].filter((a) => a.status === 'running').length,
     };
     // 单 server 多项目：无 p（boot）请求增量返回已注册项目列表；?p 请求不带该列表
@@ -1008,12 +1136,8 @@ const server = http.createServer(async (req, res) => {
     if (!pcx.tmux.hasSession()) {
       return send(res, 503, { ok: false, error: `tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh` });
     }
-    const ok = await waitReady(pcx, READY_TIMEOUT_MS);
+    const ok = await sendLocalCmd(pcx, body.cmd);
     if (!ok) return send(res, 409, { ok: false, error: 'still busy (ready timeout)' });
-    setBusy(pcx);
-    await submit(pcx, body.cmd);
-    if (pcx.fallbackTimer) clearTimeout(pcx.fallbackTimer);
-    pcx.fallbackTimer = setTimeout(() => { if (pcx.state === 'busy') setReady(pcx); }, LOCAL_CMD_FALLBACK_MS);
     return send(res, 200, { ok: true, sent: body.cmd });
   }
 
@@ -1096,7 +1220,8 @@ const server = http.createServer(async (req, res) => {
     await bootstrapRunHost(pcx);
     if (!pcx.runHost) return send(res, 503, { ok: false, error: `run host 未就绪: ${pcx.runHostBootErr?.message || 'unknown'}` });
     const runId = typeof body.runId === 'string' && body.runId.length > 0 ? body.runId : undefined;
-    const r = pcx.runHost.submitRun({ runId });
+    const mode = body.mode === 'single' || body.mode === 'batch' ? body.mode : undefined; // CLI --multi-agent 显式指定
+    const r = pcx.runHost.submitRun({ runId, mode });
     if (!r.ok) return send(res, 409, { ok: false, error: r.error, runId: r.runId });
     return send(res, 202, { ok: true, runId: r.runId, mode: r.mode });
   }

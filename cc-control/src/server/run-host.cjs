@@ -163,9 +163,10 @@ function createRunHost(opts = {}) {
     return activeRunId != null;
   }
 
-  /** 新建 run 记录（不入队驱动；由 submitRun 负责 kick） */
-  function createRunRecord(runId) {
-    const m = mode();
+  /** 新建 run 记录（不入队驱动；由 submitRun 负责 kick）。
+   *  modeOverride：调用方显式指定 'single'|'batch'（如 CLI --multi-agent），缺省按 cfg.agents.max 判定 */
+  function createRunRecord(runId, modeOverride = null) {
+    const m = modeOverride === 'single' || modeOverride === 'batch' ? modeOverride : mode();
     return {
       runId,
       mode: m,
@@ -285,6 +286,7 @@ function createRunHost(opts = {}) {
           projectRoot,
           taskId: task.id,
           task,
+          taskIndex: steps, // 1-based：任务前上下文检查跳过首个（task-channel.maybeCompactContext）
           chain: ch.stages,
         })) || {};
       } catch (err) {
@@ -346,6 +348,9 @@ function createRunHost(opts = {}) {
       if (run.mode === 'batch') await driveBatch(run);
       else await driveSingle(run);
 
+      // FINISH 收尾：版本归档（迁自重构前 cli/run.js runLoop 末尾的 backupState）
+      stateApi.backupState?.(projectRoot);
+
       const fin = stateApi.loadState(projectRoot);
       const finishState = fin?.currentState;
       setRunStatus(run, 'done');
@@ -388,7 +393,7 @@ function createRunHost(opts = {}) {
     /**
      * 提交一个 run（常驻宿主只同时驱动一个；已 running → 409）。
      * 驱动异步进行，本调用立即返回 { ok, runId, mode }。
-     * @param {{ runId?: string }} spec
+     * @param {{ runId?: string, mode?: 'single'|'batch' }} spec
      */
     submitRun(spec = {}) {
       const runId = spec.runId || 'default';
@@ -402,7 +407,7 @@ function createRunHost(opts = {}) {
         const cur = runs.get(activeRunId);
         return { ok: false, error: `宿主正在驱动 run ${activeRunId}（${cur?.status}）；常驻单槽需先完成/停止`, runId };
       }
-      const run = createRunRecord(runId);
+      const run = createRunRecord(runId, spec.mode || null);
       runs.set(runId, run);
       emit('run.submitted', runId, { mode: run.mode });
       activeRunId = runId;
