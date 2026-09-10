@@ -1,6 +1,13 @@
 # 超时判定缺少「确认 CC 无变化」前置：仍在运行即便超时不判超时
 
-- 状态: 待实现（2026-09-10 记录）
+- 状态: 部分实现（2026-09-10）
+  - **已实现**：宿主单 agent 执行器（`server.cjs` defaultSingleExecutor）——CC 仍 busy 则重置无变化窗口、
+    不计时；仅 idle 且窗口内无任何变化才进入收尾协商（`task-channel.cjs`：wrapup → 3 轮追问 → 标 blocked），
+    不再直接抛超时中断。
+  - **已实现**：多 agent 传输（`batch-transport.cjs` waitAnyDone）——无变化窗口判据，主会话 busy /
+    任务状态变化 / 子 Agent 事件增长任一发生即重置窗口；pause 与决策挂起期间不计时。
+  - **未实现**：CLI `waitForReady`（30min 墙钟，`lib/session/client.js`）与 server `waitReady`
+    默认 120s（`server.cjs`）仍是固定墙钟；待各等待点收敛到统一活动探测原语时一并处理。
 - 类型: awf 产品缺陷（运行/等待超时语义）
 - 关联: 99aba2d（30min 就绪超时）、43d1715（超时后防跨任务派发）、run-host 宿主执行器 defaultSingleExecutor
 
