@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createApiClient } from '../api/client.js';
 import { toDiagnosticsModel, fmtTokens, fmtDuration, statusLabel, severityLabel } from './diagnostics-model.js';
 
-export default function Diagnostics({ sid } = {}) {
-  const client = useMemo(() => createApiClient({ sid: sid || undefined }), [sid]);
+export default function Diagnostics({ sid, project } = {}) {
+  const client = useMemo(() => createApiClient({ project: project || undefined, sid: sid || undefined }), [sid, project]);
   const [model, setModel] = useState(toDiagnosticsModel());
   const [busy, setBusy] = useState(false); // 触发诊断中
   const [actionError, setActionError] = useState(null);

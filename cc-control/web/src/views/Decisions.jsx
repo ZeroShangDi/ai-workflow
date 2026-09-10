@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createApiClient } from '../api/client.js';
 import { toDecisionsModel, decisionSummary } from './decisions-model.js';
 
-export default function Decisions({ sid } = {}) {
-  const client = useMemo(() => createApiClient({ sid: sid || undefined }), [sid]);
+export default function Decisions({ sid, project } = {}) {
+  const client = useMemo(() => createApiClient({ project: project || undefined, sid: sid || undefined }), [sid, project]);
   const [model, setModel] = useState(toDecisionsModel());
   const [instructions, setInstructions] = useState({}); // id → 输入
 

@@ -9,20 +9,24 @@ import { SERVER_PORT } from '../lib/session/client.js';
  * T1-093：web 构建产物由 server 静态托管（React SPA 承载 root），tree 指向其 WBS-Tree 视图
  * （?view=wbs-tree），dashboard 指向 SPA 承载的 root。
  * T1-094：ui.html（调试/控制页）已废弃删除，不再作为 open 目标。
+ * 多项目：URL 带 ?p=<cwd>，页面按本项目作用域取数（缺 p 会落到 server 的 boot 项目）。
  */
 export async function openCommand(target) {
+  const project = process.cwd();
+  const scope = `p=${encodeURIComponent(project)}`;
   const url = `http://localhost:${SERVER_PORT}`;
   switch (target) {
     case 'tree': {
-      const targetUrl = `${url}/?view=wbs-tree`;
+      const targetUrl = `${url}/?view=wbs-tree&${scope}`;
       logger.info(`打开 WBS-Tree（web 视图）: ${targetUrl}`);
       openBrowser(targetUrl);
       break;
     }
 
     case 'dashboard': {
-      logger.info(`打开 dashboard: ${url}`);
-      openBrowser(url);
+      const targetUrl = `${url}/?${scope}`;
+      logger.info(`打开 dashboard: ${targetUrl}`);
+      openBrowser(targetUrl);
       break;
     }
 

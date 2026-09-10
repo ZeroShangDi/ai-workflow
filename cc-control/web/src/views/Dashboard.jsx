@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createApiClient } from '../api/client.js';
 import { toDashboardModel, phaseLabel } from './dashboard-model.js';
 
-export default function Dashboard({ sid } = {}) {
-  const client = useMemo(() => createApiClient({ sid: sid || undefined }), [sid]);
+export default function Dashboard({ sid, project } = {}) {
+  const client = useMemo(() => createApiClient({ project: project || undefined, sid: sid || undefined }), [sid, project]);
   const [model, setModel] = useState(toDashboardModel());
   const [input, setInput] = useState('');
 

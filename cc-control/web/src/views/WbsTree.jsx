@@ -23,8 +23,8 @@ function NodeRow({ node, depth }) {
   );
 }
 
-export default function WbsTree({ sid } = {}) {
-  const client = useMemo(() => createApiClient({ sid: sid || undefined }), [sid]);
+export default function WbsTree({ sid, project } = {}) {
+  const client = useMemo(() => createApiClient({ project: project || undefined, sid: sid || undefined }), [sid, project]);
   const [model, setModel] = useState({ roots: [], stats: { total: 0, withTask: 0, byStatus: {} } });
 
   async function refresh() {

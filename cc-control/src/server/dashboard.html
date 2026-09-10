@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <link rel="stylesheet" href="/theme.css">
-  <script defer src="/common.js"></script>
+  <script src="/common.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AWF Run — Dashboard</title>
@@ -535,9 +535,10 @@ refresh();
       const res = await fetch('/run/status');
       const body = await res.json();
       const runs = body.runs || [];
+      // 链接经 hrefWith 保留 ?p=（多项目作用域），否则点 run 会掉回 boot 项目
       list.innerHTML = runs.length === 0
         ? '<span>(无 run)</span>'
-        : runs.map((r) => `<a href="?sid=${encodeURIComponent(r.runId)}">${r.runId}</a><span>${r.status} ${r.counts ? r.counts.done + '/' + r.counts.total : ''}</span><br>`).join('');
+        : runs.map((r) => `<a href="${AWF_COMMON.esc(AWF_COMMON.hrefWith({ sid: r.runId }))}">${r.runId}</a><span>${r.status} ${r.counts ? r.counts.done + '/' + r.counts.total : ''}</span><br>`).join('');
       if (sid) {
         const r2 = await fetch('/run/status?runId=' + encodeURIComponent(sid));
         const d = await r2.json();
