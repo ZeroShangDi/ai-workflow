@@ -19,6 +19,6 @@
 
 ## 关联
 
-- 触发时机：AI 通过 `awf_await_choice` 或 `awf_await_input` 通知 CLI
+- 触发时机：`w-monitor` 判定需要人工介入时调 `awf_mode({mode:"pause"})` 暂停编排
 - 恢复方式：人工介入或 `w-monitor` 修复验证成功后将 mode 设回 `run`
 - 安全要求：任何自动修复都必须先复核 `mode=pause`；修复失败转人工时保持 pause

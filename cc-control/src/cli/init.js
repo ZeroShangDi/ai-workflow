@@ -150,6 +150,12 @@ async function replaceInDir(dir, version) {
  * - 不存在 → 从模板创建
  * - 存在但无 awf 规则 → 追加
  * - 已包含 awf 规则 → 跳过
+ *
+ * 2026-09-10 弃用：模板内容已清空（`src/templates/CLAUDE.md.template` 0 字节）。
+ * 原模板把「需要用户决策时必须调 awf_await_choice」写进每个项目的 CLAUDE.md，
+ * 与新的决策门阀（决策技能自决）互斥，是运行期误走旧决策入口的直接来源。
+ * 保留本函数与模板文件仅为兼容既有安装（已含标记的项目照旧跳过），空模板 → 直接跳过，
+ * 不再向新项目写入空的 CLAUDE.md。
  */
 async function initClaudeMd(projectRoot, cwd) {
   const templatePath = path.join(projectRoot, 'src', 'templates', 'CLAUDE.md.template');
@@ -159,6 +165,7 @@ async function initClaudeMd(projectRoot, cwd) {
   let awfRules;
   try { awfRules = await fs.readFile(templatePath, 'utf-8'); }
   catch { logStep('CLAUDE.md', 'warn', '模板文件不存在，跳过注入'); return; }
+  if (!awfRules.trim()) { logStep('CLAUDE.md', 'skip', 'awf 规则模板已弃用（内容为空），跳过注入'); return; }
 
   const claudeMdExists = await fs.stat(claudeMdPath).catch(() => null);
   if (!claudeMdExists) {

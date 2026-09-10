@@ -1,12 +1,17 @@
 ---
 name: awf-run-decision
 description: >
-  当 tmux 的 cc 出现需要决策时的处理方案。
-  触发条件：awf run 阶段，AI 调用 awf_await_choice 或 awf_await_input 时。
-  引用方：w-dev, w-review, w-test
+  【已停用 2026-09-10】旧决策入口（awf_await_choice / awf_await_input）的处理方案，仅作历史留存。
+  awf run 阶段需要决策时改用决策门阀：把问题作为回合最后一段以 <AWF_DECISION_REQUIRED> 包裹输出，
+  由决策技能（decision-core）自决产出 Decision Result。见任务 T1-106。
+  引用方：（已无）
 ---
 
-# 运行时决策处理
+# 运行时决策处理（已停用）
+
+> **2026-09-10 停用**：本技能描述的 `awf_await_choice` / `awf_await_input` 入口不再使用。
+> 需要决策时改用决策门阀的决策标记（`<AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED>`），
+> 由决策技能自决。本文以下内容仅作历史留存，勿据此执行。
 
 自治执行中遇到需要用户拍板的情况，不能停下来列选项干等——先通过 MCP tool 通知 CLI，由 CLI 收集用户回应。
 

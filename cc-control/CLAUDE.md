@@ -62,28 +62,30 @@ awf run           # 自主执行：单/多 agent 分流，滑动窗口调度
 `awf run` 内部：
 ```
 CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
-  → 启动 HTTP Session Server (:8787)
-  → 创建 tmux session（bootstrap.sh 只启动 claude；插件/hooks/MCP 由 .claude/settings.json 注册加载）
-  → 按 run.agents.max 分流（src/cli/run.js）：
-      max=1（默认）→ runLoop：逐任务按复杂度执行阶段链
+  → 确保常驻 HTTP Session Server（单实例多项目：存在即复用，请求带 ?p 路由到各自项目上下文）
+  → 创建 tmux session（名 cc-<projectSid>，按项目唯一；bootstrap.sh 只启动 claude）
+  → CLI 经 run-client 提交 run（POST /run/submit），此后只订阅/中继，不再持有编排
+  → 宿主驱动（src/server/run-host.cjs）：
+      max=1（默认）→ driveSingle：逐任务按 run-driver.decideChain 标注阶段链并派发
         simple:  DEV → COMMIT
         medium:  DEV → TEST → COMMIT
         complex: DEV → DOCS → REVIEW → TEST → COMMIT
         ↑                           ↓
         └── DEBUG（按需）───────────┘
-      max>1 → runBatchLoop（src/cli/run-batch.js + src/cli/scheduler.js）：
-        滑动窗口调度，CLI 拥有调度权：
+      max>1（或 --multi-agent）→ driveBatch（滑动窗口），**宿主拥有调度权**：
           就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（commit）
-          → 主会话按 subagent-dispatch 派生后台子 Agent（awf-worker）执行
+          → 经 batch-transport 注入 subagent-dispatch，主会话派生后台子 Agent（awf-worker）执行
           → 子 Agent 结束 → SubagentStop hook 解析 RESULT → 原子落账（awf_task_complete）
-          → CLI 轮询 state 检测完成 → 补位，直到全部完成
-  → FINISH 收尾
+          → 宿主轮询 state 检测完成 → 补位，直到全部完成
+  → 宿主收尾（版本归档 backupState）→ CLI 复位 mode=idle
 ```
 
 阶段驱动关键设计：
-- **单 agent（runLoop）**：每个阶段前，CLI 通过 `claude -p` 生成优化后的 prompt，再发往 tmux session
-- **多 agent（runBatchLoop）**：CLI 拥有调度权，经 plugin-bridge `subagentDispatch` 生成派发 prompt，主会话派生后台子 Agent 并行执行；子 Agent 禁写 state、只输出 RESULT/NEEDS_INPUT
-- **门禁闭环**：门禁任务（kind=review/test）输出结构化 verdict（`exec.verdict`，见 awf-worker.md）；CLI 检测「blocked + verdict 非 pass」→ 自动派生修复任务（kind=dev）+ 门禁回退 pending 待复审，直至 pass 或达轮次上限（MAX_RECHECK=3），单/多 agent 双路径均生效
+- **单 agent（driveSingle）**：宿主 executor 把任务 prompt 发往 tmux，等任务在 state 自我结算；
+  超时判据是「无变化窗口」——CC 仍 busy 就不计时，仅 idle 且持续无变化才进收尾协商
+  （task-channel.cjs：wrapup → 最多 3 轮追问 → 标 blocked 跳过）；任务前按需上下文压缩
+- **多 agent（driveBatch）**：调度权在宿主，经 batch-transport 注入 `subagent-dispatch` 派发 prompt，主会话派生后台子 Agent 并行执行；子 Agent 禁写 state、只输出 RESULT/NEEDS_INPUT
+- **门禁闭环**：门禁任务（kind=review/test）输出结构化 verdict（`exec.verdict`，见 awf-worker.md）；宿主检测「blocked + verdict 非 pass」→ 自动派生修复任务（kind=dev）+ 门禁回退 pending 待复审，直至 pass 或达轮次上限（MAX_RECHECK=3），单/多 agent 双路径均生效
 - **Session Server** 通过 Claude Code Hooks（`SessionStart`/`Stop` → ready，`UserPromptSubmit` → busy）感知状态；`SubagentStart/Stop` 感知子 Agent 生命周期，`PreToolUse(AskUserQuestion)` 感知决策请求
 - **阶段间上下文天然断裂** — 每个阶段的 prompt 重新构造，不依赖上一阶段对话历史
 - **AI 通过 MCP tools 更新 state.json**（`awf_task_status`、`awf_task_result`、`awf_phase`、`awf_task_complete` 等），不再需要 curl
@@ -92,7 +94,7 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
 
 - **插件改动，CLI 零感知** — 提示词由插件声明（`plugin/plugin-code/prompts.json`），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件模板里）。插件改名/改命令，CLI 无需改动。
 - **插件耦合收敛** — cli 与插件的必要耦合集中在 `src/lib/plugin-bridge.js`（插件边界唯一模块），cli 只负责调用/中央调度。
-- **CLI 拥有调度权** — 多 agent 下由 CLI（`src/cli/scheduler.js` 就绪池 + 配额 + plannedFiles 冲突）决定派发，子 Agent 无调度权：禁写 state、只回吐 `RESULT`/`NEEDS_INPUT`。落账原子化走 `awf_task_complete`（一次提交 status+result+files+commits，避免中间态）；需用户决策时子 Agent 以 `NEEDS_INPUT` 上抛，CLI 检测到决策挂起则暂停补位，等主 Agent AskUserQuestion 解决后恢复。
+- **宿主拥有调度权** — 多 agent 下由常驻宿主（`src/server/run-scheduler.js` 就绪池 + 配额 + plannedFiles 冲突，run-host.driveBatch 驱动）决定派发，子 Agent 无调度权：禁写 state、只回吐 `RESULT`/`NEEDS_INPUT`。落账原子化走 `awf_task_complete`（一次提交 status+result+files+commits，避免中间态）；需用户决策时子 Agent 以 `NEEDS_INPUT` 上抛，宿主/CLI 检测到决策挂起则暂停补位，等主 Agent AskUserQuestion 解决后恢复。
 
 ## Development workflow state machine
 
@@ -272,17 +274,19 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | 文件 | 角色 |
 |------|------|
 | `src/awf.js` | CLI 入口，命令路由（7 命令：init/plan/run/plugin/server/open/attach） |
-| `src/cli/run.js` | `awf run` 主循环 — 单/多 agent 分流（run.agents.max>1 → runBatchLoop，否则 runLoop）+ 阶段链 + 决策处理 |
-| `src/cli/run-batch.js` | 滑动窗口执行入口（max>1）— subagentDispatch 派发 + 轮询 state 完成感知 + 落账失败补发 + NEEDS_INPUT 决策上抛挂起 |
-| `src/cli/scheduler.js` | 滑动窗口调度器（纯逻辑）— 就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（commit）+ 补位循环；doc 目标文件不冲突时可并行 |
+| `src/cli/run.js` | `awf run` 薄入口 — 起环境 + 提交 run（--multi-agent → mode:batch）+ 订阅展示 + 决策中继；不持有编排 |
+| `src/server/run-host.cjs` | 常驻 run 宿主 — driveSingle（单 agent 顺序驱动）/ driveBatch（多 agent 走 run-scheduler）+ 事件环 + 收尾 backupState |
+| `src/server/run-scheduler.js` | 滑动窗口调度器（纯逻辑）— 就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（commit）+ 补位循环；doc 目标文件不冲突时可并行 |
+| `src/server/batch-transport.cjs` | 多 agent 传输层 — dispatch（注入 subagent-dispatch 派发 prompt + 标 active）+ waitAnyDone（轮询结算/落账失败补发/NEEDS_INPUT 挂起/无变化超时） |
+| `src/server/task-channel.cjs` | 单 agent 会话内协商 — 任务前上下文压缩检查 + 收尾协商（wrapup → 3 轮追问 → 标 blocked） |
 | `src/cli/init.js` | `awf init` — 前置检查 + 本地注册插件 + 工作区初始化 |
 | `src/cli/plugin.js` | 插件管理 — 本地注入 / 全局 claude plugin install |
 | `src/lib/profile.js` | 本地注册实现（settings.json 注入/清理）+ installProjectMcp |
 | `src/lib/state.js` | state.json 读写 + 就绪池/scope/文件冲突（peekReadyTasks/buildScopeIndex/filesConflict/EXCLUSIVE_KINDS） |
-| `src/lib/messaging.js` | inbox socket 注入（NDJSON）— 向主会话投递消息（crossSessionInbound:accept 前提） |
+| `src/lib/run-context.cjs` | run 装配器 — sid→路径/会话名（cc-<projectSid>）/workdir/settings 单源（server/client/MCP 共用） |
 | `src/lib/paths.js` | 路径解析 |
-| `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词（taskWrapup/taskSettle/contextCheck/subagentDispatch），cli 零感知 |
-| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + subagent-dispatch），runtime 指令由插件声明 |
+| `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词（taskWrapup/taskSettle/contextCheck/subagentDispatch/subagentResend），cli 零感知 |
+| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + subagent-dispatch/resend），runtime 指令由插件声明 |
 | `plugin/core/agents/awf-worker.md` | 子 Agent 身份化定义 — 滑动窗口执行单元：禁写 state、禁提问、RESULT/NEEDS_INPUT 最后一行输出协议 |
 | `src/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ run.decision.enabled（缺省关）+ docs 配置 |
 | `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额 + run.decision.enabled 决策开关（缺省关），awf run 读取（init 从模板生成） |
@@ -345,9 +349,16 @@ docs/
 
 ### awf-run 模式
 
-- 需要用户决策时，禁止直接列出选项等待回复。必须先调 MCP tool 通知 CLI：
-  - 选择题 → `awf_await_choice({question, options[], context?})`
-  - 自由输入 → `awf_await_input({question, context?})`
-  调用后按原有方式呈现选项即可，CLI 会自动检测并收集用户回应。
+- 需要决策时，把问题作为**本回合最后一段**以决策标记输出，由决策门阀接管：
+
+  ```
+  <AWF_DECISION_REQUIRED>
+  需要决策的问题或下一步请求
+  </AWF_DECISION_REQUIRED>
+  ```
+
+  门阀会给出一份 Decision Result（answer 驱动后续执行），据其继续，不要停下来等人。
+- 禁止把决策抛回给用户：不调用用户提问类工具、不列选项干等。
+- 旧的 `awf_await_choice` / `awf_await_input` 入口已停用（见任务 T1-106），不要再用。
 
 <!-- awf-rules end -->
