@@ -173,6 +173,29 @@ describe('createRunHost — 单 agent 编排（经 run-driver 链标注 + execut
     expect(host.snapshot(r.runId).run.status).toBe('done');
   });
 
+  it('选中任务后若原子占用失败，不调用 executor，也不发 task.started', async () => {
+    const task = { id: 'T1', kind: 'dev', status: 'pending', deps: [] };
+    let selectable = true;
+    const localState = { mode: 'run', currentState: 'CODE', tasks: [task] };
+    const guardedState = {
+      loadState: () => localState,
+      findNextTask: () => (selectable ? task : null),
+      markTaskActive: () => { selectable = false; return false; },
+      setWorkflowMode: () => true,
+    };
+    const executor = { runTask: async () => { throw new Error('不应执行'); } };
+    const events = [];
+    const host = createRunHost({
+      projectRoot: tmp, cfg: CFG_SINGLE, state: guardedState, chain: runDriver, executor,
+      onEvent: (event) => events.push(event),
+    });
+    host.start();
+    const r = host.submitRun();
+    await waitDone(host, r.runId);
+    expect(events.some((event) => event.type === 'task.started')).toBe(false);
+    expect(host.snapshot(r.runId).run.status).toBe('done');
+  });
+
   it('单 agent 门禁闭环：review blocked+verdict fail → gateCompletionHook 派生修复 → 复审 pass → done', async () => {
     writeState(tmp, [
       { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },

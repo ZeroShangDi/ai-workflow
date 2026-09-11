@@ -48,6 +48,20 @@ describe('runScheduler — 滑动窗口核心（纯逻辑）', () => {
 
   const CFG = (agents) => ({ agents: { max: 9, maxModules: 3, maxPerModule: 9, maxPerFeature: 9, ...agents } });
 
+  it('初次建池后任务若被 hold，派发拒绝不会进入 running 或等待完成', async () => {
+    writeState(tmpDir, [
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
+    ]);
+    const waitAnyDone = async () => { throw new Error('不应等待未派发任务'); };
+    const { dispatched } = await runScheduler({
+      projectRoot: tmpDir,
+      cfg: CFG({ max: 1 }),
+      dispatcher: { send: async () => false },
+      waitAnyDone,
+    });
+    expect(dispatched).toBe(0);
+  });
+
   it('TC-S1: 滑动窗口补位——任务完成立即补位，保持配额满', async () => {
     writeState(tmpDir, [
       { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },

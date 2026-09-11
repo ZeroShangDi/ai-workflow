@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { handleGateCompletion } from '../../src/server/gate-fix.js';
-import { MAX_RECHECK } from '../../src/lib/state.js';
+import { findNextTask, MAX_RECHECK } from '../../src/lib/state.js';
 
 // handleGateCompletion 用真实 loadState/saveState/spawnGateFixTask（state.js 纯文件 I/O），
 // 覆盖「读盘 → 判定 → 派生/回退 → 落盘」全链路。
@@ -47,6 +47,29 @@ describe('gate-fix.js — handleGateCompletion（门禁闭环钩子）', () => {
     expect(s.tasks.find((t) => t.id === 'R1-F1').prompt).toBe(
       '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 .awf/reports/review/review-r1.md 中列出的全部问题。',
     );
+  });
+
+  it('TC-H1b: 修复任务插在原门禁之前，后续 ready 任务不能越过', async () => {
+    writeState([
+      { id: 'T1', kind: 'dev', status: 'done', deps: [] },
+      gate(),
+      { id: 'NEXT', kind: 'dev', status: 'pending', deps: [] },
+    ]);
+    await handleGateCompletion(tmpDir, 'R1', gate());
+    const s = readState();
+    expect(s.tasks.map((task) => task.id)).toEqual(['T1', 'R1-F1', 'R1', 'NEXT']);
+    expect(findNextTask(s)?.id).toBe('R1-F1');
+  });
+
+  it('TC-H1c: 并发重复处理同一 gate 只原子派生一个修复任务', async () => {
+    writeState([gate(), { id: 'T1', kind: 'dev', status: 'done', deps: [] }]);
+    await Promise.all([
+      handleGateCompletion(tmpDir, 'R1', gate()),
+      handleGateCompletion(tmpDir, 'R1', gate()),
+    ]);
+    const s = readState();
+    expect(s.tasks.filter((task) => task.id === 'R1-F1')).toHaveLength(1);
+    expect(s.tasks.find((task) => task.id === 'R1').exec.recheck).toBe(1);
   });
 
   it('TC-H2: 非门禁 kind → no-op', async () => {

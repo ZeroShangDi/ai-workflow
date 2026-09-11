@@ -1323,7 +1323,7 @@ async function caseInit() {
     return typeof a === 'string' && path.isAbsolute(a) && fs.existsSync(a);
   });
   const rootsOk = servers.every((n) => mcp.mcpServers[n]?.env?.AWF_PROJECT_ROOT === projectRoot);
-  const skeleton = ['bugs', 'issues', 'decisions', 'context', 'logs', 'reports', 'versions']
+  const skeleton = ['bugs', 'issues', 'decisions', 'dynamic-planning', 'context', 'logs', 'reports', 'versions']
     .filter((d) => fs.existsSync(path.join(projectRoot, '.awf', d)));
 
   // 幂等：T3-011-F1 —— 口径修正。
@@ -1349,8 +1349,8 @@ async function caseInit() {
       check('MCP server 均用存在的绝对路径', argsOk),
       check('MCP server 均带 AWF_PROJECT_ROOT=本项目', rootsOk),
       check('awf-session 指向带端口的 AWF_BASE', /^http:\/\/127\.0\.0\.1:\d+$/.test(mcp?.mcpServers?.['awf-session']?.env?.AWF_BASE || ''), mcp?.mcpServers?.['awf-session']?.env?.AWF_BASE),
-      check('.awf 骨架目录齐（7 项）', skeleton.length === 7, skeleton.join(',')),
-      check('config.json 含 run.agents / run.decision / docs', !!cfg?.run?.agents && typeof cfg.run.decision?.enabled === 'boolean' && !!cfg?.docs),
+      check('.awf 骨架目录齐（8 项）', skeleton.length === 8, skeleton.join(',')),
+      check('config.json 含 run.agents / run.decision / run.dynamicPlanning / docs', !!cfg?.run?.agents && typeof cfg.run.decision?.enabled === 'boolean' && !!cfg?.run?.dynamicPlanning && !!cfg?.docs),
       check('init 幂等：连续两次重跑 settings 不变', JSON.stringify(pass1.settings) === JSON.stringify(pass2.settings)),
       check('init 幂等：连续两次重跑 .mcp.json 不变', JSON.stringify(pass1.mcp) === JSON.stringify(pass2.mcp)),
       check('awf init 未把插件装到仓库外（marketplace 为 directory 源）', marketplace?.source?.source === 'directory'),
@@ -1367,7 +1367,7 @@ async function caseInit() {
  */
 async function caseMcp() {
   const specs = [
-    { dir: 'awf-state', count: 18, must: ['awf_read_state', 'awf_task_complete', 'awf_mode', 'awf_task_create', 'awf_wbs_create'] },
+    { dir: 'awf-state', count: 20, must: ['awf_read_state', 'awf_task_complete', 'awf_mode', 'awf_task_create', 'awf_wbs_create', 'awf_dynamic_plan', 'awf_dynamic_plan_status'] },
     { dir: 'awf-session', min: 5, must: ['awf_session_status', 'awf_capture_pane', 'awf_await_choice', 'awf_await_input', 'awf_context_ready', 'awf_session_intervene', 'awf_session_interrupt'] },
     { dir: 'awf-oneshot', count: 1, must: ['awf_oneshot'] },
   ];

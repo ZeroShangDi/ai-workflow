@@ -32,6 +32,11 @@ describe('标识与会话名', () => {
     expect(sidCtx.runSessionName).toBe('wf-x');
   });
 
+  it('完整 CC_SESSION 已含同一 sid 时不重复追加（嵌套/重启幂等）', () => {
+    const ctx = buildRunContext({ sid: 'p123456789abc', projectRoot: ROOT, env: { CC_SESSION: 'cc-p123456789abc' } });
+    expect(ctx.runSessionName).toBe('cc-p123456789abc');
+  });
+
   it('非法 sid 抛错（防路径/名称注入）', () => {
     for (const bad of ['../evil', 'a/b', 'a b', '']) {
       expect(() => buildRunContext({ sid: bad, projectRoot: ROOT, env: {} })).toThrowError(/非法 sid/);

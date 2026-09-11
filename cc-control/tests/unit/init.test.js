@@ -129,6 +129,7 @@ describe('initCommand', () => {
     expect(raw).not.toContain('{{TIMESTAMP}}');
     expect(raw).toMatch(/"lastUpdated": "20\d\d-\d\d-\d\dT/);
     expect(await fs.readFile(path.join(awf, 'context', 'architecture.md'), 'utf-8')).toContain('Architecture Map');
+    expect((await fs.stat(path.join(awf, 'dynamic-planning', 'proposals'))).isDirectory()).toBe(true);
 
     // 本地注册插件：plugin/settings.json 注入到项目 .claude/settings.json（无 exec 安装）
     const settingsRaw = await fs.readFile(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8');

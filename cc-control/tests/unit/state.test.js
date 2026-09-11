@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { loadState, saveState, markTaskActive, findNextTask, getCurrentPhase, isMilestoneDone, selectReadyBatch, spawnGateFixTask, MAX_RECHECK } from '../../src/lib/state.js';
+import { loadState, saveState, stateFingerprint, replaceStateIfUnchanged, markTaskActive, requeueTaskIfActive, findNextTask, peekReadyTasks, getCurrentPhase, isMilestoneDone, selectReadyBatch, spawnGateFixTask, MAX_RECHECK } from '../../src/lib/state.js';
 
 describe('state.js — CLI', () => {
   let tmpDir;
@@ -95,6 +95,50 @@ describe('state.js — CLI', () => {
     });
   });
 
+  describe('replaceStateIfUnchanged', () => {
+    it('读取版本未变化时在锁内替换 state', () => {
+      saveState(tmpDir, { mode: 'idle', tasks: [] });
+      const before = loadState(tmpDir);
+      const beforeFingerprint = stateFingerprint(before);
+
+      const result = replaceStateIfUnchanged(
+        tmpDir,
+        { ...before, mode: 'run' },
+        before.lastUpdated,
+        beforeFingerprint,
+      );
+
+      expect(result.ok).toBe(true);
+      expect(loadState(tmpDir).mode).toBe('run');
+      expect(fs.existsSync(path.join(tmpDir, '.awf', 'state.lock'))).toBe(false);
+    });
+
+    it('读取后已有其他写者更新时返回 conflict，且不覆盖新状态', () => {
+      saveState(tmpDir, { mode: 'idle', tasks: [] });
+      const stale = loadState(tmpDir);
+      const staleFingerprint = stateFingerprint(stale);
+      // 刻意保留相同 lastUpdated，证明同毫秒碰撞仍可由内容指纹识别。
+      fs.writeFileSync(path.join(tmpDir, '.awf', 'state.json'), JSON.stringify({
+        mode: 'pause',
+        tasks: [{ id: 'NEW', status: 'done' }],
+        lastUpdated: stale.lastUpdated,
+      }, null, 2));
+
+      const result = replaceStateIfUnchanged(
+        tmpDir,
+        { ...stale, mode: 'run' },
+        stale.lastUpdated,
+        staleFingerprint,
+      );
+
+      expect(result).toMatchObject({ ok: false, conflict: true });
+      expect(loadState(tmpDir)).toMatchObject({
+        mode: 'pause',
+        tasks: [{ id: 'NEW', status: 'done' }],
+      });
+    });
+  });
+
   describe('markTaskActive', () => {
     it('将 pending 任务原子标为 active，且不影响其他任务', () => {
       saveState(tmpDir, {
@@ -115,6 +159,41 @@ describe('state.js — CLI', () => {
       saveState(tmpDir, { tasks: [{ id: 'T1', status: 'done' }] });
 
       expect(markTaskActive(tmpDir, 'T1')).toBe(false);
+      expect(loadState(tmpDir).tasks[0].status).toBe('done');
+    });
+
+    it('直接激活任务也不能绕过未完成依赖', () => {
+      saveState(tmpDir, {
+        tasks: [
+          { id: 'T1', status: 'pending', deps: [] },
+          { id: 'T2', status: 'pending', deps: ['T1'] },
+        ],
+      });
+
+      expect(() => markTaskActive(tmpDir, 'T2')).toThrow(/incomplete dependencies: T1/);
+      expect(loadState(tmpDir).tasks.find((task) => task.id === 'T2').status).toBe('pending');
+    });
+
+    it('动态规划 hold 中的任务不能被竞态激活', () => {
+      saveState(tmpDir, {
+        tasks: [{ id: 'T1', status: 'pending', deps: [] }],
+        dynamicPlanning: { holds: { DP1: { taskIds: ['T1'] } } },
+      });
+      expect(markTaskActive(tmpDir, 'T1')).toBe(false);
+      expect(loadState(tmpDir).tasks[0].status).toBe('pending');
+    });
+
+    it('派发失败只回退仍为 active 的占用，不覆盖已结算任务', () => {
+      saveState(tmpDir, { tasks: [{ id: 'T1', status: 'pending', deps: [] }] });
+      expect(markTaskActive(tmpDir, 'T1')).toBe(true);
+      expect(requeueTaskIfActive(tmpDir, 'T1')).toBe(true);
+      expect(loadState(tmpDir).tasks[0]).toEqual({ id: 'T1', status: 'pending', deps: [] });
+
+      expect(markTaskActive(tmpDir, 'T1')).toBe(true);
+      const settled = loadState(tmpDir);
+      settled.tasks[0].status = 'done';
+      saveState(tmpDir, settled);
+      expect(requeueTaskIfActive(tmpDir, 'T1')).toBe(false);
       expect(loadState(tmpDir).tasks[0].status).toBe('done');
     });
   });
@@ -143,6 +222,19 @@ describe('state.js — CLI', () => {
       };
       const result = findNextTask(state);
       expect(result.id).toBe('T1');
+    });
+
+    it('动态规划待批准任务从单/批 ready 集合排除', () => {
+      const state = {
+        tasks: [
+          { id: 'T1', status: 'pending', deps: [], plannedFiles: ['a.js'] },
+          { id: 'T2', status: 'pending', deps: [], plannedFiles: ['b.js'] },
+        ],
+        dynamicPlanning: { holds: { DP1: { taskIds: ['T1'] } } },
+      };
+      expect(findNextTask(state).id).toBe('T2');
+      expect(peekReadyTasks(state).map((task) => task.id)).toEqual(['T2']);
+      expect(selectReadyBatch(state, { agents: { max: 2 } }).map((task) => task.id)).toEqual(['T2']);
     });
 
     it('TC7: deps 全满足时返回', () => {
@@ -360,9 +452,9 @@ describe('state.js — CLI', () => {
     };
 
     it('TC-G1: blocked + verdict 非 pass → 派生修复任务 + 回退门禁待复审', () => {
-      const state = { tasks: [{ ...gateBase }] };
+      const state = { tasks: [{ id: 'T1', status: 'done', deps: [] }, { ...gateBase }] };
       const prompt = '/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 .awf/reports/review/review-r1.md 中列出的全部问题。';
-      const fixId = spawnGateFixTask(state, state.tasks[0], prompt);
+      const fixId = spawnGateFixTask(state, state.tasks.find((t) => t.id === 'R1'), prompt);
       expect(fixId).toBe('R1-F1');
       const fix = state.tasks.find((t) => t.id === 'R1-F1');
       expect(fix.kind).toBe('dev');
@@ -410,6 +502,7 @@ describe('state.js — CLI', () => {
     it('TC-G7: 第二轮派生 id 递增为 -F2，deps 追加到 F1，recheck=2', () => {
       const state = {
         tasks: [
+          { id: 'T1', status: 'done', deps: [] },
           { ...gateBase, deps: ['T1', 'R1-F1'], exec: { ...gateBase.exec, recheck: 1 } },
           { id: 'R1-F1', kind: 'dev', status: 'done', deps: ['T1'] },
         ],
@@ -423,9 +516,12 @@ describe('state.js — CLI', () => {
 
     it('TC-G8: 传入提示词原样落盘（prompt 由 gate-fix 经插件模板生成后传入）', () => {
       const state = {
-        tasks: [{ ...gateBase, exec: { verdict: gateBase.exec.verdict, files: [] } }],
+        tasks: [
+          { id: 'T1', status: 'done', deps: [] },
+          { ...gateBase, exec: { verdict: gateBase.exec.verdict, files: [] } },
+        ],
       };
-      spawnGateFixTask(state, state.tasks[0], 'prompt');
+      spawnGateFixTask(state, state.tasks.find((t) => t.id === 'R1'), 'prompt');
       expect(state.tasks.find((t) => t.id === 'R1-F1').prompt).toBe('prompt');
     });
   });

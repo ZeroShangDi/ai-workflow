@@ -37,7 +37,7 @@ vi.mock('../../src/lib/server-log.js', () => ({
 }));
 vi.mock('../../src/lib/run-context.cjs', () => ({
   buildRunContext: vi.fn(() => ({
-    sid: null, session: 'cc', runSessionName: 'cc', port: 8787,
+    sid: 'p12ab', session: 'cc', runSessionName: 'cc-p12ab', port: 8787,
     projectRoot: '/tmp/mock-cwd', infraRoot: '/tmp/mock-project',
     logsDir: '/tmp/mock-project/.awf/logs',
     serverScriptPath: '/tmp/server.cjs', bootstrapScriptPath: '/tmp/bootstrap.sh',
@@ -138,6 +138,55 @@ describe('runCommand（T1-058 薄化：提交 + 观察 + 收尾）', () => {
     // 收尾清理
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('工作流结束'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('已停止运行会话'));
+  });
+
+  it('TC2a: 从父 run 内重启 server 时清洗父身份并显式注入本次身份', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, 'on').mockImplementation(() => process);
+    vi.spyOn(process, 'exit').mockImplementation(() => {});
+    m.getStatus.mockResolvedValueOnce(false);
+
+    const inherited = {
+      CC_SESSION: process.env.CC_SESSION,
+      CC_PROJECT: process.env.CC_PROJECT,
+      CC_WORKDIR: process.env.CC_WORKDIR,
+      CC_AWF_STATE_SERVER: process.env.CC_AWF_STATE_SERVER,
+      CC_SID: process.env.CC_SID,
+    };
+    Object.assign(process.env, {
+      CC_SESSION: 'cc-parent-project',
+      CC_PROJECT: '/tmp/parent',
+      CC_WORKDIR: '/tmp/parent',
+      CC_AWF_STATE_SERVER: '1',
+      CC_SID: 'parent-run',
+    });
+
+    try {
+      const promise = runCommand(undefined, {});
+      await boot(promise);
+
+      const serverCall = m.spawn.mock.calls.find(([cmd]) => cmd === 'node');
+      expect(serverCall).toBeTruthy();
+      const serverEnv = serverCall[2].env;
+      expect(serverEnv.CC_SESSION).toBe('cc');
+      expect(serverEnv.CC_PROJECT).toBe('/tmp/mock-cwd');
+      expect(serverEnv).not.toHaveProperty('CC_WORKDIR');
+      expect(serverEnv).not.toHaveProperty('CC_AWF_STATE_SERVER');
+      expect(serverEnv).not.toHaveProperty('CC_SID');
+
+      const bootstrapCall = m.execSync.mock.calls.find(([cmd]) => cmd.includes('bootstrap.sh'));
+      expect(bootstrapCall).toBeTruthy();
+      const sessionEnv = bootstrapCall[1].env;
+      expect(sessionEnv.CC_SESSION).toBe('cc-p12ab');
+      expect(sessionEnv.CC_PROJECT).toBe('/tmp/mock-cwd');
+      expect(sessionEnv.CC_AWF_STATE_SERVER).toBe('1');
+      expect(sessionEnv).not.toHaveProperty('CC_SID');
+    } finally {
+      for (const [key, value] of Object.entries(inherited)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it('TC2b: 观察循环消费宿主事件并展示（task.done 渲染）', async () => {

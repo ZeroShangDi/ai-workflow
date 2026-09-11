@@ -137,9 +137,9 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(result.serverInfo).toEqual({ name: 'awf-state-mcp', version: '1.0.0' });
   });
 
-  it('TC28: tools/list 返回 18 个 tools', async () => {
+  it('TC28: tools/list 返回 20 个 tools（含动态规划薄入口）', async () => {
     const tools = await client.toolsList();
-    expect(tools).toHaveLength(18);
+    expect(tools).toHaveLength(20);
     tools.forEach((t) => {
       expect(t).toHaveProperty('name');
       expect(t).toHaveProperty('description');
@@ -182,6 +182,15 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
 
     expect(res.ok).toBe(false);
     expect(res.error).toContain('T999');
+  });
+
+  it('TC11f: 动态规划不在 MCP 本地复制实现，离线模式明确要求 server', async () => {
+    const res = await client.callTool('awf_dynamic_plan', {
+      reason: '补任务',
+      operations: [{ type: 'insert_task' }],
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('requires state server mode');
   });
 
   // ── task lifecycle ──
@@ -338,6 +347,103 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
     expect(t1.title).toBe('new title');
     expect(t1.prompt).toBe('p1'); // 未传不更新
     expect(t1.constraints).toEqual(['保持向后兼容']);
+  });
+
+  it('TC18a: prerequisiteFor 原子插到目标之前并自动连依赖', async () => {
+    const res = await client.callTool('awf_task_create', {
+      id: 'T1-F1', title: '补前置', prompt: '先修复', deps: [], prerequisiteFor: 'T2',
+    });
+    expect(res.ok).toBe(true);
+    const s = readState(tmpDir);
+    expect(s.tasks.map((task) => task.id)).toEqual(['T1', 'T1-F1', 'T2']);
+    expect(s.tasks.find((task) => task.id === 'T2').deps).toEqual(['T1-F1']);
+  });
+
+  it('TC18b: active 目标拒绝动态前置，且不产生半次写入', async () => {
+    const s = baseState();
+    s.tasks.find((task) => task.id === 'T2').status = 'active';
+    writeState(tmpDir, s);
+    const before = readState(tmpDir);
+    const res = await client.callTool('awf_task_create', {
+      id: 'T2-F1', title: '补前置', prompt: '先修复', prerequisiteFor: 'T2',
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('status=active');
+    expect(readState(tmpDir)).toEqual(before);
+  });
+
+  it('TC18b2: 非 plan 阶段创建任务不能写入缺失依赖', async () => {
+    const before = readState(tmpDir);
+    const res = await client.callTool('awf_task_create', {
+      id: 'BROKEN', title: '错误任务', prompt: '不应落盘', deps: ['MISSING'],
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('missing task MISSING');
+    expect(readState(tmpDir)).toEqual(before);
+  });
+
+  it('TC18b3: run/pause 阶段禁止用裸 CRUD 绕过动态规划能力', async () => {
+    const s = baseState();
+    s.mode = 'run';
+    writeState(tmpDir, s);
+    const before = readState(tmpDir);
+    for (const [tool, args] of [
+      ['awf_task_create', { id: 'T3', title: '旁路创建', prompt: 'x' }],
+      ['awf_task_update', { id: 'T2', title: '旁路修改' }],
+      ['awf_task_delete', { id: 'T2' }],
+    ]) {
+      const res = await client.callTool(tool, args);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain('use awf_dynamic_plan');
+    }
+    expect(readState(tmpDir)).toEqual(before);
+  });
+
+  it('TC18c: 依赖更新拒绝环和 active 任务新增未完成前置', async () => {
+    let res = await client.callTool('awf_task_update', { id: 'T1', deps: ['T2'] });
+    expect(res.ok).toBe(true);
+    const beforeCycle = readState(tmpDir);
+    res = await client.callTool('awf_task_update', { id: 'T2', deps: ['T1'] });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('cycle');
+    expect(readState(tmpDir)).toEqual(beforeCycle);
+
+    const active = baseState();
+    active.tasks.find((task) => task.id === 'T2').status = 'active';
+    writeState(tmpDir, active);
+    const beforeActive = readState(tmpDir);
+    res = await client.callTool('awf_task_update', { id: 'T2', deps: ['T1'] });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('active task');
+    expect(readState(tmpDir)).toEqual(beforeActive);
+  });
+
+  it('TC18c2: active/done 状态变更不能绕过未完成依赖', async () => {
+    const s = baseState();
+    s.tasks.find((task) => task.id === 'T2').deps = ['T1'];
+    writeState(tmpDir, s);
+
+    for (const [tool, args] of [
+      ['awf_task_status', { id: 'T2', status: 'active' }],
+      ['awf_task_status', { id: 'T2', status: 'done' }],
+      ['awf_task_complete', { id: 'T2', status: 'done', result: '伪完成' }],
+    ]) {
+      const res = await client.callTool(tool, args);
+      expect(res.ok).toBe(false);
+      expect(res.error).toContain('incomplete dependencies: T1');
+    }
+    expect(readState(tmpDir).tasks.find((task) => task.id === 'T2').status).toBe('pending');
+  });
+
+  it('TC18d: 有依赖者时拒绝删除任务', async () => {
+    const s = baseState();
+    s.tasks.find((task) => task.id === 'T2').deps = ['T1'];
+    writeState(tmpDir, s);
+    const before = readState(tmpDir);
+    const res = await client.callTool('awf_task_delete', { id: 'T1' });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('depended on by T2');
+    expect(readState(tmpDir)).toEqual(before);
   });
 
   it('TC19: awf_task_delete 正常删除', async () => {

@@ -58,11 +58,36 @@ function makeTransport(overrides = {}) {
 const runningOf = (...ids) => ({ taskIds: () => ids });
 
 describe('batch-transport — dispatch', () => {
-  it('注入 subagentDispatch 提示词并标记任务 active', async () => {
+  it('先占用 active，再注入 subagentDispatch 提示词', async () => {
     const { t, sent, active } = makeTransport();
     await t.dispatch({ id: 'T1', title: '做 A', prompt: '做事' });
     expect(sent).toEqual(['DISPATCH T1']);
     expect(active).toEqual(['T1']);
+  });
+
+  it('原子占用失败时不生成提示词、不派发', async () => {
+    const prompt = vi.fn(async () => 'DISPATCH T1');
+    const { t, sent } = makeTransport({
+      deps: {
+        markActive: () => false,
+        prompts: { subagentDispatch: prompt, resend: async () => '' },
+      },
+    });
+    await expect(t.dispatch({ id: 'T1', title: '做 A' })).resolves.toBe(false);
+    expect(prompt).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+  });
+
+  it('通道发送失败时释放 active 占用', async () => {
+    const released = [];
+    const { t } = makeTransport({
+      deps: {
+        send: async () => { throw new Error('channel down'); },
+        releaseActive: (id) => released.push(id),
+      },
+    });
+    await expect(t.dispatch({ id: 'T1', title: '做 A' })).rejects.toThrow('channel down');
+    expect(released).toEqual(['T1']);
   });
 });
 

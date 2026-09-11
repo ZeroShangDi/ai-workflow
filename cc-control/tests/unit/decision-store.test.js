@@ -77,6 +77,17 @@ describe('DecisionStore — 追加式 jsonl / runStamp / override', () => {
     expect(fs.readFileSync(store.fileFor(NEW_RUN), 'utf8').trim().split('\n')).toHaveLength(1);
   });
 
+  it('生命周期事件允许 requested → completed，同阶段重复仍幂等', () => {
+    const root = makeProject({ runDirs: [NEW_RUN] });
+    const store = new DecisionStore(root);
+    expect(store.appendEvent({ decision_id: 'D-L1', event: 'decision_requested', status: 'awaiting_human' }).appended).toBe(true);
+    expect(store.appendEvent({ decision_id: 'D-L1', event: 'decision_requested', status: 'awaiting_human' }).appended).toBe(false);
+    expect(() => store.override('D-L1', { instruction: '尚不能改写' })).toThrow(/不存在/);
+    expect(store.appendEvent({ decision_id: 'D-L1', event: 'decision_completed', status: 'reviewed' }).appended).toBe(true);
+    const lifecycle = store.eventsFor('D-L1');
+    expect(lifecycle.entries.map((entry) => entry.event)).toEqual(['decision_requested', 'decision_completed']);
+  });
+
   it('聚合跨 run：多个 run 文件倒序读取（新 run 在前）', () => {
     const root = makeProject({ runDirs: [OLD_RUN, NEW_RUN] });
     const store = new DecisionStore(root);
