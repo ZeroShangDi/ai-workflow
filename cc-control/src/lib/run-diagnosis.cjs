@@ -2,8 +2,9 @@
 
 const fs = require('fs');
 const path = require('path');
-// claude -p 收口到 oneshot adapter（R-cc：外部源码零 claude 字面）
-const oneshot = require('../adapters/oneshot.cjs');
+// claude -p 收口到 oneshot 端口（R-cc：外部源码零 claude 字面）。
+// **端口由调用方注入**（T1-117）：lib 是地基，不应该反向依赖 adapters 的具体实现 ——
+// 装配根（server.cjs）从 ports.cjs 取端口后传进来。
 
 const DIAGNOSIS_PATH = ['.awf', 'logs', 'run-diagnosis.json'];
 const DIAGNOSIS_TIMEOUT_MS = 5 * 60 * 1000;
@@ -76,8 +77,16 @@ function parseDiagnosis(text) {
   };
 }
 
-function diagnoseWithClaude(prompt, projectRoot) {
-  // 诊断是独立、只读的模型调用，必须隔离项目 hooks；claude -p 经 oneshot adapter（safe-mode + 无会话持久化）
+/**
+ * @param {string} prompt
+ * @param {string} projectRoot
+ * @param {{ oneshot: object }} deps 必需：oneshot 端口（由装配根注入，见文件头）
+ */
+function diagnoseWithClaude(prompt, projectRoot, { oneshot } = {}) {
+  if (!oneshot || typeof oneshot.spawnClaudeP !== 'function') {
+    throw new Error('diagnoseWithClaude: 需注入 oneshot 端口（{ oneshot } 来自 adapters/ports.cjs）');
+  }
+  // 诊断是独立、只读的模型调用，必须隔离项目 hooks；claude -p 经 oneshot 端口（safe-mode + 无会话持久化）
   return oneshot.spawnClaudeP({
     prompt,
     cwd: projectRoot,

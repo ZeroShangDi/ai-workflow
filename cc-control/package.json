@@ -15,9 +15,12 @@
     "test": "vitest run",
     "lint": "bash scripts/lint.sh",
     "build": "bash scripts/build.sh",
+    "build:web": "node scripts/build-web.mjs",
+    "prepack": "node scripts/build-web.mjs --required",
     "eval": "bash scripts/eval.sh",
     "test:coverage": "vitest run --coverage",
-    "test:real": "node tests/regression/fullflow-regression.mjs"
+    "test:real": "node tests/regression/fullflow-regression.mjs",
+    "check:arch": "node scripts/check-architecture.mjs"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",

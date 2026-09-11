@@ -5,7 +5,7 @@ import { getPaths } from '../lib/paths.js';
 import { logger, logStep } from '../lib/ui/log.js';
 import { createSpinner } from '../lib/ui/spinner.js';
 import { installProfile, uninstallProfile, installProjectMcp } from '../lib/profile.js';
-import tooling from '../adapters/tooling.cjs';
+import { tooling } from '../adapters/ports.cjs'; // 端口经契约取用（T1-117）
 
 /**
  * awf plugin — 独立插件管理

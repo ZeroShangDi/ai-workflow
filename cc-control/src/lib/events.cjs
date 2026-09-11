@@ -2,18 +2,18 @@
 /**
  * events.cjs — 进程内事件总线 + 首批领域事件类型定义（run/task/agent/hook 映射锚点）
  *
- * 供 W3-003/004（hook→事件翻译、api 推送、persist-pipeline 落盘）消费。事件归一化形态：
+ * 供 W3-003/004（hook→事件翻译、api 推送、落盘 sink）消费。事件归一化形态：
  *   { type, at, runId?, payload }
  * EVENT_DEFS 记录首批类型及其必需载荷键与「映射锚点」：
  *   - source      来自哪（claude hook / run driver / scheduler…）——hook 翻译接缝(→W1-031/046)
- *   - persist     落到 persist-pipeline 的哪个 sink 类型（T1-024 的 dispatchEvent type；无则 -
+ *   - persist     落到哪个 sink 类型（wirePersist 的 dispatch 载荷 type；无则 -
  * 总线为进程内同步：on(type|'*', fn) 订阅、emit 依注册顺序调用，单个 handler 异常被吞（日志）保证总线韧性。
  * 本模块纯内存、不改写任何现有逻辑。
  */
 
 /** 事件类型目录：type → { source, persist?, payloadKeys } */
 const EVENT_DEFS = {
-  // run 生命周期（run driver / statemachine；runId 走顶层字段，非 payload 键）
+  // run 生命周期（run driver / run-slot；runId 走顶层字段，非 payload 键）
   'run.started': { source: 'run.driver', persist: 'log.append', payloadKeys: [] },
   'run.stopped': { source: 'run.driver', persist: 'log.append', payloadKeys: [] },
   'run.phase': { source: 'run.driver', payloadKeys: ['phase'] },
@@ -24,7 +24,7 @@ const EVENT_DEFS = {
   // agent 生命周期（SubagentStart/Stop hook）
   'agent.started': { source: 'hook.subagent_start', payloadKeys: ['agentId'] },
   'agent.stopped': { source: 'hook.subagent_stop', payloadKeys: ['agentId', 'taskId'] },
-  // usage / metrics / decision 快照（persist-pipeline 直接消费）
+  // usage / metrics / decision 快照（由落盘 sink 直接消费）
   'usage.snapshot': { source: 'statusline/context-usage', persist: 'usage.snapshot', payloadKeys: [] },
   'metrics.snapshot': { source: 'run.metrics', persist: 'metrics.snapshot', payloadKeys: [] },
   'decision.record': { source: 'decision.gate', persist: 'decision.record', payloadKeys: ['decisionId'] },
@@ -54,7 +54,7 @@ function createEvent(type, payload = {}, runId) {
   return { type, at: new Date().toISOString(), runId: runId ?? null, payload };
 }
 
-/** 事件 → persist-pipeline sink type（无 → null） */
+/** 事件 → 落盘 sink type（无 → null） */
 function persistSinkFor(type) {
   const def = EVENT_DEFS[type];
   return def?.persist || null;
@@ -95,7 +95,7 @@ function createEventBus() {
   return { on, emit, types: () => [...typeHandlers.keys()] };
 }
 
-/** 便捷：把 persist-pipeline sinks 接到总线上（按事件 persist 锚点分发；无锚点事件忽略） */
+/** 便捷：把落盘 sinks 接到总线上（按事件 persist 锚点分发；无锚点事件忽略） */
 function wirePersist(bus, sinks, { dispatch } = {}) {
   return bus.on('*', (event) => {
     const sinkType = persistSinkFor(event.type);

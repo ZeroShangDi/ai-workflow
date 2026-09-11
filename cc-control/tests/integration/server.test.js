@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { makeApi } from '../helpers/http-api.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +51,9 @@ class MockRunLogger {
 // ── 临时目录：state.json 存在/不存在 + HTML 文件存在性控制 ──
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-server-test-'));
+// 「未构建」态的落点：空目录（web 产物缺失 → server 回落 legacy 观测页）
+const EMPTY_WEB_DIR = path.join(TMP, 'empty-web');
+fs.mkdirSync(EMPTY_WEB_DIR, { recursive: true });
 const projectWithState = path.join(TMP, 'with-state');
 const projectNoState = path.join(TMP, 'no-state');
 const fakeHome = path.join(TMP, 'home');
@@ -61,8 +65,6 @@ fs.writeFileSync(
   JSON.stringify({ mode: 'run', version: '0.1.0', currentState: 'CODE', tasks: [{ id: 'T1', status: 'done' }] }),
 );
 
-const htmlEmpty = path.join(TMP, 'html-empty');        // 都没有 → 500（T1-094：ui.html 已废弃，无回退）
-fs.mkdirSync(htmlEmpty, { recursive: true });
 
 // ── env + 注入：必须在 import server.cjs 之前 ──
 process.env.CC_PROJECT = projectWithState;
@@ -75,27 +77,9 @@ global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 global.__CC_RUN_DIAGNOSIS__ = { ...diagnosisLib, diagnoseWithClaude: m.diagnose };
 
 const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
-const DASHBOARD_PATH = fileURLToPath(new URL('../../src/server/dashboard.html', import.meta.url));
-const DIAGNOSTICS_PATH = fileURLToPath(new URL('../../src/server/diagnostics.html', import.meta.url));
 
 let server;
 let api;
-
-function makeApi(base) {
-  return async function (method, pathname, body) {
-    const headers = { connection: 'close' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    const res = await fetch(base + pathname, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* not json */ }
-    return { status: res.status, body: json, text, contentType: res.headers.get('content-type') };
-  };
-}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -103,7 +87,7 @@ beforeAll(async () => {
   const mod = await import(SERVER_PATH);
   server = mod;
   const { url } = await server.start(0);
-  api = makeApi(url);
+  api = makeApi(url, projectWithState);
 });
 
 afterAll(async () => {
@@ -111,7 +95,7 @@ afterAll(async () => {
   delete global.__CC_TMUX__;
   delete global.__CC_RUNLOGGER__;
   delete global.__CC_RUN_DIAGNOSIS__;
-  delete process.env.CC_HTML_DIR;
+  delete process.env.CC_WEB_PUBLIC;
   for (const k of ['CC_PROJECT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_LOCAL_CMD_MS']) {
     delete process.env[k];
   }
@@ -123,7 +107,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.tmux.hasSession.mockReturnValue(true);
   process.env.CC_PROJECT = projectWithState;
-  delete process.env.CC_HTML_DIR;
+  // T1-118：本仓库可能**已经构建过** src/server/public（`npm run build` 会构建）。
+  // 那些断言 legacy 观测页的用例必须钉住「未构建」态，否则结果随本地是否构建而漂移。
+  process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR;
   fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'run-diagnosis.json'), { force: true });
 });
 
@@ -132,19 +118,14 @@ beforeEach(() => {
 // ─────────────────────────────────────────────
 
 describe('路由', () => {
-  it('TC1: GET / → 返回 dashboard.html', async () => {
+  // T1-119：legacy 观测页（dashboard/decisions/diagnostics.html）退役，页面只由 web 构建产物承载。
+  // 本文件把 CC_WEB_PUBLIC 钉在空目录（= 未构建），故这里断言的是「缺产物」那一条：明确告警、不静默。
+  it('TC1: GET / 未构建 → 503 + 明确告警（提示 npm run build，不再回落 legacy 页面）', async () => {
     const res = await api('GET', '/');
-    expect(res.status).toBe(200);
-    expect(res.contentType).toContain('text/html');
-    expect(res.text).toContain('<title>AWF Run — Dashboard</title>');
-    expect(res.text).toContain('id="taskList"');
-  });
-
-  it('TC3: GET / → dashboard 缺失 → 500（ui.html 已废弃，无回退）', async () => {
-    process.env.CC_HTML_DIR = htmlEmpty;
-    const res = await api('GET', '/');
-    expect(res.status).toBe(500);
-    expect(res.body).toEqual({ ok: false, error: 'no page found' });
+    expect(res.status).toBe(503);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toContain('npm run build');
+    expect(res.body.expected.endsWith(path.join('index.html'))).toBe(true); // 缺什么就报什么路径
   });
 
   it('TC4: GET /ui → 404（ui.html 已废弃删除）', async () => {
@@ -153,11 +134,12 @@ describe('路由', () => {
     expect(res.body).toEqual({ ok: false, error: 'not found' });
   });
 
-  it('TC4b: GET /diagnostics → 返回诊断页', async () => {
-    const res = await api('GET', '/diagnostics');
-    expect(res.status).toBe(200);
-    expect(res.contentType).toContain('text/html');
-    expect(res.text).toContain('本次运行诊断');
+  it('TC4b: 所有页面路径同一套处理（/diagnostics、/decisions.html、/dashboard）—— 不再各自读 html', async () => {
+    for (const p of ['/diagnostics', '/decisions.html', '/dashboard']) {
+      const res = await api('GET', p);
+      expect(res.status, p).toBe(503);
+      expect(res.body.error, p).toContain('npm run build');
+    }
   });
 
   it('TC6: GET /awf/state → 200 + JSON', async () => {
@@ -790,74 +772,6 @@ describe('/hook 事件', () => {
 // dashboard.html（TC33–TC37）
 // ─────────────────────────────────────────────
 
-describe('dashboard.html', () => {
-  let html;
-
-  beforeAll(() => {
-    html = fs.readFileSync(DASHBOARD_PATH, 'utf-8');
-  });
-
-  it('TC33: 文件存在且非空', () => {
-    expect(fs.existsSync(DASHBOARD_PATH)).toBe(true);
-    expect(fs.statSync(DASHBOARD_PATH).size).toBeGreaterThan(0);
-  });
-
-  it('TC34: 关键 DOM 元素', () => {
-    const ids = ['projectName', 'currentPhase', 'progress', 'phaseChain', 'taskList', 'output', 'connStatus', 'errorBar'];
-    for (const id of ids) {
-      expect(html).toContain(`id="${id}"`);
-    }
-  });
-
-  it('TC35: phaseChain 已改为 metrics strip', () => {
-    expect(html).toContain("const mr = await fetch('/awf/metrics')");
-    expect(html).toContain('function renderMetrics(metrics)');
-    expect(html).toContain("metricCard('总 Token'");
-    expect(html).toContain("metricCard('输出 Token'");
-    expect(html).toContain("metricCard('输出速度'");
-    expect(html).toContain("metricCard('上下文'");
-    expect(html).toContain("metricCard('总耗时'");
-  });
-
-  it('TC38: 总览提供独立诊断入口', () => {
-    const html = fs.readFileSync(DASHBOARD_PATH, 'utf8');
-    expect(html).toContain('diagnoseBtn');
-    expect(html).toContain("fetch('/awf/diagnostics', { method: 'POST' })");
-    expect(html).toContain('href="/diagnostics"');
-  });
-
-  it('TC39: 诊断页请求指标与诊断结果', () => {
-    const html = fs.readFileSync(DIAGNOSTICS_PATH, 'utf8');
-    expect(html).toContain("fetch('/awf/metrics')");
-    expect(html).toContain("fetch('/awf/diagnostics')");
-    expect(html).toContain('AI 诊断结论');
-  });
-
-  it('TC36: metrics 渲染包含格式化函数', () => {
-    expect(html).toContain('function formatCompactNumber(value)');
-    expect(html).toContain('function formatSpeed(value)');
-    expect(html).toContain('function formatElapsed(ms)');
-    expect(html).toContain('function formatContext(metrics)');
-  });
-
-  it('TC37: refresh 行为（fetch 调用 + 离线处理 + 去重 + setInterval）', () => {
-    // 静态分析 refresh() 源码中的关键行为
-    expect(html).toContain("const sr = await fetch('/awf/state')");
-    expect(html).toContain("const mr = await fetch('/awf/metrics')");
-    expect(html).toContain("const ssr = await fetch('/status?snapshot=true')");
-    expect(html).toContain("textContent = '离线'");
-    expect(html).toContain('ss.snapshot !== lastSnapshot');
-    expect(html).toContain('setInterval(refresh, 2000)');
-  });
-
-  it('TC38: 发送按钮 busy 时切换停止（/stop + handleSendOrStop）', () => {
-    expect(html).toContain('handleSendOrStop');
-    expect(html).toContain("fetch('/stop', { method: 'POST' })");
-    expect(html).toContain('renderSendButton');
-    expect(html).toContain("isBusy = !!ok && !!ss.session && ss.state === 'busy'");
-  });
-});
-
 describe('web 产物静态托管（T1-093：build→server/public SPA）', () => {
   it('产物存在：root 由 React SPA 承载；assets 托管；无扩展名 SPA 路由回退 index；API 不受影响', async () => {
     const webDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-webpub-'));
@@ -885,16 +799,16 @@ describe('web 产物静态托管（T1-093：build→server/public SPA）', () =>
       expect(st.body).not.toBe(null);
       expect(st.body.ok).toBe(true);
     } finally {
-      delete process.env.CC_WEB_PUBLIC;
+      process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR; // 回到「未构建」态（不 delete：缺省会指向已构建的 src/server/public）
       fs.rmSync(webDir, { recursive: true, force: true });
     }
   });
 
-  it('产物缺失（未构建）：回落 legacy 托管（root→dashboard）+ 未知 GET 404', async () => {
-    delete process.env.CC_WEB_PUBLIC; // 指向缺省 src/server/public（无 index → 未就绪）
+  it('产物缺失（未构建）：页面路径 503 + 告警；未知 GET 404（不回退、不空白页）', async () => {
+    process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR; // 显式钉住「未构建」：缺省的 src/server/public 可能已被 npm run build 填上
     const root = await api('GET', '/');
-    expect(root.status).toBe(200);
-    expect(root.text).toContain('AWF Run'); // legacy dashboard.html
+    expect(root.status).toBe(503);
+    expect(root.body.error).toContain('npm run build');
 
     const miss = await api('GET', '/nope-404');
     expect(miss.status).toBe(404);

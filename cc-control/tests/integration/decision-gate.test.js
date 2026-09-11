@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { makeApi } from '../helpers/http-api.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -66,25 +67,13 @@ const RUN_FILE = path.join(RUNS_DIR, `${RUN_STAMP}.jsonl`);
 let server;
 let api;
 
-function makeApi(base) {
-  return async function (method, pathname, body) {
-    const headers = { connection: 'close' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    const res = await fetch(base + pathname, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* not json */ }
-    return { status: res.status, body: json, text, contentType: res.headers.get('content-type') };
-  };
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(async () => {
   const mod = await import(SERVER_PATH);
   server = mod;
   const { url } = await server.start(0);
-  api = makeApi(url);
+  api = makeApi(url, PROJ);
   writeGate(false);
 });
 
@@ -95,7 +84,12 @@ afterAll(async () => {
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
+// T1-118：本仓库可能已构建 src/server/public；断言 legacy 观测页的用例须钉住「未构建」态
+const EMPTY_WEB_DIR = path.join(TMP, 'empty-web');
+fs.mkdirSync(EMPTY_WEB_DIR, { recursive: true });
+
 beforeEach(() => {
+  process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR;
   server._resetForTest();
   vi.clearAllMocks();
   m.tmux.hasSession.mockReturnValue(true);
@@ -515,24 +509,6 @@ describe('Review 数据 API — list / override', () => {
     expect(task.exec).toMatchObject({ decision_id: id, instruction: '改成走 B 并重跑验证', original_answer: '先做可逆验证再定' });
     // 单 agent runLoop 下一轮 findNextTask 拾取该 pending 纠偏任务
     expect(findNextTask(state).id).toBe(`${id}-REV`);
-  });
-});
-
-describe('decisions.html Review 页面与 dashboard 入口', () => {
-  it('GET /decisions.html → 200，含页面标题与关键字段/操作', async () => {
-    const res = await api('GET', '/decisions.html');
-    expect(res.status).toBe(200);
-    expect(res.contentType).toContain('text/html');
-    expect(res.text).toContain('决策 Review');
-    expect(res.text).toContain('/awf/decisions');
-    expect(res.text).toContain('Override');
-    expect(res.text).toContain('标记 reviewed');
-  });
-
-  it('GET / → dashboard 含「决策 Review」入口链接', async () => {
-    const res = await api('GET', '/');
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('<a class="diagnostics-link" href="/decisions.html">决策 Review</a>');
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { withProject } from '../helpers/http-api.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
@@ -32,8 +33,9 @@ function freePort() {
     srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); });
   });
 }
-async function postJson(url, body) {
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+// 写类请求必须带 ?p（T1-110）：缺省用本轮 boot 项目（server 由 CC_PROJECT 启动）
+async function postJson(url, body, projectRoot = process.env.CC_PROJECT) {
+  const res = await fetch(withProject(url, 'POST', projectRoot), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   let json = null;
   try { json = await res.json(); } catch { /* ignore */ }
   return { status: res.status, body: json };
@@ -146,7 +148,8 @@ describe('常驻 server 冒烟（空闲回收 / shutdown）', () => {
 
 describe('server /hook sid 路由 + 内存状态机隔离（T1-071）', () => {
   async function hook(event, sid, body = {}) {
-    const qs = sid ? `?event=${event}&sid=${sid}` : `?event=${event}`;
+    const q = process.env.CC_PROJECT ? `&p=${encodeURIComponent(process.env.CC_PROJECT)}` : '';
+    const qs = `?event=${event}${sid ? `&sid=${sid}` : ''}${q}`;
     const res = await fetch(`${api}/hook${qs}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     return res.json();
   }
@@ -201,17 +204,3 @@ describe('run-state 按 sid 分片（T1-078）', () => {
   });
 });
 
-// ── T1-086：共享主题/工具资产（4 托管页公共抽取）──
-describe('共享主题/工具资产（T1-086）', () => {
-  it('GET /theme.css 与 /common.js → 200 + content-type + 内容标记', async () => {
-    const css = await fetch(`${api}/theme.css`);
-    expect(css.status).toBe(200);
-    expect(css.headers.get('content-type')).toContain('text/css');
-    expect(await css.text()).toContain('--bg');
-
-    const js = await fetch(`${api}/common.js`);
-    expect(js.status).toBe(200);
-    expect(js.headers.get('content-type')).toContain('javascript');
-    expect(await js.text()).toContain('AWF_COMMON');
-  });
-});

@@ -4,6 +4,8 @@
 > 源码：`src/server/server.cjs` / `src/server/decision*.cjs` / `src/cli/run.js` / `src/lib/{run-config,decision-config}.js/.cjs` / `plugin/core/hooks/gateway.cjs` / `plugin/decision/`
 > 测试文件：`tests/integration/decision-gate.test.js` / `tests/unit/{run-config,decision-config,decision,decision-instruction,decision-store,gateway,run-resume,run-logger}.test.js` / `sandbox/decision-smoke/smoke.cjs`
 > 用例编号与验收标准（T1-028 功能文档「验收标准」7 条）可追溯
+>
+> **决策入口换代**：旧入口 `awf_await_choice` / `awf_await_input` 已于 2026-09-10 在资产层停用（`awf-run-decision` 技能标注 + 提示词改输出 `<AWF_DECISION_REQUIRED>`）；本文件只覆盖决策门阀（新代）。停用说明见 `plugin/core/skills/awf-run-decision/SKILL.md`、`docs/bugs/decision-entry-two-generations.md`（T1-106，互斥化 pending）。
 
 ## 测试场景总览
 
@@ -66,7 +68,7 @@
 - **前置**：gate on；会话 busy；消息以 `<AWF_DECISION_REQUIRED>…</…>` 结尾且 `!stop_hook_active`
 - **执行**：触发 `Stop`；再次带标记无结果的 `Stop`
 - **断言**
-  - 首次：返回 ccOutput `{ decision:'block', continuePrompt: <决策模式指令> }`；`decisionGate.phase==='deciding'`；state 保持 busy（不 ready）
+  - 首次：返回 ccOutput `{ decision:'block', reason: <决策模式指令> }`（`reason` 含 `AWF_DECISION_RESULT` 与「禁止再向用户提问」）；`decisionGate.phase==='deciding'`；state 保持 busy（不 ready）
   - 二次：不再二次 block（收敛到 fallback 闭合，防递归）
 
 ### TC7: gate on AskUserQuestion 非 deciding → deny 转 DC

@@ -5,6 +5,7 @@ import { installProjectMcp } from '../lib/profile.js';
 import { loadState } from '../lib/state.js';
 import { waitWhilePaused } from '../lib/pause.js';
 import { buildRunContext, projectSid } from '../lib/run-context.cjs';
+import { openServerLog, serverLogPath } from '../lib/server-log.js';
 import { generateRunSettings } from '../server/run-settings.cjs';
 import { createRunClient } from './run-client.js';
 import { httpPost, httpPostJson, autoSelect, waitForReady, getStatus, SERVER_PORT, projectQuery } from '../lib/session/client.js';
@@ -141,7 +142,7 @@ async function startSession({ ctx, workDir, reuseExisting = false }) {
   // 幂等合并：只刷新 awf-* server 的绝对路径，保留项目已有 server
   const m = installProjectMcp(workDir, ctx.infraRoot, ctx.port);
   if (m.written) logStep('.mcp.json', 'ok', `已确保项目 MCP 注册 → ${m.servers.join(', ')}`);
-  await ensureServer(ctx.serverScriptPath, ctx.infraRoot, workDir, reuseExisting);
+  await ensureServer(ctx.serverScriptPath, ctx.infraRoot, workDir, reuseExisting, ctx);
   await writeRunSettings(ctx, workDir);
   const seqBefore = await sessionSeqOf(workDir);
   const created = await ensureSession(ctx.bootstrapScriptPath, workDir, ctx.runSessionName, reuseExisting);
@@ -198,7 +199,7 @@ export async function waitSessionStarted(ctx, workDir, seqBefore, deps = {}) {
 /** 确保 Session Server 已启动（单 server 多项目）。T1-063+：任何健康 server 直接复用——
  *  不同项目目录也可复用同一常驻 server（请求带 ?p 路由到各自项目上下文），不再因跨项目报错；
  *  无健康 server → 拉起（本项目为 boot 项目；其余项目随后以 ?p 注册自身上下文）。 */
-async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = false) {
+async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = false, runCtx = buildRunContext({ projectRoot: workDir })) {
   const existing = await getStatus(SERVER_PORT).catch(() => false);
   if (existing?.state) {
     logStep('tmux-http', 'ok', existing.projectRoot === workDir
@@ -207,11 +208,17 @@ async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = fa
     return;
   }
 
+  // T1-112：server 的 console 输出不再丢弃 —— 接到项目下 .awf/logs/server.log（追加 + 按 spawn 单代轮转）。
+  // 2026-09-10 宿主卡死时因为没有 server 日志，只能靠 transcript 反推才定位到 pause 闩锁。
+  const logPath = serverLogPath(runCtx.logsDir);
+  const log = openServerLog(logPath);
+  logStep('tmux-http', 'ok', `server 输出 → ${logPath}${log.rotated ? '（已轮转上一代）' : ''}`);
   const proc = spawn('node', [serverScript], {
-    stdio: 'ignore', detached: true, cwd: workDir,
+    stdio: ['ignore', log.fd, log.fd], detached: true, cwd: workDir,
     env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: workDir },
   });
   proc.unref();
+  log.close(); // 子进程已 dup 自己的 fd，父进程这份还回去
 
   for (let i = 0; i < 30; i++) {
     await sleep(500);
@@ -230,7 +237,11 @@ async function ensureSession(bootstrapScript, workDir, sessionName, reuseExistin
         `tmux display-message -p -t ${sessionName} "#{pane_current_path}"`,
         { encoding: 'utf8' },
       ).trim();
-      if (path.resolve(sessionCwd) === path.resolve(workDir)) {
+      // 会话不存在时 tmux 不报错，而是回**空串**且退出码 0；而 path.resolve('') 会静默取
+      // process.cwd()（= 本进程 cwd = workDir），令下面的相等判断恒真 → 假装复用了一个不存在
+      // 的会话，于是 --attach/--resume 在无会话时既不建会话也不报错（T1-108 真机回归暴露）。
+      // 故空输出必须显式判为「不存在」。
+      if (sessionCwd && path.resolve(sessionCwd) === path.resolve(workDir)) {
         logStep('session', 'ok', `${sessionName} → 复用现有会话`);
         return false;
       }

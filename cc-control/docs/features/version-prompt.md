@@ -1,10 +1,32 @@
 # awf version-prompt — 需求文档
 
 > 源码文件：`src/lib/version.js`
+> 测试文件：`tests/unit/version-prompt.test.js`
+
+## 当前状态（2026-09-11 核实）
+
+**该功能在生产路径上处于「已实现但未接线」状态，不生效。**
+
+`src/cli/init.js:5` 与 `src/cli/plan.js:2` 的 import 与调用点**均被注释掉**，注释写明「版本处理暂时禁用」：
+
+```js
+// src/cli/init.js
+// import { promptVersion } from '../lib/version.js'; // 版本处理暂时禁用
+
+// src/cli/plan.js
+// import { setupVersion } from '../lib/version.js'; // 版本处理暂时禁用
+```
+
+因此：`src/lib/version.js` 的**生产侧引用数为 0**，当前唯一消费方是 `tests/unit/version-prompt.test.js`。
+`awf init` / `awf plan` 启动**不会**弹出此选择器，版本号改由 `package.json` / `.awf/state.json` 直接承载。
+
+> 该状态已由结构门禁 `scripts/check-architecture.mjs` 的不变量①「零生产引用」覆盖 —— 但**目前漏检**（扫描会把注释里的 import 当成真引用），见 `.awf/issues/003-comment-import-counted-as-reference.md`。
+> 恢复接线时，除去掉两处注释外，还需同步更新 `init.md` / `plan.md` 的交互流程描述。
 
 ## 功能描述
 
-`promptVersion(cwd)` 是一个交互式版本号选择器，在 `awf init` 和 `awf plan` 启动前被调用。它读取当前版本号，提供 +patch/+minor/+major 和自定义输入选项，返回用户确认的版本字符串。
+`promptVersion(cwd)` 是一个交互式版本号选择器：读取当前版本号，提供 +patch/+minor/+major 和自定义输入选项，返回用户确认的版本字符串。
+`setupVersion(cwd)` 是它的写回包装：拿到版本号后写入 `.awf/state.json` 的 `version` 字段并返回。
 
 ---
 
@@ -75,10 +97,20 @@ package.json version
 
 ---
 
+## 函数清单
+
+| 函数 | 说明 | 位置 |
+|------|------|------|
+| `setupVersion(cwd)` | 调 `promptVersion` 拿版本号，写回 `.awf/state.json` 的 `version` 并返回 | `src/lib/version.js:15` |
+| `promptVersion(cwd)` | 交互式选择版本号并返回字符串（不写盘） | `src/lib/version.js:25` |
+
+---
+
 ## 依赖
 
 | 模块 | 用途 |
 |------|------|
-| `node:fs/promises` | 读取 state.json、package.json |
+| `node:fs/promises` | 读取 `.awf/state.json`、`package.json` |
 | `node:path` | 拼接文件路径 |
 | `@inquirer/prompts` (select, input) | 交互式 UI |
+| `./state.js` | `setupVersion` 写回 state 用的 `loadState` / `saveState` |

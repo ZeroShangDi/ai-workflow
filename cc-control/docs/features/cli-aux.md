@@ -1,150 +1,128 @@
-# awf plugin / server / open / attach — 需求文档
+# CLI 辅助命令（plugin / server / open / attach）— 功能文档
 
-> 源码文件：`src/cli/plugin.js`, `src/cli/server.js`, `src/cli/open.js`, `src/cli/attach.js`
+> 对应 WBS：
+> 源码：`src/cli/plugin.js`、`src/cli/server.js`、`src/cli/open.js`、`src/cli/attach.js`（命令注册见 `src/awf.js`）
+> 相关：`src/lib/version.js`（`promptVersion`，当前禁用）
 
----
+## 功能描述
 
-## 1. awf plugin — 独立插件管理
-
-### 功能描述
-
-手动管理 `ai-workflow` 插件的符号链接，不依赖 `claude plugin` CLI。
-
-### 命令
+`src/awf.js` 注册 7 个命令：`init` / `plan` / `run`（主命令）与 `plugin` / `server` / `open` / `attach`（辅助命令）。本文件覆盖四个辅助命令，另附已禁用返回的 `promptVersion` 辅助面。
 
 | 命令 | 说明 |
 |------|------|
-| `awf plugin install` | 创建 symlink: `plugin/` → `~/.claude/plugins/ai-workflow` |
-| `awf plugin uninstall` | 移除 symlink 或目录 |
+| `awf plugin <action>` | 插件注册：本地注入（默认）或全局 `claude plugin install`；`-s, --scope <local\|global>` |
+| `awf server <action>` | tmux-http 服务生命周期：start / stop / status |
+| `awf open <target>` | 打开 web 可视化页面：dashboard / tree |
+| `awf attach` | 接入 tmux session 观看 Claude Code 实时对话 |
 
-### 流程
+---
 
-**install**：
-1. 确保 `~/.claude/plugins/` 目录存在
-2. 检查 `~/.claude/plugins/ai-workflow` 是否已存在 → 已存在则跳过
-3. 创建 symlink: `plugin/` → `~/.claude/plugins/ai-workflow`
+## 1. awf plugin — 插件管理（两态）
 
-**uninstall**：
-1. 检查目标是否存在 → 不存在则跳过
-2. 判断是 symlink 则 `unlink`，是目录则 `rm -rf`
-3. 输出 "已卸载"
+`pluginCommand(action, options)` 按 `scope` 分发（默认 `local`）。
 
-**无效 action** → 输出错误并 `process.exit(1)`
+### 本地注册（默认 `--scope local`）
 
-### 依赖
+| action | 实现 | 输出 |
+|--------|------|------|
+| `install` | `installProfile(cwd, projectRoot)` → 项目 `.claude/settings.json`；`installProjectMcp(cwd, projectRoot)` → 项目 `.mcp.json` | success「已本地注册 plugin → <path>」「已写入项目 MCP 注册 → <path>」，失败 warn 不阻断 |
+| `uninstall` | `uninstallProfile(cwd, projectRoot)` | success「已移除本地 plugin 注册」或 info「本地 plugin 注册不存在」 |
+| 其它 | — | error「未知操作: <action>，可用: install \| uninstall」+ `exit(1)` |
 
-| 模块 | 用途 |
-|------|------|
-| `node:fs/promises` | mkdir, stat, symlink, unlink, rm |
-| `./paths.js` | getPaths → projectRoot, claudePlugins |
-| `./logger.js` | 控制台输出 |
+### 全局注册（`--scope global`）
+
+| action | 实现 |
+|--------|------|
+| `install` | `loadPluginsFromProfile` 读 `plugin/settings.json` 的 `plugins`；`installAllPlugins`：清理早期 symlink → `tooling.buildMarketplaceAdd(plugin/)` 注册市场 → 逐个 `claude plugin install <spec>`（已用户级安装则 skip） |
+| `uninstall` | `uninstallAllPlugins` → 逐个 `claude plugin uninstall <spec>` |
+| 其它 | error + `exit(1)` |
+
+- 已安装判据：`~/.claude/plugins/installed_plugins.json` 中该 spec 存在 `scope === 'user'` 的条目（**仅用户级**算已装，项目级不算）。
+- 安装/卸载经 `tooling.*`（`src/adapters/ports.cjs` 端口契约），`claude plugin ...` 字面不出 CLI。
 
 ---
 
 ## 2. awf server — tmux-http 服务生命周期
 
-### 功能描述
+会话名 / 端口 / 路径经 `buildRunContext({ projectRoot, sid: projectSid(cwd) })` 装配（单 server 多项目：请求带 `?p` 路由）。
 
-管理 HTTP Session Server 和 tmux session 的启动/停止/状态查询。
-
-### 命令
-
-| 命令 | 说明 |
-|------|------|
-| `awf server start` | 启动 HTTP server + 确保 tmux session |
-| `awf server stop` | 清理 tmux session + 释放端口 |
-| `awf server status` | 检查 server 是否运行中 |
-
-### 流程
-
-**start**：
-1. `check()` 检查 8787 端口是否已有服务
-2. 未运行 → spawn `node src/server/server.cjs`（detached + unref），轮询 30 次最多 15s 等待就绪
-3. 检查 tmux session 是否存在：
-   - 存在 → 跳过
-   - 不存在 → 执行 bootstrap.sh 创建
-4. 输出环境就绪信息
-
-**stop**：
-1. `tmux kill-session` 清理 session
-2. `lsof -ti:8787 | xargs kill` 释放端口
-3. 输出 "已停止"
-
-**status**：
-1. `check()` HTTP GET `/status`
-2. 运行中 → 输出 URL
-3. 未运行 → 输出提示
-
-**check()**：HTTP GET `http://127.0.0.1:8787/status`，2s 超时，返回 boolean。
-
-### 依赖
-
-| 模块 | 用途 |
-|------|------|
-| `node:child_process` (spawn, execSync) | 启动/停止 server、管理 tmux |
-| `node:http` | 健康检查 GET /status |
-| `./paths.js` | tmuxServer、bootstrapScript、projectRoot |
-| `./logger.js` | 控制台输出 |
+| action | 流程 |
+|--------|------|
+| `start` | ① `getStatus(port)` 探测：已有服务 → info「已运行 → 复用」（本项目/他项目均复用）；否则 spawn `node <serverScriptPath>`（detached + unref，输出落 `.awf/logs/server.log`，env 带 `CC_PORT`/`CC_PROJECT`），轮询 30×500ms 等就绪，超时 → error 并 return。② `tmux has-session` 检查，不存在则 `bash <bootstrapScript>`。③ success「环境就绪」 |
+| `stop` | ① `tmux kill-session`；② `requestShutdown(port)` POST `/shutdown` 优雅关闭；失败则 `lsof -ti:<port> \| xargs kill` 兜底；③ success「已停止」 |
+| `status` | `checkServer` → success「tmux-http 运行中: http://localhost:<port>」/ info「tmux-http 未运行」 |
+| 其它 | error「未知操作: <action>，可用: start \| stop \| status」+ `exit(1)` |
 
 ---
 
-## 3. awf open — 可视化页面
+## 3. awf open — web 可视化页面
 
-### 功能描述
+打开由常驻 server 静态托管的 React SPA；URL 带项目作用域 `?p=<cwd>`（缺 `p` 会落到 server 的 boot 项目）。
 
-打开 AI Workflow 的可视化页面（dashboard 或任务树）。
+| target | URL |
+|--------|-----|
+| `tree` | `http://localhost:<SERVER_PORT>/?view=wbs-tree&p=<cwd>` |
+| `dashboard` | `http://localhost:<SERVER_PORT>/?p=<cwd>` |
+| 其它 | error「未知目标: <target>，可用: tree \| dashboard」+ `exit(1)` |
 
-### 命令
-
-| 命令 | 说明 |
-|------|------|
-| `awf open dashboard` | 浏览器打开 `http://localhost:8787` |
-| `awf open ui` | 同 dashboard |
-| `awf open tree` | 渲染 WBS 任务树 HTML 并打开 |
-
-### 流程
-
-**tree**：
-1. 读取 `.awf/state.json`
-2. 若 `state.wbs` 为空 → 报错退出
-3. 内嵌 HTML 模板 + `state.wbs` JSON 数据 → 渲染页面
-4. 写入 `.awf/w-tree.html`
-5. `openBrowser()` 在默认浏览器打开
-
-**dashboard/ui**：
-1. 构造 `http://localhost:8787` URL
-2. `openBrowser()` 打开
-
-**openBrowser(target)**：根据平台选择 `open` / `start` / `xdg-open`，spawn detached + unref。
-
-### 依赖
-
-| 模块 | 用途 |
-|------|------|
-| `node:child_process` (spawn) | 打开浏览器 |
-| `node:fs/promises` | 读写 state.json 和 HTML |
-| `./paths.js` | projectRoot |
-| `./logger.js` | 控制台输出 |
+- **`ui` 目标已废弃**（T1-094，`ui.html` 已删除，不再是 open 目标）。
+- **CLI 端 HTML 渲染已移除**（T1-066）：不再生成 `.awf/w-tree.html`，`tree` 直接指向 web 的 WBS-Tree 视图。
+- `openBrowser(target)`：`darwin → open` / `win32 → start` / 其它 `→ xdg-open`，`spawn(..., { stdio:'ignore', detached:true })` + `unref()`。
 
 ---
 
 ## 4. awf attach — 接入 tmux session
 
-### 功能描述
+1. `buildRunContext({ projectRoot: cwd }).runSessionName` 解析会话名（未带 sid → 基础会话名，缺省 `cc`，可由 `CC_SESSION` 覆盖）；
+2. `tmux has-session -t <session>` 检查，不存在 → error「tmux session '<session>' 不存在，请先执行 awf run」+ `exit(1)`；
+3. 存在 → info「接入 session '<session>'（Ctrl-B D 脱离）...」+ `tmux attach -t <session>`（`stdio: 'inherit'`）。
 
-连接到正在运行的 tmux session，观看 AI 工作流执行过程。
+---
 
-### 流程
+## 附：version-prompt（已禁用返回）
 
-1. 读取 `CC_SESSION` 环境变量或默认 `cc`
-2. `tmux has-session -t {session}` 检查是否存在
-3. 不存在 → 报错退出，提示先执行 `awf run`
-4. 存在 → `tmux attach -t {session}`（stdio inherit，用户交互）
+`src/lib/version.js` 的 `promptVersion(cwd)` 交互式选择/递增版本号，仍在单测覆盖内，但 `awf init` 与 `awf plan` 均已注释停用（`version = undefined`）——故 init 不改写 `{{VERSION}}`，plan 不写 state.version。详见 `docs/features/version-prompt.md`。
 
-### 依赖
+## 核心常量 / 配置
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| 默认 scope | `local` | `awf plugin` 缺省范围 |
+| server 默认端口 | `8787` | `plugin/config.json` `port`，经 `run-context` 装配 |
+| `SERVER_PORT` | `runtimeConfig.getServerPort()` | `src/lib/session/client.js` 导出，open 用 |
+| session 基础名 | `cc` | `config.json` `runtime.session`，可由 `CC_SESSION` 覆盖 |
+| tmux 尺寸 | `-x 200 -y 50` | bootstrap 创建（server start 间接调用） |
+
+## 函数清单
+
+| 函数 | 说明 | 位置 |
+|------|------|------|
+| `pluginCommand(action, options)` | 按 scope 分发本地/全局 | `src/cli/plugin.js` |
+| `localPlugin(action)` | 本地 install/uninstall（`installProfile`/`installProjectMcp`/`uninstallProfile`） | `src/cli/plugin.js` |
+| `globalPlugin(action)` | 全局 install/uninstall（`claude plugin install/uninstall`） | `src/cli/plugin.js` |
+| `installAllPlugins` / `uninstallAllPlugins` / `loadPluginsFromProfile` | 全局安装 helpers | `src/cli/plugin.js` |
+| `serverCommand(action)` | start / stop / status / 未知 | `src/cli/server.js` |
+| `checkServer(port)` / `requestShutdown(port)` | 探测服务 / POST `/shutdown` | `src/cli/server.js` |
+| `openCommand(target)` / `openBrowser(target)` | 打开页面 / 跨平台开浏览器 | `src/cli/open.js` |
+| `attachCommand()` | tmux 接入 | `src/cli/attach.js` |
+| `installProfile` / `uninstallProfile` / `installProjectMcp` | 本地注册实现 | `src/lib/profile.js` |
+
+## 接口 / 依赖
 
 | 模块 | 用途 |
 |------|------|
-| `node:child_process` (execSync) | tmux has-session / attach |
-| `./logger.js` | 控制台输出 |
-| `process.env.CC_SESSION` | session 名称 |
+| `src/lib/profile.js` | 本地注册（settings 注入 + 项目 MCP） |
+| `src/adapters/ports.cjs` (`tooling`) | 全局安装/市场运维（`buildInstall`/`buildUninstall`/`buildMarketplaceAdd`） |
+| `src/lib/run-context.cjs` | session / 端口 / 路径单源装配；`projectSid` |
+| `src/lib/session/client.js` (`getStatus`, `SERVER_PORT`) | server 探测、open 端口 |
+| `src/lib/server-log.js` | server 启动日志落盘 |
+| `src/lib/ui/log.js` | `logger` 输出 |
+
+## 验收标准
+
+- [ ] `awf plugin install`（默认）写项目 `.claude/settings.json` 与 `.mcp.json`，**不**执行 `claude plugin install`
+- [ ] `awf plugin install --scope global` 逐个执行 `claude plugin install <spec>`，用户级已装则 skip
+- [ ] `awf server start` 存在即复用；不存在则 spawn server + 必要时 bootstrap；`stop` 先优雅关闭再 kill-by-port 兜底
+- [ ] `awf open tree`/`dashboard` 打开带 `?p=<cwd>` 的 URL，且不生成 `.awf/w-tree.html`
+- [ ] `awf open ui` 报错退出（目标已废弃）
+- [ ] `awf attach` session 不存在时报错退出，存在时 `tmux attach`

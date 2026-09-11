@@ -18,13 +18,14 @@ const {
 const { isDecisionEnabled } = require('../lib/decision-config.cjs');
 const { parseDecisionResult } = require('./decision.cjs');
 const gateRules = require('./decision-gate.cjs');
-const ccShapes = require('../adapters/cc-shapes.cjs');
+// 生产侧进 adapters 一律经端口契约这一道门（T1-117）；cc-shapes 是非端口的形状工具，同门出口
+const { ccShapes, oneshot: oneshotPort } = require('../adapters/ports.cjs');
 const extract = require('../lib/extract.cjs');
 const interact = require('./interact.cjs');
 const { DecisionStore } = require('./decision-store.cjs');
 const decisionInstruction = require('./decision-instruction.cjs');
 // T1-080：oneshot（claude -p）收口 server /oneshot——cc 经 oneshot adapter；测试可注入 global.__CC_ONESHOT__
-const oneshotLib = global.__CC_ONESHOT__ || require('../adapters/oneshot.cjs');
+const oneshotLib = global.__CC_ONESHOT__ || oneshotPort;
 const storeCore = require('../lib/store-core.cjs'); // per-run state 通用路径原子读写（T1-078）
 const { isIdleDue, idleDefaultMs } = require('../lib/server-idle.cjs');
 
@@ -47,8 +48,6 @@ const READY_TIMEOUT_MS = Number(process.env.CC_READY_TIMEOUT_MS || 120000);
 const ENTER_DELAY_MS = Number(process.env.CC_ENTER_DELAY_MS || 200);
 const LOCAL_CMD_FALLBACK_MS = Number(process.env.CC_LOCAL_CMD_MS || 1500);
 const DECISION_FALLBACK_MS = Number(process.env.CC_DECISION_FALLBACK_MS || 300000);
-// dashboard/ui 目录：测试用 CC_HTML_DIR 指向临时目录以控制文件存在性
-const htmlDir = () => process.env.CC_HTML_DIR || __dirname;
 let lastActivityAt = Date.now(); // T1-064 空闲回收：每次请求刷新
 
 // ---- SubagentStop 落账：解析子 Agent 固定格式 RESULT → 写 state ----
@@ -232,7 +231,8 @@ async function startRunDiagnosis(pcx) {
   });
   pcx.diagnosisInFlight = true;
 
-  Promise.resolve(diagnoseWithClaude(buildDiagnosisPrompt(metrics, stateSnapshot), pcx.projectRoot))
+  // oneshot 端口由调用方（装配根）注入：lib 不再直接依赖 adapters（T1-117 消除 lib → adapters 越界）
+  Promise.resolve(diagnoseWithClaude(buildDiagnosisPrompt(metrics, stateSnapshot), pcx.projectRoot, { oneshot: oneshotPort }))
     .then((result) => {
       writeDiagnosis(pcx.projectRoot, {
         ...pending,
@@ -505,6 +505,25 @@ function defaultSingleExecutor(pcx) {
     runTask: async ({ taskId, task, taskIndex = 1 }) => {
       const text = task.prompt || task.title || task.id;
       if (!pcx.tmux.hasSession()) throw new Error(`tmux session '${pcx.tmux.SESSION}' not found; run bootstrap.sh`);
+      // pause 编排闩锁：w-monitor 暂停（awf_mode pause）后不得再派发新任务——这是 w-monitor.md
+      // 「等待 CLI 不再派发新任务」与 run.js preservePause 的前提。多 agent 派发（batchTransportFor.send）
+      // 与会话通道提示词（sessionChannel.send）都走了 waitWhilePaused，唯独单 agent 的主任务派发漏了，
+      // 导致默认 max=1 路径在暂停期间照常推进（T1-108 真机 pause case 暴露）。
+      const { waitWhilePaused } = await import('../lib/pause.js');
+      // 派发闩锁：暂停期间不派发新任务；但若这个任务已被别处结算（done/blocked），不必再等
+      const gate = await waitWhilePaused(pcx.projectRoot, {
+        label: `dispatch:${taskId}`,
+        log: pauseNoticeLog(pcx),
+        isSettled: () => {
+          const st = currentTaskStatus(pcx, taskId);
+          return st === 'done' || st === 'blocked';
+        },
+      });
+      if (gate.releasedBy === 'settled') {
+        const st = currentTaskStatus(pcx, taskId);
+        notice(pcx, 'pause', 'ok', `任务 ${taskId} 在暂停期间已结算（${st}），不再派发`);
+        return { status: st };
+      }
       const ready = await waitReady(pcx, READY_TIMEOUT_MS);
       if (!ready) throw new Error('still busy (ready timeout)');
 
@@ -554,8 +573,8 @@ function sessionChannel(pcx) {
     const fsp = require('fs/promises');
     const { createSessionChannel } = require('./task-channel.cjs');
     /** 发 prompt 并等会话回 ready（与重构前 cli/run.js sendPrompt 同语义：超时由上层的状态回查兜底） */
-    const send = async (text) => {
-      await waitWhilePaused(pcx.projectRoot);
+    const send = async (text, label = 'session-channel') => {
+      await waitWhilePaused(pcx.projectRoot, { label, log: pauseNoticeLog(pcx) });
       return sendPromptAndWait(pcx, text);
     };
     return createSessionChannel({
@@ -588,8 +607,9 @@ function sessionChannel(pcx) {
       isAwaitingHuman: () => !!pcx.decisionPending && !pcx.decisionPending.answered,
       // /clear 是本地 slash 命令（无 Stop hook）：走 sendLocalCmd 的 busy + 兜底回 ready 语义
       clearSession: () => sendLocalCmd(pcx, '/clear'),
-      waitWhilePaused: () => waitWhilePaused(pcx.projectRoot),
-      log: (level, msg) => console.log(`[task:${path.basename(pcx.projectRoot)}] ${msg}`),
+      // 收尾协商自己拿这个闩锁等（带「目标任务已结算就放行」谓词）：事故就是在 send 里被闩住看不见
+      waitWhilePaused: (opts = {}) => waitWhilePaused(pcx.projectRoot, { log: pauseNoticeLog(pcx), ...opts }),
+      log: (level, msg) => notice(pcx, 'settle', level, msg),
     });
   })().catch((err) => {
     pcx.taskChannel = null;
@@ -713,8 +733,8 @@ async function batchTransportFor(pcx, stateApi) {
   const { waitWhilePaused } = await import('../lib/pause.js');
   const { createBatchTransport } = require('./batch-transport.cjs');
   return createBatchTransport({
-    send: async (text) => {
-      await waitWhilePaused(pcx.projectRoot);
+    send: async (text, label = 'batch-send') => {
+      await waitWhilePaused(pcx.projectRoot, { label, log: pauseNoticeLog(pcx) });
       // 派发不能静默丢失：主会话不就绪/未收尾 → 抛错让 run 显式失败，而不是让任务悬着等超时
       const ok = await sendPromptAndWait(pcx, text);
       if (!ok) throw new Error(`派发未送达（主会话未在超时内就绪/收尾）：${String(text).slice(0, 60)}…`);
@@ -727,8 +747,8 @@ async function batchTransportFor(pcx, stateApi) {
     failedPath: pcx.subagentFailedPath,
     needsPath: pcx.subagentNeedsPath,
     eventsPath: pcx.subagentEventPath,
-    waitWhilePaused: () => waitWhilePaused(pcx.projectRoot),
-    log: (level, msg) => console.log(`[batch:${path.basename(pcx.projectRoot)}] ${msg}`),
+    waitWhilePaused: (opts = {}) => waitWhilePaused(pcx.projectRoot, { log: pauseNoticeLog(pcx), ...opts }),
+    log: (level, msg) => notice(pcx, 'batch', level, msg),
   });
 }
 
@@ -778,10 +798,39 @@ function webPublicRoot() {
 function webIndexHtml() {
   try { return fs.readFileSync(path.join(webPublicRoot(), 'index.html')); } catch { return null; }
 }
+
+/**
+ * 前端页面路径 —— 一律由 web/ 构建产物承载（T1-119）。
+ * 退役前这些都各自读一个 legacy html（dashboard/decisions/diagnostics），theme.css/common.js 也由
+ * server 单独托管；现在只剩 `src/server/public` 一个来源，别再往回加页面。
+ */
+const PAGE_PATHS = new Set([
+  '/', '/dashboard', '/dashboard.html', '/diagnostics', '/diagnostics.html', '/decisions', '/decisions.html',
+]);
 /** 惰性实例；每次构建（无缓存）以让 CC_WEB_PUBLIC 覆盖即时生效 */
 function webHostInstance() {
   if (!webIndexHtml()) return null;
   return createStaticHost({ root: webPublicRoot(), aliases: { '/': 'index.html' }, spa: 'index.html' });
+}
+
+/**
+ * 编排层运维通知（T1-111 可观测 / T1-112 落盘）：一份进**本项目运行日志**（人读、w-monitor 读），
+ * 一份进 **console** —— 自 T1-112 起 server 的 stdout/stderr 被接到 `.awf/logs/server.log`，
+ * 于是「宿主在等什么、等多久」既在 run 日志里也在 server 日志里，不必再靠 transcript 反推。
+ */
+function notice(pcx, kind, level, msg) {
+  pcx.logger?.logNotice?.(kind, `[${level}] ${msg}`);
+  console.error(`[${kind}][${level}] ${msg}`);
+}
+
+/** pause 闩锁的日志出口 */
+function pauseNoticeLog(pcx) {
+  return (level, msg) => notice(pcx, 'pause', level, msg);
+}
+
+/** 读某任务当前状态（闩锁用它判断「我等的目标任务是否已被别处结算」） */
+function currentTaskStatus(pcx, taskId) {
+  return (pcx.stores.state.readSync()?.tasks || []).find((t) => t.id === taskId)?.status || null;
 }
 
 // 解析一次请求的项目上下文：p 归一化；缺省 → boot（兼容存量无 p 请求/测试）
@@ -789,59 +838,61 @@ function resolveCtxForUrl(url) {
   return registry.resolveCtx({ p: url.searchParams.get('p') });
 }
 
+/**
+ * 不读不写任何项目 state 的 server 全局端点：唯一的写类例外。
+ * （其余写类端点缺 ?p 一律拒绝——见 writeNeedsProject）
+ */
+const PROJECT_AGNOSTIC_WRITES = new Set(['/shutdown']);
+
+/**
+ * 写类请求是否必须显式带 ?p。
+ *
+ * 事故背景（2026-09-10）：w-monitor 手写
+ * `curl -X POST http://localhost:8787/run/state/mode -d '{"mode":"pause"}'`（**没带 ?p**），
+ * resolveCtx 的 `p || bodyProjectRoot || projectRoot || boot` 静默兜底到 boot 项目
+ * （= 启动 server 的那个项目），把正在跑的 cc-control run 暂停了 4 小时。
+ *
+ * 规则：非 GET/HEAD/OPTIONS 的请求必须显式声明项目作用域，不再兜底到 boot。
+ * 正常调用方都带 p：hook 网关（bootstrap 注入 CC_PROJECT → `&p=`）、CLI（client 的 projectQuery）、
+ * MCP（AWF_PROJECT_ROOT）。真正没有项目作用域的只有 /shutdown。
+ */
+function writeNeedsProject(method, pathname) {
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
+  return !PROJECT_AGNOSTIC_WRITES.has(pathname);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
   lastActivityAt = Date.now(); // 任何请求视为活动（空闲回收计时刷新）
+
+  // 写类端点缺 ?p → 400，绝不兜底到 boot（T1-110）
+  if (writeNeedsProject(req.method, pathname) && !url.searchParams.get('p')) {
+    return send(res, 400, {
+      ok: false,
+      error: `写类端点缺 ?p：拒绝兜底到 boot 项目（${registry.bootRoot}）。请显式带 ?p=<projectRoot>；`
+        + 'hook 网关 / CLI / MCP 会自动带上。',
+      endpoint: pathname,
+    });
+  }
+
   const pcx = resolveCtxForUrl(url); // 顶层解一次；后续分支均操作 pcx
 
-  // dashboard (default)；T1-093：web 构建产物存在 → root 由 React SPA 承载
-  if (req.method === 'GET' && pathname === '/') {
+  // 前端页面：只由 web/ 构建产物承载（T1-119 退役 legacy 观测页与 theme.css/common.js）。
+  // 产物缺失时**明确告警** —— 不给空白页、也不静默 404：说清缺什么、怎么补。
+  if (req.method === 'GET' && PAGE_PATHS.has(pathname)) {
     const idx = webIndexHtml();
     if (idx) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(idx);
     }
-    try {
-      const html = fs.readFileSync(htmlDir() + '/dashboard.html');
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(html);
-    } catch {
-      return send(res, 500, { ok: false, error: 'no page found' });
-    }
-  }
-
-  if (req.method === 'GET' && pathname === '/diagnostics') {
-    try {
-      const html = fs.readFileSync(htmlDir() + '/diagnostics.html');
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(html);
-    } catch {
-      return send(res, 500, { ok: false, error: 'diagnostics.html not found' });
-    }
-  }
-
-  if (req.method === 'GET' && pathname === '/decisions.html') {
-    try {
-      const html = fs.readFileSync(htmlDir() + '/decisions.html');
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(html);
-    } catch {
-      return send(res, 500, { ok: false, error: 'decisions.html not found' });
-    }
-  }
-
-  // T1-086：共享主题/工具资产
-  if (req.method === 'GET' && (pathname === '/theme.css' || pathname === '/common.js')) {
-    const name = pathname === '/theme.css' ? 'theme.css' : 'common.js';
-    const ctype = name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8';
-    try {
-      const body = fs.readFileSync(path.join(htmlDir(), name));
-      res.writeHead(200, { 'content-type': ctype });
-      return res.end(body);
-    } catch {
-      return send(res, 404, { ok: false, error: 'asset not found' });
-    }
+    const expected = path.join(webPublicRoot(), 'index.html');
+    console.warn(`[web] 前端产物缺失：${expected} —— 请运行 npm run build（会构建 web/ → src/server/public）`);
+    return send(res, 503, {
+      ok: false,
+      error: '前端产物缺失：请运行 npm run build（构建 web/ → src/server/public）',
+      expected,
+    });
   }
 
   // hook callback
@@ -1370,6 +1421,8 @@ function start(port = PORT) {
     server.listen(port, '127.0.0.1', () => {
       server.removeListener('error', reject);
       const addr = server.address();
+      // T1-112：落进 .awf/logs/server.log，确认「哪次 spawn 起的 server、在哪个项目」
+      console.log(`[server] listening http://127.0.0.1:${addr.port} project=${PROJECT_ROOT} pid=${process.pid} at ${new Date().toISOString()}`);
       resolve({ port: addr.port, url: `http://127.0.0.1:${addr.port}` });
     });
   });
@@ -1415,7 +1468,10 @@ if (require.main === module) {
   const bootPcx = BOOT();
   for (const c of registry.all()) resetRunLogs(c);
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${bootPcx.runSessionName}')`);
+    // T1-112：这行与后续所有 console 输出都落进 .awf/logs/server.log（由 CLI spawn 时接管 stdio），
+    // 带上 pid/项目是为了事后能对上「哪次 spawn 起的 server、在给哪个项目干活」。
+    console.log(`cc-control listening on http://127.0.0.1:${PORT} (session '${bootPcx.runSessionName}')`
+      + ` pid=${process.pid} project=${PROJECT_ROOT} at ${new Date().toISOString()}`);
   });
 
   // T1-064/067 常驻空闲回收：全部项目无 run 驱动且空闲超时 → 自动关闭

@@ -11,14 +11,20 @@
 
 将原型 `plugin/awf-decision-system` 的设计落成一个**独立插件 `ai-workflow-decision`**，并在**单 agent** 运行编排中接通「决策闸门」：会话执行中遇到决策点（文字 `<AWF_DECISION_REQUIRED>` 标记或 `AskUserQuestion` 提问工具）时，**当前会话切换到自主决策内核（Decision Core, DC）**，由 AI 基于会话上下文直接产出结构化的 **Decision Result**（`answer` 驱动后续行动），全程记录进 **Review**（jsonl + 页面），支持人工 **override** 后**追加纠偏任务**回流执行。
 
-由配置开关 `run.decision.enabled` 控制：**缺省关闭 = 完全保留既有上抛逻辑**（AskUserQuestion → decisionPending → CLI autoSelect / 人类明示路径）。**本轮只覆盖单 agent**；多 agent 决策闸门后置。
+由配置开关 `run.decision.enabled` 控制：**缺省关闭 = 保留既有上抛逻辑**（AskUserQuestion → decisionPending → CLI autoSelect / 人工应答路径，见 `docs/features/auto-decision.md`）。**本轮只覆盖单 agent**；多 agent 决策闸门后置。
+
+### 决策入口换代（2026-09-10）
+
+- **现状（目标形态）**：需要决策时，AI 把问题作为**本回合最后一段**用 `<AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED>` 包裹输出 → Stop 闸门捕获 → 当前会话切 DC 自决 → 产出 `<AWF_DECISION_RESULT>…</…>` → 落盘 + 续跑。`AskUserQuestion` 是同一闸门的另一个入口（gate 开 → deny 并指引改用决策标签）。
+- **旧入口已停用（资产层）**：`awf_await_choice` / `awf_await_input` 两个 MCP 入口的方案文档 `plugin/core/skills/awf-run-decision/SKILL.md` 已标「已停用 2026-09-10」；`awf init` 不再向项目 `CLAUDE.md` 注入「必须调 awf_await_choice」模板，各提示词改为输出 `<AWF_DECISION_REQUIRED>`（任务 T1-106、`docs/bugs/decision-entry-two-generations.md`）。
+- **注意代码现状**：MCP 工具（`plugin/core/mcp/awf-session/server.cjs` 的 `awf_await_choice`/`awf_await_input`）与 `/choice` `/ask` `/respond` 端点、server `decisionPending` 槽、CLI `handleDecision` 仍存在于代码中；T1-106「两条链互斥化」为 **pending（用户裁定暂缓）**，故旧链代码未删除，只是**当前提示词资产不再驱动它**。
 
 ## 功能描述
 
 - 新增独立 `core` 级插件 `ai-workflow-decision`（目录 `plugin/decision/`），随渲染器泛化注册为三插件市场一员（core / plugin-code / decision），无自己的 mcp/hooks/命令，只承载**决策技能与协议资产**。
 - 决策技能资产：`skills/decision-core`（DC，纯决策内核，12 公理方法）、`skills/decision-workflow`（DW，调度权/记录权，供复杂/未来场景复用）、`decision/PROTOCOL.md`（DC↔DW 最小协议）、`decision/schemas/decision-result.schema.json`（权威 schema，本轮轻量校验不引 ajv）、`decision/mode-instruction.md`（决策模式短指令，server 注入进 block/deny）。
 - 决策入口两处，共用同一套 server 决策状态机（`decisionGate`）与 Stop 闸门：
-  1. **文字入口**：会话最后一行以 `<AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED>` 结尾 → Stop 闸门 ② 触发 block（`continuePrompt` = 决策模式指令）。
+  1. **文字入口**：会话最后一行以 `<AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED>` 结尾 → Stop 闸门 ② 触发 block（`reason` = 决策模式指令）。
   2. **AskUserQuestion 入口**：PreToolUse 拦截 → deny（`reason` 指引模型改以决策标签收尾、勿再问）→ 落到同一 Stop 闸门 ②。
 - 决策结果：模型产出 `<AWF_DECISION_RESULT>{DecisionResult JSON}</AWF_DECISION_RESULT>` 作为回合最后输出 → Stop ③ 捕获 → 解析/轻量校验 → 落 `.awf/decisions/runs/<runStamp>.jsonl`（`decision_completed`，`pending_review`）→ 置一次性 `decisionResume` → ready → CLI 续跑注入 answer 让原任务继续。
 - 无有效结果兜底：deciding 中结束且无合法 Result → 统一 **deferred fallback** 落盘（`fallback:true`）→ ready，不悬空。
@@ -34,7 +40,7 @@
 | 续跑摘要 | server `decisionResume` | 最近一次闭合决策摘要（`{decision_id,answer,type,finality,fallback}`）；新事务开始时清空，一次性 |
 | DC（决策内核） | `plugin/decision/skills/decision-core/` | 决策模式下由会话加载产出 Decision Result |
 | DW（承载/记录/Review） | 分拆给 server（拦截+捕获+校验+落盘+fallback+override）；`decision-workflow` skill 保留 | 单 agent 决策由 server 编排足够 |
-| 决策模式指令 | `plugin/decision/decision/mode-instruction.md` | server 经 `decision-instruction.cjs` 读入，注入 block `continuePrompt` / deny `reason`；改指令不动 server |
+| 决策模式指令 | `plugin/decision/decision/mode-instruction.md` | server 经 `decision-instruction.cjs` 读入，注入 block `reason` / deny `reason`；改指令不动 server |
 | 决策记录 | `.awf/decisions/runs/<runStamp>.jsonl`（追加式） | runStamp 对齐 run-logger `${version}-${ts}`；decision_id = `D-<ts-base36>-<seq>` |
 | fallback | server 兜底（deferred 模板） | 无有效 answer / 解析失败 / 决策中断 → 兜底 deferred，仍落盘 + ready |
 | Review | 同 jsonl + override 事件 | override 不覆盖历史，追加 `decision_overridden` |
@@ -50,7 +56,7 @@ else:
         if 文本以 <AWF_DECISION_REQUIRED>…</…> 结尾 && stop_hook_active !== true:
             decisionGate={phase:'deciding',startedAt}      // ② 触发，busy 保持不 ready
             记 decision_started 日志
-            return { ccOutput:{ decision:'block', continuePrompt:<决策模式指令> } }
+            return { ccOutput:{ decision:'block', reason:<决策模式指令> } }
         else:                              // ① 普通完成
             clearDecision + decisionGate=null + setReady + capture
     else:                                  // ③ deciding 中收尾
@@ -111,7 +117,29 @@ AskUserQuestion 在同一 deciding 事务内重复调用 → 拒绝并提示「�
 | DECISION 结果必填 | `answer` / `type` / `finality` / `real_question` / `decisive_factors` / `reconsider_when` | 与 schema.required − decision_id 对齐；数组字段必须是数组（可空数组视为已提供） |
 | `type` 合法值 | `resolved \| deferred \| no_action \| validation_required \| reframed` | mode-instruction 硬约束 |
 | 续跑上限 | `10` | `drainDecisionResume` 防死循环 |
-| gateway 端口/超时 | 缺省 `8787` / `2500ms` | `plugin/core/hooks/gateway.cjs` |
+| gateway 端口/超时 | 端口取自 argv（渲染自 config `port`，缺省 `8787`）/ `2500ms` | `plugin/core/hooks/gateway.cjs`（不再内嵌端口默认值，`CC_PORT` 仅兜底） |
+
+## Decision Result 契约（schema 字段）
+
+模型在决策模式把 Decision Result 以 `<AWF_DECISION_RESULT>{JSON}</AWF_DECISION_RESULT>` 作为**回合最后输出**。权威 schema：`plugin/decision/decision/schemas/decision-result.schema.json`（`additionalProperties: true`）；`plugin/decision/decision/PROTOCOL.md` 定义 DC↔DW 最小协议。
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `decision_id` | string (minLength 1) | ✅（schema） | schema 必填，但由 server（DW）在捕获落盘时赋值；模型输出侧不产 id，故 `decision.cjs` 轻量校验**不含**它 |
+| `answer` | string (minLength 1) | ✅ | 唯一直接驱动下一步执行的字段 |
+| `type` | enum | ✅ | `resolved \| deferred \| no_action \| validation_required \| reframed` |
+| `finality` | enum | ✅ | `final \| provisional` |
+| `real_question` | string (minLength 1) | ✅ | 真正被解决的问题 |
+| `decisive_factors` | string[]（maxItems 5） | ✅ | 决定性变量 |
+| `reconsider_when` | string[] | ✅ | 反转 / 重新决策条件 |
+| `impact` | enum | — | `low \| medium \| high \| critical`（仅审查展示/扩展元数据） |
+| `causal_chain` / `facts` / `assumptions` / `unknowns` / `risks` | string[] | — | 解释与审查 |
+| `reversible` | boolean | — | 可逆性 |
+| `confidence` | enum | — | `high \| medium \| low`（低置信**仍须有** answer） |
+| `fallback` | boolean（default false） | — | `true` = DW 兜底结果 |
+
+- 轻量校验（`src/server/decision.cjs`，不引 ajv）：`REQUIRED_FIELDS = ['answer','type','finality','real_question','decisive_factors','reconsider_when']`、`ARRAY_FIELDS = ['decisive_factors','reconsider_when']`；字符串字段非空、数组字段必须是数组（可空数组视为已提供）。
+- `type` 只描述结果语义、不决定工作流；`finality` 表达是否仍依赖未决前提。
 
 ## 数据记录（DecisionStore）
 
@@ -142,7 +170,7 @@ decision/schemas/decision-result.schema.json  # 权威 Result schema
 decision/mode-instruction.md    # 决策模式短指令（5 硬约束），server 注入
 ```
 
-- Hook 形态：`config.json.hooks` 唯一源；`Stop` / `PreToolUse(AskUserQuestion)` 命令改为共享 `node "${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs" <port>`（读 stdin → POST `/hook?event=<hook_event_name>` → 响应含顶层 `ccOutput` 则 JSON 打 stdout，否则无输出 exit 0；网络/解析异常静默 exit 0），其余事件保持裸 curl。hooks 只渲染进 core（不按插件拆分），避免双 Stop 竞态。
+- Hook 形态：`config.json.hooks` 唯一源；**全部 7 个 hook 统一走** `node "${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs" <port>`（读 stdin → POST `/hook?event=<hook_event_name>` → 响应含顶层 `ccOutput` 则 JSON 打 stdout，否则无输出 exit 0；网络/解析异常静默 exit 0）。hooks 只渲染进引擎插件 core（不按插件拆分），避免双 Stop 竞态。详见 `docs/features/hooks.md`。
 - 注册：`plugin/config.json` marketplace.plugins + `plugin/settings.json` plugins/enabledPlugins + 渲染器泛化（render-config.mjs 遍历 marketplace.plugins）；渲染产物 `plugin/<dir>/plugin.json` / `.claude-plugin/marketplace.json`；旧原型目录 `plugin/awf-decision-system/` 已删，集成方案归档 `docs/discuss/decision-system-design.md`。
 
 ## 函数清单
@@ -199,7 +227,7 @@ decision/mode-instruction.md    # 决策模式短指令（5 硬约束），serve
 | S1 | gate 关，普通任务完成（Stop） | 清 decisionPending + ready + transcript 采集，无 ccOutput、无落盘 | Stop ①（现状） |
 | S2 | gate 关，遇 AskUserQuestion | setDecision 捕获（不拦截、无 ccOutput）→ 走旧 decisionPending / autoSelect / 问人 | PreToolUse（现状） |
 | S3 | gate 开，普通任务完成（多次 Stop） | 均 ready、无落盘、decisionGate 恒 null（不误触发） | Stop ① |
-| S4 | gate 开，文字标记收尾（`<AWF_DECISION_REQUIRED>` + `!stop_hook_active`） | → deciding + block（`continuePrompt`=决策模式指令），busy 保持，一次事务只 block 一次 | Stop ② |
+| S4 | gate 开，文字标记收尾（`<AWF_DECISION_REQUIRED>` + `!stop_hook_active`） | → deciding + block（`reason`=决策模式指令），busy 保持，一次事务只 block 一次 | Stop ② |
 | S5 | gate 开，deciding 中 Stop 含合法 `<AWF_DECISION_RESULT>` | 解析 → 落盘 `decision_completed`（pending_review）→ 置 decisionResume → ready；CLI 注入 answer 续跑 | Stop ③ 有效 |
 | S6 | gate 开，deciding 中 Stop 无有效结果（多次无结果） | 收敛到单条 deferred fallback 落盘（`fallback:true`）→ decisionResume → ready，不悬空不重复 | Stop ③ 兜底 |
 | S7 | gate 开，遇 AskUserQuestion（非 deciding） | deny（reason 指引改以决策标签收尾）→ 转 Stop ② 进入 deciding（与文字入口合一） | PreToolUse deny |

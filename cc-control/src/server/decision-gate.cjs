@@ -45,7 +45,7 @@ function deferredFallbackResult() {
 }
 
 /** decision_completed 记录构造（供 store 落盘与决策记忆） */
-const ccShapes = require('../adapters/cc-shapes.cjs');
+const { ccShapes } = require('../adapters/ports.cjs'); // 经端口契约取用（T1-117）
 function buildCompletedRecord({ decisionId, result, source, createdAt }) {
   return {
     event: 'decision_completed',

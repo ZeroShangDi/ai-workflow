@@ -4,7 +4,11 @@ docs/discuss/all_claude_prompts.md
 /sandbox/
 .awf/run-settings.json
 # .claude/settings.json 是 init 本地注入生成物（marketplace 绝对路径机器相关），不入库
-# web/ 构建产物落 server 托管目录（T1-093），不入库
+# web/（React+Vite）构建产物落此，由 `npm run build` / `npm run build:web` / `prepack` 生成（T1-118），
+# **不入库**（产物随代码生成，不手改）。注意：npm 打包以 package.json 的 `files` 为准，
+# 本忽略规则不影响它入包 —— 实测 `npm pack --dry-run` 含 src/server/public/index.html。
 src/server/public/
 # 运行态日志（真 run 产物，不入库；已被历史跟踪的旧文件不受影响）
 /.awf/logs/
+# 覆盖率产物（T3-009 N-1：曾被 3c4a894 误入库，且内容是重构前的旧树）
+/coverage/

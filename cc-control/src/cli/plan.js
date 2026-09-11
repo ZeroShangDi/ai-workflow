@@ -2,7 +2,7 @@ import { planEntry } from '../lib/plugin-bridge.js';
 // import { setupVersion } from '../lib/version.js'; // 版本处理暂时禁用
 import { logger } from '../lib/ui/log.js';
 import { archiveOldStateForPlan } from '../lib/state.js';
-import { launchInteractiveClaude } from '../adapters/interactive.cjs';
+import { interactive } from '../adapters/ports.cjs'; // 端口经契约取用（T1-117）
 
 /**
  * awf plan — 启动规划会话
@@ -39,7 +39,7 @@ export async function planCommand(description, options) {
 async function spawnClaude(cwd, prompt) {
   logger.info('启动规划会话...');
   logger.info(`  ${prompt}\n`);
-  await launchInteractiveClaude({ cwd, prompt });
+  await interactive.launchDialog({ cwd, prompt });
   logger.success('规划会话结束');
 }
 

@@ -1,444 +1,208 @@
-# awf run — 测试用例文档
+# awf run — 测试用例
 
-> 对应需求文档：`docs/features/run.md`
-> 源码文件：`src/cli/run.js`
-> 测试文件：`tests/unit/run.test.js`
-
----
+> 对应功能文档：docs/features/run.md
+> 源码：src/cli/run.js（`runCommand`/`driveSingle`/`observeRun`/`waitSessionStarted`/`handleDecision`/`drainDecisionResume`）
+> 测试文件：
+> - `tests/unit/run.test.js`（CLI 薄化控制流，主套件）
+> - `tests/unit/session-ready-wait.test.js`
+> - `tests/unit/run-resume.test.js`
+> - `tests/unit/run-client.test.js`
+> - `tests/integration/run-host.test.js`（server run host + 真实 client 闭环）
+> - `tests/e2e/run.e2e.test.js`（runCommand 端到端，mock tmux + 进程内 server）
+> - `tests/regression/fullflow-regression.mjs`（真机全链路，`npm run test:real`，不进 `npm test`）
 
 ## 测试场景总览
 
-| # | 场景 | 类别 |
-|---|------|------|
-| 1 | state.json 不存在 → 退出 | 入口 |
-| 2 | state.json 正常加载 → 进入主流程 | 入口 |
-| 3 | ensureServer 启动成功 | 环境管理 |
-| 4 | ensureServer 启动超时 → 抛出异常 | 环境管理 |
-| 5 | ensureSession 执行 bootstrap | 环境管理 |
-| 6 | Ctrl-C / SIGTERM 触发清理 | 环境管理 |
-| 7 | 遍历所有 pending 任务 → FINISH | 任务循环 |
-| 8 | 跳过 blocked 状态任务 | 任务循环 |
-| 9 | 跳过 deps 未满足任务 | 任务循环 |
-| 10 | 无 pending 任务时 break | 任务循环 |
-| 11 | /send 成功 → waitForReady → done | 单任务执行 |
-| 12 | /send 返回非 ok → 返回 timeout | 单任务执行 |
-| 13 | executeTask 正常完成链路 | 单任务执行 |
-| 14 | waitForTaskDone 60s 内检测到 done | 单任务执行 |
-| 15 | waitForTaskDone 60s 后未 done → 返回 false | 单任务执行 |
-| 16 | 连续 2 次超时 → 标记 blocked | 超时重试 |
-| 17 | 超时后回查 state 发现 done → 正常继续 | 超时重试 |
-| 18 | httpPost 正常 POST | HTTP 通信 |
-| 19 | httpPost 连接拒绝 | HTTP 通信 |
-| 20 | httpPostJson 正常/非法 JSON | HTTP 通信 |
-| 21 | getStatus 返回 ready | HTTP 通信 |
-| 22 | getStatus 连接失败返回 false | HTTP 通信 |
-| 23 | getStatus 超时 2s | HTTP 通信 |
-| 24 | handleDecision: AskUserQuestion 单选 | 决策处理 |
-| 25 | handleDecision: AskUserQuestion 多选 | 决策处理 |
-| 26 | handleDecision: AskUserQuestion 已回答 | 决策处理 |
-| 27 | handleDecision: choice 类型 | 决策处理 |
-| 28 | handleDecision: text 类型 | 决策处理 |
-| 29 | waitForReady: decisionPending 处理 | 状态轮询 |
-
----
+| # | 场景 | 类别 | 文件 |
+|---|------|------|------|
+| TC1 | state.json 不存在 → exit(1) | 入口 | run.test.js |
+| TC2 | 环境拉起 → 提交 run → 观察至 done → mode idle + 清理 | 主流程 | run.test.js |
+| TC2b | 观察循环消费宿主事件并展示（task.done 渲染） | 主流程 | run.test.js |
+| TC2c | run 提交失败 → 保留现场（不 idle、不清理） | 异常保留现场 | run.test.js |
+| TC2d | 宿主以 error 收尾 → 保留现场（不标 idle） | 异常保留现场 | run.test.js |
+| TC2e | 正常完成但 idle 写入失败 → 保留现场 | 异常保留现场 | run.test.js |
+| TC2f | `--resume` 重启暂停中的 CLI → 保留 pause 闩锁（不切 run） | pause/恢复 | run.test.js |
+| TC6 | SIGINT/SIGTERM 注册清理处理器 | 环境管理 | run.test.js |
+| TC7 | server 已存在且属本项目 → 复用（不 spawn 不 kill） | 环境管理 | run.test.js |
+| TC8 | 端口被其他项目 server 占用 → 复用（单 server 多项目，`?p` 路由） | 环境管理 | run.test.js |
+| RC1 | `--resume` 且宿主有活跃 run → 挂接续观（不重复提交），收敛 done + idle | 重连 | run.test.js |
+| RC2 | `--resume` 且宿主空闲 → 提交续跑 store 剩余任务 | 重连 | run.test.js |
+| RC3 | `--attach` 且宿主有活跃 run → 挂接（不提交） | 重连 | run.test.js |
+| RC4 | `--attach` 且宿主空闲 → 报错保留现场（不提交、不 idle） | 重连 | run.test.js |
+| RC5 | fresh 却撞上宿主活跃 run → 防御性转挂接（不重复提交） | 重连 | run.test.js |
+| RC6 | `--attach -R r1` → 挂接指定 run（不提交），收敛 done | 重连 | run.test.js |
+| RC7 | `--attach -R 不存在 run` → 报错保留现场（不提交不 idle） | 重连 | run.test.js |
+| SR1 | sessionSeq 增长 → 放行，且不补 Enter | 会话就绪 | session-ready-wait.test.js |
+| SR2 | 始终未收到 SessionStart → 超时返回 false（告警放行，不硬失败） | 会话就绪 | session-ready-wait.test.js |
+| SR3 | 等待期间周期性补 Enter（兜信任弹窗） | 会话就绪 | session-ready-wait.test.js |
+| SR4 | 拿不到 status（服务不可达）不抛，按未就绪处理 | 会话就绪 | session-ready-wait.test.js |
+| DR1 | 探测到 decisionResume → 注入续跑消息（含 answer）→ 再等待；无 resume 后结束 | 决策中继 | run-resume.test.js |
+| DR2 | gate off / 无决策：decisionResume 恒 null → 零注入、零等待 | 决策中继 | run-resume.test.js |
+| DR3 | 多次决策依次续跑（多轮 resume），直到耗尽 | 决策中继 | run-resume.test.js |
+| DR4 | 续跑注入失败 → 停止续跑（不静默死循环） | 决策中继 | run-resume.test.js |
+| CL1 | submit/respond 经注入 http 命中对应路径 | run-client | run-client.test.js |
+| CL2 | waitReady：ready 即返回 true；busy 轮询后超时 false | run-client | run-client.test.js |
+| CL3 | API_ENDPOINTS 覆盖 send/respond/status/awf-state 等 | run-client | run-client.test.js |
+| CL4 | subscribe：onEvent 收到 status 事件；unsubscribe 停止 | run-client | run-client.test.js |
+| CL5 | submitRun / runSnapshot / pollRunEvents 命中 `/run/*`（含 query） | run-client | run-client.test.js |
+| CL6 | setRunMode / markRunTaskActive / runGateComplete / backupRun 命中 `/run/state/*` | run-client | run-client.test.js |
+| CL7 | getState 读 `/awf/state`；slotStatus(sid) 读 `/status?sid` | run-client | run-client.test.js |
+| IT1 | `GET /run/status` 空态：host 装配完成、无 run | 集成 | integration/run-host.test.js |
+| IT2 | `POST /run/submit` → 驱动到 done；事件轮询含 run/task 生命周期 | 集成 | integration/run-host.test.js |
+| IT3 | 未知 runId 快照 → ok:false；重复/并发 submit 冲突可读 | 集成 | integration/run-host.test.js |
+| IT4 | WS 订阅实时收 run/task 事件；decision.required 推送；非 `/run/events` 升级拒绝 | 集成 | integration/run-host.test.js |
+| IT5 | 真实 createRunClient 提交→poll 事件到 done→快照→getState | 集成 | integration/run-host.test.js |
+| IT6 | `/run/state/mode` + `task/active` 经 server 落盘；`/run/state/gate` 派生修复+回退复审 | 集成 | integration/run-host.test.js |
+| E2E-1 | 单任务正常完成 → 只 send 一次 → backup 写 versions | 端到端 | e2e/run.e2e.test.js |
+| E2E-2 | 未标 done → 补发 wrapup → 生效 | 端到端 | e2e/run.e2e.test.js |
+| E2E-3 | wrapup 未生效 → 追问 1 轮 → done | 端到端 | e2e/run.e2e.test.js |
+| E2E-4 | 追问 3 轮仍未完成 → 标 blocked 跳过 | 端到端 | e2e/run.e2e.test.js |
+| E2E-5 | 多任务顺序执行，deps 满足后才执行 T2（任务间 context-check） | 端到端 | e2e/run.e2e.test.js |
+| E2E-6 | cfg `run.agents.max>1` → 宿主按 batch 模式驱动（runScheduler 入口） | 端到端 | e2e/run.e2e.test.js |
+| E2E-7 | `--multi-agent` → 显式以 batch 模式提交（不受 cfg 影响） | 端到端 | e2e/run.e2e.test.js |
+| RR1 | resume：宿主空闲 `--attach` 拒绝 + 失败退出码非 0 + 不清场；中断后 `--attach` 挂接在飞 run 收敛 | 真机 | fullflow-regression.mjs |
+| RR2 | recover：CLI 被 SIGKILL 后现场保留、宿主无 CLI 仍推进、`--resume` 收尾复位 idle | 真机 | fullflow-regression.mjs |
+| RR3 | pause / pause-release：闩锁只挡派发、目标结算即放行、恢复后剩余任务续跑 | 真机 | fullflow-regression.mjs |
 
 ## 详细测试用例
 
-### TC1: state.json 不存在 → 退出
+### TC1: state.json 不存在 → exit(1)
 
 **前置条件**：`loadState` 返回 null
+**执行**：`runCommand(undefined, {})`
+**断言**：抛出（`process.exit` 被 mock 为抛错）；不执行环境拉起与提交
+
+### TC2: 环境拉起 → 提交 run → 观察至 done → mode idle + 清理
+
+**前置条件**：state `mode='plan'`；`getStatus` 首探无 server（`false` → 走拉起）
+**执行**：`runCommand(undefined, {})`
+**断言**：`spawn('node', ['<server.cjs>'], …)` 被调用；`client.submitRun({})` 被调用；`setRunMode` 依次收到 `run`、`idle`；输出「工作流结束」「已停止运行会话」
+
+### TC2b: 观察循环消费宿主事件并展示
+
+**前置条件**：`pollRunEvents` 第 2 帧返回 `run.started`/`task.started(T1, 链 DEV→COMMIT)`/`task.done`
+**执行**：`runCommand(undefined, {})`
+**断言**：输出「任务 T1: 做 A」与「工作流结束」
+
+### TC2c: run 提交失败 → 保留现场
+
+**前置条件**：`submitRun` 返回 `{ok:false, error:'宿主正在驱动 run default'}`
+**执行**：`runCommand(undefined, {})`
+**断言**：`setRunMode` 未被 `idle`；未输出「已停止运行会话」；输出「保留 tmux 与 Session Server」
+
+### TC2d: 宿主以 error 收尾 → 保留现场
+
+**前置条件**：`runSnapshot` 返回 `run.status='error', error:'executor 失败'`
+**执行**：`runCommand(undefined, {})`
+**断言**：`setRunMode` 未被 `idle`；输出「保留 tmux 与 Session Server」；不输出「工作流结束」
+
+### TC2e: 正常完成但 idle 写入失败 → 保留现场
+
+**前置条件**：`setRunMode` 返回 `{ok:false}`
+**执行**：`runCommand(undefined, {})`
+**断言**：不输出「已停止运行会话」；输出「保留 tmux 与 Session Server」
+
+### TC2f: `--resume` 重启暂停中的 CLI 时保留 pause 闩锁
+
+**前置条件**：state `mode='pause'`
+**执行**：`runCommand(undefined, {resume:true})`
+**断言**：`setRunMode` 未被以 `run` 调用（`preservePause` 生效）
+
+### TC6: SIGINT/SIGTERM 注册清理处理器
 
 **执行**：`runCommand(undefined, {})`
+**断言**：`process.on` 收到 `SIGINT` 与 `SIGTERM` 各一个函数
 
-**断言**：
-- 输出错误提示 "未找到 .awf/state.json，请先执行 awf plan"
-- `process.exit(1)` 被调用
-- 不执行 ensureServer / ensureSession / runLoop
+### TC7 / TC8: server 复用
 
----
-
-### TC2: state.json 正常加载 → 进入主流程
-
-**前置条件**：state 包含 1 个 pending 任务，`currentState: 'IDLE'`
-
+**前置条件**：`getStatus` 返回 `{state:'ready', projectRoot}`（TC7=`/tmp/mock-cwd`，TC8=`/tmp/other`）
 **执行**：`runCommand(undefined, {})`
+**断言**：未 `spawn` server；输出「复用现有服务」；`setRunMode('idle')` 被调用（TC8 断言未执行 `lsof`）
 
-**断言**：
-- `loadState` 被调用
-- `ensureServer` 被调用
-- `ensureSession` 被调用
-- `open` dashboard 被 spawn
-- `runLoop` 被调用
-- finally 块中 `doCleanup` 被调用
+### RC1–RC7: 重连语义（T1-059 / T1-073）
 
----
+- **RC1**：宿主有活跃 run（`runs:[{runId:'default',status:'running',counts}]`）+ `{resume:true}` → `submitRun` **未**调用；输出「挂接 run default」「1/2 done」；`setRunMode('idle')`；输出「工作流结束」。
+- **RC2**：宿主无活跃 run + `{resume:true}` → `submitRun({})` 被调用（续跑）；`setRunMode('idle')`。
+- **RC3**：宿主有活跃 run + `{attach:true}` → `submitRun` 未调用；输出「挂接 run default」。
+- **RC4**：宿主无活跃 run + `{attach:true}` → 抛「宿主无活跃 run」；不提交、不 idle；输出「保留 tmux 与 Session Server」。
+- **RC5**：宿主有活跃 run + fresh → `submitRun` 未调用；输出「宿主已有活跃 run」（防御性转挂接）。
+- **RC6**：`{attach:true, runId:'r1'}` 且宿主有 `r1` → 输出「挂接指定 run r1」；不提交；收敛 idle。
+- **RC7**：`{attach:true, runId:'zzz'}` 且宿主无该 run → 抛「未找到 run zzz」；不提交、不 idle；保留现场。
 
-### TC3: ensureServer 启动成功
+### SR1–SR4: waitSessionStarted（会话就绪等待）
 
-**前置条件**：8787 端口可用，server 进程正常启动，`/status` 在第 3 次轮询时返回 ready
+- **SR1**：`sessionSeq` 由 2 增到 3 → 返回 true，`nudge` 未触发。
+- **SR2**：sessionSeq 恒为 5（`seqBefore=5`）→ 超时返回 false（告警放行）。
+- **SR3**：sessionSeq 恒 0、`nudgeMs=5` → 等待期间补 Enter ≥1 次。
+- **SR4**：`status` 返回 null → 不抛，按未就绪处理（超时返回 false）。
 
-**执行**：`ensureServer(paths, projectRoot)`
+### DR1–DR4: drainDecisionResume（决策续跑）
 
-**断言**：
-- `execSync` 被调用清理 8787 端口
-- `sleep(300)` 等待端口释放
-- `spawn('node', [paths.tmuxServer], ...)` 被调用，env 包含 `CC_PORT` 和 `CC_PROJECT`
-- 轮询 `/status` 最多 30 次，每次间隔 500ms
-- 日志输出 ok: "已启动"
+- **DR1**：首次 `/status` 带 `decisionResume{decision_id,answer}`，其次 null → `POST /send` 1 次（文本含 answer）；`waitForReady` 1 次。
+- **DR2**：`decisionResume` 恒 null → 零 `/send`、零 `waitForReady`。
+- **DR3**：连续两轮 resume（D-1/D-2，其一 `fallback:true`）→ `/send` 2 次、`waitForReady` 2 次。
+- **DR4**：`POST /send` 返回 `{ok:false}` → 停止续跑，`waitForReady` 不被调用（不静默死循环）。
 
----
+### CL1–CL7: run-client 调用面
 
-### TC4: ensureServer 启动超时 → 抛出异常
+- **CL1**：`client.submit('你好')` → `POST /send`；`client.respond(v)` → `POST /respond`。
+- **CL2**：`waitReady` —— status ready 返回 true；一直 busy 到超时返回 false。
+- **CL3**：`API_ENDPOINTS` 含 send/respond/cmd/status/contextReady/awfState/awfMetrics。
+- **CL4**：`subscribe({onEvent})` 收到 `{type:'status',…}`；`unsubscribe` 后停止。
+- **CL5**：`submitRun` → `/run/submit`（runId 可选）；`runSnapshot`/`pollRunEvents` 命中 `/run/status`、`/run/events?afterSeq=&runId=`。
+- **CL6**：`setRunMode`/`markRunTaskActive`/`runGateComplete`/`backupRun` 命中 `/run/state/{mode,task/active,gate,backup}`；端点表含这些项。
+- **CL7**：`getState` 读 `/awf/state`；`slotStatus(sid)` 读 `/status?sid=<sid>`。
 
-**前置条件**：server 启动后 `/status` 30 次轮询均未返回 ready
+### IT1–IT6: server run host 集成闭环
 
-**执行**：`ensureServer(paths, projectRoot)`
+以 `__CC_RUN_HOST_DEPS__` 注入真实 state/run-driver/gate-fix + fake per-task executor，走真实 HTTP。
 
-**断言**：
-- 30 次轮询全部完成
-- 抛出 `Error('tmux-http 启动超时')`
+- **IT1**：`GET /run/status` → `{ok:true, runs:[]}`。
+- **IT2**：`POST /run/submit{runId:'it1'}` → 202，事件含 `run.submitted/started/stopped`，`task.started` 顺序 `[T1,T2]`，state 落账 `['done','done']`；尾游标后无新事件。
+- **IT3**：未知 runId → `{ok:false, error:'…nope'}`。
+- **IT4**：WS 实时收 `run.started/task.done×2/run.stopped`；`/choice` 触发 `decision.required` 推送；非 `/run/events` 路径握手被拒。
+- **IT5**：真实 `createRunClient` 提交 → afterSeq 增量轮询到 `run.stopped` → 快照 `done 2/2` → `getState` 读 store。
+- **IT6**：`/run/state/mode`、`/run/state/task/active` 经 server 落盘；`/run/state/gate`（review blocked + verdict fail）→ 派生 `R1-F1`、门禁回退 pending、`exec.recheck=1`。
 
----
+### E2E-1–E2E-7: runCommand 端到端（进程内 server + mock tmux「模拟 AI」）
 
-### TC5: ensureSession 执行 bootstrap
+> 端到端跑的是 `runCommand` 的真实链路（CLI → 进程内 server run host → mock tmux）。**收尾协商 / 上下文检查 / 版本备份的执行体现已迁至 server run 域（`task-channel.cjs`、host drive 收尾），此处经宿主真实负载链路验证，不在 CLI 内**。
 
-**前置条件**：tmux 已安装，bootstrap.sh 可执行
+- **E2E-1**：`sendText==='do task one'` 时标 T1 done → state done、`.awf/versions/` 1 份、`sentPrompts=['do task one']`。
+- **E2E-2**：仅当补发 prompt 含「收尾」+「awf_task_complete」时标 done → 2 条 prompt（第二条含 `awf_task_complete` 与 `T1`）。
+- **E2E-3**：仅当含「三选一」时标 done → 3 条 prompt（task / 收尾 / 三选一）。
+- **E2E-4**：永不标 done → 5 条 prompt（task + wrapup + 3 轮 settle），T1 标 blocked。
+- **E2E-5**：T2 依赖 T1 → 3 条 prompt（task one / 上下文检查 / task two），两任务 done。
+- **E2E-6**：`.awf/config.json` `run.agents.max=2` → 宿主走 batch（`runScheduler` 被调用）。
+- **E2E-7**：`--multi-agent` → `runScheduler` 被调用（不受 cfg 影响）。
 
-**执行**：`ensureSession(paths, projectRoot)`
+### RR1–RR3: 真机全链路（`npm run test:real`，不进 `npm test`）
 
-**断言**：
-- `execSync('tmux kill-session -t cc')` 被调用（清理旧 session）
-- `execSync('bash ...bootstrap.sh', ...)` 被调用，env 包含 `CC_WORKDIR`
-- 日志输出 ok: "cc → {projectRoot}"
+依据 `.awf/reports/test/t3-011-full-real-gate.md`（真机回归覆盖边界口径）。
 
----
-
-### TC6: Ctrl-C / SIGTERM 触发清理
-
-**前置条件**：runCommand 运行中
-
-**执行**：触发 `process.emit('SIGINT')` 或 `process.emit('SIGTERM')`
-
-**断言**：
-- `execSync('tmux kill-session -t cc')` 被调用
-- `execSync` 释放 8787 端口
-- `console.log` 输出 "服务已关闭"
-- `process.exit(0)` 被调用
-- 二次触发不重复执行（`cleaned` 标记）
-
----
-
-### TC7: 遍历所有 pending 任务 → FINISH
-
-**前置条件**：state 有 2 个 pending 任务 T1、T2，currentState 非 FINISH
-
-**执行**：`runLoop(projectRoot)`
-
-**断言**：
-- T1 被 `findNextTask` 返回 → `executeTask` 被调用
-- T2 被 `findNextTask` 返回 → `executeTask` 被调用
-- state 重读后 `currentState === 'FINISH'` 时退出循环
-- 输出 "工作流结束"
-
----
-
-### TC8: 跳过 blocked 状态任务
-
-**前置条件**：state 有 T1(status=done)、T2(status=blocked)、T3(status=pending)
-
-**执行**：`findNextTask(currentState)`
-
-**断言**：
-- `findNextTask` 跳过 T2（status 不是 pending）
-- 返回 T3
-
----
-
-### TC9: 跳过 deps 未满足任务
-
-**前置条件**：T1(status=pending)、T2(status=pending, deps=['T1'])
-
-**执行**：`findNextTask(currentState)`
-
-**断言**：
-- T1 被返回（无 deps 或 deps 满足）
-- T2 被跳过（dep T1 为 pending，非 done）
-
----
-
-### TC10: 无 pending 任务时 break
-
-**前置条件**：state 所有任务 status=done，currentState 非 FINISH
-
-**执行**：`runLoop(projectRoot)`
-
-**断言**：
-- `findNextTask` 返回 null
-- `break` 退出循环
-- 输出 "工作流结束"
-
----
-
-### TC11: /send 成功 → waitForReady → done
-
-**前置条件**：`/send` 返回 `{ ok: true }`，`waitForReady` 正常返回，任务在 state.json 中标记 done
-
-**执行**：`executeTask(prompt, 'T1', projectRoot)`
-
-**断言**：
-- `httpPostJson('/send', { text: prompt })` 被调用
-- `waitForReady` 被调用 2 次（任务前后各一次）
-- `waitForTaskDone` 被调用
-- 返回 `'ok'`
-- 输出 "done"
-
----
-
-### TC12: /send 返回非 ok → 返回 timeout
-
-**前置条件**：`/send` 返回 `{ ok: false, error: 'session busy' }`
-
-**执行**：`executeTask(prompt, 'T1', projectRoot)`
-
-**断言**：
-- 日志输出 error: "/send 失败: session busy"
-- 返回 `'timeout'`
-- `waitForReady` 不被调用
-
----
-
-### TC13: executeTask 正常完成链路
-
-**前置条件**：所有 HTTP 请求正常，task 执行完成
-
-**执行**：`executeTask('prompt text', 'T1', projectRoot)`
-
-**断言**：
-1. `POST /send` 发送 prompt
-2. `waitForReady` 等待 CC 就绪
-3. `waitForTaskDone` 轮询 state 等 done（60s 内）
-4. `waitForReady` 等待 auto-continue
-5. 返回 `'ok'`
-
----
-
-### TC14: waitForTaskDone 60s 内检测到 done
-
-**前置条件**：state 中 T1 status 初始为 active，第 5 次轮询时变为 done
-
-**执行**：`waitForTaskDone('T1', projectRoot)`
-
-**断言**：
-- 轮询 `loadState` 约 5 次
-- 返回 `true`
-
----
-
-### TC15: waitForTaskDone 60s 后未 done → 返回 false
-
-**前置条件**：state 中 T1 status 始终为 active
-
-**执行**：`waitForTaskDone('T1', projectRoot)`
-
-**断言**：
-- 轮询持续 60s
-- 返回 `false`
-- executeTask 中 `logStep('', 'warn', ...)` 输出未 done 警告
-
----
-
-### TC16: 连续 2 次超时 → 标记 blocked
-
-**前置条件**：executeTask 连续 2 次返回 `'timeout'`，state 回查后任务仍为 pending
-
-**执行**：runLoop 中两次超时
-
-**断言**：
-- `consecutiveTimeouts` 累加到 2
-- 日志输出 error: "连续 2 次超时，跳过任务 T1（需人工介入）"
-- `consecutiveTimeouts` 被重置为 0
-- 不阻塞后续任务
-
----
-
-### TC17: 超时后回查 state 发现 done → 正常继续
-
-**前置条件**：executeTask 超时，但 `checkTaskDone` 发现 task status 已为 done
-
-**执行**：`executeTask` 的 catch 分支
-
-**断言**：
-- `checkTaskDone` 返回 true
-- 日志输出 warn: "超时但任务 T1 已完成（Stop hook 未触发）"
-- 返回 `'ok'`
-- `consecutiveTimeouts` 被重置为 0
-
----
-
-### TC18: httpPost 正常 POST
-
-**前置条件**：HTTP server 正常运行
-
-**执行**：`httpPost('http://127.0.0.1:8787/test', { key: 'val' })`
-
-**断言**：
-- 请求方法为 POST
-- Content-Type 为 application/json
-- body 为 `JSON.stringify({ key: 'val' })`
-- 返回响应字符串
-
----
-
-### TC19: httpPost 连接拒绝
-
-**前置条件**：8787 端口无服务监听
-
-**执行**：`httpPost('http://127.0.0.1:8787/send', { text: 'hi' })`
-
-**断言**：
-- `req.on('error', ...)` 触发
-- Promise reject
-
----
-
-### TC20: httpPostJson 正常/非法 JSON
-
-**前置条件**：正常场景返回 `'{"ok":true}'`，非法场景返回 `'not json'`
-
-**执行**：`httpPostJson(url, body)`
-
-**断言**：
-- 合法 JSON 时返回解析后的对象
-- 非法 JSON 时返回 null（不抛异常）
-
----
-
-### TC21: getStatus 返回 ready
-
-**前置条件**：server 在 8787 端口返回 `{ state: 'ready' }`
-
-**执行**：`getStatus()`
-
-**断言**：
-- GET 请求到 `http://127.0.0.1:8787/status`
-- 返回 `{ state: 'ready' }`
-
----
-
-### TC22: getStatus 连接失败返回 false
-
-**前置条件**：8787 端口无服务
-
-**执行**：`getStatus()`
-
-**断言**：
-- `req.on('error')` 触发
-- 返回 `false`（不抛异常）
-
----
-
-### TC23: getStatus 超时 2s
-
-**前置条件**：server 响应时间超过 2s
-
-**执行**：`getStatus()`
-
-**断言**：
-- `req.setTimeout(2000)` 触发
-- `req.destroy()` 被调用
-- 返回 `false`
-
----
-
-### TC24: handleDecision: AskUserQuestion 单选
-
-**前置条件**：decision 对象 `{ source: 'AskUserQuestion', question: '选择方案', options: ['A', 'B'], multiSelect: false, answered: false }`
-
-**执行**：`handleDecision(decision)`
-
-**断言**：
-- 输出问题文本和选项列表
-- `autoSelect` 被调用
-- autoSelect 返回 `{ index: 1 }`
-- `POST /respond` 被调用，body `{ value: '1' }`
-
----
-
-### TC25: handleDecision: AskUserQuestion 多选
-
-**前置条件**：decision 对象 `{ source: 'AskUserQuestion', question: '选择多个', options: ['X', 'Y'], multiSelect: true }`
-
-**执行**：`handleDecision(decision)`
-
-**断言**：
-- 输出 "(多选)" 提示
-- `autoSelect` 返回 `{ multiSelect: true, selected: [0] }`
-- `POST /respond` 被调用，body `{ value: '0' }`（join(',')）
-
----
-
-### TC26: handleDecision: AskUserQuestion 已回答
-
-**前置条件**：decision `answered: true`，问题之前已处理过
-
-**执行**：`handleDecision({ source: 'AskUserQuestion', answered: true, question: '选择方案', answer: 'A' })`
-
-**断言**：
-- `seenAnswers` 已包含该问题，不重复输出
-- `autoSelect` 不被调用
-- 直接返回
-
----
-
-### TC27: handleDecision: choice 类型
-
-**前置条件**：decision 对象 `{ type: 'choice', question: '选择一个', options: ['opt1', 'opt2'] }`
-
-**执行**：`handleDecision(decision)` + 模拟用户输入 `'1'`
-
-**断言**：
-- 输出问题文本和 2 个选项
-- readline 等待用户输入
-- 用户输入 `'1'` 后选择 `opt1`
-- `POST /respond` 被调用，body `{ value: 'opt1' }`
-
----
-
-### TC28: handleDecision: text 类型
-
-**前置条件**：decision 对象 `{ type: 'text', question: '请输入名称' }`
-
-**执行**：`handleDecision(decision)` + 模拟用户输入 `'myname'`
-
-**断言**：
-- 输出问题文本
-- readline 等待用户输入
-- `POST /respond` 被调用，body `{ value: 'myname' }`
-
----
-
-### TC29: waitForReady: decisionPending 处理
-
-**前置条件**：getStatus 第一次返回 `{ state: 'busy' }`，第二次返回 `{ decisionPending: {...}, state: 'busy' }`，第三次返回 `{ state: 'ready' }`
-
-**执行**：`waitForReady()`
-
-**断言**：
-- 第一次轮询：state=busy，继续轮询
-- 第二次轮询：detects decisionPending → `handleDecision` 被调用
-- 第三次轮询：state=ready → 返回
-- 同一 decision 不重复处理（key 去重）
-
----
+- **RR1 `resume`**：① 宿主空闲 `--attach` → 报错「宿主无活跃 run」、失败退出码非 0、tmux 会话保留、mode 未被静默复位；② CLI SIGKILL 中断后 `--attach` 挂接**在飞** run（日志含「挂接 run」且**无**「已提交 run」）、attach 正常退出、run 收敛、任务 done、产出落盘、mode 复位 idle。
+- **RR2 `recover`**：CLI 被 SIGKILL 后 —— CLI 已死、tmux 会话在、常驻 server 仍响应、mode 仍为 run（run_interrupted 信号）、未完成任务未被清；宿主在无 CLI 时仍推进 run；`--resume` 正常退出并收尾（mode 复位 idle、每项 done 都有 `exec.result`、产出落盘）。
+- **RR3 `pause` / `pause-release`**：未暂停时 `/intervene` 409；置 pause 后闩锁只挡**派发**、在飞任务照常收尾；目标结算即放行且不放松派发闩锁；`/intervene`、`/intervene/interrupt` 暂停下受理；恢复 mode=run 后剩余任务续跑 done、mode 复位 idle。
 
 ## Mock 策略
 
 | 依赖 | Mock 方式 | 说明 |
 |------|-----------|------|
-| `node:child_process.spawn` | `vi.mock` | 控制 server 启动和 bootstrap 执行 |
-| `node:child_process.execSync` | `vi.mock` | 控制 `command -v`、`tmux kill-session`、`lsof` 等同步命令 |
-| `node:http` | `vi.mock` + 可控响应 | 模拟所有 HTTP 端点（/status, /send, /respond） |
-| `./paths.js` | `vi.mock` | 返回固定路径 |
-| `./state.js` | `vi.mock` | `loadState` 返回预制 state，控制任务完成状态变化 |
-| `../lib/session/client.js`（autoSelect） | `vi.mock` | 返回固定选择结果 |
-| `node:readline` | `vi.mock` | 模拟用户输入，避免阻塞 |
+| `src/lib/state.js`（`loadState`） | `vi.mock` | 预制 state（mode/currentState） |
+| `src/lib/run-config.js` | `vi.mock` | 固定 `{agents:{max:1}}` |
+| `src/lib/pause.js`（`waitWhilePaused`） | `vi.mock` | 默认立即放行（闩锁语义由 pause.test.js 覆盖） |
+| `src/lib/profile.js`（`installProjectMcp`） | `vi.mock` | 返回 `{written:false,servers:[]}` |
+| `src/lib/server-log.js` | `vi.mock` | 固定 fd/path |
+| `src/lib/run-context.cjs`（`buildRunContext`/`projectSid`） | `vi.mock` | 固定路径/会话名/端口 |
+| `src/server/run-settings.cjs`（`generateRunSettings`） | `vi.mock` | 返回 `{statusLine:{}}` |
+| `src/cli/run-client.js`（`createRunClient`） | `vi.mock` | 返回可控 `submitRun/pollRunEvents/runSnapshot/setRunMode` |
+| `src/lib/session/client.js` | `vi.mock` | `httpPost/httpPostJson/autoSelect/waitForReady/getStatus/SERVER_PORT/projectQuery` |
+| `node:fs/promises` | `vi.mock` | `mkdir/writeFile`（run-settings 写入） |
+| `node:child_process` | `vi.mock` | `spawn`/`execSync`（server/tmux/bootstrap） |
+| `node:readline` | `vi.mock`（run.test.js 决策用例） | 模拟选择/输入，避免阻塞 |
+| `process.exit` / `process.on` / `process.cwd` / `console.log` | `vi.spyOn` | 拦截退出与输出 |
+| 计时器 | `vi.useFakeTimers` + `advanceTimersByTimeAsync` | 推进轮询循环 |
+
+- **`run.test.js`** 顶部设 `process.env.CC_SESSION_READY_TIMEOUT_MS='0'`：无真实 SessionStart，会话就绪等待直接放行（该等待由 `session-ready-wait.test.js` 单独覆盖）。
+- **`integration/run-host.test.js`** 与 **`e2e/run.e2e.test.js`** 走**真实 HTTP**（进程内 `server.start`），仅 mock tmux/进程：前者注入 `__CC_RUN_HOST_DEPS__`（fake executor），后者用 mock tmux 的 `sendText` 触发「模拟 AI」回写 state。
+- **`tests/regression/fullflow-regression.mjs`** 不 mock：真 tmux + 真 claude + 真 server，走 `npm run test:real`（不进 vitest include）。

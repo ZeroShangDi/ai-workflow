@@ -153,7 +153,13 @@ function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory, RunLo
     return created;
   }
 
-  /** 解析一次请求的项目上下文：p（归一化）缺省 → boot；body.projectRoot 兜底 */
+  /**
+   * 解析一次请求的项目上下文：p（归一化）缺省 → boot；body.projectRoot 兜底。
+   *
+   * 注意（T1-110）：boot 兜底只对**读**类请求成立。写类请求缺 ?p 已在 server 入口被 400 拒掉
+   * （见 server.cjs `writeNeedsProject`）——此前 `p || bodyProjectRoot || projectRoot || boot`
+   * 会让不带 ?p 的手工 curl 静默写进 boot 项目，2026-09-10 真机事故即由此而来。
+   */
   function resolveCtx({ p, projectRoot, bodyProjectRoot } = {}) {
     const root = p || bodyProjectRoot || projectRoot || boot;
     return ctxFor(root);

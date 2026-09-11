@@ -140,7 +140,18 @@ function createBatchTransport({
   return {
     /** 派发一个任务：注入 subagentDispatch 提示词（主会话据此派生后台子 Agent）+ 标记 active */
     async dispatch(task) {
-      await waitWhilePaused();
+      // pause 闩锁 + 「已被别处结算就不必派」：暂停期间不能让派发路径挂死看不到结算
+      const gate = await waitWhilePaused({
+        label: `dispatch:${task.id}`,
+        isSettled: () => {
+          const t = readTasks().find((x) => x.id === task.id);
+          return !!t && (t.status === 'done' || t.status === 'blocked');
+        },
+      });
+      if (gate?.releasedBy === 'settled') {
+        log('info', `任务 ${task.id} 在暂停期间已结算，跳过派发`);
+        return;
+      }
       const text = await prompts.subagentDispatch({
         taskId: task.id,
         taskTitle: task.title || '',

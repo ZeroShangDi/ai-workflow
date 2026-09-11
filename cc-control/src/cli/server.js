@@ -2,6 +2,7 @@ import { spawn, execSync } from 'child_process';
 import { getStatus, sleep } from '../lib/session/client.js';
 import { logger } from '../lib/ui/log.js';
 import { buildRunContext, projectSid } from '../lib/run-context.cjs';
+import { openServerLog, serverLogPath } from '../lib/server-log.js';
 
 /**
  * awf server — tmux-http 服务生命周期管理（路径/会话名/端口经 run-context 装配）
@@ -20,13 +21,16 @@ export async function serverCommand(action) {
           : `tmux-http 已运行（${existing.projectRoot} 驻留）→ 复用（单 server 多项目，本项目经 ?p 路由）`);
       } else {
         logger.info('启动 tmux-http ...');
+        // T1-112：与 awf run 一致，server 输出落 .awf/logs/server.log（追加 + 单代轮转）
+        const serverLog = openServerLog(serverLogPath(ctx.logsDir));
         const proc = spawn('node', [ctx.serverScriptPath], {
-          stdio: 'ignore',
+          stdio: ['ignore', serverLog.fd, serverLog.fd],
           detached: true,
           cwd: ctx.projectRoot,
           env: { ...process.env, CC_PORT: String(ctx.port), CC_PROJECT: ctx.projectRoot },
         });
         proc.unref();
+        serverLog.close();
 
         for (let i = 0; i < 30; i++) {
           await sleep(500);

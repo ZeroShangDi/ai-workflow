@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { makeApi } from '../helpers/http-api.js';
 import { fileURLToPath } from 'node:url';
 
 // ── mocks：注入到 server.cjs（vitest 无法 mock 被原生 require 的 CJS 依赖，用注入钩子）──
@@ -30,7 +31,8 @@ class MockRunLogger {
 }
 
 // ── env + 注入：必须在 import server.cjs 之前设置（模块顶层读取）──
-process.env.CC_PROJECT = '/tmp/cc-decision-test';
+const PROJECT_ROOT = '/tmp/cc-decision-test'; // 写类请求必须显式带 ?p（T1-110）
+process.env.CC_PROJECT = PROJECT_ROOT;
 process.env.CC_READY_TIMEOUT_MS = '300';       // 加速 waitReady 超时路径
 process.env.CC_ENTER_DELAY_MS = '0';           // submit 不等待
 process.env.CC_LOCAL_CMD_MS = '60';            // 无 decision 的 fallback
@@ -44,29 +46,13 @@ const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.
 let server;      // server.cjs 导出的状态机函数 + start/stop
 let api;         // HTTP 请求助手
 
-function makeApi(base) {
-  return async function (method, path, body) {
-    const headers = { connection: 'close' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    const res = await fetch(base + path, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* not json */ }
-    return { status: res.status, body: json, text };
-  };
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(async () => {
   const mod = await import(SERVER_PATH);
   server = mod;
   const { url } = await server.start(0);
-  api = makeApi(url);
+  api = makeApi(url, PROJECT_ROOT);
 });
 
 afterAll(async () => {

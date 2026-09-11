@@ -105,10 +105,26 @@ function createSessionChannel({
       }
       rounds += 1;
 
+      // pause 闩锁：暂停期间不注入收尾 prompt。但**不能因此把自己挂死**——
+      // 等闩锁的同时盯着「这个任务是否已被别处结算」：已结算就无需收尾，直接返回。
+      // （2026-09-10 事故：宿主卡在下行 send 的闩锁里，期间任务早已 done 却看不见，run 静默停摆 4 小时。）
+      const gate = await waitWhilePaused({
+        label: `settle:${taskId}`,
+        isSettled: () => {
+          const st = readTaskStatus(taskId);
+          return st === 'done' || st === 'blocked';
+        },
+      });
+      if (gate?.releasedBy === 'settled') {
+        const st = readTaskStatus(taskId);
+        log('ok', `暂停期间任务 ${taskId} 已结算（${st}），跳过收尾协商`);
+        return st === 'blocked' ? 'blocked' : 'done';
+      }
+
       const before = turnBytes();
       if (rounds === 1) log('warn', `任务 ${taskId} 未标记 done，补发收尾 prompt`);
       else log('warn', `任务 ${taskId} 仍未 done，追问（连续无产出 ${noWorkRounds}/${MAX_SETTLE_ROUNDS} 轮）`);
-      await send(rounds === 1 ? await prompts.wrapup(taskId) : await prompts.settle(taskId));
+      await send(rounds === 1 ? await prompts.wrapup(taskId) : await prompts.settle(taskId), `settle:${taskId}`);
 
       const status = readTaskStatus(taskId);
       if (status === 'done') {

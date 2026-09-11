@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { withProject } from '../helpers/http-api.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
@@ -40,8 +41,9 @@ function freePort() {
   });
 }
 async function serverUp(port) { try { const r = await fetch(`http://127.0.0.1:${port}/status`); return r.ok; } catch { return false; } }
-async function postJson(url, body) {
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+// 写类请求必须带 ?p（T1-110）：两个 server 各挂自己的项目，必须显式指定
+async function postJson(url, body, projectRoot) {
+  const res = await fetch(withProject(url, 'POST', projectRoot), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   return res.json().catch(() => null);
 }
 async function getJson(url) { const r = await fetch(url); return r.json().catch(() => null); }
@@ -119,8 +121,8 @@ describe('两 server 进程并发驻留（T1-075-B）', () => {
     expect(st1.projectRoot).not.toBe(st2.projectRoot);
 
     // hook 路由：只在 s1 喂 sid=rA，s2 对应槽保持独立
-    await postJson(`http://127.0.0.1:${s1.port}/hook?event=SessionStart&sid=rA`, {});
-    await postJson(`http://127.0.0.1:${s1.port}/hook?event=UserPromptSubmit&sid=rA`, {});
+    await postJson(`http://127.0.0.1:${s1.port}/hook?event=SessionStart&sid=rA`, {}, s1.proj);
+    await postJson(`http://127.0.0.1:${s1.port}/hook?event=UserPromptSubmit&sid=rA`, {}, s1.proj);
     expect((await getJson(`http://127.0.0.1:${s1.port}/status?sid=rA`)).state).toBe('busy');
     expect((await getJson(`http://127.0.0.1:${s1.port}/status?sid=rB`)).state).toBe('ready'); // s1 内槽隔离
     expect((await getJson(`http://127.0.0.1:${s2.port}/status?sid=rA`)).state).toBe('ready'); // s2 不受 s1 hook 影响

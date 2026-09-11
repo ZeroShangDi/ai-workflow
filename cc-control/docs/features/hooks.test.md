@@ -1,53 +1,58 @@
-# CC Hooks 模块 — 测试用例文档
+# CC Hooks 模块 — 测试用例
 
-> 对应需求文档：`docs/features/hooks.md`
-> 源码文件：`plugin/config.json`（hooks 段，`__PORT__` 占位，render-config.mjs 渲染为 `plugin/core/hooks/hooks.json`）+ `src/server/server.cjs` 的 `/hook` 路由
-> 测试文件：`tests/unit/hooks.test.js`
+> 对应功能文档：`docs/features/hooks.md`
+> 源码：`plugin/config.json`（hooks 段，`__PORT__`）+ `plugin/core/hooks/hooks.json`（渲染产物）+ `plugin/core/hooks/gateway.cjs` + `src/server/server.cjs`（`/hook`）+ `src/server/hook-adapter.cjs`
+> 测试文件：`tests/unit/hooks.test.js` / `tests/unit/gateway.test.js` / `tests/unit/hook-adapter.test.js` / `tests/integration/decision.test.js`
 
 ---
 
 ## 测试场景总览
 
-### config.json hooks 结构验证 — 5 个 TC
+### config.json hooks 结构（`tests/unit/hooks.test.js`）
 
 | # | 场景 | 类别 |
 |---|------|------|
-| 1 | 文件存在且为合法 JSON | 存在性 |
-| 2 | 包含 7 个 Hook 事件键 | 结构 |
-| 3 | 每个 Hook 的 curl 命令完整性 | 结构 |
-| 4 | `__PORT__` 占位符存在 | 模板 |
-| 5 | PreToolUse matcher 为 "AskUserQuestion" | 结构 |
+| 1 | 文件存在且为合法 JSON，含 `hooks` 键 | 存在性 |
+| 2 | 恰好 7 个 Hook 事件键 | 结构 |
+| 3 | 7 个 hook 命令均指向 `gateway.cjs`（无 curl，含 `__PORT__`） | 结构 |
+| 4 | `__PORT__` 占位符 ≥5 处 | 模板 |
+| 5 | `PreToolUse` matcher 为 `AskUserQuestion`，其余 4 个状态/工具 hook 无 matcher | 结构 |
+| 18 | `SessionStart` 命令走 gateway（透传 stdin，带 `?p/&sid`） | 命令 |
+| 19 | `Stop` 命令指向 gateway（非裸 curl、非 `sh -c`） | 命令 |
+| 20 | `PreToolUse` 命令指向 gateway 且 matcher 保留 | 命令 |
+| 21 | 裸 curl 事件（当前为空集）仍是 `-m 2` + 容错形态 | 命令 |
 
-### /hook 路由 — 7 个 TC
-
-| # | 场景 | 类别 |
-|---|------|------|
-| 6 | SessionStart → setReady + resetTranscript | 正常 |
-| 7 | UserPromptSubmit → setBusy | 正常 |
-| 8 | Stop → clearDecision + setReady + captureTranscript | 正常 |
-| 9 | PreToolUse: AskUserQuestion → setDecision | 正常 |
-| 10 | PreToolUse: 非 AskUserQuestion → 不影响 | 正常 |
-| 11 | PostToolUse: AskUserQuestion → 更新 answer | 正常 |
-| 12 | PostToolUse: 非 AskUserQuestion → 不影响 | 正常 |
-
-### 边界条件 — 5 个 TC
+### gateway 输出协议（`tests/unit/gateway.test.js`）
 
 | # | 场景 | 类别 |
 |---|------|------|
-| 13 | 空 body → event 为 undefined | 边界 |
-| 14 | 非 JSON body → readJson 返回 null | 边界 |
-| 15 | 未知 event → 不改变状态 | 边界 |
-| 16 | event 通过 query string 传递（非 body） | 边界 |
-| 17 | PreToolUse 无 questions → 不设置 decision | 边界 |
+| 22 | 响应含 `ccOutput` → stdout 恰为 `JSON.stringify(ccOutput)`，exit 0 | 协议 |
+| 23 | 响应无 `ccOutput`（如 `{ok:true}`）→ stdout 空、exit 0 | 协议 |
+| 24 | 响应非 JSON → 视为无 `ccOutput`：stdout 空、exit 0 | 边界 |
+| 25 | server 不可达（连接失败）→ stdout 空、exit 0 | 异常 |
+| 26 | payload 无 `hook_event_name` → 不发请求、exit 0 空输出 | 边界 |
 
-### curl 命令验证 — 4 个 TC
+### hook→领域事件接缝（`tests/unit/hook-adapter.test.js`）
 
 | # | 场景 | 类别 |
 |---|------|------|
-| 18 | SessionStart curl 命令正确 | 命令 |
-| 19 | Stop curl 使用 `-d @-` | 命令 |
-| 20 | PreToolUse curl 使用 `sh -c` + `exit 0` | 命令 |
-| 21 | 所有 curl 都有 `-m 2` 和 `\|\| true` | 命令 |
+| 27 | `SessionStart→run.started`；`Stop→run.stopped` | 映射 |
+| 28 | cc 细节字段透传进事件 `payload.cc` | 映射 |
+| 29 | `SubagentStart/Stop → agent.started/stopped`（带 agentId/taskId） | 映射 |
+| 30 | `UserPromptSubmit→run.phase`；`PreToolUse/PostToolUse/未知 → 空` | 映射 |
+| 31 | `createHookAdapter.hook` 翻译并 emit（带 runId）返回事件数；缺 `emit` 抛错 | 协议 |
+
+### `/hook` 路由（`tests/integration/decision.test.js`，真实 server）
+
+| # | 场景 | 类别 |
+|---|------|------|
+| 11 | `SessionStart` → setReady + resetTranscript | 正常 |
+| 12 | `UserPromptSubmit` → setBusy | 正常 |
+| 13 | `Stop` → clearDecision + setReady + captureTranscript | 正常 |
+| 14 | `PreToolUse(AskUserQuestion)` → setDecision | 正常 |
+| 15 | `PostToolUse(AskUserQuestion)` 已回答 → answer + answered，原字段保留 | 正常 |
+| 16 | `PostToolUse` tool_response 为 string | 格式 |
+| 17 | `PostToolUse` tool_response 为 `{answers:{}}` → join values | 格式 |
 
 ---
 
@@ -56,311 +61,125 @@
 ### TC1: 文件存在且为合法 JSON
 
 **前置条件**：项目目录
-
 **执行**：`JSON.parse(fs.readFileSync('plugin/config.json'))`
+**断言**：文件存在、解析不抛、含 `hooks` 键
 
-**断言**：
-- 文件存在
-- `JSON.parse` 不抛异常
-- 返回对象包含 `hooks` 键
+### TC2: 恰好 7 个 Hook 事件键
 
----
+**执行**：`Object.keys(config.hooks)`
+**断言**：含 `SessionStart / UserPromptSubmit / Stop / SubagentStart / SubagentStop / PreToolUse / PostToolUse`，`toHaveLength(7)`
 
-### TC2: 包含 7 个 Hook 事件键
+### TC3: 7 个 hook 命令均指向 gateway.cjs
 
-**前置条件**：config.json 已解析
-
-**执行**：检查 `Object.keys(config.hooks)`
-
-**断言**：
-- 包含 `SessionStart`
-- 包含 `UserPromptSubmit`
-- 包含 `Stop`
-- 包含 `SubagentStart`
-- 包含 `SubagentStop`
-- 包含 `PreToolUse`
-- 包含 `PostToolUse`
-- 恰好 7 个键
-
----
-
-### TC3: 每个 Hook 的 curl 命令完整性
-
-**前置条件**：config.json 已解析
-
-**执行**：遍历 7 个 hook，检查每个 hook 的 command 字符串
-
-**断言**（每个 hook）：
-- 包含 `curl`
-- 包含 `http://127.0.0.1:__PORT__/hook`
-- 包含 `>/dev/null 2>&1`
-- 第一个 hooks 数组至少 1 个元素
-- 每个 hook 配置的 type 为 `"command"`
-
----
+**执行**：遍历 `GATEWAY_EVENTS`（=全部 7 个），读取 `config.hooks[e][0].hooks[0]`
+**断言**：`type === 'command'`；`cmd` 含 `node` 与 `${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs` 与 `__PORT__`；`cmd` **不含** `curl`
+**说明**：`CURL_EVENTS` 当前为空集 —— v0.2.0 后不再有裸 curl hook
 
 ### TC4: `__PORT__` 占位符存在
 
-**前置条件**：读取原始文件内容
+**执行**：`raw.match(/__PORT__/g)`
+**断言**：`matches.length >= 5`
 
-**执行**：检查字符串
+### TC5: PreToolUse matcher
 
+**执行**：读 `config.hooks.PreToolUse[0].matcher`
+**断言**：`=== 'AskUserQuestion'`；`SessionStart/UserPromptSubmit/Stop/PostToolUse` 的 `matcher` 为 `undefined`
+
+### TC18: SessionStart 命令走 gateway
+
+**断言**：`cmd` 含 `node` / `gateway.cjs` / `__PORT__`，不含 `curl`
+
+### TC19: Stop 命令指向 gateway
+
+**断言**：`cmd` 含 `node` / `gateway.cjs` / `__PORT__`；不含 `curl`、不含 `sh -c`
+
+### TC20: PreToolUse 命令指向 gateway 且 matcher 保留
+
+**断言**：`entry.matcher === 'AskUserQuestion'`；`cmd` 含 `gateway.cjs`、不含 `curl`
+
+### TC21: 裸 curl 事件形态（当前为空集）
+
+**执行**：遍历 `CURL_EVENTS`（空）
+**断言**：每个 command 含 `-m 2` 与 `>/dev/null 2>&1`，且以 `; exit 0'` 或 `|| true` 收尾（保留对历史形态的守卫）
+
+### TC22: gateway 响应含 ccOutput
+
+**前置条件**：异步 stub HTTP server 返回 `{ ccOutput: {...} }`；spawn `gateway.cjs <port>`
+**执行**：stdin 写 `{ "hook_event_name": "Stop" }`
+**断言**：stdout 恰为 `JSON.stringify(ccOutput)`，exit code 0
+
+### TC23: gateway 响应无 ccOutput
+
+**执行**：stub 返回 `{ ok: true }`
+**断言**：stdout 空、exit 0
+
+### TC24: gateway 响应非 JSON
+
+**断言**：stdout 空、exit 0
+
+### TC25: gateway server 不可达
+
+**断言**：连接失败 → stdout 空、exit 0（静默）
+
+### TC26: gateway payload 无 hook_event_name
+
+**断言**：不发请求、stdout 空、exit 0
+
+### TC27-30: `translateHook` 映射
+
+**执行**：`translateHook({ hook_event_name: ... })`
 **断言**：
-- 至少 5 处出现 `__PORT__`（每个 hook 至少 1 次）
-- 每次出现都在 curl URL 中
+- `SessionStart → [{type:'run.started'}]`；`Stop → [{type:'run.stopped'}]`
+- cc 字段（`session_id` 等）进事件 `payload.cc`
+- `SubagentStart → agent.started`（`payload.agentId`）；`SubagentStop → agent.stopped`（`agentId`/`taskId`）
+- `UserPromptSubmit → run.phase`；`PreToolUse/PostToolUse/未知 → []`
 
----
+### TC31: `createHookAdapter`
 
-### TC5: PreToolUse matcher 为 "AskUserQuestion"
+**执行**：`createHookAdapter({ emit }).hook(payload, { runId })`
+**断言**：翻译后逐事件 emit（带 `runId`），返回事件数；未知 hook 返回 0 不 emit；缺 `emit` 抛错
 
-**前置条件**：config.json 已解析
+### TC11: /hook SessionStart
 
-**执行**：检查 `config.hooks.PreToolUse[0].matcher`
-
-**断言**：
-- matcher 值为 `"AskUserQuestion"`
-- 其他 hook 无 matcher 字段或 matcher 为 undefined（SessionStart/UserPromptSubmit/Stop/PostToolUse）
-
----
-
-### TC6: /hook SessionStart → setReady + resetTranscript
-
-**前置条件**：state='busy'，mock tmuxlib 和 logger
-
+**前置条件**：真实 server（port 0），state='busy'
 **执行**：`POST /hook { "event": "SessionStart" }`
+**断言**：state → 'ready'；`logger.resetTranscript()` 被调用；返回 `{ ok:true, event:'SessionStart', state:'ready' }`
 
-**断言**：
-- state 变为 'ready'
-- `logger.resetTranscript()` 被调用
-- waiters（如有）被唤醒
-- 返回 `{ ok: true, event: 'SessionStart', state: 'ready' }`
-
----
-
-### TC7: /hook UserPromptSubmit → setBusy
-
-**前置条件**：state='ready'
+### TC12: /hook UserPromptSubmit
 
 **执行**：`POST /hook { "event": "UserPromptSubmit" }`
+**断言**：state → 'busy'；返回 `{ state:'busy' }`
 
-**断言**：
-- state 变为 'busy'
-- decisionPending 不变
-- 返回 `{ ok: true, event: 'UserPromptSubmit', state: 'busy' }`
-
----
-
-### TC8: /hook Stop → clearDecision + setReady + captureTranscript
+### TC13: /hook Stop
 
 **前置条件**：state='busy'，decisionPending 非 null
-
 **执行**：`POST /hook { "event": "Stop" }`
+**断言**：decisionPending → null；state → 'ready'；`captureFromTranscript()` 被调用
 
-**断言**：
-- decisionPending 变为 null（clearDecision）
-- state 变为 'ready'（setReady）
-- `logger.captureFromTranscript()` 被调用
-- 返回 `{ state: 'ready' }`
+### TC14: /hook PreToolUse AskUserQuestion
 
----
+**执行**：POST `tool_name:'AskUserQuestion'` + `tool_input.questions[0]`（question/multiSelect/options/header）
+**断言**：`decisionPending = { type, multiSelect, question, options:[labels], header, source:'AskUserQuestion' }`；返回 200
 
-### TC9: /hook PreToolUse: AskUserQuestion → setDecision
+### TC15: /hook PostToolUse 已回答
 
-**前置条件**：decisionPending = null
+**执行**：POST `tool_response: { answer: '方案A' }`
+**断言**：`decisionPending.answer==='方案A'`；`answered===true`；原字段保留
 
-**执行**：
-```json
-POST /hook {
-  "event": "PreToolUse",
-  "tool_name": "AskUserQuestion",
-  "tool_input": {
-    "questions": [{
-      "question": "选择方案",
-      "multiSelect": false,
-      "options": [{ "label": "A" }, { "label": "B" }]
-    }]
-  }
-}
-```
+### TC16 / TC17: PostToolUse tool_response 格式
 
-**断言**：
-- decisionPending.source = `'AskUserQuestion'`
-- decisionPending.type = `'choice'`
-- decisionPending.question = `'选择方案'`
-- decisionPending.options = `['A', 'B']`
-- decisionPending.multiSelect = false
-- state 不变
-
----
-
-### TC10: /hook PreToolUse: 非 AskUserQuestion → 不影响
-
-**前置条件**：decisionPending = null
-
-**执行**：`POST /hook { "event": "PreToolUse", "tool_name": "Read", "tool_input": {} }`
-
-**断言**：
-- decisionPending 保持 null
-- state 不变
-- 不报错
-
----
-
-### TC11: /hook PostToolUse: AskUserQuestion → 更新 answer
-
-**前置条件**：decisionPending = `{ source: 'AskUserQuestion', question: '选择?', ... }`
-
-**执行**：`POST /hook { "event": "PostToolUse", "tool_name": "AskUserQuestion", "tool_response": { "answer": "方案A" } }`
-
-**断言**：
-- decisionPending.answer = `'方案A'`
-- decisionPending.answered = true
-- 原有字段（question 等）保留
-- state 不变
-
----
-
-### TC12: /hook PostToolUse: 非 AskUserQuestion → 不影响
-
-**前置条件**：decisionPending = null
-
-**执行**：`POST /hook { "event": "PostToolUse", "tool_name": "Read", "tool_response": "some text" }`
-
-**断言**：
-- decisionPending 保持 null
-- 不报错
-
----
-
-### TC13: 空 body → event 为 undefined
-
-**前置条件**：发送无 body 的 POST
-
-**执行**：`POST /hook`（无 body，无 query）
-
-**断言**：
-- `body.event` 为 undefined（readJson 返回 `{}`）
-- `searchParams.get('event')` 为 null
-- event 为 undefined/null → 不匹配任何 case
-- state 不变
-- 返回 200（不报错）
-
----
-
-### TC14: 非 JSON body → readJson 返回 null
-
-**前置条件**：发送非法 JSON body
-
-**执行**：`POST /hook` body = `"not-json"`（Content-Type: application/json）
-
-**断言**：
-- `readJson` 返回 null
-- `(await readJson(req)) || {}` 降级为 `{}`
-- event 为 undefined
-- 返回 200（优雅降级）
-
----
-
-### TC15: 未知 event → 不改变状态
-
-**前置条件**：state='ready'
-
-**执行**：`POST /hook { "event": "UnknownEvent" }`
-
-**断言**：
-- state 保持 'ready'
-- 不匹配任何已知分支
-- 返回 `{ ok: true, event: 'UnknownEvent', state: 'ready' }`
-
----
-
-### TC16: event 通过 query string 传递
-
-**前置条件**：无 body，event 在 URL 中
-
-**执行**：`POST /hook?event=SessionStart`（无 body 或空 body）
-
-**断言**：
-- `searchParams.get('event')` 返回 `'SessionStart'`
-- 触发 SessionStart 逻辑：setReady + resetTranscript
-- 返回 `{ state: 'ready' }`
-
----
-
-### TC17: PreToolUse 无 questions → 不设置 decision
-
-**前置条件**：decisionPending = null
-
-**执行**：`POST /hook { "event": "PreToolUse", "tool_name": "AskUserQuestion", "tool_input": { "questions": [] } }`
-
-**断言**：
-- `questions.length > 0` 为 false
-- setDecision 不被调用
-- decisionPending 保持 null
-
----
-
-### TC18: SessionStart curl 命令格式验证（透传 stdin）
-
-**前置条件**：读取 config.json
-
-**执行**：提取 `config.hooks.SessionStart[0].hooks[0].command`
-
-**断言**：
-- 包含 `curl`
-- 包含 `-X POST`
-- 包含 `?event=SessionStart`
-- 包含 `-d @-`（透传原始 payload，server 据此记录 mainSessionId）
-- 包含 `sh -c '`
-- 以 `; exit 0` 结尾
-
----
-
-### TC19: Stop curl 使用 `-d @-`
-
-**前置条件**：读取 config.json
-
-**执行**：提取 `config.hooks.Stop[0].hooks[0].command`
-
-**断言**：
-- 包含 `-d @-`（透传 session_id，子 agent Stop 不误翻主闩锁）
-- event 通过 query string `?event=Stop` 传递
-- 包含 `sh -c '` + `; exit 0`
-
----
-
-### TC20: PreToolUse curl 使用 `sh -c` + `exit 0`
-
-**前置条件**：读取 config.json
-
-**执行**：提取 `config.hooks.PreToolUse[0].hooks[0].command`
-
-**断言**：
-- 以 `sh -c '` 开头
-- 以 `; exit 0'` 结尾（非 `|| true`）
-- 确保 curl 失败时 CC 继续执行 AskUserQuestion tool
-
----
-
-### TC21: 所有 curl 都有 `-m 2` 和容错
-
-**前置条件**：读取 config.json
-
-**执行**：检查全部 7 个 hook 的 command 字符串
-
-**断言**：
-- 每个 command 包含 `-m 2`（2 秒超时）
-- 每个 command 包含 `>/dev/null 2>&1`
-- 容错统一：透传类（SessionStart/UserPromptSubmit/Stop/SubagentStart/SubagentStop/PreToolUse）以 `; exit 0` 结尾，PostToolUse 以 `|| true` 结尾
+**执行**：`tool_response` 为 string / `{ answers:{q1,q2} }`
+**断言**：string → answer 直取；`{answers}` → `Object.values().join(', ')`
 
 ---
 
 ## Mock 策略
 
-| 模块 | 方式 | 说明 |
-|------|------|------|
-| config.json | 直接读取文件 | 不用 mock，验证静态结构 |
-| /hook 路由 | 启动 HTTP server 或直接测试 handler | mock tmuxlib + logger + state 变量 |
-| tmuxlib | `vi.mock` | hasSession 返回 true |
-| run-logger | `vi.mock` | 验证 resetTranscript/captureFromTranscript 调用 |
-| state 变量 | 直接操作闭包 | 在 server 模块加载前/后设置 state 和 decisionPending |
+| 依赖 | Mock 方式 | 说明 |
+|------|-----------|------|
+| `plugin/config.json` | 直接读取文件 | 静态结构验证，不用 mock |
+| gateway | 真实 spawn `gateway.cjs` + stub HTTP server | 验证 stdout 输出协议与 exit code |
+| `/hook` 路由 | 真实 `server.start(0)`（集成） | 直发 hook payload 驱动状态机，不依赖真实 Claude |
+| `hook-adapter` | 纯函数直测 | `translateHook` / `createHookAdapter`，注入 spy `emit` |
+| tmuxlib / run-logger | `vi.mock` | `hasSession`、`sendText/sendEnter`、`resetTranscript/captureFromTranscript` |
+| state 变量 | 经 pcx / 槽访问 | 集成测试用真实 server 状态与 `/status` 断言 |

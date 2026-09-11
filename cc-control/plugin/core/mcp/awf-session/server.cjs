@@ -15,7 +15,11 @@ const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
 // T1-078/079：MCP 只碰本 run —— 带自身 CC_SID（server 按 sid 槽定位）
 // 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
 const PROJ_ROOT = process.env.AWF_PROJECT_ROOT || process.env.CC_PROJECT || '';
-/** server 请求 query：sid(命中本 run 槽) + p(多项目路由到本项目)；无则空串 */
+/**
+ * server 请求 query：sid(命中本 run 槽) + p(多项目路由到本项目)；无则空串。
+ * 读**与写**都必须带：写端点此前漏带 → 请求落到 server 的 boot 项目/default 槽，
+ * 单项目下「看起来对」，多项目下静默写错项目（T1-110 收口写类端点时照出）。
+ */
 function sessionQuery() {
   const parts = [];
   if (process.env.CC_SID) parts.push(`sid=${encodeURIComponent(String(process.env.CC_SID))}`);
@@ -195,31 +199,31 @@ const handlers = {
           if (!args || typeof args.text !== 'string' || !args.text.length) {
             return textResult({ ok: false, error: 'text is required' });
           }
-          return textResult(await httpPost('/intervene', JSON.stringify({ text: args.text, reason: args.reason })));
+          return textResult(await httpPost('/intervene' + sessionQuery(), JSON.stringify({ text: args.text, reason: args.reason })));
         }
         case 'awf_session_interrupt': {
           if (!args || typeof args.reason !== 'string' || !args.reason.length) {
             return textResult({ ok: false, error: 'reason is required' });
           }
-          return textResult(await httpPost('/intervene/interrupt', JSON.stringify({ reason: args.reason })));
+          return textResult(await httpPost('/intervene/interrupt' + sessionQuery(), JSON.stringify({ reason: args.reason })));
         }
         case 'awf_await_choice': {
           logStderr(`await_choice: ${args.question}`);
-          const result = await httpPost('/choice', JSON.stringify({
+          const result = await httpPost('/choice' + sessionQuery(), JSON.stringify({
             question: args.question, options: args.options, context: args.context,
           }));
           return textResult(result);
         }
         case 'awf_await_input': {
           logStderr(`await_input: ${args.question}`);
-          const result = await httpPost('/ask', JSON.stringify({
+          const result = await httpPost('/ask' + sessionQuery(), JSON.stringify({
             question: args.question, context: args.context,
           }));
           return textResult(result);
         }
         case 'awf_context_ready': {
           logStderr('context_ready');
-          const result = await httpPost('/context-ready', JSON.stringify({}));
+          const result = await httpPost('/context-ready' + sessionQuery(), JSON.stringify({}));
           return textResult(result);
         }
         default:

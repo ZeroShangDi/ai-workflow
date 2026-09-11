@@ -1,320 +1,183 @@
-# awf run — 需求文档
+# awf run — 功能文档
+
+> 对应 WBS：T1-058（CLI 薄化）/ T1-059（--resume/--attach 重连）/ T1-061（state 写收敛到 server）/ T1-105（server 常驻 run host）
+> 源码：src/cli/run.js（`runCommand`）、src/cli/run-client.js、src/lib/session/client.js
 
 ## 功能描述
 
-`awf run` 是 AI Workflow Framework 的执行引擎。它启动 HTTP Session Server + tmux session，读取 `.awf/state.json` 中所有 pending 任务，按 `loadRunConfig` 分两条路径驱动 Claude Code 执行：
+`awf run` 是自治开发工作流的**薄入口**：它只做四件事 —— **起环境**（常驻 Session Server + tmux 会话 + 项目级 MCP + run settings）、**提交 run**、**订阅并展示宿主事件/状态**、**把决策与人机应答在 CLI 与宿主/会话之间中继**，最后收尾复位 mode。
 
-- **单 agent（默认，`run.agents.max === 1`）** → `runLoop`（`src/cli/run.js`）：逐任务逐阶段串行执行，直至全部完成或进入 FINISH 状态。
-- **多 agent（`run.agents.max > 1`）** → `runBatchLoop`（`src/cli/run-batch.js`）：CLI 拥有调度权，滑动窗口 + 就绪池 + 四级配额 + plannedFiles 冲突过滤，后台并行派生子 Agent 执行。
+**薄化前后对比**：薄化前 CLI 是「司机」，自己挑任务、推阶段链、跑多 agent 滑动窗口（`src/cli/run-batch.js` 等，已删除）；薄化后**编排全部搬进常驻 server 的 run 域**（`src/server/run-host.cjs` 等，见 `docs/features/run-domain.md`），CLI 不再持有任何调度权。
 
-### 执行流程
+关键边界（均有代码依据）：
 
-```
-runCommand
-  ├─ 1. 加载 state.json（不存在则退出）
-  ├─ 2. 注册 Ctrl-C 清理（tmux kill-session + 释放端口）
-  ├─ 3. startSession
-  │    ├─ installProjectMcp → 确保项目级 .mcp.json（MCP 工具可用的必要条件）
-  │    ├─ ensureServer     → 启动 HTTP Session Server（node src/server/server.cjs）
-  │    ├─ writeRunSettings → 写 .awf/run-settings.json（crossSessionInbound: accept + statusLine）
-  │    └─ ensureSession    → 执行 bootstrap.sh 创建 tmux session
-  ├─ 4. open dashboard → 浏览器打开 http://localhost:8787
-  └─ 5. 分流（loadRunConfig 读 .awf/config.json 的 run.agents）
-       ├─ run.agents.max > 1 → runBatchLoop（src/cli/run-batch.js，滑动窗口）
-       └─ 否则               → runLoop（原阶段链，src/cli/run.js）
-```
+- **run.js 不再挑选任务、不推进阶段链、不做多 agent 调度**（见文件头注释 L16-42）。
+- **多 agent 与单 agent 一律经 server run host 驱动**：`--multi-agent` 或 `cfg.agents.max>1` 由宿主 `driveBatch → runScheduler` 调度，CLI 只把 `mode:'batch'` 提交上去（`run.js:104-119`）。
+- **提示词由插件声明，CLI 零感知**：插件改名/改命令，CLI 无需改动（`src/lib/plugin-bridge.js` 文件头注释；提示词模板见 `plugin/plugin-code/prompts.json`）。
+- **写收口 server 单写者**：mode run/idle 复位走 `client.setRunMode`（`POST /run/state/mode`），本文件不直写 state（`run.js:602-619`）。读路径只经 `loadState` 只读校验 + `client` 快照（`run.js:56-58`）。
 
-单 agent `runLoop` 阶段链：
+## 执行流程
 
 ```
-runLoop
-  ├─ findNextTask → 取下一个 pending 且 deps 满足的任务
-  ├─ maybeCompactContext → 任务前上下文压缩检查（两层：CLI 实测过滤 / AI 判断）
-  ├─ executeTask
-  │    ├─ POST /send     → 将 prompt 发往 tmux session
-  │    ├─ waitForReady   → 轮询 /status 直到 ready（期间处理决策）
-  │    └─ settleTask     → 收尾协商：任务未 done 则补发 wrapup/settle 追问，最多 MAX_SETTLE_ROUNDS 轮
-  └─ 超时处理
-       ├─ 回查 state → 若 done 则正常继续
-       └─ 连续 2 次 → 标记 blocked，跳过
+runCommand(task, options)                                  src/cli/run.js:47
+  ├─ 1. buildRunContext（会话名/socket/端口/路径单源）        run.js:51
+  ├─ 2. connectionMode = attach | resume | fresh            run.js:54
+  ├─ 3. loadState 只读校验（无 → exit 1）                    run.js:58-62
+  ├─ 4. preservePause/needSetRun（--resume 保 pause 闩锁）   run.js:68-69
+  ├─ 5. 注册 SIGINT/SIGTERM 清理（doCleanup：只关 tmux）      run.js:72-83
+  ├─ 6. startSession                                        run.js:92
+  │     ├─ installProjectMcp → 项目级 .mcp.json 幂等合并（MCP 可用必要条件）
+  │     ├─ ensureServer      → 复用健康 server 或 spawn node src/server/server.cjs
+  │     ├─ writeRunSettings  → 写 .awf/run-settings.json（statusLine）
+  │     ├─ ensureSession     → reuseExisting 时复用与 workDir 匹配的会话，否则 bootstrap.sh 重建
+  │     └─ created && waitSessionStarted → 等 SessionStart 到达（含补 Enter 兜信任弹窗）
+  ├─ 7. spawn open dashboard（带 ?p 项目作用域）              run.js:99-100
+  ├─ 8. setRunMode('run')（needSetRun 时）                    run.js:110-113
+  ├─ 9. driveSingle(client, {connectionMode, runId, mode})  run.js:114-119
+  └─ 10. 终态处理
+        ├─ outcome.ok → setRunMode('idle') → doCleanup       run.js:121-127
+        └─ 否则 → throw（保留 tmux/server 现场供 w-monitor）  run.js:124-133
 ```
 
-多 agent `runBatchLoop` 滑动窗口调度：
+### driveSingle 分支（提交/挂接判定）
 
-```
-runBatchLoop
-  ├─ dispatcher（send / sendRaw）
-  │    └─ subagentDispatch → 生成「派生后台子 Agent 执行 task」指令 → POST /send 注入主会话
-  ├─ runScheduler（src/cli/scheduler.js）
-  │    ├─ 就绪池（peekReadyTasks：pending 且 deps done）
-  │    ├─ 补位循环：pickFromPool → 配额 + plannedFiles 冲突 + 独占/保守串行过滤 → 派发
-  │    ├─ waitAnyDone → 轮询 state 等至少一个运行中任务完成（容忍延迟）
-  │    │    ├─ 落账失败补发（subagent-failed.jsonl → SendMessage 恢复，上限 RESEND_MAX）
-  │    │    └─ 决策上抛检测（subagent-needs-input.jsonl → 标记挂起，暂停补位）
-  │    └─ 池刷新：落账后重读 state，把新就绪任务加入池 + 重算 scope
-  └─ backupState → .awf/versions/
-```
+`driveSingle` 先探宿主现态（`client.runSnapshot({})` 取全部 run 摘要），再按 `connectionMode` 分流（`run.js:304-372`）：
 
----
+| 情形 | 行为 | 依据 |
+|------|------|------|
+| `runId` 指定 + attach/resume，宿主无该 run | 报错返回 `{ok:false}`（保留现场） | `run.js:313-317` |
+| `runId` 指定 + attach/resume，找到目标 run | 挂接该 run 观察（不重复提交） | `run.js:318-327` |
+| `runId` 指定 + 宿主正驱动**别的**活跃 run | 单槽冲突 → 报错（不并发开第二个 run） | `run.js:330-334` |
+| 宿主无活跃 run + `attach` | 报错「宿主无活跃 run」（不提交、不清场） | `run.js:336-341` |
+| 宿主无活跃 run + `fresh`/`resume` | **提交**新 run（`client.submitRun`）→ 观察 | `run.js:342-356` |
+| 宿主有活跃 run + `attach`/`resume` | 挂接（读 store 落盘进度续观） | `run.js:359-371` |
+| 宿主有活跃 run + `fresh` | **防御性转挂接**（单槽不可重复提交，告警） | `run.js:360-362` |
 
-## 核心常量
+- 提交前的 `hostEventTail`（`pollRunEvents` 取 `tailSeq`）作为事件起始游标，避免回放本次之前的旧事件（`run.js:374-382`）。
+
+### observeRun 事件环（订阅与展示）
+
+`observeRun` 轮询循环直到 run 进终态 `done|error|stopped`（`run.js:388-452`），每轮：
+
+1. **pause 闩锁**：`await waitWhilePaused(projectRoot)` —— 暂停期间不消费事件、不应答（`run.js:397`）。
+2. **人机应答/决策中继**：读 `/status`，`decisionPending` → `handleDecision`；`decisionResume`（去重）→ `injectResumeOnce`（`run.js:399-411`）。
+3. **宿主事件展示**：`pollRunEvents({runId, afterSeq})` 增量事件 —— TTY 下喂 `createRunFollow()`（任务行原地重绘）；非 TTY 走静态 `renderHostEvent`（`run.js:413-419`）。
+4. **状态 → 进度行 + 终态判定**：`runSnapshot({runId})`；终态即 break（`run.js:421-430`）。
+5. `sleep(200)` 后下一轮（`run.js:432`）。
+
+## 决策中继
+
+薄化后 CLI 的决策职责是**中继**（不是决策本体）：
+
+| 入口 | 触发 | 处理 | 依据 |
+|------|------|------|------|
+| `handleDecision(d)` | `/status.decisionPending` | AskUserQuestion → 自动选（`autoSelect`，5s 默认第一项）；`choice` → readline 选；`text` → readline 输入；回应经 `POST /respond?p=<项目>` 写回 | `run.js:514-555` |
+| `askChoice(rl, options)` | choice 输入循环 | 越界/非数字**拒收重问**，避免 "11" 之类脏值被当真实选择回传 | `run.js:563-570` |
+| `injectResumeOnce(resume)` | `/status.decisionResume`（`seenResume` 去重，一次） | 构造续跑文本 `POST /send?p=<项目>` 注入会话 | `run.js:490-501` |
+| `drainDecisionResume(projectRoot)` | 外部复用（run-resume） | 读 `/status.decisionResume` → 注入 → `waitForReady` 再等，最多 10 次 | `run.js:577-593` |
+
+- 单 agent `observeRun` 内**不**用 `drainDecisionResume`，改由 `seenResume` 一次性注入代替（避免与宿主等待冲突，`run.js:572-576`）。
+- 注：`awf run` 的**运行期决策**统一走「决策门阀」（`<AWF_DECISION_REQUIRED>`，见 CLAUDE.md）；`handleDecision`/`drainDecisionResume` 属遗留的会话级应答/续跑中继路径。
+
+## pause / 恢复相关行为
+
+- **pause 闩锁**：`waitWhilePaused(projectRoot)`（`src/lib/pause.js`）在 `mode=pause` 期间不返回；三条出口 `releasedBy`：`null`（本就没暂停）/`'resumed'`（mode 恢复）/`'settled'`（目标任务已结算）。等待超 `PAUSE_ALERT_MS`（默认 30s，`CC_PAUSE_ALERT_MS` 可覆盖）打一次告警。
+- **`--resume` 对暂停闩锁保持原语义**：`preservePause = options?.resume && state.mode === 'pause'`（`run.js:68`）—— w-monitor 用 `--resume` 重启异常退出的 CLI 时**必须保留 pause**，等监控验证 CLI 已重新驻留后再显式恢复为 run；此时 `needSetRun=false`，不切 run（`run.js:69,110`）。
+- **宿主自身只看 mode**：pause 的派发闩锁实际在 server 侧（`run-host`/`batch-transport`），CLI 侧只负责在暂停期间不消费事件/不应答。
+
+## `--resume` / `--attach` / `-R, --run-id` 语义
+
+选项声明见 `src/awf.js:31-40`；语义实现见 `run.js:54, 288-372`。
+
+| 选项 | 语义 |
+|------|------|
+| `-r, --resume` | 重启续接：有活跃 run → 挂接续观（**不重复提交**）；宿主空闲 → 提交续跑 store 剩余 pending（done 保留）。对 `mode=pause` 保留 pause 闩锁 |
+| `--attach` | 仅挂接活跃 run（读 store 落盘进度 + 续观 + 应答中继，不重复提交）；宿主空闲 → 报错退出、保留现场 |
+| `-R, --run-id <runId>` | 指定目标 run：`--attach`/`--resume` 挂接该 run；`fresh` 提交时命名该 run。缺省探宿主活跃 run |
+| `--multi-agent` | 显式多 agent：提交 `mode:'batch'`（不受 `cfg.agents.max` 影响），调度仍由宿主执行 |
+| `-a, --auto` | 已声明（`awf.js:34`）但**当前 `run.js` 未消费**（无 `options.auto` 引用） |
+| `-l, --local` | 已声明（`awf.js:38`）但**当前 `run.js` 未消费**（无 `options.local` 引用） |
+
+- **`--attach` 与 `--resume` 复用现有 server/tmux 现场**：`reuseExisting = connectionMode !== 'fresh'`（`run.js:96`）。
+- 会话复用判定：`tmux display-message` 取 pane 路径，**空输出显式判为「不存在」**（否则 `path.resolve('')` 静默取 cwd 令判断恒真，T1-108 真机回归暴露），路径与 workDir 一致才算复用（`run.js:233-249`）。
+- `awf attach`（无连字符，`src/cli/attach.js`）是另一命令：`tmux attach` 进会话观看/操作实时对话（Ctrl-B D 脱离），与 `awf run --attach` 不同。
+
+## 退出码与异常退出保留现场
+
+| 场景 | 行为 | 依据 |
+|------|------|------|
+| `.awf/state.json` 不存在 | 打印「未找到 .awf/state.json，请先执行 awf plan」→ `process.exit(1)` | `run.js:58-62` |
+| SIGINT / SIGTERM | `doCleanup()`（只关 tmux 会话）→ `process.exit(0)` | `run.js:82-83` |
+| run 正常完成（宿主终态 done） | `setRunMode('idle')` 成功后 `runCompleted=true` → `doCleanup()` | `run.js:121-133` |
+| run 异常（提交失败 / 宿主 error/stopped / idle 写入失败） | 抛错，**保留 tmux 与 Session Server 现场**供 w-monitor 诊断，不标 idle、不清理 | `run.js:124-134` |
+| 二次 SIGINT（`cleaned` 标记） | 不重复清理 | `run.js:73-75` |
+
+- **run 结束只关 tmux 会话，不 kill 常驻 server**（T1-064）：server 保留，下个 run/attach 复用，空闲超时自动回收，或 `awf server stop` 显式关闭（`run.js:78-80`）。
+- **异常退出即非零退出码**：`runCommand` 抛出的 Error 经 `run.js` 的 `finally` 分支（不清理）向上传播；`--attach` 空宿主失败即此路径（真机断言「失败退出码非 0」，见回归 `caseResume`）。
+
+## 核心常量 / 配置
 
 | 常量 | 值 | 说明 | 来源 |
-|------|------|------|------|
-| `SERVER_PORT` | 8787 | HTTP Session Server 端口 | `src/lib/session/client.js` |
-| `POLL_INTERVAL` | 2000ms | 单 agent ready 轮询间隔 | `src/lib/session/client.js` |
-| `READY_TIMEOUT` | 300000ms (5min) | ready / waitForTaskDone 超时 | `src/lib/session/client.js` |
-| `DEFAULT_TIMEOUT_MS` | 5000ms | AskUserQuestion 自动选择等待 | `src/lib/session/client.js` |
-| `MAX_SETTLE_ROUNDS` | 3 | 单 agent 收尾协商追问最大轮数 | `src/cli/run.js` |
-| `POLL_MS` | 2000ms | 多 agent 完成感知轮询间隔 | `src/cli/run-batch.js` |
-| `WAIT_TIMEOUT_MS` | 900000ms (15min) | 多 agent 单轮等待上限，超时中断暴露问题 | `src/cli/run-batch.js` |
-| `RESEND_MAX` | 2 | 单个子 Agent 落账失败补发上限 | `src/cli/run-batch.js` |
+|------|-----|------|------|
+| `SERVER_PORT` | plugin/config.json `port`（缺省 8787，`CC_PORT` 覆盖） | Session Server 端口（单源 runtime-config） | `src/lib/session/client.js:9`、`src/lib/runtime-config.cjs` |
+| `READY_TIMEOUT` | 1800000ms（30min） | `waitForReady` 最大等待 | `client.js:11` |
+| `POLL_INTERVAL` | 2000ms | ready 轮询间隔 | `client.js:13` |
+| `DEFAULT_TIMEOUT_MS` | 5000ms | AskUserQuestion 自动选择等待 | `client.js:145` |
+| `CC_SESSION_READY_TIMEOUT_MS` | 60000ms（env 覆盖） | `waitSessionStarted` 等 SessionStart 超时（超时不硬失败） | `run.js:176` |
+| session nudge 间隔 `nudgeMs` | 5000ms | 等待就绪期间周期补 Enter（兜信任弹窗） | `run.js:177` |
+| 事件环轮询间隔（`sleep(200)`） | 200ms | `observeRun` 每轮间隔 | `run.js:432` |
+| tmux 会话名 | `${session}-${projectSid}`（`projectSid`=`p`+12hex） | 单 server 多项目会话名唯一化 | `src/lib/run-context.cjs` `projectSid`/`projectSessionName` |
+| `PAUSE_ALERT_MS` | 30000ms（`CC_PAUSE_ALERT_MS` 覆盖） | pause 闩锁告警阈值 | `src/lib/pause.js:7` |
 
----
+> 注：`awf run` **没有** `--port` 选项；端口经 `plugin/config.json` 的 `port` + `CC_PORT` env 控制（`runtime-config.cjs`）。回归 harness 的 `--port <n>`（`tests/regression/fullflow-regression.mjs`）是**该脚本**的选项，用于隔离端口起 server/插件副本，与 `awf run` 无关。
 
 ## 函数清单
 
-### 导出函数
-
-| 函数 | 说明 |
-|------|------|
-| `runCommand(task, options)` | 主入口，启动环境后按 `loadRunConfig` 单/多 agent 分流 |
-
-### 环境管理（run.js）
-
-| 函数 | 说明 |
-|------|------|
-| `startSession({serverScript, bootstrapScript, projectRoot, workDir, sessionName})` | 组装环境：installProjectMcp → ensureServer → writeRunSettings → ensureSession |
-| `ensureServer(serverScript, projectRoot, workDir)` | kill 旧进程 → spawn node server → 轮询最多 30 次等待就绪 |
-| `ensureSession(bootstrapScript, workDir, sessionName)` | kill 旧 session → 执行 bootstrap.sh |
-| `writeRunSettings(workDir, pkgRoot)` | 写 `.awf/run-settings.json`：`crossSessionInbound: accept` + statusLine（实测上下文占用写 `.awf/context/usage.json`） |
-
-### 任务循环（单 agent，run.js）
-
-| 函数 | 说明 |
-|------|------|
-| `runLoop(projectRoot)` | 主循环：遍历任务、调用 executeTask、处理超时重试 |
-| `executeTask(prompt, taskId, projectRoot)` | 单任务：/send → waitForReady → settleTask |
-| `settleTask(taskId, projectRoot)` | 收尾协商：未 done 补发 wrapup/settle 追问，最多 `MAX_SETTLE_ROUNDS` 轮 |
-| `sendPrompt(text)` | 发送 prompt 并等待 ready；超时忽略 |
-| `checkTaskDone(taskId, projectRoot)` | 读 state.json 检查任务是否 done |
-| `getTaskStatus(taskId, projectRoot)` | 读指定任务 status（pending/active/done/blocked） |
-| `markTaskBlocked(taskId, projectRoot)` | 编排器仲裁：标记 blocked（使 findNextTask 跳过） |
-| `maybeCompactContext(taskPrompt, taskIndex, projectRoot)` | 任务前上下文压缩检查：CLI 实测过滤 → AI 判断 → 压缩（/clear + 快照注入） |
-
-### 滑动窗口调度（多 agent，run-batch.js + scheduler.js）
-
-| 函数 | 文件 | 说明 |
+| 函数 | 说明 | 位置 |
 |------|------|------|
-| `runBatchLoop(projectRoot, cfg)` | run-batch.js | 滑动窗口执行入口（max>1 时由 runCommand 动态 import） |
-| `makeWaitAnyDone(projectRoot, dispatcher)` | run-batch.js | 完成感知：轮询 state + 落账补发 + 决策上抛挂起；返回 `waitAnyDone` 函数 |
-| `runScheduler({projectRoot, cfg, dispatcher, waitAnyDone, onTaskComplete})` | scheduler.js | 滑动窗口主循环：补位 → 等待完成 → 释放 → 池刷新 |
-| `makeQuota(cfg)` | scheduler.js | 归一化四级配额（硬上限，缺省 1） |
-| `makeRunning()` | scheduler.js | 运行中集合：占用/配额判断/释放，按功能/模块计数 |
-| `pickFromPool(pool, running, quota, scope)` | scheduler.js | 从池取第一个满足「配额 + 文件冲突 + 独占/保守串行」约束的任务 |
-| `filesConflictWithRunning(task, running)` | scheduler.js | 任务 plannedFiles 与运行中集合冲突判定 |
+| `runCommand(task, options)` | 主入口：起环境 → 提交 run → 观察 → 收尾复位 | `run.js:47` |
+| `startSession({ctx, workDir, reuseExisting})` | 组装环境：installProjectMcp → ensureServer → writeRunSettings → ensureSession | `run.js:140` |
+| `sessionSeqOf(workDir)` | 读本项目当前 SessionStart 序号（拿不到→0） | `run.js:154` |
+| `waitSessionStarted(ctx, workDir, seqBefore, deps)` | 等 sessionSeq 增长（SessionStart 到达）才放行；期间补 Enter；超时告警放行 | `run.js:171` |
+| `ensureServer(serverScript, infraRoot, workDir, reuseExisting, runCtx)` | 复用健康 server 或 spawn（输出接 `.awf/logs/server.log`），最多轮询 30×500ms | `run.js:202` |
+| `ensureSession(bootstrapScript, workDir, sessionName, reuseExisting)` | 复用匹配会话或 kill + 执行 bootstrap.sh | `run.js:233` |
+| `writeRunSettings(ctx, workDir)` | 写 `.awf/run-settings.json`（statusLine；T1-065 已移除 inbox 入站配置） | `run.js:277` |
+| `driveSingle(client, opts)` | 单 agent：探宿主 → 提交/挂接 → observeRun | `run.js:304`（导出） |
+| `hostEventTail(client)` | 取宿主事件尾游标（提交/挂接前） | `run.js:375` |
+| `observeRun(client, opts)` | 观察宿主推进至 run 终态；TTY 跟随 / 非 TTY 静态 | `run.js:388` |
+| `renderHostEvent(e)` | 非 TTY 下渲染单个宿主事件 | `run.js:455` |
+| `injectResumeOnce(resume)` | 注入 gate 决策续跑消息（一次） | `run.js:490` |
+| `handleDecision(d)` | 分发三种决策（AskUserQuestion/choice/text） | `run.js:514`（导出） |
+| `askChoice(rl, options)` | 反复追问直到拿到合法序号 | `run.js:563` |
+| `drainDecisionResume(projectRoot)` | 外部复用：读 decisionResume → 注入 → 等待 | `run.js:577`（导出） |
+| `logBanner(text)` | 打印任务分隔横幅 | `run.js:600`（导出） |
 
-### HTTP 通信
-
-| 函数 | 说明 |
-|------|------|
-| `httpPost(url, body)` | 原生 `http.request` POST，返回 raw string |
-| `httpPostJson(url, body)` | 调用 httpPost + JSON.parse |
-| `getStatus()` | GET `/status`，返回状态对象或 false |
-| `sendCmd(cmd)` | POST `/cmd`，发送 slash command |
-| `getContextReady()` | GET `/context-ready`，一次性消费上下文就绪标记 |
-
-### 决策处理
-
-| 函数 | 说明 |
-|------|------|
-| `handleDecision(d)` | 分发三种决策类型：AskUserQuestion（自动选 5s 默认第一项）/ choice（readline）/ text（readline） |
-| `autoSelect(decision)` | 5 秒超时后自动选第一项 |
-
----
-
-## 滑动窗口调度（多 agent）
-
-CLI 拥有调度权（`src/cli/scheduler.js`），与单 agent `runLoop` 完全隔离——仅 `run.agents.max > 1` 时由 `runCommand` 动态 import 加载。
-
-### 就绪池
-
-`peekReadyTasks(state)`（`src/lib/state.js`）返回所有就绪任务：`status === 'pending'` 且 deps 全部 done，保持 state 原始顺序。池子按实际就绪任务填充，不足不凑满。
-
-### 四级配额
-
-`makeQuota(cfg)` 从 `.awf/config.json` 的 `run.agents` 归一化（非法/缺省回落 1）：
-
-| 配额 | 含义 |
-|------|------|
-| `max` | 总并发子 Agent 数 |
-| `maxModules` | 同时活跃模块数 |
-| `maxPerModule` | 每模块并发任务数 |
-| `maxPerFeature` | 每功能并发任务数 |
-
-**配额语义：硬上限，非目标**——池子按实际就绪任务填充，不足不凑满。
-
-### 作用域归属
-
-`buildScopeIndex(tasks)`（`src/lib/state.js`）构建 `taskId → { featureId, moduleId }`：
-- review gate 的 deps 内任务归该功能（`featureId` = review gate id）
-- test gate 的 deps 内任务归该模块（`moduleId` = test gate id）
-- doc gate（deps=全部任务）不参与，避免污染模块归属
-
-### plannedFiles 冲突过滤
-
-- `filesConflict(a, b)`（`src/lib/state.js`）：两个路径精确相同，或一方是另一方的目录前缀（`src/util/` vs `src/util/math.js`）。
-- `filesConflictWithRunning`（scheduler.js）：任务的 plannedFiles 与运行中所有任务 plannedFiles 展平比对，冲突则不并行。
-
-### 独占 / 保守串行
-
-- **独占任务**：`EXCLUSIVE_KINDS = new Set(['commit'])`（`src/lib/state.js`）——提交会改变共享仓库状态，不与任何任务并行。
-- **文档任务**：`doc` 不再无条件独占；声明了互不冲突的 `plannedFiles` 时按普通任务并行，缺失目标文件时仍保守串行。
-- **保守串行**：缺失 plannedFiles 且非 `review` 的任务无法判定冲突面，仅在无其他运行中时单独派发；`review` 只读审查天然无写冲突，无需文件声明即可并行。
-
-### 补位循环
-
-`runScheduler` 主循环：
-
-```
-while (true)
-  1. 补位（非挂起时）：pickFromPool 循环派发，直到配额满 / 池无可派 / 文件冲突 / 独占或保守串行阻塞
-  2. running.size === 0 → 结束（池空或无可派）
-  3. waitAnyDone(running) → 等至少一个完成（容忍延迟，不依赖即时信号）
-  4. 释放完成的 running 任务（按 scope 递减 perModule/perFeature/activeModules 计数）
-  5. `onTaskComplete(id, task)`：门禁闭环钩子（`src/cli/gate-fix.js`）——阻塞完成时派生修复 / 回退复审（await，须在池刷新前落盘）
-  6. 池刷新：重读 state，新就绪任务（依赖链/门禁转换）加入池 + 重算 scope
-```
-
-### 门禁闭环（fail → 派生修复 → 复审）
-
-门禁任务（kind=review/test）输出结构化 verdict（`exec.verdict`，见 awf-worker.md / awf-run-review / awf-run-test 技能）：
-
-```
-门禁完成（RESULT status=failed + verdict）
-  → settleSubagent 落账（status=blocked + exec.verdict）
-  → onTaskComplete → handleGateCompletion（gate-fix.js）
-      → spawnGateFixTask（state.js）：
-          - 派生修复任务 ${id}-F${n}（kind=dev，deps=门禁原deps，plannedFiles=[] 保守串行）
-          - 门禁回退 pending，deps 追加修复任务，exec.recheck++
-      → saveState → 池刷新自动纳入修复任务
-  → 修复 done → 门禁就绪 → 复审 → pass→done / fail→再派生（上限 MAX_RECHECK=3）
-```
-
-- 无 verdict 的门禁 blocked 不派生（视为旧协议 / 卡住，需人工介入）。
-- 轮次达上限保持 blocked，CLI 告警「需人工介入」。
-- 单 agent `runLoop` 同构生效（`src/cli/run.js`）：执行完门禁任务后检测 blocked + verdict 非 pass → 同一 `handleGateCompletion`。
-
----
-
-## 落账链路（多 agent）
-
-子 Agent 完成由 **SubagentStop hook 驱动**（用户定稿），不依赖主 Agent 收尾：
-
-```
-子 Agent 完成
-  → 输出固定格式 `RESULT: {json}`（最后一行，json 含 taskId/status/result/files/commits）
-  → SubagentStop hook（plugin/core/hooks/hooks.json）→ POST /hook?event=SubagentStop
-  → server 解析 last_assistant_message（src/server/server.cjs parseSubagentResult）
-  → settleSubagent 原子写 state（awf_task_complete：一次提交 status + exec.result/files + commits）
-```
-
-- 落账校验：RESULT taskId 不存在 → **可恢复拒绝**（写失败记录）；指向已完成/已阻塞任务 → **良性拒绝**（`already done/blocked（RESULT taskId 可能错写）`，`recoverable:false`，不写失败记录，防补发循环）。两者均防"假成功"错标已有任务。
-- **落账失败**（可恢复）→ 写 `.awf/logs/subagent-failed.jsonl`（含 agentId/reason）→ CLI `resendPending` 补发：SendMessage 恢复该子 Agent，要求重新以 `RESULT: {...}` 输出正确结果，上限 `RESEND_MAX`。
-- **未跟踪 SubagentStop**（无 SubagentStart 的幽灵 Stop）→ 跳过，不落账、不写失败记录（否则补发到不存在的 agent，反复等待）。
-- **status 终态映射**：`failed`/`fail`（协议允许）落账映射为 `blocked`（调度只认 blocked 为终态）。
-- **每 run 清空驱动日志**：server 启动时清空 `subagent-failed.jsonl`/`subagent-needs-input.jsonl`；CLI 起始游标取日志已有最大 ts，双保险防跨 run 残留重放。
-- **完成感知**：CLI `waitAnyDone` 轮询 state（`POLL_MS` 间隔，`WAIT_TIMEOUT_MS` 超时中断），检测运行中任务 done/blocked。
-
----
-
-## 决策上抛（多 agent）
-
-子 Agent 需要决策时不自行猜测：
-
-```
-子 Agent 输出 `NEEDS_INPUT: {json}`（最后一行，含 taskId/question/options/context）
-  → SubagentStop hook → server 解析（parseSubagentNeedsInput）
-  → 写 .awf/logs/subagent-needs-input.jsonl（不落账，任务保持等待）
-  → CLI checkNeedsInput 标记 pendingNeeds（暂停补位）
-  → 主 Agent 原生 AskUserQuestion（question/options 用子 Agent 给出的，M5）
-  → 用户作答 → /respond → 主 Agent 用 SendMessage 恢复该子 Agent 告知答案，让它继续完成
-  → 决策解决 → 恢复补位
-```
-
-- 等待循环中 CLI 检测 `decisionPending` → `handleDecision` 处理（处理期间阻塞 = 调度器不返回 = 暂停补位）。
-- 挂起判定：有待解决 NEEDS_INPUT 且主 Agent 正在 AskUserQuestion → `suspended`，不补位。
-
----
-
-## HTTP API 交互
-
-| 端点 | 方法 | 调用位置 | 说明 |
-|------|------|---------|------|
-| `/status` | GET | getStatus, checkServer, waitForReady | 返回 `{ state, decisionPending }` |
-| `/send` | POST | executeTask, dispatcher.send | `{ text: prompt }`，发送到 tmux session |
-| `/cmd` | POST | sendCmd | `{ cmd }`，发送 slash command |
-| `/respond` | POST | handleDecision | `{ value }`，回应 AI 提问 |
-| `/hook` | POST | SubagentStop 等 | `{ event, body }`，hooks 事件上报（含子 Agent RESULT/NEEDS_INPUT） |
-| `/context-ready` | GET | getContextReady | 一次性消费上下文就绪标记 |
-
----
-
-## 执行提示词由插件声明
-
-所有执行期提示词由插件声明（`plugin/plugin-code/prompts.json`），CLI 经 `src/lib/plugin-bridge.js`（插件边界唯一模块）只读取模板并填充占位符，不写死插件命令字符串：
-
-| 函数（plugin-bridge.js） | 模板 key | 用途 |
-|------|------|------|
-| `subagentDispatch({taskId, taskPrompt})` | `subagent-dispatch` | 滑动窗口单任务派发：主 Agent 用插件内置 `ai-workflow-core:awf-worker` 派生后台子 Agent；约束身份化 + 决策上抛时主 Agent AskUserQuestion |
-| `taskWrapup(taskId)` | `task-wrapup` | 任务未 done 时补发收尾 prompt（按真实状态收尾，未完成不标 done） |
-| `taskSettle(taskId)` | `task-settle` | 收尾追问：完成 / 继续 / 卡住 三选一 |
-| `contextCheck(usage)` | `context-check` | 任务前上下文压缩检查（AI 判断，输出 `AWF_CONTEXT_OK` / `AWF_CONTEXT_READY`） |
-
----
-
-## 状态机感知
-
-`waitForReady` 通过轮询 `/status` 感知 Session Server 状态转换：
-
-| status.state | 含义 | 行为 |
-|-------------|------|------|
-| `ready` | CC 空闲 | 返回，继续下一步 |
-| `busy` | CC 处理中 | 继续轮询 |
-| `decisionPending` | AI 需要决策 | 调用 handleDecision 后继续轮询 |
-
----
-
-## 超时与重试策略
-
-| 场景 | 行为 |
-|------|------|
-| `/send` 失败 | 单 agent：返回 `'timeout'`，不阻塞流程；多 agent：抛错（派发失败暴露） |
-| `executeTask` 超时（5min） | catch 后回查 state，若 done 则返回 `'ok'` |
-| 回查 state 仍未 done | 返回 `'timeout'` |
-| 超时后重读 state 发现 done | `consecutiveTimeouts` 归零，正常继续 |
-| 连续 2 次超时（单 agent） | 标记 blocked，`consecutiveTimeouts` 归零 |
-| `settleTask` 多轮追问仍未完成 | 标记 blocked 并跳过（返回 `'stuck'`） |
-| 子 Agent 落账失败（多 agent） | 补发要求重出 RESULT，上限 `RESEND_MAX` 次 |
-| `waitAnyDone` 单轮等待超时（15min） | 抛错中断，暴露问题 |
-
----
-
-## 依赖
+## 接口 / 依赖
 
 | 模块 | 用途 |
 |------|------|
-| `node:child_process` (`spawn`, `execSync`) | 启动 server、bootstrap、清理 tmux/端口 |
-| `node:http` | HTTP 请求到 Session Server |
+| `src/cli/run-client.js`（`createRunClient`） | CLI↔Server 调用面：`submitRun`/`runSnapshot`/`pollRunEvents`/`setRunMode`（含 `?p` 项目路由） |
+| `src/lib/session/client.js` | HTTP 原语与就绪等待：`httpPost`/`httpPostJson`/`getStatus`/`autoSelect`/`waitForReady`/`SERVER_PORT`/`projectQuery` |
+| `src/lib/run-context.cjs`（`buildRunContext`/`projectSid`） | run 上下文装配：会话名、端口、路径、settings 引用单源 |
+| `src/lib/profile.js`（`installProjectMcp`） | 项目级 `.mcp.json` 幂等合并（MCP 工具可用必要条件） |
+| `src/lib/pause.js`（`waitWhilePaused`） | pause 闩锁（暂停期间挂起、恢复/settled 放行） |
+| `src/lib/state.js`（`loadState`） | 只读校验 state 存在与 mode（不写） |
+| `src/cli/run-client.js` + 上述 client | 提交/订阅/应答；mode 写经 `setRunMode`（`POST /run/state/mode`） |
+| `src/server/run-host.cjs` 等 server run 域 | 实际编排（任务选择/阶段链/门禁/多 agent 调度）；CLI 不持有 |
+| `src/lib/ui/run-follow.js`（`createRunFollow`） | TTY 跟随展示（任务行原地重绘 + 进度行） |
+| `src/lib/ui/log.js`（`logSection`/`logStep`）| 结构化输出 |
+| `node:child_process`（`spawn`/`execSync`） | tmux 会话管理（display-message/kill-session/attach）、bootstrap、补 Enter |
 | `node:readline` | 交互式决策输入（choice/text） |
-| `./paths.js` (`getPaths`) | 获取 server 路径、bootstrap 路径、projectRoot |
-| `./state.js` (`loadState`, `findNextTask`, `peekReadyTasks`, `buildScopeIndex`, `filesConflict`, `EXCLUSIVE_KINDS`, `backupState`) | 任务查询、作用域归属、文件冲突、快照备份 |
-| `./run-config.js` (`loadRunConfig`) | 读 `.awf/config.json` 的 `run.agents` 四级配额 |
-| `./plugin-bridge.js` (`subagentDispatch`, `taskWrapup`, `taskSettle`, `contextCheck`) | 插件声明提示词读取与占位符填充 |
-| `./scheduler.js` (`runScheduler`) | 滑动窗口调度器（纯逻辑） |
-| `./run-batch.js` (`runBatchLoop`) | 滑动窗口集成（派发 / 完成感知 / 补发 / 决策挂起） |
-| `../lib/session/client.js` (`autoSelect`, `waitForReady`) | AskUserQuestion 自动选择、就绪等待 |
-| `./profile.js` (`installProjectMcp`) | 项目级 .mcp.json 幂等合并 |
-| `process.env.CC_SESSION` | tmux session 名称（默认 `cc`） |
-| `.awf/logs/subagent-failed.jsonl` | 落账失败记录（CLI 据此补发） |
-| `.awf/logs/subagent-needs-input.jsonl` | 决策上抛记录（CLI 据此暂停补位） |
+| `plugin/plugin-code/prompts.json` | 运行期提示词模板（经 `plugin-bridge.js` 读取；CLI 零感知） |
+
+## 验收标准
+
+- [ ] `awf run` 能在无 server 时拉起常驻 server、无 tmux 会话时执行 bootstrap 建会话；已有健康 server/会话时复用（不 spawn、不 kill）。（`run.test.js` TC2/TC7/TC8）
+- [ ] 派发前等到 `SessionStart` 到达（sessionSeq 增长）；超时告警放行、不硬失败。（`session-ready-wait.test.js`）
+- [ ] 单 agent 提交 run 后，CLI 消费宿主事件并展示（`task.started/done` 等）；观至终态后 `setRunMode('idle')` + 清理 tmux。（`run.test.js` TC2/TC2b；`run-host.test.js`）
+- [ ] `--resume`/`--attach`：宿主空闲时 `--attach` 拒绝且**不清场**（tmux 与 mode 保留）；CLI 被 SIGKILL 中断后 `--attach` 挂接在飞 run，续观至完成、**不重复提交**；`--resume` 完成收尾复位（run_interrupted 闭环）。（真机 case `resume`/`recover`）
+- [ ] `--resume` 重启暂停中的 CLI 时保留 pause 闩锁，不切 run。（`run.test.js` TC2f）
+- [ ] 决策中继：`decisionPending`（AskUserQuestion/choice/text）经用户应答写回 `/respond`；`decisionResume` 去重注入续跑 `/send`。（`run.test.js`；`run-resume.test.js`）
+- [ ] 异常退出（提交失败 / 宿主 error / idle 写入失败）**保留 tmux 与 server 现场**、不标 idle；正常退出只关 tmux、不 kill 常驻 server。（`run.test.js` TC2c/TC2d/TC2e）
+- [ ] `--multi-agent` 或 `cfg.agents.max>1` → 宿主走 batch 模式经 `runScheduler` 调度（CLI 不实现滑动窗口）。（`run.e2e.test.js` E2E-6/E2E-7）
+- [ ] 真机全量回归 `--case all` 覆盖边界：`resume`/`recover`/`pause`/`pause-release`/`dual` 等已注册 case 通过；未覆盖项（plan 全链路、门禁失败分支、多 agent 真并发调度、异常路径等）按 `t3-011-full-real-gate.md` §四声明为准。

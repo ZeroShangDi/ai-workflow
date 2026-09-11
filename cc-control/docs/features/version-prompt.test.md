@@ -1,8 +1,11 @@
 # awf version-prompt — 测试用例文档
 
 > 对应需求文档：`docs/features/version-prompt.md`
-> 源码文件：`src/cli/version-prompt.js`
+> 源码文件：`src/lib/version.js`（**此前误写为 `src/cli/version-prompt.js`，该文件不存在**）
 > 测试文件：`tests/unit/version-prompt.test.js`
+
+> **当前状态**：该功能在生产路径上**未接线**（`src/cli/init.js:5`、`src/cli/plan.js:2` 的 import/调用均被注释，注明「版本处理暂时禁用」）。
+> 下方用例是 `src/lib/version.js` 的**单元**行为，仍全部在册且通过；它们不证明该功能已接入 `awf init` / `awf plan`。
 
 ---
 

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { getPaths } from '../lib/paths.js';
 // import { promptVersion } from '../lib/version.js'; // 版本处理暂时禁用
 import { stateTemplatePath } from '../lib/plugin-bridge.js';
-import tooling from '../adapters/tooling.cjs';
+import { tooling } from '../adapters/ports.cjs'; // 端口经契约取用（T1-117）
 import { pluginCommand } from './plugin.js';
 import { CYAN, RED, RESET } from '../lib/ui/colors.js';
 import { logSection, logStep } from '../lib/ui/log.js';

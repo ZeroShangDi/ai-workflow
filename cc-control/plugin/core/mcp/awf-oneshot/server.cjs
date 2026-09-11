@@ -19,6 +19,9 @@ try {
 // adapter spawn claude -p），MCP 不再直连 spawn；缺省（离线/单测）沿用本地 spawn。
 const http = require('node:http');
 const AWF_BASE = process.env.AWF_BASE || '';
+// 单 server 多项目：/oneshot 是写类端点，必须带 ?p（缺省不带 → server 400 拒绝，不再兜底 boot）
+const ONESHOT_PROJ = process.env.AWF_PROJECT_ROOT || process.env.CC_PROJECT || '';
+const ONESHOT_PROJ_QS = ONESHOT_PROJ ? `?p=${encodeURIComponent(ONESHOT_PROJ)}` : '';
 function httpJsonPost(pathname, bodyObj) {
   return new Promise((resolve) => {
     const base = new URL(AWF_BASE);
@@ -38,7 +41,7 @@ function httpJsonPost(pathname, bodyObj) {
   });
 }
 async function serverOneShot(prompt, cwd) {
-  const r = await httpJsonPost('/oneshot', { prompt, cwd: cwd || undefined });
+  const r = await httpJsonPost('/oneshot' + ONESHOT_PROJ_QS, { prompt, cwd: cwd || undefined });
   if (!r || r.ok !== true) return { ok: false, error: (r && r.error) || 'awf-oneshot server 调用失败（/oneshot）' };
   return r;
 }

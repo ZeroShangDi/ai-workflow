@@ -28,9 +28,9 @@ describe('mock adapter 全绿', () => {
     const m = createMockAdapters();
     expect(Object.keys(m.ports)).toEqual(PORT_NAMES);
     m.ports.host.sendText('hi');
-    await m.ports.oneshot.run('p');
+    await m.ports.oneshot.runOneShot({ prompt: 'p' });
     await m.ports.tooling.install({});
-    await m.ports.interactive.askChoice('q', ['A']);
+    await m.ports.interactive.launchDialog({ question: 'q', options: ['A'] });
     await m.ports.probe.inspect();
     await m.ports.session.start({});
     m.ports.hook.hook({ hook_event_name: 'Stop' }, {});
@@ -40,6 +40,14 @@ describe('mock adapter 全绿', () => {
 });
 
 describe('cc 真实 adapter 各走一遍', () => {
+  it('T1-116：oneshot / tooling 经工厂绑定的就是真实实现（不是空壳）', () => {
+    const a = createCcAdapters({ sessionName: 'cc-r' });
+    expect(a.oneshot.claudePArgs('hi')).toEqual(['-p', 'hi']);
+    expect(typeof a.tooling.buildInstall('spec')).toBe('string');
+    expect(typeof a.tooling.buildMarketplaceAdd('/market')).toBe('string');
+    expect(a.tooling.claudeAvailable({ execSync: () => '/usr/bin/claude' })).toBe(true);
+  });
+
   it('host：会话原语经注入 exec', () => {
     const exec = () => '';
     const { host } = createCcAdapters({ sessionName: 'cc-r', execFileSync: exec });

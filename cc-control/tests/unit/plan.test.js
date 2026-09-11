@@ -14,10 +14,10 @@ vi.mock('../../src/lib/plugin-bridge.js', () => ({
     return '/ai-workflow-code:w-plan 请开始需求规划';
   }),
 }));
-// claude 字面已移入 interactive adapter：plan.js 只委托 launchInteractiveClaude
-vi.mock('../../src/adapters/interactive.cjs', () => ({
-  launchInteractiveClaude: mockLaunch,
-  projectSettingsPath: (c) => `${c}/.claude/settings.json`,
+// claude 字面已移入 interactive adapter；cli 现在**经端口契约**取端口（T1-117），
+// 所以 mock 的接缝也随之抬到契约这一层 —— 这正说明边界变了：谁也不再直连具体 adapter 文件。
+vi.mock('../../src/adapters/ports.cjs', () => ({
+  interactive: { launchDialog: mockLaunch },
 }));
 
 import { planCommand } from '../../src/cli/plan.js';

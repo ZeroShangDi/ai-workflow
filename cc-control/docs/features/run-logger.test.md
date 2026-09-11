@@ -1,355 +1,175 @@
-# Run Logger 模块 — 测试用例文档
+# Run Logger 模块 — 测试用例
 
-> 对应需求文档：`docs/features/run-logger.md`
-> 源码文件：`src/server/run-logger.cjs`
+> 对应功能文档：`docs/features/run-logger.md`
+> 源码：`src/server/run-logger.cjs`
 > 测试文件：`tests/unit/run-logger.test.js`
-
----
 
 ## 测试场景总览
 
-### 初始化 — 6 个 TC
-
 | # | 场景 | 类别 |
 |---|------|------|
-| 1 | 正常初始化：有 projectRoot + 有效 state.json | 正常 |
-| 2 | projectRoot 为空 → enabled=false | 初始化 |
-| 3 | projectRoot 为 null → enabled=false | 初始化 |
+| 1 | 正常初始化：目录 / 路径 / agents 子目录 / 头部 | 正常 |
+| 2 | `projectRoot` 为空字符串 → enabled=false | 初始化 |
+| 3 | `projectRoot` 为 null → enabled=false | 初始化 |
 | 4 | state.json 不存在 → enabled=false | 初始化 |
-| 5 | state.json 无 version 字段 → enabled=false | 初始化 |
+| 5 | state.json 无 version → enabled=false | 初始化 |
 | 6 | state.json 非法 JSON → enabled=false | 初始化 |
-
-### 日志写入 — 5 个 TC
-
-| # | 场景 | 类别 |
-|---|------|------|
-| 7 | logPrompt: 格式验证 | 格式 |
-| 8 | logResponse: 格式验证 | 格式 |
-| 9 | logChoice: 格式验证 | 格式 |
+| 7 | logPrompt 格式（含 60 ─ 分隔线 + 提示词标签） | 格式 |
+| 8 | logResponse 格式（无分隔线） | 格式 |
+| 9 | logChoice 格式（Q/A） | 格式 |
 | 10 | enabled=false 时写入被跳过 | 边界 |
-| 11 | _append 异常不抛出 | 异常 |
-
-### Transcript 捕获 — 5 个 TC
-
-| # | 场景 | 类别 |
-|---|------|------|
-| 12 | 增量读取：仅读取新增内容 | 正常 |
-| 13 | 无新内容 → 不写入 | 正常 |
-| 14 | 文件不存在 → 跳过 | 正常 |
+| 11 | 写入异常不抛出（经 AppendFileStore 的 fs.appendFileSync） | 异常 |
+| 12 | 主 transcript 增量捕获：只追加新增、不重复 | 正常 |
+| 13 | 无新内容 → 跳过 | 正常 |
+| 14 | transcript 文件不存在 → 不抛 | 正常 |
 | 15 | 非 assistant 行 → 跳过 | 正常 |
-| 16 | assistant 消息含多个 text block | 格式 |
-
-### 边界 — 4 个 TC
-
-| # | 场景 | 类别 |
-|---|------|------|
-| 17 | 日志头格式验证 | 格式 |
-| 18 | 版本号来自 state.json | 数据源 |
-| 19 | slug 生成规则 | 边界 |
+| 16 | assistant 多 text block 拼接 | 格式 |
+| 17 | 日志头格式（逐行） | 格式 |
+| 18 | 版本号来自 state.json（目录名 + 头部） | 数据源 |
+| 19 | slug 路径解析（transcript 在 slug 目录中被找到） | 边界 |
 | 20 | sessionStartTime 过滤旧文件 | 边界 |
+| 21 | 子 Agent transcript → 可读 log（含文件名净化） | 正常 |
 
----
+> 注：测试文件用 `vi.spyOn(os, 'homedir')` 指向临时 `fake-home`，并各自创建 `.awf/state.json`。
 
 ## 详细测试用例
 
 ### TC1: 正常初始化
 
-**前置条件**：projectRoot 为临时目录，`.awf/state.json` 内容为 `{"version":"0.1.0"}`
+**前置条件**：`projectRoot` 为临时目录，`.awf/state.json` 为 `{"version":"0.1.0"}`
 
-**执行**：`new RunLogger(tempDir)`
-
-**断言**：
-- `logger.enabled` = true
-- `logger.path` = `{tempDir}/.awf/logs/0.1.0.log`
-- `.awf/logs/` 目录被创建
-- 日志文件包含头部 "=== AWF Run Log ==="
-- 日志文件包含 `version: 0.1.0`
-- 日志文件包含 `started: {ISO时间戳}`
-- 日志文件包含 `project: {tempDir}`
-
----
-
-### TC2: projectRoot 为空字符串 → enabled=false
-
-**前置条件**：无
-
-**执行**：`new RunLogger('')`
+**执行**：`new RunLogger(tmpDir)`
 
 **断言**：
-- `logger.enabled` = false
-- `logger.path` = null
-- 不创建任何目录和文件
-- `_init()` 不执行（Constructor 中 `if (!projectRoot) return`）
+- `logger.enabled === true`
+- `logger.dir` 匹配 `.awf/logs/0.1.0-YYYY-MM-DDTHH-mm-ss$`
+- `logger.path` 匹配 `.awf/logs/0.1.0-YYYY-MM-DDTHH-mm-ss/main.log$`
+- `.awf/logs/` 与 `{runDir}/agents/` 目录存在
+- `main.log` 含 `=== AWF Run Log ===`、`version: 0.1.0`、`started: `、`project: {tmpDir}`
 
----
+### TC2 / TC3: root 为空串 / null
 
-### TC3: projectRoot 为 null → enabled=false
+**执行**：`new RunLogger('')` / `new RunLogger(null)`
 
-**前置条件**：无
+**断言**：`enabled === false`、`path === null`，不建目录（构造器 `if (!projectRoot) return`）。
 
-**执行**：`new RunLogger(null)`
+### TC4–TC6: state.json 异常
 
-**断言**：
-- `logger.enabled` = false
-- 同 TC2
+**前置条件**：分别 ① 文件不存在 ② `{"mode":"idle"}` ③ `{broken`
 
----
+**执行**：`new RunLogger(tmpDir)`
 
-### TC4: state.json 不存在 → enabled=false
+**断言**：`enabled === false`（`_readVersion` 返回 null，`_init` 提前 `return`），且不抛异常。
 
-**前置条件**：projectRoot 有效但 `.awf/state.json` 不存在
-
-**执行**：`new RunLogger(tempDir)`
-
-**断言**：
-- `_readVersion()` 抛 ENOENT → catch → 返回 null
-- `_init()` 中 `if (!version) return` → 提前退出
-- `logger.enabled` = false
-- 不创建 .awf/logs/ 目录
-
----
-
-### TC5: state.json 无 version 字段 → enabled=false
-
-**前置条件**：state.json 内容为 `{"mode":"idle"}`（无 version）
-
-**执行**：`new RunLogger(tempDir)`
-
-**断言**：
-- `_readVersion()` 返回 null（`state.version` 为 undefined）
-- `logger.enabled` = false
-
----
-
-### TC6: state.json 非法 JSON → enabled=false
-
-**前置条件**：state.json 内容为 `{broken`
-
-**执行**：`new RunLogger(tempDir)`
-
-**断言**：
-- `JSON.parse` 抛出异常 → catch → 返回 null
-- `logger.enabled` = false
-- 不抛异常
-
----
-
-### TC7: logPrompt 格式验证
-
-**前置条件**：logger 已正常初始化，日志文件为空
+### TC7: logPrompt 格式
 
 **执行**：`logger.logPrompt('请实现功能 X')`
 
-**断言**：
-- 日志文件追加内容包含 60 个 `─` + 换行
-- 包含 `[HH:MM:SS] 提示词`
-- 包含 `请实现功能 X`
-- 时间戳格式为 `HH:MM:SS`（8 个字符）
-- 以 `\n\n` 结尾（body 后 + 空行）
+**断言**：含 `─`.repeat(60)、`/\[\d{2}:\d{2}:\d{2}\] 提示词/`、`请实现功能 X`。
 
----
-
-### TC8: logResponse 格式验证
-
-**前置条件**：logger 正常
+### TC8: logResponse 格式
 
 **执行**：`logger.logResponse('已完成功能 X')`
 
-**断言**：
-- 追加内容包含 `[HH:MM:SS] 回答`
-- 包含 `已完成功能 X`
-- **不**包含 60 个 `─` 分隔线（只有 PROMPT 类型才有）
-- 以 `\n` 结尾
+**断言**：含 `/\[\d{2}:\d{2}:\d{2}\] 回答/`、`已完成功能 X`；头部之后的正文**不含** 60 个 `─`。
 
----
-
-### TC9: logChoice 格式验证
-
-**前置条件**：logger 正常
+### TC9: logChoice 格式
 
 **执行**：`logger.logChoice('选择方案?', 'A方案')`
 
-**断言**：
-- 追加内容包含 `[HH:MM:SS]`
-- 包含 `Q: 选择方案?`
-- 包含 `A: A方案`
-- 不包含 "提示词" 或 "回答" 标签
-
----
+**断言**：含 `/\[\d{2}:\d{2}:\d{2}\]/`、`Q: 选择方案?`、`A: A方案`。
 
 ### TC10: enabled=false 时写入被跳过
 
-**前置条件**：logger.enabled = false
+**执行**：`new RunLogger(null)` 后调用 `logPrompt/logResponse/logChoice/captureFromTranscript`
 
-**执行**：
-- `logger.logPrompt('test')`
-- `logger.logResponse('test')`
-- `logger.logChoice('Q', 'A')`
-- `logger.captureFromTranscript()`
+**断言**：均不抛，`enabled === false`。
 
-**断言**：
-- `logPrompt` 中 `_write` 第一行 `if (!this._logPath) return` → 直接返回
-- `captureFromTranscript` 中同样 return
-- 无文件写入
-- 不报错
+### TC11: 写入异常不抛出
 
----
-
-### TC11: _append 异常不抛出
-
-**前置条件**：日志文件所在目录权限只读（或 mock `appendFileSync` 抛异常）
+**前置条件**：`vi.spyOn(fs, 'appendFileSync')` 抛 `EACCES`、`console.error` 被 spy
 
 **执行**：`logger.logPrompt('test')`
 
-**断言**：
-- `appendFileSync` 抛出 EACCES
-- catch 捕获 → `console.error` 输出错误信息
-- 不向上抛出异常
-- logger 对象保持可用
+**断言**：不抛；`console.error` 收到含 `[run-logger] write error` 的字符串。
 
----
+> 说明：`_append` 经 `_main.appendRawSync`（AppendFileStore），后者内部仍调用 `fs.appendFileSync`，故 mock 该函数可命中 catch 分支。
 
-### TC12: transcript 增量读取
+### TC12: 增量捕获
 
-**前置条件**：
-- JSONL 文件初始内容: `{"type":"assistant","message":{"content":[{"type":"text","text":"响应1"}]}}\n`
-- _transcriptPos = 初始内容长度（已读）
-- 新增内容: `{"type":"assistant","message":{"content":[{"type":"text","text":"响应2"}]}}\n`
+**执行**：写入一行 assistant `hello` → `captureFromTranscript()`；再追加 `world` → 再捕获。
 
-**执行**：`logger.captureFromTranscript()`
+**断言**：两次都含 `回答`；`hello` 只出现一次（`match(/hello/g)` 长度 1）。
 
-**断言**：
-- 只读取新增部分（从 _transcriptPos 开始）
-- `logResponse('响应2')` 被调用
-- `logResponse('响应1')` 不被调用（已读过）
-- `_transcriptPos` 更新为新 content.length
+### TC13: 无新内容 → 跳过
 
----
+**断言**：第二次 `captureFromTranscript()` 后 `main.log` 内容不变。
 
-### TC13: 无新内容 → 不写入
+### TC14: transcript 不存在 → 不抛
 
-**前置条件**：content.length === _transcriptPos（无可读新内容）
+**执行**：无 fake-home 目录时 `captureFromTranscript()`
 
-**执行**：`logger.captureFromTranscript()`
+**断言**：`expect(() => ...).not.toThrow()`。
 
-**断言**：
-- `if (content.length <= this._transcriptPos) return` → 直接返回
-- logResponse 不被调用
+### TC15: 非 assistant 行跳过
 
----
+**前置条件**：只写一行 `type:'user'` 内容 `USER TEXT`
 
-### TC14: transcript 文件不存在 → 跳过
+**断言**：`main.log` 不含 `USER TEXT`。
 
-**前置条件**：`~/.claude/projects/{slug}/` 目录不存在或为空
+### TC16: 多 text block 拼接
 
-**执行**：`logger.captureFromTranscript()`
+**前置条件**：assistant content = `[{text:'a'},{text:'b'}]`
 
-**断言**：
-- `_findTranscriptFile()` 返回 null
-- 函数直接返回，不报错
+**断言**：`main.log` 含 `ab`（join 无分隔符）。
 
----
+### TC17: 日志头格式
 
-### TC15: 非 assistant 行 → 跳过
+**前置条件**：state.json version = `0.2.0`
 
-**前置条件**：JSONL 新增内容:
-```
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"你好"}]}}
-{"type":"assistant","message":{"content":[{"type":"text","text":"你好！"}]}}
-```
-
-**执行**：`logger.captureFromTranscript()`
-
-**断言**：
-- `type === 'user'` → 跳过
-- `type === 'assistant'` → `logResponse('你好！')` 被调用
-- 两条记录处理后 _transcriptPos 更新
-
----
-
-### TC16: assistant 消息含多个 text block
-
-**前置条件**：JSONL 新增:
-```json
-{"type":"assistant","message":{"content":[
-  {"type":"text","text":"第一段"},
-  {"type":"tool_use","name":"read","input":{}},
-  {"type":"text","text":"第二段"}
-]}}
-```
-
-**执行**：`logger.captureFromTranscript()`
-
-**断言**：
-- 提取 2 个 type='text' 的 block
-- `logResponse('第一段第二段')` 被调用（join 无分隔符）
-- `tool_use` block 被跳过
-
----
-
-### TC17: 日志头格式验证
-
-**前置条件**：projectRoot = `/tmp/test`，state.json version = `"0.2.0"`
-
-**执行**：`new RunLogger('/tmp/test')`
-
-**断言**：
-- 日志文件前 4 行:
-```
-=== AWF Run Log ===
-version: 0.2.0
-started: {ISO时间}
-project: /tmp/test
-```
-- 第 5 行为空行
-- header 写入在前，后续内容追加在后
-
----
+**断言**：逐行 `lines[0]==='=== AWF Run Log ==='`、`lines[1]==='version: 0.2.0'`、`lines[2]` 匹配 `/^started: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/`、`lines[3]==='project: {tmpDir}'`、`lines[4]===''`。
 
 ### TC18: 版本号来自 state.json
 
-**前置条件**：state.json version = `"1.0.0"`
+**前置条件**：version = `1.0.0`
 
-**执行**：`new RunLogger(tempDir)`
+**断言**：`logger.path` 匹配 `/1\.0\.0-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\/main\.log$/`，头部含 `version: 1.0.0`。
 
-**断言**：
-- 日志文件名 = `1.0.0.log`
-- 日志头中 `version: 1.0.0`
+> 修订：旧文档此处写作「文件名 = `1.0.0.log`」，与代码不符——实际是 `1.0.0-{ts}/main.log`。
 
----
+### TC19: slug 路径解析
 
-### TC19: slug 生成规则
+**前置条件**：transcript 写在 `{fake-home}/.claude/projects/{tmpDir.replace(/\//g,'-')}/session.jsonl`
 
-**前置条件**：projectRoot = `/Users/test/my-project`
+**断言**：`captureFromTranscript()` 后 `main.log` 含写入文本（证明 slug 目录定位生效）。
 
-**执行**：`_findTranscriptFile()` 内部计算 slug
+### TC20: sessionStartTime 过滤
 
-**断言**：
-- `'/Users/test/my-project'.replace(/\//g, '-')` = `-Users-test-my-project`
-- 查找目录 = `~/.claude/projects/-Users-test-my-project/`
+**前置条件**：transcript 文件 `utimesSync` 设为过去时间；`resetTranscript()` 把会话起点设为「现在」
 
----
+**执行**：`captureFromTranscript()`
 
-### TC20: sessionStartTime 过滤旧文件
+**断言**：`main.log` 不含旧文本（旧文件被过滤）。
 
-**前置条件**：
-- `~/.claude/projects/{slug}/` 有 `2026-08-01.jsonl`（mtime 在 sessionStartTime 之前）
-- sessionStartTime = 当前时间
+### TC21: 子 Agent transcript 渲染
 
-**执行**：`_findTranscriptFile()`
+**前置条件**：`agent.jsonl` 含一行 assistant `subagent transcript`
+
+**执行**：`logger.captureSubagentTranscript({ agent_transcript_path: agentSource }, 'T1', 'agent/one')`
 
 **断言**：
-- 找到最新文件但 `mtime < sessionStartTime`
-- 返回 null（该文件属于旧 session，不读取）
-- `captureFromTranscript()` 不执行读取
-
----
+- 生成 `{runDir}/agents/T1--agent_one.log`（`/` 被净化为 `_`）
+- 含 `=== AWF Subagent Log ===`、`task: T1`、`[--:--:--] 回答`、`subagent transcript`
+- `main.jsonl` 不存在（原始 jsonl 不落入 run 目录）
 
 ## Mock 策略
 
-| 模块 | 方式 | 说明 |
-|------|------|------|
-| `node:fs` | 真实 fs + 临时目录 或 `vi.mock` | 优先使用临时目录进行集成测试 |
-| `node:os.homedir()` | `vi.mock` | 返回临时目录，控制 transcript JSONL 文件 |
-| state.json | 临时文件 | 每次测试创建不同的 state.json 内容 |
-| 时间戳 | 验证格式使用正则 `/\[\d{2}:\d{2}:\d{2}\]/` | 不 mock Date，只验证格式正确性 |
+| 依赖 | Mock 方式 | 说明 |
+|------|-----------|------|
+| 临时目录 | `fs.mkdtempSync` | 每个 TC 独立；`afterEach` 递归删除 |
+| `os.homedir()` | `vi.spyOn(...).mockReturnValue(fakeHome)` | 控制 transcript 查找目录（`makeLogger` 辅助） |
+| `fs.appendFileSync` | `vi.spyOn` 抛错 | 验证 `_append` catch 分支（TC11） |
+| `console.error` | `vi.spyOn` 静默 | 断言错误信息 |
+| state.json | 真实临时文件 | 每例写入不同 version |
+| 时间戳 | 正则 `/\[\d{2}:\d{2}:\d{2}\]/` | 不 mock Date，只验格式 |
+| transcript 文件 | 真实写入 `.jsonl` | `assistantLine()` 辅助构造 assistant 行 |

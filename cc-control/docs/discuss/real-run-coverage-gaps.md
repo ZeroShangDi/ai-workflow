@@ -1,12 +1,12 @@
 # 真机回归的两种粒度 + 覆盖缺口清单
 
-> ⚠️ **本文的缺口清单已失准，被 `real-run-suite-merge.md` 取代**（2026-09-10）：
-> 起草时只读了 `tests/regression/`，**没读 `tests/eval/`** —— 而 eval 已有 9 个声明式 case，
+> ⚠️ **本文的缺口清单口径已被 `real-run-suite-merge.md` 修正**（2026-09-10）：
+> 起草时只读了 `tests/regression/`，**没读 `tests/eval/`** —— 而 eval 另有 9 个声明式 case，
 > 门禁失败闭环（`review-gate-closure`）、多 agent 并发调度（`multi-agent-parallel`）、决策上抛
-> （`needs-input-*`）等都在里面。两套体系的来历、差异与合并方案见 `real-run-suite-merge.md`；
-> 本文的「两种粒度」设计仍然成立，缺口清单以合并方案 §5 为准。
+> （`needs-input-*`）等都在里面。两套体系的来历、差异与合并方案见 `real-run-suite-merge.md`（仍是讨论稿，未落地）；
+> 本文的「两种粒度」设计仍成立，且**本文只描述 `tests/regression/` 这一套**的矩阵。
 
-> 2026-09-10 · 状态：**待补齐**（框架已具雏形，case 远未覆盖功能面）
+> 2026-09-11 · 状态：**13 个 case 在册**（T3-011 全量门禁同步）
 > 载体：`tests/regression/fullflow-regression.mjs`（`npm run test:real`）
 
 ## 目标形态（用户裁定）
@@ -16,37 +16,52 @@
 | **全量** | `npm run test:real -- --case all` | 跑全部注册 case —— **最终验收**，作为收尾门禁 |
 | **定向** | `npm run test:real -- --case <name>` | 单场景/单功能 —— 开发期快速验证某块能力 |
 
-两者共用同一 case 注册表（`const CASES = {...}`）：加一个功能就加一个 case，全量自动带上。
-产物统一落 `sandbox/regression/`（gitignore 产物区），证据 `evidence-<case>.json`。
+两者共用同一 case 注册表（`const CASES`）：加一个功能就加一个 case，全量自动带上。
+产物统一落 `sandbox/regression/`（gitignore 产物区），证据 `evidence-<case>.json`（全量另出 `evidence-all.json`）。
 
-## 现状：5 个 case，覆盖主链路
+## 现状：13 个 case（截至 T3-011，2026-09-11）
 
-| case | 验到的 | 没验到的 |
-|---|---|---|
-| `single` | 单 agent 派发→落账→收敛→mode 复位→per-run 日志→会话 env 归属 | — |
-| `gate` | 门禁任务落账 + `verdict.level` **存在** | **失败分支**（派生修复→回退复审→重跑）整个闭环 |
-| `multi` | 多 agent 入口能跑通 | **调度**：只喂 1 个任务，滑动窗口/配额/plannedFiles 冲突/独占全未触发 |
-| `decision` | 门阀：标记触发→DC 自决→落盘→per-run runStamp→续跑注入 | override / review 纠偏；决策与收尾协商的交互 |
-| `dual` | 多项目隔离：会话并存互异/state 不串/日志互异/env 不串 | — |
-
-## 覆盖缺口（按风险排序）
-
-| # | 场景 | 现状 | 归属任务 |
+| # | case | 断言数 | 验到的 |
 |---|---|---|---|
-| 1 | **`awf plan` 全链路**（需求归一→WBS→任务生成→门禁插入） | ❌ 零覆盖（harness 直接喂同构 state.json 进 run 半段） | **暂不做**（用户 2026-09-10 裁定：暂时不测 plan）。原因：plan 是交互式入口（`plan.js` 46 行，直接 spawn `claude` + stdio inherit；交互全在会话内，`state.json` 只在最后一次性落盘），自动化需要「tmux + 自动应答器」，成本高且脆 |
-| 2 | **门禁闭环失败分支**（fail→派生修复→复审→pass/上限） | ❌ | T1-107 |
-| 3 | **多 agent 真并发调度**（配额/冲突/独占/补位） | ❌（仅单测） | T1-107 |
-| 4 | **收尾协商**（wrapup→3 轮追问→blocked） | ❌（仅 mock） | T1-107 |
-| 5 | **上下文压缩**（context-check→快照→/clear 注入） | ❌ | T1-107 |
-| 6 | **`--resume` / `--attach` 重连** | ❌ | T1-108 |
-| 7 | **pause / w-monitor 介入**（`/intervene`、编排闩锁） | ❌ | T1-108 |
-| 8 | **中断恢复**（run 崩→现场保留→续接） | ❌ | T1-108 |
-| 9 | **前端四视图 + 项目切换 + 决策 override 页** | ❌ 真机无（仅模型层单测） | T1-109 |
-| 10 | **常驻 server 空闲回收 / 生命周期** | ❌ | T1-109 |
-| 11 | **`awf init` 产出正确性**（settings 注入 / .mcp.json / 插件注册） | ⚠️ 只当准备步骤跑了 | T1-109 |
-| 12 | **MCP 工具面**（state 18 / session 5 / oneshot 1） | ⚠️ 真链路只间接碰 `awf_task_complete` | T1-109 |
-| 13 | **commit 流程 / w-doc 文档生成** | ❌ | 后续 |
-| 14 | **异常路径**（server 挂 / tmux 丢 / hook 失败） | ❌ | 后续 |
+| 1 | `single` | 6 | 单 agent：派发 → DEV 自落账 → run 收敛 → mode 复位 → per-run 日志 → 会话 env 归属 |
+| 2 | `gate` | 6 | 门禁任务（kind=review）落账 + `exec.verdict.level` 存在；无残留 pending；门禁**不误派生**修复 |
+| 3 | `multi` | 4 | `--multi-agent` 入口跑通：收敛 / 任务 done / 真实产出 / env 归属 |
+| 4 | `decision` | 9 | 决策闸门：标记触发 → DC 自决 → DecisionStore 落盘（非兜底）→ per-run runStamp → 续跑注入 → 收敛 |
+| 5 | `dual` | 15 | 同机双项目并发：两 tmux 会话并存且名互异、state 不串写、per-run 日志目录互异、env 不串 |
+| 6 | `resume` | 14 | 重连：宿主空闲时 `--attach` 报错且**不清场**；CLI 被 SIGKILL 后挂接在飞 run 续观至完成 |
+| 7 | `pause` | 19 | 暂停闩锁：未暂停时 `/intervene` 409；暂停期间只挡派发不打断在飞任务；**宿主侧**超阈值告警落盘（自起 server 注入 `CC_PAUSE_ALERT_MS`）；介入 / interrupt；恢复后释放 |
+| 8 | `recover` | 15 | 中断现场：tmux/server/state 三者保留、mode 不复位、编排不依赖 CLI 存活、`--resume` 接手收尾 |
+| 9 | `pause-release` | 18 | 暂停期间目标结算即放行（不等 mode 恢复），且不放松派发闩锁；放行原因与阶段落进运行日志 + **本项目自有** `server.log`（自起 server） |
+| 10 | `init` | 14 | `awf init` 产出：三插件注册/enabled、项目级 `.mcp.json`（绝对路径 + AWF_PROJECT_ROOT）、骨架目录、幂等 |
+| 11 | `mcp` | 10 | MCP 工具面：三 server 各做 initialize + tools/list，工具数与必含工具齐全 |
+| 12 | `lifecycle` | 6 | 常驻 server 空闲回收：探活期间不回收 → 静置后进程退出 + 端口关闭 + 日志留痕 |
+| 13 | `web` | 15 | 前端：页面由构建产物承载（或未构建 503+告警）、`/assets` 托管、旧资产 404、`?p` 取数不串、决策 override 落盘 |
+
+合计 **151 断言**（T3-011-F1 修复后实测 **151/151 全绿，exit 0**，2026-09-11；
+修复前同一命令为 145–146/150，5 项失败全部归因 case 侧 —— 见 `.awf/reports/test/t3-011-full-real-gate.md`）。
+
+## 覆盖缺口（T3-011 复核后的真实状态）
+
+| # | 场景 | 现状 | 归属 |
+|---|---|---|---|
+| 1 | **`awf plan` 全链路** | ❌ 零覆盖（harness 直接喂同构 state.json 进 run 半段） | **暂不做**（用户 2026-09-10 裁定；交互式入口，自动化需 tmux 应答器） |
+| 2 | **门禁闭环失败分支**（fail → 派生修复 → 复审 → pass/上限） | ⚠️ regression 只验「不误派生」；真闭环在 `tests/eval/` 的 `review-gate-closure` | 合并方案落地时去重归并 |
+| 3 | **多 agent 真并发调度**（配额/plannedFiles 冲突/独占/补位） | ⚠️ regression 只验入口跑通；调度面在 `tests/eval/multi-agent-parallel` | 同上 |
+| 4 | **收尾协商**（wrapup → 3 轮追问 → blocked） | ❌ 仅 mock（`task-channel-settle` 单测） | 后续 case |
+| 5 | **上下文压缩**（context-check → 快照 → `/clear` 注入） | ❌ | 后续 case |
+| 6 | `--resume` / `--attach` 重连 | ✅ `resume`（T1-108） | — |
+| 7 | pause / w-monitor 介入 | ✅ `pause` + `pause-release`（T1-108 / T1-111） | — |
+| 8 | 中断恢复 | ✅ `recover`（T1-108） | — |
+| 9 | 前端四视图 + 项目切换 + 决策 override | ✅ `web`（T1-109；`.jsx` 组件本身仍不在 vitest 范围） | — |
+| 10 | 常驻 server 空闲回收 / 生命周期 | ✅ `lifecycle`（T1-109） | — |
+| 11 | `awf init` 产出正确性 | ✅ `init`（T1-109）；幂等断言口径已修（**T3-011-F1**：改为「连续两次 init 输出不变」，不再与 `--port` 的 marketplace 重指结果比字节） | — |
+| 12 | MCP 工具面 | ✅ `mcp`（T1-109） | — |
+| 13 | **写类端点缺 `?p` 拒绝**（T1-110） | ❌ 真机无 case（仅 `tests/integration/write-requires-project.test.js`） | 后续 case |
+| 14 | **server 日志可观测**（T1-112） | ⚠️ 测试侧已收口（**T3-011-F1**：需要 `server.log` 的 case 自起 server）；**产品侧缺口仍在** —— 复用场景下后挂项目拿不到自己的 `server.log` | `.awf/issues/005`（建议并入 T1-113 的 A 组） |
+| 15 | commit 流程 / `w-doc` 文档生成 | ❌ | 后续 |
+| 16 | 异常路径（server 挂 / tmux 丢 / hook 失败） | ❌ | 后续 |
+| 17 | **case 间独立性**（全量连跑 vs 单跑结论一致） | ✅ **T3-011-F1 已收口**：case 需要什么就自起什么（`ownServer(projectRoot, extraEnv)` —— 自起 server 并把**宿主侧** env 一并注入），不再依赖「server 由首个 case 唤起后复用」的隐含前提；本轮全量连跑 151/151 为证 | — |
+| 18 | **per-run 日志目录偶发缺失** | ⚠️ `decision` 曾在连跑中间歇失败（`DecisionStore` 的 runStamp 派生回退）。**机制未定位**；测试侧已加现场取证（缺目录时 dump `state.json` 可读性 / `logs` 清单 / 决策 stamps 进证据 + 打 `[诊断]` 行） | 根因在 `RunLogger._init` 静默早退 → `.awf/issues/005` |
 
 ## 纪律
 
@@ -54,3 +69,6 @@
   **不等于**「功能全绿」。缺口清单（本文档）是它的边界声明。
 - 加功能 → 加 case → 本文档矩阵同步更新（并入全量门禁任务的验收）。
 - 小 case 要独立可跑、可重复、自带沙箱隔离（不依赖其他 case 的残留）。
+  **这条纪律如今有了机器化写法**（T3-011-F1）：case 需要什么就自起什么 —— 需要 `server.log` 或需要
+  宿主侧阈值生效，就 `ownServer(projectRoot, extraEnv)` 起自己的 server，而不是依赖「首个 case 唤起后被复用」。
+  连跑与单跑结论一致由全量门禁兜住（`--case all` 与 `--case <name>` 必须同结论）。

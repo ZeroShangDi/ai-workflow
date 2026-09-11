@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { makeApi } from '../helpers/http-api.js';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -100,19 +101,7 @@ beforeAll(async () => {
   const mod = await import(SERVER_PATH);
   server = mod;
   const { url } = await server.start(0);
-  api = async (method, pathname, body) => {
-    const headers = { connection: 'close' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    const res = await fetch(url + pathname, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* not json */ }
-    return { status: res.status, body: json, text };
-  };
+  api = makeApi(url, TMP);
   client = new MCPClient(AWF_STATE_MCP_PATH, TMP);
   await client.request('initialize', {});
 });

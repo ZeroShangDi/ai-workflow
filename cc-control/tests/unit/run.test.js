@@ -31,10 +31,15 @@ vi.mock('../../src/lib/state.js', () => ({ loadState: m.loadState }));
 vi.mock('../../src/lib/run-config.js', () => ({ loadRunConfig: vi.fn(() => ({ agents: { max: 1 } })) }));
 vi.mock('../../src/lib/pause.js', () => ({ waitWhilePaused: m.waitWhilePaused }));
 vi.mock('../../src/lib/profile.js', () => ({ installProjectMcp: m.installProjectMcp }));
+vi.mock('../../src/lib/server-log.js', () => ({
+  serverLogPath: (dir) => `${dir}/server.log`,
+  openServerLog: vi.fn((logPath) => ({ fd: 99, path: logPath, rotated: false, close: () => {} })),
+}));
 vi.mock('../../src/lib/run-context.cjs', () => ({
   buildRunContext: vi.fn(() => ({
     sid: null, session: 'cc', runSessionName: 'cc', port: 8787,
     projectRoot: '/tmp/mock-cwd', infraRoot: '/tmp/mock-project',
+    logsDir: '/tmp/mock-project/.awf/logs',
     serverScriptPath: '/tmp/server.cjs', bootstrapScriptPath: '/tmp/bootstrap.sh',
     runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
   })),

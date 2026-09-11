@@ -88,6 +88,15 @@ class RunLogger {
     this._append(content);
   }
 
+  /**
+   * 编排层运维提示行（T1-111）：pause 闩锁告警/心跳/放行等。
+   * 与 prompt/回答分开标注，人读时一眼能认出「这不是对话内容，是编排在说话」。
+   */
+  logNotice(kind, detail) {
+    if (!this._logPath) return;
+    this._append(`[${new Date().toISOString()}] [NOTICE][${kind}] ${detail}\n`);
+  }
+
   /** 决策关键事件行（时间戳与决策存储记录 created_at 对齐，Review 页可对上） */
   logDecision({ at, decisionId, event, detail }) {
     if (!this._logPath) return;

@@ -1,190 +1,148 @@
-# 单次会话调用模块 — 测试用例文档
+# 单次会话调用（oneshot） — 测试用例
 
-> 对应需求文档：`docs/features/oneshot.md`
-> 源码文件：`plugin/core/mcp/awf-oneshot/server.cjs`
-> 测试文件：`tests/integration/awf-oneshot.test.js`
-
----
+> 对应功能文档：`docs/features/oneshot.md`
+> 源码：`src/adapters/oneshot.cjs` + `plugin/core/mcp/awf-oneshot/server.cjs`
+> 测试文件：`tests/unit/oneshot-adapter.test.js`（端口）、`tests/integration/awf-oneshot.test.js`（MCP 本地 spawn）、`tests/integration/awf-oneshot-server.test.js`（MCP→server）、`tests/unit/cc-adapters-smoke.test.js` / `tests/unit/ports-contract.test.js`（端口契约）
 
 ## 测试场景总览
 
-### MCP 协议 — 2 个 TC
+### oneshot 端口（`oneshot-adapter.test.js`）— 4 个 TC
 
 | # | 场景 | 类别 |
 |---|------|------|
-| 1 | initialize 握手 | 协议 |
-| 2 | tools/list 返回 1 个 tool | 协议 |
+| 1 | `claudePArgs`：`-p` + 额外 args + prompt | 参数验证 |
+| 2 | `spawnClaudeP`：ok=true 收集 stdout/stderr；NO_COLOR + safe args | 正常 |
+| 3 | `spawnClaudeP`：error/非零 → ok=false | 异常 |
+| 4 | `runOneShot`：ok→text trimmed；非 ok→stderr 优先否则 exited | 正常/异常 |
 
-### awf_oneshot 执行 — 5 个 TC
-
-| # | 场景 | 类别 |
-|---|------|------|
-| 3 | 正常执行 → ok + stdout | 正常 |
-| 4 | 指定 cwd 参数 | 正常 |
-| 5 | 非零退出码 → ok=false | 异常 |
-| 6 | error 事件（claude 未安装） | 异常 |
-| 7 | 5 分钟超时 → SIGTERM | 异常 |
-
-### 边界 — 4 个 TC
+### awf-oneshot MCP（`awf-oneshot.test.js`，本地 spawn）— 11 个 TC
 
 | # | 场景 | 类别 |
 |---|------|------|
-| 8 | 空 prompt → 参数校验失败 | 边界 |
-| 9 | stdout 包含 ANSI 颜色（NO_COLOR 验证） | 边界 |
-| 10 | 未知 tool name → error | 异常 |
-| 11 | spawn 参数验证 | 参数 |
+| 5 | initialize 握手 | 协议 |
+| 6 | tools/list 返回 1 个 tool | 协议 |
+| 7 | 正常执行 → ok + stdout（trim） | 正常 |
+| 8 | 指定 cwd 参数（不传→process.cwd()） | 正常 |
+| 9 | 非零退出码 → ok=false（resolve 而非 reject） | 异常 |
+| 10 | error 事件（ENOENT）→ ok=false | 异常 |
+| 11 | 5 分钟超时 → timeout=300000，close code≠0 | 异常 |
+| 12 | 空 prompt → 校验失败，不 spawn | 边界 |
+| 13 | env 含 NO_COLOR=1 且继承 process.env | 边界 |
+| 14 | 未知 tool name → error | 异常 |
+| 15 | `spawnClaude` 参数验证（cmd/args/stdio/timeout/env） | 参数 |
+
+### awf-oneshot 经 server（`awf-oneshot-server.test.js`）— 1 个 TC
+
+| # | 场景 | 类别 |
+|---|------|------|
+| 16 | AWF_BASE 提供 → 走 server `/oneshot`（不本地 spawn） | 集成 |
+
+### 端口契约（`cc-adapters-smoke.test.js` / `ports-contract.test.js`）— 相关断言
+
+| # | 场景 | 类别 |
+|---|------|------|
+| 17 | 工厂绑定的 oneshot 是真实实现（`claudePArgs('hi')` → `['-p','hi']`） | 契约 |
+| 18 | 契约声明的 oneshot 方法在端口对象上真实存在 | 契约 |
+| 19 | 注入 spawn 的 `runOneShot` 返回 `{ok:true, text}` | 冒烟 |
 
 ---
 
 ## 详细测试用例
 
-### TC1: initialize 握手
-
-**前置条件**：server 启动
-
-**执行**：发送 `{ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }`
-
-**断言**：
-- `protocolVersion: '2024-11-05'`
-- `capabilities: { tools: {} }`
-- `serverInfo.name: 'awf-oneshot-mcp'`
-
----
-
-### TC2: tools/list 返回 1 个 tool
-
-**前置条件**：initialize 完成
-
-**执行**：发送 `{ jsonrpc: '2.0', id: 2, method: 'tools/list' }`
-
-**断言**：
-- tools 数组长度为 1
-- tool name = `'awf_oneshot'`
-- inputSchema.required = `['prompt']`
-- inputSchema.properties 包含 `prompt` 和 `cwd`
-
----
-
-### TC3: 正常执行 → ok + stdout
-
-**前置条件**：mock spawn 返回正常进程，stdout 输出 `"Hello World\n"`，close code=0
-
-**执行**：`tools/call({ name: 'awf_oneshot', arguments: { prompt: 'say hello' } })`
-
-**断言**：
-- `spawn('claude', ['-p', 'say hello'], ...)` 被调用
-- stdout 累积后 trim = `'Hello World'`
-- 返回 `{ ok: true, text: 'Hello World' }`
-
----
-
-### TC4: 指定 cwd 参数
-
-**前置条件**：mock spawn
-
-**执行**：`tools/call({ name: 'awf_oneshot', arguments: { prompt: 'ls', cwd: '/tmp' } })`
-
-**断言**：
-- spawn options 中 `cwd: '/tmp'`
-- 不传 cwd 时使用 `process.cwd()`
-
----
-
-### TC5: 非零退出码 → ok=false
-
-**前置条件**：mock spawn close code=1，stdout 输出 `"Error: ...\n"`
-
-**执行**：`tools/call({ name: 'awf_oneshot', arguments: { prompt: 'bad command' } })`
-
-**断言**：
-- 返回 `{ ok: false, error: 'claude -p exited 1', text: 'Error: ...' }`
-- 不抛异常（resolve 而非 reject）
-
----
-
-### TC6: error 事件（claude 未安装）→ ok=false
-
-**前置条件**：mock spawn 触发 error 事件（ENOENT）
-
-**执行**：`tools/call({ name: 'awf_oneshot', arguments: { prompt: 'test' } })`
-
-**断言**：
-- `proc.on('error')` 触发
-- 返回 `{ ok: false, error: 'spawn claude ENOENT' }`
-- 不抛异常
-
----
-
-### TC7: 5 分钟超时 → SIGTERM → close code≠0
-
-**前置条件**：mock spawn 设置 timeout=300000，超时后进程被 SIGTERM，close code=null 或 143
-
-**执行**：执行 prompt，触发 5 分钟超时
-
-**断言**：
-- spawn options 中 `timeout: 300000`（5 分钟）
-- 超时后 SIGTERM → close 事件触发
-- 返回 `{ ok: false, error: 'claude -p exited {code}' }`
-
----
-
-### TC8: 空 prompt → 参数校验失败
-
-**前置条件**：`required: ['prompt']` 配置
-
-**执行**：`tools/call({ name: 'awf_oneshot', arguments: {} })`
-
-**断言**：
-- MCP 协议层或 handler 应校验 prompt 存在性
-- handler 中 `args.prompt` 为 undefined
-- `spawn('claude', ['-p', undefined], ...)` 的 prompt 参数为 undefined
-- 或由 MCP client 在调用前校验 inputSchema.required
-
----
-
-### TC9: NO_COLOR 环境变量验证
-
-**前置条件**：mock spawn
-
-**执行**：检查 spawn options 中的 env
-
-**断言**：
-- `env` 包含 `NO_COLOR: '1'`
-- `env` 使用 `...process.env` 继承当前环境
-
----
-
-### TC10: 未知 tool name → error
+### TC1: `claudePArgs` 参数构造
 
 **前置条件**：无
+**执行**：`claudePArgs('p', { args: ['--safe-mode', '--no-session-persistence'] })` / `claudePArgs('p')`
+**断言**：`['-p','--safe-mode','--no-session-persistence','p']` / `['-p','p']`
 
-**执行**：`tools/call({ name: 'unknown_tool' })`
+### TC2: `spawnClaudeP` ok 路径
 
-**断言**：
-- 返回 `{ ok: false, error: 'unknown tool: unknown_tool' }`
+**前置条件**：注入 `fakeSpawnOf({ code:0, stdout:'  hi  ', stderr:'warn' })`
+**执行**：`spawnClaudeP({ prompt:'x', args:['--safe-mode'], spawn })`
+**断言**：`r.ok===true`、`r.stdout==='  hi  '`、`r.code===0`；spawn 收到的 args `['-p','--safe-mode','x']`
 
----
+### TC3: `spawnClaudeP` error / 非零
 
-### TC11: spawn 参数验证
+**前置条件**：`fakeSpawnOf({ code:null, error:'boom' })` 与 `{ code:1, stderr:'oops' }`
+**执行**：`spawnClaudeP({ prompt:'x', spawn })`
+**断言**：error → `{ok:false, error:'boom'}`；非零 → `ok:false`、`code:1`
 
-**前置条件**：mock spawn，验证调用参数
+### TC4: `runOneShot` 两分支
 
-**执行**：`spawnClaude('test prompt', '/custom/cwd')`
+**前置条件**：`fakeSpawnOf({ code:0, stdout:'  hi  ' })` / `{code:1,stderr:'oops'}` / `{code:2}`
+**执行**：`runOneShot({ prompt:'x', spawn })`
+**断言**：`{ok:true, text:'hi'}`；error `'oops'`；无 stderr 时 `error` 含 `'claude -p exited 2'`
 
-**断言**：
-- 第一个参数：`'claude'`
-- 第二个参数：`['-p', 'test prompt']`
-- options.cwd：`'/custom/cwd'`
-- options.stdio：`['pipe', 'pipe', 'pipe']`
-- options.timeout：`300000`
-- options.env.NO_COLOR：`'1'`
+### TC5-TC6: MCP 协议（initialize / tools/list）
+
+**前置条件**：import MCP server；`callRpc` 打桩 `process.stdout.write`
+**执行**：`initialize` / `tools/list`
+**断言**：`protocolVersion '2024-11-05'`、`capabilities {tools:{}}`、`serverInfo.name 'awf-oneshot-mcp'`；tools 长度 1、name `awf_oneshot`、`required ['prompt']`、properties 含 `prompt`/`cwd`
+
+### TC7: 正常执行 → ok + stdout（trim）
+
+**前置条件**：`global.__CC_SPAWN__` 注入 mock spawn；behavior `{stdout:'Hello World\n', closeCode:0}`
+**执行**：`tools/call({ name:'awf_oneshot', arguments:{ prompt:'say hello' } })`
+**断言**：`{ok:true, text:'Hello World'}`；`calls[0].cmd==='claude'`、`calls[0].args===['-p','say hello']`
+
+### TC8: cwd 参数
+
+**执行**：`awf_oneshot({ prompt:'ls', cwd:'/tmp' })` / 不传 cwd
+**断言**：`options.cwd==='/tmp'` / `options.cwd===process.cwd()`
+
+### TC9: 非零退出码
+
+**前置条件**：`{stdout:'Error: something\n', closeCode:1}`
+**断言**：`ok:false`、`error:'claude -p exited 1'`、`text:'Error: something'`（resolve 不 reject）
+
+### TC10: error 事件（ENOENT）
+
+**前置条件**：`{error: new Error('spawn claude ENOENT')}`
+**断言**：`{ok:false, error:'spawn claude ENOENT'}`
+
+### TC11: 5 分钟超时
+
+**前置条件**：`{stdout:'', closeCode:null}`（SIGTERM 后 close null）
+**断言**：`calls[0].options.timeout===300000`、`ok:false`、`error:'claude -p exited null'`
+
+### TC12: 空 prompt → 不 spawn
+
+**执行**：`awf_oneshot({})`
+**断言**：`{ok:false, error:'prompt is required'}`、`mockSpawn.calls` 为空
+
+### TC13: NO_COLOR + 继承 env
+
+**前置条件**：`process.env.CC_TEST_MARKER='marker-value'`
+**断言**：`options.env.NO_COLOR==='1'`、`options.env.CC_TEST_MARKER==='marker-value'`
+
+### TC14: 未知 tool name
+
+**断言**：`{ok:false, error:'unknown tool: unknown_tool'}`
+
+### TC15: `spawnClaude` 参数验证
+
+**执行**：`mod.spawnClaude('test prompt', '/custom/cwd')`
+**断言**：`cmd 'claude'`、`args ['-p','test prompt']`、`cwd '/custom/cwd'`、`stdio ['pipe','pipe','pipe']`、`timeout 300000`、`env.NO_COLOR '1'`
+
+### TC16: 经 server `/oneshot`
+
+**前置条件**：mock HTTP server（记录 `hits`），`process.env.AWF_BASE=base`
+**执行**：`awf_oneshot({ prompt:'你好' })`
+**断言**：`parsed.ok===true`、`parsed.text==='server-oneshot-ok'`（来自 server 非本地 spawn）、`hits[0].url==='/oneshot'`、`hits[0].body.prompt==='你好'`
+
+### TC17-TC19: 端口契约 / 冒烟
+
+**断言**：`createCcAdapters().oneshot.claudePArgs('hi')` 为 `['-p','hi']`；契约声明的 `runOneShot`/`spawnClaudeP`/`claudePArgs` 在端口对象上均为 function；注入 spawn 的 `runOneShot` 返回 `{ok:true, text:'hi'}`
 
 ---
 
 ## Mock 策略
 
-| 模块 | 方式 | 说明 |
-|------|------|------|
-| `child_process.spawn` | `vi.mock` | 返回可控 proc 对象，控制 stdout data/close/error 事件 |
-| JSON-RPC 传输 | 直接调用 handlers 对象 | 绕过 stdio，测试 handler 逻辑 |
-| process.cwd | 不 mock | 使用真实 cwd，或通过 cwd 参数覆盖 |
+| 依赖 | Mock 方式 | 说明 |
+|------|-----------|------|
+| `child_process.spawn`（端口） | 注入 `spawn` 参数 | `fakeSpawnOf` 返回可驱动 `close`/`error`/`stdout.data` 的 EventEmitter |
+| `child_process.spawn`（MCP） | 注入 `global.__CC_SPAWN__` | MCP 为原生 CJS，`vi.mock` 拦截不到，用显式注入钩子 |
+| HTTP（MCP→server） | 启动真实 mock `http` server | 记录请求 url/body，返回 canned JSON |
+| `AWF_BASE` | `process.env` 设置/`vi.stubEnv` | 决定档 1（server）或档 2/3（本地 spawn）|
+| JSON-RPC 传输 | 直接调 `handlers` / `mod.spawnClaude` | 绕过 stdio；`handleMessage` 用 `process.stdout.write` 打桩 |
+| `process.cwd()` | 不 mock | 用真实 cwd，或经 `cwd` 参数覆盖 |

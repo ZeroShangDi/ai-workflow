@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { makeApi } from '../helpers/http-api.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -48,15 +49,7 @@ let api;
 beforeAll(async () => {
   server = await import(SERVER_PATH);
   const { url } = await server.start(0);
-  api = async (method, pathname, body) => {
-    const headers = { connection: 'close' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    const res = await fetch(url + pathname, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* not json */ }
-    return { status: res.status, body: json };
-  };
+  api = makeApi(url, TMP);
 });
 
 afterAll(async () => {

@@ -1,8 +1,10 @@
-# 自动决策模块 — 测试用例文档
+# 自动决策模块（会话决策中继 + 多 agent 上抛）— 测试用例
 
-> 对应需求文档：`docs/features/auto-decision.md`
-> 源码文件：`src/lib/session/client.js`（autoSelect / waitForReady）+ `src/server/server.cjs`（/hook, /choice, /ask, /respond, /status）
+> 对应功能文档：`docs/features/auto-decision.md`
+> 源码文件：`src/lib/session/client.js`（autoSelect / waitForReady）+ `src/server/server.cjs`（`/hook`, `/choice`, `/ask`, `/respond`, `/status`）+ `src/server/batch-transport.cjs`（多 agent NEEDS_INPUT 挂起）
 > 测试文件：`tests/unit/auto-selector.test.js` + `tests/integration/decision.test.js`
+>
+> **范围说明**：本文件覆盖「人工上抛 / 自动选择」链路与多 agent NEEDS_INPUT 上抛；**AI 自决（决策门阀）**的测试见 `docs/features/decision-system.test.md`。旧入口 `awf_await_choice` / `awf_await_input` 已于 2026-09-10 资产层停用（提示词改 `<AWF_DECISION_REQUIRED>`），但其代码路径（MCP 工具 / `/choice` `/ask` `/respond`）仍在，T1-106 互斥化 pending。
 
 ---
 

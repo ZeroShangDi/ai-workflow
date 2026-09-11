@@ -33,6 +33,10 @@ vi.mock('../../src/lib/paths.js', () => ({
 }));
 
 // run-context 装配器注入（替代旧 getPaths 的 server/bootstrap 注入点）
+vi.mock('../../src/lib/server-log.js', () => ({
+  serverLogPath: (dir) => `${dir}/server.log`,
+  openServerLog: vi.fn((logPath) => ({ fd: 99, path: logPath, rotated: false, close: () => {} })),
+}));
 vi.mock('../../src/lib/run-context.cjs', () => ({
   buildRunContext: vi.fn(() => ({
     sid: null,
@@ -41,6 +45,7 @@ vi.mock('../../src/lib/run-context.cjs', () => ({
     port: 8787,
     projectRoot: '/tmp/mock-project',
     infraRoot: '/tmp/mock-project',
+    logsDir: '/tmp/mock-project/.awf/logs',
     serverScriptPath: '/tmp/server.cjs',
     bootstrapScriptPath: '/tmp/bootstrap.sh',
     runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',

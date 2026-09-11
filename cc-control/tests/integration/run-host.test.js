@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { makeApi } from '../helpers/http-api.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -69,20 +70,6 @@ let api;
 let baseUrl = ''; // ws 测试用
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function makeApi(base) {
-  return async function (method, pathname, body) {
-    const headers = { connection: 'close' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    const res = await fetch(base + pathname, {
-      method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* not json */ }
-    return { status: res.status, body: json, text };
-  };
-}
-
 /** 轮询 run 状态直到终态（done/error/stopped） */
 async function waitRunDone(runId, timeoutMs = 4000) {
   const t0 = Date.now();
@@ -99,7 +86,7 @@ beforeAll(async () => {
   server = mod;
   const { url } = await server.start(0);
   baseUrl = url;
-  api = makeApi(url);
+  api = makeApi(url, runProject);
 });
 
 afterAll(async () => {
@@ -232,7 +219,7 @@ describe('run events WebSocket 推送（T1-091 轮询→事件订阅）', () => 
 describe('cli run-client 经 server（新结构 client→afterSeq 事件路由→store 读，T1-095）', () => {
   it('真实 createRunClient（非 mock）提交→poll 事件到 done→快照→getState 读 store', async () => {
     const port = Number(new URL(baseUrl).port);
-    const client = createRunClient({ port });
+    const client = createRunClient({ port, project: runProject });
 
     const sub = await client.submitRun({ runId: 'cli1' });
     expect(sub.ok).toBe(true);

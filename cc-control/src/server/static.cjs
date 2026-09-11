@@ -29,24 +29,16 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-/** 默认页面别名：把无扩展名的 UI 路径映射到对应 html（现状 /、/diagnostics、/decisions.html；T1-094 已删 ui.html） */
-function defaultAliases() {
-  return {
-    '/': 'dashboard.html',
-    '/dashboard': 'dashboard.html',
-    '/dashboard.html': 'dashboard.html',
-    '/diagnostics': 'diagnostics.html',
-    '/diagnostics.html': 'diagnostics.html',
-    '/decisions': 'decisions.html',
-    '/decisions.html': 'decisions.html',
-  };
-}
-
 function mimeFor(filePath) {
   return MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
-function createStaticHost({ root = __dirname, aliases = defaultAliases(), spa = null } = {}) {
+/**
+ * @param {{ root?, aliases?, spa? }} [opts]
+ *   aliases 由调用方显式给出 —— 原 defaultAliases()（把 /diagnostics 等映射到 legacy html）
+ *   随 T1-119 退役旧观测页一并删除：现在页面只有 web/ 构建产物一个来源，不再有「无扩展名→某 html」的默认表。
+ */
+function createStaticHost({ root = __dirname, aliases = {}, spa = null } = {}) {
   const rootResolved = path.resolve(root);
 
   /** 把 URL path 解析到 root 下文件；越权/不存在 → null；spa 开启时无扩展名路径回退 index */

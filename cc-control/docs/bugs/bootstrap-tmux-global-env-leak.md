@@ -64,6 +64,7 @@ if [ -n "${CC_SID:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_SID=\"$CC_SID\""; fi
 未提供的变量不写空赋值（空 `CC_PROJECT` 会让 MCP 退回 cwd/默认项目，反而更隐蔽）。
 `src/server/session-launch.cjs` 是同一语义的纯构建版（`buildSessionEnv` 已注入 CC_PROJECT/CC_SID），
 但 live 路径仍是 `bootstrap.sh`；本轮按最小改动只补 bootstrap，未做 live 切换。
+（后续：该模块始终未被接入，已随 T3-009-F1 删除未接线模块时移除——见 `.awf/reports/test/w3-009-module-gate.md` §五 N-2。）
 
 ## 验证
 
