@@ -1,8 +1,12 @@
 import path from 'path';
 import fs from 'fs';
+import crypto from 'node:crypto';
 import { logger } from './ui/log.js';
 // 持久化统一走 store-core（单写序列化 + 原子写），不再各自实现 state.lock + writeFileSync
-import { withFileLock as withStateLock, readJsonSync, writeJsonAtomicSync } from './store-core.js';
+import { withFileLock as withStateLock, readJsonSync, writeJsonAtomicSync, updateStateSync } from './store-core.js';
+import taskGraph from './task-graph.cjs';
+
+const { assertTaskGraph, assertTaskDependenciesDone, insertPrerequisiteTask } = taskGraph;
 
 const STATE_FILE = '.awf/state.json';
 
@@ -27,6 +31,55 @@ export function saveState(projectRoot, state) {
   });
 }
 
+/** state 乐观并发指纹；用于覆盖同一毫秒内 lastUpdated 碰撞的情况。 */
+export function stateFingerprint(state) {
+  return crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex');
+}
+
+/**
+ * 仅当磁盘 state 仍是调用方刚读取的版本时，才整份替换。
+ *
+ * server-mode MCP 需要先读 state、在进程内执行工具语义、再把结果交给 server 落盘；
+ * 这段时间内若别的写者已经推进 state，普通 saveState 会把新结果静默覆盖。这里以
+ * lastUpdated + state 内容指纹作为乐观并发令牌，并把“比较 + 写入”放在同一把
+ * state.lock 内；指纹用于覆盖同一毫秒内时间戳碰撞。
+ * null 表示调用方读到的 state 当时没有 lastUpdated（兼容旧 state）。
+ */
+export function replaceStateIfUnchanged(
+  projectRoot,
+  nextState,
+  expectedLastUpdated = null,
+  expectedStateFingerprint = null,
+) {
+  if (!nextState || typeof nextState !== 'object' || Array.isArray(nextState)) {
+    throw new TypeError('nextState must be an object');
+  }
+  if (typeof expectedStateFingerprint !== 'string' || expectedStateFingerprint.length === 0) {
+    throw new TypeError('expectedStateFingerprint must be a non-empty string');
+  }
+  const filePath = path.join(projectRoot, STATE_FILE);
+  return withStateLock(stateLockPath(projectRoot), () => {
+    const current = readJsonSync(filePath);
+    const actualLastUpdated = current?.lastUpdated ?? null;
+    const expected = expectedLastUpdated ?? null;
+    const actualStateFingerprint = stateFingerprint(current);
+    const fingerprintMismatch = actualStateFingerprint !== expectedStateFingerprint;
+    if (actualLastUpdated !== expected || fingerprintMismatch) {
+      return {
+        ok: false,
+        conflict: true,
+        expectedLastUpdated: expected,
+        actualLastUpdated,
+        actualStateFingerprint,
+      };
+    }
+
+    nextState.lastUpdated = new Date().toISOString();
+    writeJsonAtomicSync(filePath, nextState);
+    return { ok: true, lastUpdated: nextState.lastUpdated };
+  });
+}
+
 /** 原子更新工作流 mode；读取锁内最新 state，避免用旧任务快照覆盖并发落账。 */
 export function setWorkflowMode(projectRoot, mode) {
   const filePath = path.join(projectRoot, STATE_FILE);
@@ -40,18 +93,43 @@ export function setWorkflowMode(projectRoot, mode) {
   });
 }
 
-/** 派发成功后将任务标记为执行中，保留其他 Agent 的并发落账。 */
+/** 派发前原子占用任务；只有占用成功的调用者才可以真正执行。 */
 export function markTaskActive(projectRoot, taskId) {
   const filePath = path.join(projectRoot, STATE_FILE);
   return withStateLock(stateLockPath(projectRoot), () => {
     const state = readJsonSync(filePath);
     if (!state) return false;
+    assertTaskGraph(state.tasks || []);
     const task = state.tasks?.find((item) => item.id === taskId);
     if (!task || task.status !== 'pending') return false;
+    if (heldTaskIds(state).has(taskId)) return false;
+    assertTaskDependenciesDone(state.tasks, taskId);
     task.status = 'active';
     task.exec = task.exec || {};
     task.exec.startedAt = new Date().toISOString();
     delete task.exec.completedAt;
+    state.lastUpdated = new Date().toISOString();
+    writeJsonAtomicSync(filePath, state);
+    return true;
+  });
+}
+
+/**
+ * 派发通道失败时释放尚未开始执行的占用。
+ * 只回退仍为 active 的同一任务；已经被执行端结算的状态不会被覆盖。
+ */
+export function requeueTaskIfActive(projectRoot, taskId) {
+  const filePath = path.join(projectRoot, STATE_FILE);
+  return withStateLock(stateLockPath(projectRoot), () => {
+    const state = readJsonSync(filePath);
+    if (!state) return false;
+    const task = state.tasks?.find((item) => item.id === taskId);
+    if (!task || task.status !== 'active') return false;
+    task.status = 'pending';
+    if (task.exec) {
+      delete task.exec.startedAt;
+      if (Object.keys(task.exec).length === 0) delete task.exec;
+    }
     state.lastUpdated = new Date().toISOString();
     writeJsonAtomicSync(filePath, state);
     return true;
@@ -80,10 +158,16 @@ function depsDone(task, taskById) {
   });
 }
 
+/** 动态规划待批准/待决策 proposal 暂停的受影响任务。 */
+export function heldTaskIds(state) {
+  return new Set(Object.values(state?.dynamicPlanning?.holds || {}).flatMap((hold) => hold?.taskIds || []));
+}
+
 export function findNextTask(state) {
   const tasks = state?.tasks || [];
   const taskById = new Map(tasks.map((t) => [t.id, t]));
-  return tasks.find((t) => t.status === 'pending' && depsDone(t, taskById)) || null;
+  const held = heldTaskIds(state);
+  return tasks.find((t) => t.status === 'pending' && !held.has(t.id) && depsDone(t, taskById)) || null;
 }
 
 // ── 多 agent 批次选择 ──
@@ -160,7 +244,8 @@ export function peekReadyTasks(state) {
   const tasks = state?.tasks || [];
   if (tasks.length === 0) return [];
   const taskById = new Map(tasks.map((t) => [t.id, t]));
-  return tasks.filter((t) => t.status === 'pending' && depsDone(t, taskById));
+  const held = heldTaskIds(state);
+  return tasks.filter((t) => t.status === 'pending' && !held.has(t.id) && depsDone(t, taskById));
 }
 
 /**
@@ -185,7 +270,8 @@ export function selectReadyBatch(state, config) {
   const maxPerFeature = Math.max(1, agents.maxPerFeature ?? 1);
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));
-  const ready = tasks.filter((t) => t.status === 'pending' && depsDone(t, taskById));
+  const held = heldTaskIds(state);
+  const ready = tasks.filter((t) => t.status === 'pending' && !held.has(t.id) && depsDone(t, taskById));
   if (ready.length === 0) return [];
 
   // 独占任务单独成批
@@ -288,14 +374,43 @@ export function spawnGateFixTask(state, gateTask, prompt) {
     prompt,
   };
 
-  state.tasks.push(fix);
-  gateTask.status = 'pending'; // 回退门禁待复审
-  gateTask.deps = [...(gateTask.deps || []), fixId]; // deps 追加修复任务，复审时就绪
-  gateTask.exec = gateTask.exec || {};
-  delete gateTask.exec.startedAt;
-  delete gateTask.exec.completedAt;
-  gateTask.exec.recheck = recheck; // 保留 verdict
+  // 修复任务是门禁的真实前置：必须插在门禁原位置之前，不能 push 到队尾让后续任务越过。
+  // insertPrerequisiteTask 先在副本上校验完整图，失败不会留下半次 mutation。
+  const inserted = insertPrerequisiteTask(state, {
+    targetId: gateTask.id,
+    task: fix,
+    allowedTargetStatuses: ['blocked'],
+  });
+  const gate = inserted.target;
+  gate.status = 'pending'; // 回退门禁待复审
+  gate.exec = gate.exec || {};
+  delete gate.exec.startedAt;
+  delete gate.exec.completedAt;
+  gate.exec.recheck = recheck; // 保留 verdict
   return fixId;
+}
+
+/**
+ * 锁内重新读取并派生 gate fix，避免 handleGateCompletion 的 load→save 覆盖并发状态。
+ * expectedFixId 充当轻量 CAS：调用方生成 prompt 后若 gate 已被其他写者推进，本次 no-op。
+ */
+export function spawnGateFixTaskAtomic(projectRoot, gateId, prompt, expectedFixId) {
+  const statePath = path.join(projectRoot, STATE_FILE);
+  let outcome = null;
+  updateStateSync({
+    statePath,
+    lockPath: stateLockPath(projectRoot),
+    mutator: (state) => {
+      const gate = state.tasks?.find((task) => task.id === gateId);
+      const meta = gateFixMeta(gate);
+      if (!meta || (expectedFixId && meta.fixId !== expectedFixId)) return false;
+      const fixId = spawnGateFixTask(state, gate, prompt);
+      if (!fixId) return false;
+      outcome = { fixId, recheck: meta.recheck };
+      return outcome;
+    },
+  });
+  return outcome;
 }
 
 // ── 快照备份 ──

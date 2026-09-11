@@ -2,14 +2,16 @@ import { spawn, execSync } from 'child_process';
 import { getStatus, sleep } from '../lib/session/client.js';
 import { logger } from '../lib/ui/log.js';
 import { buildRunContext, projectSid } from '../lib/run-context.cjs';
+import { commandConfigEnv, runSessionEnv, serverSpawnEnv } from '../lib/run-env.cjs';
 import { openServerLog, serverLogPath } from '../lib/server-log.js';
 
 /**
  * awf server — tmux-http 服务生命周期管理（路径/会话名/端口经 run-context 装配）
  */
 export async function serverCommand(action) {
+  const configEnv = commandConfigEnv(process.env);
   // 会话名按项目唯一化（单 server 多项目：不同目录不共用 `cc` 而互相 kill）
-  const ctx = buildRunContext({ projectRoot: process.cwd(), sid: projectSid(process.cwd()) });
+  const ctx = buildRunContext({ projectRoot: process.cwd(), sid: projectSid(process.cwd()), env: configEnv });
 
   switch (action) {
     case 'start': {
@@ -27,7 +29,12 @@ export async function serverCommand(action) {
           stdio: ['ignore', serverLog.fd, serverLog.fd],
           detached: true,
           cwd: ctx.projectRoot,
-          env: { ...process.env, CC_PORT: String(ctx.port), CC_PROJECT: ctx.projectRoot },
+          env: serverSpawnEnv({
+            env: process.env,
+            projectRoot: ctx.projectRoot,
+            port: ctx.port,
+            baseSession: ctx.session,
+          }),
         });
         proc.unref();
         serverLog.close();
@@ -50,7 +57,17 @@ export async function serverCommand(action) {
         execSync(`tmux has-session -t ${session} 2>/dev/null`, { stdio: 'ignore' });
       } catch {
         logger.info('创建 tmux session...');
-        execSync(`bash "${bootstrap}"`, { stdio: 'inherit', cwd: process.cwd() });
+        execSync(`bash "${bootstrap}"`, {
+          stdio: 'inherit',
+          cwd: process.cwd(),
+          env: runSessionEnv({
+            env: process.env,
+            projectRoot: ctx.projectRoot,
+            port: ctx.port,
+            sessionName: ctx.runSessionName,
+            stateServer: false,
+          }),
+        });
       }
 
       logger.success(`环境就绪: server ${ctx.port}, session '${session}'`);

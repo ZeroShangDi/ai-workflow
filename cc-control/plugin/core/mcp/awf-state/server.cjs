@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('node:crypto');
 
 const PROJECT_ROOT = process.env.AWF_PROJECT_ROOT || process.cwd();
 const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
@@ -17,10 +18,16 @@ const LOCK_PATH = path.join(PROJECT_ROOT, '.awf', 'state.lock');
 // 故 require 相对包根可达；仅当运行在无 src/ 的纯插件副本（connect-only、不暴露工具）
 // 时才回退到本地同语义最小实现——真实工具面永远走 store-core。
 let storeCore = null;
+let taskGraph = null;
 try {
   storeCore = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'lib', 'store-core.cjs'));
 } catch {
   storeCore = null;
+}
+try {
+  taskGraph = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'lib', 'task-graph.cjs'));
+} catch {
+  taskGraph = null;
 }
 
 function readState() {
@@ -67,7 +74,7 @@ function textResult(obj) {
 }
 
 // ---- T1-077：server run api 单写者模式（env CC_AWF_STATE_SERVER=1 启用）----
-// 18 tools 语义仍由本 MCP 判定/mutate；仅读/写边界经 server：读 GET /awf/state、写 POST
+// 基础 CRUD 语义仍由本 MCP 判定/mutate；仅读/写边界经 server：读 GET /awf/state、写 POST
 // /run/state/apply（server 以 state.js 锁 + 原子落盘，MCP 不再直写文件/自持锁）。缺省关 →
 // 离线/plan/单测沿用直写文件（现状不变）。
 const http = require('node:http');
@@ -106,9 +113,41 @@ async function readStateServer() {
   if (s && typeof s === 'object' && 'tasks' in s) return s;
   throw new Error(`awf-state server 读取失败（port ${SERVER_PORT} /awf/state）`);
 }
-async function writeStateServer(s) {
-  const r = await httpJson('POST', `/run/state/apply${stateQuery()}`, { state: s });
-  if (!r || r.ok !== true) throw new Error('awf-state server 落盘失败（/run/state/apply）');
+
+async function dynamicPlanServer(args) {
+  const r = await httpJson('POST', `/run/dynamic-planning/proposals${stateQuery()}`, args);
+  if (!r) throw new Error('dynamic planning server 无响应');
+  return r;
+}
+
+async function dynamicPlanStatusServer(proposalId) {
+  const suffix = `${stateQuery()}${stateQuery() ? '&' : '?'}proposalId=${encodeURIComponent(proposalId)}`;
+  const r = await httpJson('GET', `/awf/dynamic-planning/proposals${suffix}`);
+  if (!r) throw new Error('dynamic planning server 无响应');
+  return r;
+}
+function stateFingerprint(s) {
+  return crypto.createHash('sha256').update(JSON.stringify(s)).digest('hex');
+}
+
+async function writeStateServer(s, expectedLastUpdated, expectedStateFingerprint) {
+  const r = await httpJson('POST', `/run/state/apply${stateQuery()}`, {
+    state: s,
+    expectedLastUpdated: expectedLastUpdated ?? null,
+    expectedStateFingerprint,
+  });
+  if (!r || r.ok !== true) {
+    throw new Error(r?.error || 'awf-state server 落盘失败（/run/state/apply）');
+  }
+}
+
+function resultFailed(result) {
+  try {
+    const payload = JSON.parse(result?.content?.[0]?.text || '{}');
+    return payload?.ok === false;
+  } catch {
+    return false;
+  }
 }
 
 // ---- tool definitions ----
@@ -135,6 +174,90 @@ const TOOLS = [
         status: { type: 'string', enum: ['pending', 'active', 'done', 'blocked'], description: '任务状态' },
       },
       required: ['id', 'status'],
+    },
+  },
+  {
+    name: 'awf_dynamic_plan',
+    description: '运行期动态任务规划：提交一次语义化任务调整，由 server 计算插入位置、依赖/milestone/ready 副作用并按项目设置自动应用或等待人工批准。禁止用裸 task CRUD 代替本工具',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: '为什么原计划需要局部调整；必须说明缺口与原目标的关系' },
+        trigger: { type: 'string', description: '触发来源，默认 ai_runtime' },
+        requestedBy: { type: 'string', description: '请求者标识，默认 ai' },
+        operations: {
+          type: 'array',
+          minItems: 1,
+          description: '原子变更集；支持 insert_task/edit_task/delete_task',
+          items: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  type: { const: 'insert_task' },
+                  relation: {
+                    type: 'object',
+                    properties: {
+                      type: { const: 'prerequisite_for' },
+                      targetTaskId: { type: 'string', description: '缺少该前置工作的目标任务' },
+                    },
+                    required: ['type', 'targetTaskId'],
+                  },
+                  task: {
+                    type: 'object',
+                    description: '新增任务；wbsRef/deps 缺省时从目标任务继承，位置由 server 决定',
+                    properties: {
+                      id: { type: 'string' }, title: { type: 'string' }, kind: { type: 'string' },
+                      prompt: { type: 'string' }, acceptance: { type: 'string' }, wbsRef: { type: 'string' },
+                      deps: { type: 'array', items: { type: 'string' } },
+                      plannedFiles: { type: 'array', items: { type: 'string' } },
+                      constraints: { type: 'array', items: { type: 'string' } },
+                    },
+                    required: ['id', 'title', 'prompt', 'acceptance'],
+                  },
+                },
+                required: ['type', 'relation', 'task'],
+              },
+              {
+                type: 'object',
+                properties: {
+                  type: { const: 'edit_task' },
+                  taskId: { type: 'string' },
+                  reopen: { type: 'boolean', description: 'blocked 任务调整后是否恢复 pending' },
+                  patch: {
+                    type: 'object',
+                    properties: {
+                      title: { type: 'string' }, kind: { type: 'string' }, prompt: { type: 'string' },
+                      wbsRef: { type: 'string' }, acceptance: { type: 'string' },
+                      deps: { type: 'array', items: { type: 'string' } },
+                      plannedFiles: { type: 'array', items: { type: 'string' } },
+                      constraints: { type: 'array', items: { type: 'string' } },
+                    },
+                  },
+                },
+                required: ['type', 'taskId', 'patch'],
+              },
+              {
+                type: 'object',
+                properties: { type: { const: 'delete_task' }, taskId: { type: 'string' } },
+                required: ['type', 'taskId'],
+              },
+            ],
+          },
+        },
+      },
+      required: ['reason', 'operations'],
+    },
+  },
+  {
+    name: 'awf_dynamic_plan_status',
+    description: '读取动态任务规划 proposal 的状态、影响分析和应用结果；不返回内部 proposedState 快照',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposalId: { type: 'string', description: '动态规划 proposal ID' },
+      },
+      required: ['proposalId'],
     },
   },
   {
@@ -183,7 +306,7 @@ const TOOLS = [
   },
   {
     name: 'awf_task_create',
-    description: '创建新任务',
+    description: '创建新任务；plan/idle 阶段可用 prerequisiteFor 原子插到目标之前并自动连依赖，run/pause 阶段结构调整必须用 awf_dynamic_plan',
     inputSchema: {
       type: 'object',
       properties: {
@@ -195,6 +318,7 @@ const TOOLS = [
         prompt: { type: 'string', description: '精简执行提示词（命令 + task ID + 具体要做什么）；不得复制其他结构化字段' },
         wbsRef: { type: 'string', description: '关联的 WBS ID' },
         deps: { type: 'array', items: { type: 'string' }, description: '依赖任务 ID 列表' },
+        prerequisiteFor: { type: 'string', description: '可选目标任务 ID；新任务将原子插到它之前并成为其依赖（目标必须 pending）' },
         acceptance: { type: 'string', description: '可验证的完成条件' },
       },
       required: ['id', 'title', 'prompt'],
@@ -397,6 +521,16 @@ const handlers = {
         return textResult(s);
       }
 
+      // 动态规划是 server 完整能力；MCP 只保留薄协议入口，不在本进程复制业务语义。
+      if (name === 'awf_dynamic_plan') {
+        if (!SERVER_MODE) return textResult({ ok: false, error: 'awf_dynamic_plan requires state server mode' });
+        return textResult(await dynamicPlanServer(args || {}));
+      }
+      if (name === 'awf_dynamic_plan_status') {
+        if (!SERVER_MODE) return textResult({ ok: false, error: 'awf_dynamic_plan_status requires state server mode' });
+        return textResult(await dynamicPlanStatusServer(args?.proposalId || ''));
+      }
+
       // all other tools：本地语义 mutate（server 模式读/写边界经 server 单写者）
       const serverState = SERVER_MODE ? await readStateServer() : null;
       const apply = () => {
@@ -413,10 +547,20 @@ const handlers = {
       const tasks = getTasks();
       const milestones = s.milestones || [];
 
+      if (['run', 'pause'].includes(s.mode) && ['awf_task_create', 'awf_task_update', 'awf_task_delete'].includes(name)) {
+        return textResult({
+          ok: false,
+          error: `${name} is disabled while mode=${s.mode}; use awf_dynamic_plan so side effects are handled atomically`,
+        });
+      }
+
       switch (name) {
         case 'awf_task_status': {
           const t = tasks.find(t => t.id == args.id);
           if (!t) return textResult({ ok: false, error: `task ${args.id} not found` });
+          if ((args.status === 'active' || args.status === 'done' || args.status === 'blocked') && taskGraph) {
+            taskGraph.assertTaskDependenciesDone(tasks, args.id);
+          }
           const previousStatus = t.status;
           t.status = args.status;
           t.exec = t.exec || {};
@@ -455,6 +599,7 @@ const handlers = {
           if (status !== 'done' && status !== 'blocked') {
             return textResult({ ok: false, error: `status must be done|blocked, got ${status}` });
           }
+          if (taskGraph) taskGraph.assertTaskDependenciesDone(tasks, args.id);
           if (!t.exec) t.exec = {};
           if (args.result !== undefined) t.exec.result = args.result;
           if (args.files) t.exec.files = args.files;
@@ -494,13 +639,21 @@ const handlers = {
               }
             }
           }
-          taskList.push({
+          const created = {
             id: args.id, title: args.title, kind: args.kind || 'dev', prompt: args.prompt,
             wbsRef: args.wbsRef, deps: args.deps || [], status: 'pending',
             plannedFiles: args.plannedFiles || [],
             constraints: args.constraints || [],
             acceptance: args.acceptance,
-          });
+          };
+          if (args.prerequisiteFor !== undefined) {
+            if (!taskGraph) return textResult({ ok: false, error: 'prerequisiteFor requires task-graph capability' });
+            taskGraph.insertPrerequisiteTask(s, { targetId: args.prerequisiteFor, task: created });
+          } else {
+            taskList.push(created);
+            // plan 阶段允许先建被依赖任务、后补前置任务；离开 plan 后每次新增都必须保持完整合法图。
+            if (taskGraph && s.mode !== 'plan') taskGraph.assertTaskGraph(taskList);
+          }
           break;
         }
         case 'awf_task_update': {
@@ -512,16 +665,20 @@ const handlers = {
           if (args.constraints !== undefined) t.constraints = args.constraints;
           if (args.prompt !== undefined) t.prompt = args.prompt;
           if (args.wbsRef !== undefined) t.wbsRef = args.wbsRef;
-          if (args.deps !== undefined) t.deps = args.deps;
+          if (args.deps !== undefined) {
+            if (!taskGraph) return textResult({ ok: false, error: 'dependency update requires task-graph capability' });
+            taskGraph.replaceTaskDependencies(s, args.id, args.deps);
+          }
           if (args.acceptance !== undefined) t.acceptance = args.acceptance;
           break;
         }
         case 'awf_task_delete': {
-          const idx = tasks.findIndex(t => t.id == args.id);
-          if (idx === -1) {
+          const exists = tasks.some(t => t.id == args.id);
+          if (!exists) {
             return textResult({ ok: false, error: `task ${args.id} not found` });
           }
-          tasks.splice(idx, 1);
+          if (!taskGraph) return textResult({ ok: false, error: 'task delete requires task-graph capability' });
+          taskGraph.removeTaskFromGraph(s, args.id);
           break;
         }
         case 'awf_plan_configure': {
@@ -608,8 +765,12 @@ const handlers = {
       return textResult({ ok: true, tool: name });
       };
       if (SERVER_MODE) {
+        const expectedLastUpdated = serverState?.lastUpdated ?? null;
+        const expectedStateFingerprint = stateFingerprint(serverState);
         const res = apply();
-        await writeStateServer(serverState);
+        // 参数/图约束失败属于 no-op，不能再把读取到的旧快照写回 server。
+        if (resultFailed(res)) return res;
+        await writeStateServer(serverState, expectedLastUpdated, expectedStateFingerprint);
         return res;
       }
       return withStateLock(apply);

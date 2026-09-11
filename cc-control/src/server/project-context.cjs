@@ -127,6 +127,7 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
     runStateApi: null,
     runStateApiReady: null,
     taskChannel: null,          // 会话通道（上下文压缩/收尾协商；server.cjs sessionChannel 惰性单例）
+    dynamicPlanning: null,      // 动态任务规划能力（每项目惰性服务）
   };
 }
 
@@ -203,6 +204,7 @@ function createProjectRegistry({ env = process.env, bootRoot, tmuxFactory, RunLo
       c.runStateApi = null;
       c.runStateApiReady = null;
       c.taskChannel = null;
+      c.dynamicPlanning = null;
     }
   }
 

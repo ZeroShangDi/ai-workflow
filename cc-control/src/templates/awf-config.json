@@ -8,6 +8,10 @@
     },
     "decision": {
       "enabled": false
+    },
+    "dynamicPlanning": {
+      "mode": "approve_then_apply",
+      "extensions": {}
     }
   },
   "docs": {

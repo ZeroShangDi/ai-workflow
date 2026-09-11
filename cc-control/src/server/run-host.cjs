@@ -270,7 +270,15 @@ function createRunHost(opts = {}) {
       run.currentStage = ch.stages[0] || null;
       refreshRunFromState(run);
 
-      stateApi.markTaskActive(projectRoot, task.id);
+      // 与动态规划 hold 竞争时，只有拿到原子执行占用的调用者可以继续。
+      // 失败说明任务已被调整、结算或挂起，重读 state 重新选择。
+      if (stateApi.markTaskActive(projectRoot, task.id) === false) {
+        run.currentTaskId = null;
+        run.currentTaskTitle = null;
+        run.currentChain = null;
+        run.currentStage = null;
+        continue;
+      }
       emit('task.started', run.runId, {
         taskId: task.id,
         title: task.title || null,
@@ -315,13 +323,15 @@ function createRunHost(opts = {}) {
           run.currentTaskId = task.id;
           run.currentTaskTitle = task.title || null;
           run.currentChain = chain?.decideChain ? chain.decideChain(task).stages : [task.kind || 'dev'];
+          const accepted = await batch.dispatch(task);
+          if (accepted === false) return false;
           emit('task.started', run.runId, {
             taskId: task.id,
             title: task.title || null,
             kind: task.kind || 'dev',
             chain: run.currentChain,
           });
-          await batch.dispatch(task);
+          return true;
         },
       },
       waitAnyDone: async (running) => batch.waitAnyDone(running),

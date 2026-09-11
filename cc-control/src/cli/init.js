@@ -84,8 +84,8 @@ async function initWorkspace(paths, force, version) {
   const exists = await fs.stat(awfDir).catch(() => null);
 
   const ensureSkeleton = async () => {
-    // 目录结构（bugs/issues/decisions/logs/reports/versions）
-    const dirs = ['bugs', 'issues', 'decisions', 'context', 'logs', 'reports/lint', 'reports/test', 'reports/review', 'reports/perf', 'reports/summary', 'versions'];
+    // 目录结构（含动态规划 proposal/事件的稳定扩展边界）
+    const dirs = ['bugs', 'issues', 'decisions', 'dynamic-planning/proposals', 'context', 'logs', 'reports/lint', 'reports/test', 'reports/review', 'reports/perf', 'reports/summary', 'versions'];
     await fs.mkdir(awfDir, { recursive: true });
     for (const d of dirs) await fs.mkdir(path.join(awfDir, d), { recursive: true });
     // README / config：缺失时复制模板（不覆盖用户改过的）

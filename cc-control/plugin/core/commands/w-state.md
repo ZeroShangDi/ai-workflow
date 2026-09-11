@@ -31,23 +31,37 @@
 - `message` (string, 必填) — commit message
 
 ### awf_task_create
-创建新任务
+创建新任务；`prerequisiteFor` 是 plan/idle 阶段可用的底层原子插入参数，运行期改用 `awf_dynamic_plan`
 - `id` (string, 必填) — 唯一任务 ID
 - `title` (string, 必填) — 任务名（一句话）
 - `prompt` (string, 必填) — 精简执行提示词（命令 + task ID + 具体要做什么）
 - `wbsRef` (string, 可选) — 关联 WBS ID
 - `deps` (string[], 可选) — 依赖任务 ID 列表
+- `prerequisiteFor` (string, 可选) — 目标任务 ID；新任务插在目标之前并自动加入目标 deps（目标必须 pending）
 - `constraints` (string[], 可选) — 任务专属硬约束；通用规则不重复写入
 - `acceptance` (string, 可选) — 可验证的完成条件
+
+### awf_dynamic_plan
+运行期局部动态规划；一次提交完整变更集，由 server 计算位置、影响闭包和副作用
+- `reason` (string, 必填) — 计划缺口及其与原目标的关系
+- `operations` (object[], 必填) — `insert_task` / `edit_task` / `delete_task`
+- `insert_task` 用 `relation: { type: "prerequisite_for", targetTaskId }` 表达语义位置，禁止传数组下标
+- 返回 `applied_review_pending`、`awaiting_approval` 或 `decision_required`；后者会建立正式 decision，AI 只报告 ID 并等待人工 resolve，不得自行批准
+
+### awf_dynamic_plan_status
+按 `proposalId` 查询动态规划 proposal、影响分析和应用结果
 
 ### awf_task_update
 更新任务字段（只更新提供的字段）
 - `id` (string, 必填) — 任务 ID
 - `title`, `prompt`, `wbsRef`, `deps`, `constraints`, `acceptance` (可选)
+- 更新 `deps` 会校验缺失依赖和环；active 任务不能新增未完成依赖
 
 ### awf_task_delete
 删除任务
 - `id` (string, 必填) — 任务 ID
+- 仍有任务依赖该任务时拒绝删除
+- run/pause 阶段禁止直接调用 task create/update/delete；必须使用 `awf_dynamic_plan`
 
 ### awf_plan_configure
 配置 Plan 元数据

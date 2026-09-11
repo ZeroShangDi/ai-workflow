@@ -5,6 +5,7 @@ import { installProjectMcp } from '../lib/profile.js';
 import { loadState } from '../lib/state.js';
 import { waitWhilePaused } from '../lib/pause.js';
 import { buildRunContext, projectSid } from '../lib/run-context.cjs';
+import { commandConfigEnv, runSessionEnv, serverSpawnEnv } from '../lib/run-env.cjs';
 import { openServerLog, serverLogPath } from '../lib/server-log.js';
 import { generateRunSettings } from '../server/run-settings.cjs';
 import { createRunClient } from './run-client.js';
@@ -47,8 +48,11 @@ let activeProject = null;
 export async function runCommand(task, options) {
   const projectRoot = process.cwd(); // run 项目（.awf 宿主）
   activeProject = projectRoot;
+  // 从另一个 awf run 会话内发起时，process.env 里的 CC_SESSION/CC_PROJECT 是父 run 身份，
+  // 不是本次命令的基础配置；先清洗再装配，避免 session 项目后缀重复或串项目。
+  const configEnv = commandConfigEnv(process.env);
   // 会话名唯一化（单 server 多项目：不同目录不再共用基础名 `cc` 而互相 kill）
-  const ctx = buildRunContext({ projectRoot, sid: projectSid(projectRoot) }); // 装配 infra/路径/会话名/端口（server/client/MCP 共用）
+  const ctx = buildRunContext({ projectRoot, sid: projectSid(projectRoot), env: configEnv }); // 装配 infra/路径/会话名/端口（server/client/MCP 共用）
   // T1-059 重连语义：fresh=新提交 / resume=重启续接（活跃 run 挂接、空闲则提交续跑）/
   // attach=仅挂接活跃 run（读 store 落盘进度续观，不重复提交）
   const connectionMode = options?.attach ? 'attach' : options?.resume ? 'resume' : 'fresh';
@@ -215,7 +219,12 @@ async function ensureServer(serverScript, infraRoot, workDir, reuseExisting = fa
   logStep('tmux-http', 'ok', `server 输出 → ${logPath}${log.rotated ? '（已轮转上一代）' : ''}`);
   const proc = spawn('node', [serverScript], {
     stdio: ['ignore', log.fd, log.fd], detached: true, cwd: workDir,
-    env: { ...process.env, CC_PORT: String(SERVER_PORT), CC_PROJECT: workDir },
+    env: serverSpawnEnv({
+      env: process.env,
+      projectRoot: workDir,
+      port: SERVER_PORT,
+      baseSession: runCtx.session,
+    }),
   });
   proc.unref();
   log.close(); // 子进程已 dup 自己的 fd，父进程这份还回去
@@ -250,18 +259,15 @@ async function ensureSession(bootstrapScript, workDir, sessionName, reuseExistin
   try { execSync(`tmux kill-session -t ${sessionName} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
   execSync(`bash "${bootstrapScript}"`, {
     stdio: 'ignore', cwd: workDir,
-    env: {
-      ...process.env,
-      CC_WORKDIR: workDir,
-      CC_SESSION: sessionName,
-      CC_PROJECT: workDir,
-      // 单 server 多项目（主键=projectRoot）：run 会话内 hook/MCP 只带 ?p 路由到本项目单槽/主 state。
-      // 不注入 CC_SID —— 否则 awf-state/session MCP 会把主 run 路由到不存在的 .awf/runs/<sid> 分片（404）；
-      // sid 仅用于 tmux 会话名唯一化（projectSid），不作为主 run 的寻址。
-      // T1-077：run 会话内 awf-state MCP 底层经 server run api（server 单写者，不直写文件/锁）
-      CC_AWF_STATE_SERVER: '1',
-      CC_PORT: String(SERVER_PORT),
-    },
+    // 单 server 多项目（主键=projectRoot）：run 会话内 hook/MCP 只带 ?p 路由到本项目单槽/主 state。
+    // runSessionEnv 先剔除父 run 身份，再显式注入本次身份；刻意不注入 CC_SID，避免
+    // awf-state/session MCP 把主 run 路由到不存在的 .awf/runs/<sid> 分片（404）。
+    env: runSessionEnv({
+      env: process.env,
+      projectRoot: workDir,
+      port: SERVER_PORT,
+      sessionName,
+    }),
   });
   logStep('session', 'ok', `${sessionName} → ${workDir}`);
   return true;

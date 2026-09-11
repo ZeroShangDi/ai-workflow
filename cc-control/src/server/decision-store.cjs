@@ -115,6 +115,25 @@ class DecisionStore {
     return { appended: true, runStamp, file };
   }
 
+  /**
+   * 追加决策生命周期事件。同一 decision_id 可以依次拥有 requested/completed，
+   * 但同一 event 只写一次；既保留旧 append 的“单条正式结果”语义，也为人工前置
+   * 决策提供稳定事件边界。
+   */
+  appendEvent(record, { runStamp: explicitRunStamp = null } = {}) {
+    const runStamp = explicitRunStamp || this.runStamp();
+    if (!runStamp) return { appended: false, runStamp: null, file: null };
+    if (!record?.decision_id || !record?.event) {
+      throw new Error('decision lifecycle event requires decision_id and event');
+    }
+    const file = this.fileFor(runStamp);
+    const duplicate = this._records(file)
+      .some((entry) => entry.decision_id === record.decision_id && entry.event === record.event);
+    if (duplicate) return { appended: false, runStamp, file };
+    this._appendLine(file, { runStamp, ...record });
+    return { appended: true, runStamp, file };
+  }
+
   /** file 中是否已含同 decision_id 的记录（幂等去重） */
   _hasDecision(file, decisionId) {
     return this._records(file).some((e) => e.decision_id === decisionId);
@@ -143,8 +162,21 @@ class DecisionStore {
   /** 在全部 run 文件中查找含 decision_id 的记录，返回 { runStamp, file, entry } 或 null */
   _findDecision(decisionId) {
     for (const { runStamp, file } of this._runFiles()) {
-      const entry = this._records(file).find((e) => e.decision_id === decisionId && e.event !== 'decision_overridden');
+      const matches = this._records(file).filter((e) => e.decision_id === decisionId && e.event !== 'decision_overridden');
+      // requested 只是待决现场，尚无可 override 的正式结论。无 event + answer
+      // 是 v0.2.0 早期记录，继续视为已完成以兼容历史数据。
+      const entry = matches.find((e) => e.event === 'decision_completed')
+        || matches.find((e) => !e.event && e.answer !== undefined);
       if (entry) return { runStamp, file, entry };
+    }
+    return null;
+  }
+
+  /** 读取一个 decision 的全部生命周期事件（按落盘顺序）。 */
+  eventsFor(decisionId) {
+    for (const { runStamp, file } of this._runFiles()) {
+      const entries = this._records(file).filter((entry) => entry.decision_id === decisionId);
+      if (entries.length) return { runStamp, file, entries };
     }
     return null;
   }

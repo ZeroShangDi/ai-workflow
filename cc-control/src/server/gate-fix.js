@@ -10,7 +10,7 @@
 //  - 多 agent：runScheduler.onTaskComplete → 本模块（run-batch.js）
 //  - 单 agent：runLoop 完成感知后（run.js）
 
-import { loadState, saveState, spawnGateFixTask, gateFixMeta, MAX_RECHECK } from '../lib/state.js';
+import { loadState, spawnGateFixTaskAtomic, gateFixMeta, MAX_RECHECK } from '../lib/state.js';
 import { gateFixPrompt } from '../lib/plugin-bridge.js';
 import { buildFixTarget } from '../lib/gate-loop.cjs';
 import { logStep } from '../lib/ui/log.js';
@@ -41,8 +41,8 @@ export async function handleGateCompletion(projectRoot, id, task) {
   const fixTarget = buildFixTarget(gate); // verdict→修复目标规则归位 gate-loop
   const prompt = await gateFixPrompt({ fixId: meta.fixId, fixTarget });
 
-  const fixId = spawnGateFixTask(state, gate, prompt);
-  saveState(projectRoot, state);
+  const applied = spawnGateFixTaskAtomic(projectRoot, id, prompt, meta.fixId);
+  const fixId = applied?.fixId || null;
   if (fixId) {
     logStep('', 'ok', `门禁 ${id} ${v?.level} → 派生修复任务 ${fixId}，待复审`);
   } else if ((gate.exec?.recheck || 0) >= MAX_RECHECK) {

@@ -43,7 +43,10 @@ function buildRunContext({ sid = null, projectRoot, env = process.env } = {}) {
   assertSid(sid);
   const root = projectRoot || env.CC_PROJECT || process.cwd();
   const session = getSessionName(env);
-  const runSessionName = sid == null ? session : `${session}-${sid}`;
+  // bootstrap 会把完整 runSessionName 写进 CC_SESSION。若调用方从该 run 内再次装配同一 sid，
+  // 不得重复追加后缀（cc-<sid>-<sid>）；跨 run 的父身份由 run-env 在命令边界清洗。
+  const sidSuffix = sid == null ? null : `-${sid}`;
+  const runSessionName = sid == null || session.endsWith(sidSuffix) ? session : `${session}${sidSuffix}`;
   const awfDir = path.join(root, '.awf');
   /** 每 run 目录（T1-018 布局）：.awf/runs/<sid>/；无 sid 时不派生 */
   const runDir = sid == null ? undefined : path.join(awfDir, 'runs', sid);

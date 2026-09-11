@@ -28,6 +28,7 @@ const decisionInstruction = require('./decision-instruction.cjs');
 const oneshotLib = global.__CC_ONESHOT__ || oneshotPort;
 const storeCore = require('../lib/store-core.cjs'); // per-run state 通用路径原子读写（T1-078）
 const { isIdleDue, idleDefaultMs } = require('../lib/server-idle.cjs');
+const dynamicPlanning = require('./dynamic-planning/index.cjs');
 
 // 单 server 多项目（用户裁定，主键=projectRoot）：每项目一份 ProjectCtx（磁盘锚点/mutable 槽/host），
 // 请求带 ?p=<归一化 projectRoot> 路由；不带 p → boot 上下文（与旧单项目行为字节一致）。
@@ -644,6 +645,7 @@ async function bootstrapRunHost(pcx) {
         loadState: (r) => state.loadState(r),
         saveState: (r, s) => state.saveState(r, s),
         markTaskActive: (r, id) => state.markTaskActive(r, id),
+        requeueTaskIfActive: (r, id) => state.requeueTaskIfActive(r, id),
         findNextTask: (s) => state.findNextTask(s),
         setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
         backupState: (r) => state.backupState(r), // run 结束版本归档（host drive 收尾调用）
@@ -700,6 +702,7 @@ async function ensureRunStateApi(pcx) {
     if (override) {
       pcx.runStateApi = {
         saveState: override.saveState || (() => false),
+        replaceStateIfUnchanged: override.replaceStateIfUnchanged || null,
         setWorkflowMode: override.setWorkflowMode || (() => false),
         markTaskActive: override.markTaskActive || (() => false),
         backupState: override.backupState || (() => undefined),
@@ -709,6 +712,9 @@ async function ensureRunStateApi(pcx) {
     const state = await import('../lib/state.js');
     pcx.runStateApi = {
       saveState: (r, s) => state.saveState(r, s),
+      replaceStateIfUnchanged: (r, s, expected, fingerprint) => (
+        state.replaceStateIfUnchanged(r, s, expected, fingerprint)
+      ),
       setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
       markTaskActive: (r, id) => state.markTaskActive(r, id),
       backupState: (r) => state.backupState(r),
@@ -741,6 +747,7 @@ async function batchTransportFor(pcx, stateApi) {
     },
     prompts: { subagentDispatch: bridge.subagentDispatch, resend: bridge.subagentResend },
     markActive: (id) => stateApi.markTaskActive(pcx.projectRoot, id),
+    releaseActive: (id) => stateApi.requeueTaskIfActive?.(pcx.projectRoot, id) ?? false,
     readTasks: () => pcx.stores.state.readSync()?.tasks || [],
     isBusy: () => pcx.state === 'busy',
     decisionPending: () => pcx.decisionPending,
@@ -831,6 +838,19 @@ function pauseNoticeLog(pcx) {
 /** 读某任务当前状态（闩锁用它判断「我等的目标任务是否已被别处结算」） */
 function currentTaskStatus(pcx, taskId) {
   return (pcx.stores.state.readSync()?.tasks || []).find((t) => t.id === taskId)?.status || null;
+}
+
+/** 每项目一份动态规划服务；协议/策略/记录均锚定对应 projectRoot。 */
+function dynamicPlanningFor(pcx) {
+  if (!pcx.dynamicPlanning) {
+    pcx.dynamicPlanning = dynamicPlanning.createDynamicPlanningService({
+      projectRoot: pcx.projectRoot,
+      decisionPort: dynamicPlanning.createDynamicPlanningDecisionPort({
+        storeFactory: () => pcx.newDecisionStore(),
+      }),
+    });
+  }
+  return pcx.dynamicPlanning;
 }
 
 // 解析一次请求的项目上下文：p 归一化；缺省 → boot（兼容存量无 p 请求/测试）
@@ -1058,6 +1078,19 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, diagnosis: readDiagnosis(pcx.projectRoot) });
   }
 
+  // 动态任务规划读取面：proposal 数据边界先稳定，未来 UI/复审器可直接消费。
+  if (req.method === 'GET' && pathname === '/awf/dynamic-planning/proposals') {
+    const proposalId = url.searchParams.get('proposalId');
+    const service = dynamicPlanningFor(pcx);
+    if (proposalId) {
+      const proposal = service.get(proposalId);
+      return proposal
+        ? send(res, 200, { ok: true, proposal })
+        : send(res, 404, { ok: false, error: `dynamic planning proposal not found: ${proposalId}` });
+    }
+    return send(res, 200, { ok: true, proposals: service.list() });
+  }
+
   if (req.method === 'POST' && pathname === '/awf/diagnostics') {
     const result = await startRunDiagnosis(pcx);
     return send(res, result.ok ? 202 : 409, result);
@@ -1068,6 +1101,20 @@ const server = http.createServer(async (req, res) => {
     const store = pcx.newDecisionStore();
     const decisions = store.listAll();
     return send(res, 200, { ok: true, total: decisions.length, decisions });
+  }
+
+  // 人工前置 decision：当前只接动态规划 subject。该入口不暴露给 AI MCP，
+  // 人工结论是 decision_required proposal 的唯一执行授权。
+  const decisionResolve = pathname.match(/^\/awf\/decisions\/([^/]+)\/resolve$/);
+  if (req.method === 'POST' && decisionResolve) {
+    const decisionId = decodeURIComponent(decisionResolve[1]);
+    const body = (await readJson(req)) || {};
+    try {
+      const result = dynamicPlanningFor(pcx).resolveDecision(decisionId, body);
+      return send(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return send(res, 409, { ok: false, error: error.message });
+    }
   }
 
   // ---- Review override ----
@@ -1297,6 +1344,33 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---- server run api 写端点 ----
+  if (req.method === 'POST' && pathname === '/run/dynamic-planning/proposals') {
+    const body = (await readJson(req)) || {};
+    try {
+      const proposal = dynamicPlanningFor(pcx).propose(body);
+      const applied = proposal.status === 'applied_review_pending';
+      return send(res, applied ? 200 : 202, { ok: true, applied, proposal });
+    } catch (e) {
+      return send(res, 409, { ok: false, error: e.message });
+    }
+  }
+
+  const dynamicAction = pathname.match(/^\/run\/dynamic-planning\/proposals\/([^/]+)\/(approve|reject)$/);
+  if (req.method === 'POST' && dynamicAction) {
+    const proposalId = decodeURIComponent(dynamicAction[1]);
+    const action = dynamicAction[2];
+    const body = (await readJson(req)) || {};
+    try {
+      const service = dynamicPlanningFor(pcx);
+      const proposal = action === 'approve'
+        ? service.approve(proposalId, body)
+        : service.reject(proposalId, body);
+      return send(res, 200, { ok: true, proposal });
+    } catch (e) {
+      return send(res, 409, { ok: false, error: e.message });
+    }
+  }
+
   if (req.method === 'POST' && pathname === '/run/state/mode') {
     const body = (await readJson(req)) || {};
     if (!body || typeof body.mode !== 'string' || !['run', 'idle', 'pause'].includes(body.mode)) {
@@ -1353,6 +1427,31 @@ const server = http.createServer(async (req, res) => {
         pcx.writeRunStateSid(sid, state);
       } else {
         if (!pcx.runStateApi) return send(res, 503, { ok: false, error: 'state api 未就绪' });
+        if (Object.prototype.hasOwnProperty.call(body, 'expectedLastUpdated')) {
+          if (!pcx.runStateApi.replaceStateIfUnchanged) {
+            return send(res, 503, { ok: false, error: 'state CAS api 未就绪' });
+          }
+          if (typeof body.expectedStateFingerprint !== 'string' || !body.expectedStateFingerprint) {
+            return send(res, 400, {
+              ok: false,
+              error: 'CAS apply requires expectedStateFingerprint',
+            });
+          }
+          const applied = pcx.runStateApi.replaceStateIfUnchanged(
+            pcx.projectRoot,
+            state,
+            body.expectedLastUpdated,
+            body.expectedStateFingerprint,
+          );
+          if (applied?.conflict) {
+            return send(res, 409, {
+              ...applied,
+              error: 'state 已被其他写者更新，请重新读取后重试',
+            });
+          }
+          return send(res, 200, applied);
+        }
+        // 兼容旧调用方；新版 MCP 总会携带 expectedLastUpdated。
         pcx.runStateApi.saveState(pcx.projectRoot, state);
       }
       return send(res, 200, { ok: true });

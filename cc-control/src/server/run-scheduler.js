@@ -132,10 +132,13 @@ export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, 
     if (!suspended) {
       let picked;
       while ((picked = pickFromPool(pool, running, quota, scope))) {
-        await dispatcher.send(picked.task);
-        running.add(picked.task, picked.scope);
+        const accepted = await dispatcher.send(picked.task);
         pool.splice(pool.indexOf(picked.task), 1);
         poolIds.delete(picked.task.id);
+        // state 可能在初次建池后被动态规划 hold；传输层原子占用失败时不得
+        // 把任务计入 running，否则 waitAnyDone 会永久等待一个从未派发的任务。
+        if (accepted === false) continue;
+        running.add(picked.task, picked.scope);
         dispatched++;
       }
     }

@@ -54,6 +54,7 @@ function createBatchTransport({
   send,
   prompts,
   markActive,
+  releaseActive = () => false,
   readTasks,
   isBusy = () => false,
   decisionPending = () => null,
@@ -138,7 +139,7 @@ function createBatchTransport({
   }
 
   return {
-    /** 派发一个任务：注入 subagentDispatch 提示词（主会话据此派生后台子 Agent）+ 标记 active */
+    /** 派发一个任务：先原子占用，再注入提示词；发送失败则释放占用。 */
     async dispatch(task) {
       // pause 闩锁 + 「已被别处结算就不必派」：暂停期间不能让派发路径挂死看不到结算
       const gate = await waitWhilePaused({
@@ -150,15 +151,26 @@ function createBatchTransport({
       });
       if (gate?.releasedBy === 'settled') {
         log('info', `任务 ${task.id} 在暂停期间已结算，跳过派发`);
-        return;
+        return false;
+      }
+      // 占用与 dynamic-planning hold 共用 state.lock：审批前 hold 一旦落盘，
+      // 此处必然失败，从而堵住「先发送、后 active」的竞态窗口。
+      if (markActive(task.id) === false) {
+        log('info', `任务 ${task.id} 已非可派状态或被动态规划挂起，跳过派发`);
+        return false;
       }
       const text = await prompts.subagentDispatch({
         taskId: task.id,
         taskTitle: task.title || '',
         taskPrompt: task.prompt || task.title || '',
       });
-      await send(text);
-      markActive(task.id);
+      try {
+        await send(text);
+      } catch (err) {
+        releaseActive(task.id);
+        throw err;
+      }
+      return true;
     },
 
     /** 等运行中集合里至少一个任务结算（done/blocked）；决策挂起时返回 suspended 让调度器停补位 */
