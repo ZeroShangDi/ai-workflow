@@ -148,7 +148,7 @@ awf run（薄入口：起环境 + 提交 run + 订阅展示 + 决策中继）
 | server | `run-host.cjs` + `run-driver` + `run-scheduler` + `batch-transport` + `task-channel` + `gate-fix` | run 域：调度、阶段链、门禁闭环、收尾协商 | 不直接操作 tmux（经 host/tmux 原语） |
 | server | `decision*.cjs` | 决策闸门规则、结果解析、追加式落盘、模式指令 | 不产出决策内容（那是 DC 的活） |
 | server | `host.cjs` / `tmux.cjs` / `hook-adapter.cjs` | tmux 原语与会话启动；hook→领域事件翻译接缝 | **应迁入 adapters（R1 债 F3/F5）** |
-| plugin | `core` / `decision` / `plugin-code` | 见各插件 README；MCP 工具面 18 + 7 + 1 | MCP 不做状态决策：`awf-session` / `awf-oneshot` 全经 HTTP；`awf-state` 在 `CC_AWF_STATE_SERVER=1` 下经 HTTP 单写者模式，否则直连文件（其「纯插件副本无 `src/`」的降级回取是 R1 债 F6） |
+| plugin | `core` / `decision` / `plugin-code` | 见各插件 README；MCP 工具面 20 + 7 + 1 | MCP 不做状态决策：`awf-session` / `awf-oneshot` 全经 HTTP；`awf-state` 在 `CC_AWF_STATE_SERVER=1` 下经 HTTP 单写者模式，否则直连文件（其「纯插件副本无 `src/`」的降级回取是 R1 债 F6） |
 
 ---
 
@@ -182,7 +182,7 @@ awf run（薄入口：起环境 + 提交 run + 订阅展示 + 决策中继）
 |---|------|------|
 | CLI 命令 | 7：`init` / `plan` / `run` / `plugin` / `server` / `open` / `attach` | `src/awf.js` |
 | slash 命令 | core（`w-start` `w-pause` `w-monitor` `w-state`）+ plugin-code（`w-plan*` `w-dev` `w-debug` `w-review` `w-test` `w-doc` `w-commit` `w-ui-*`） | `plugin/*/commands/` |
-| MCP 工具 | `awf-state` 18 · `awf-session` 7 · `awf-oneshot` 1 | `plugin/core/mcp/` |
+| MCP 工具 | `awf-state` 20 · `awf-session` 7 · `awf-oneshot` 1 | `plugin/core/mcp/` |
 | HTTP API | 36 条路由 | 见 `api.md` |
 | 真机回归 case | 13（`npm run test:real -- --case all`） | `tests/regression/fullflow-regression.mjs` |
 

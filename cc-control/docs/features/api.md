@@ -418,11 +418,25 @@ hook 网关（`gateway.cjs`）把 stdin 的 hook JSON 原样 POST 到此端点�
 
 ### 3.24 `POST /run/state/apply` —— 整体写 state
 
-**请求体**：`{ state: object }`（非对象/数组 → `400 {ok:false,error:"body must be {state: object}"}`）
+**请求体**：`{ state: object, expectedLastUpdated?: string|null, expectedStateFingerprint?: string }`（非对象/数组 → `400 {ok:false,error:"body must be {state: object}"}`）。新版 MCP 总是同时发送两个 expected 字段；server 在锁内比较，陈旧快照返回 `409`。不带 expected 字段保留给旧调用方，仍按原有整体写语义处理。
 
 **查询参数**：`sid`（否）—— 有则写 `<root>/.awf/runs/<sid>/state.json`（原子写 + 锁），无则走 `saveState` 写默认 `<root>/.awf/state.json`。
 
-**响应**：`200 { ok:true }`；`400`；`503`（无 sid 且 state api 未就绪）；`500 {ok:false,error:"state 落盘失败: …"}`。
+**响应**：`200 { ok:true }`；`409 {ok:false,conflict:true,...}`（CAS 版本冲突）；`400`；`503`（无 sid 且 state api 未就绪）；`500 {ok:false,error:"state 落盘失败: …"}`。
+
+### 3.24a 动态任务规划
+
+- `POST /run/dynamic-planning/proposals?p=<projectRoot>`：提交 `{reason,trigger?,requestedBy?,operations}`；返回已应用、待人工批准或待决策的 proposal。
+- `GET /awf/dynamic-planning/proposals?p=<projectRoot>&proposalId=<id>`：读取单个 proposal；不传 `proposalId` 返回列表；对外不返回内部 `proposedState`。
+- `POST /run/dynamic-planning/proposals/<id>/approve?p=<projectRoot>`：人工批准 `{reviewer,note?}`；基线指纹冲突时不落 state。
+- `POST /run/dynamic-planning/proposals/<id>/reject?p=<projectRoot>`：人工拒绝 `{reviewer,note?}`。
+- `POST /awf/decisions/<decisionId>/resolve?p=<projectRoot>`：高风险动态规划的正式人工决策入口；body `{outcome:"approve"|"reject",reviewer,note?}`。成功追加 `decision_completed(status=reviewed)`，并应用或拒绝关联 proposal；普通 proposal approve/reject 不能绕过它。
+
+执行模式来自 `.awf/config.json` 的 `run.dynamicPlanning.mode`：`auto_then_review` 或 `approve_then_apply`。完整协议见 `docs/discuss/dynamic-task-planning-capability.md`。
+
+人工批准或待决策期间，server 会在 state 控制区安装 execution hold，调度器会跳过受影响任务及其下游；第一版每个项目只允许一个开放 proposal。任务派发采用“先原子占用、再发送”，发送失败会安全释放占用，从而关闭 proposal 创建与批量派发之间的竞态窗口。
+
+高风险 proposal 创建时会同步追加 `decision_requested(status=awaiting_human, source=dynamic_planning)`。decision 完成记录与 proposal 应用之间支持同 outcome 幂等补记：若 state 已应用但 decision 记录写入中断，重复 resolve 只补 `decision_completed`，不会再次应用 proposal，也不能改换原人工结论。
 
 ### 3.25 `POST /oneshot` —— 无状态 LLM 调用
 

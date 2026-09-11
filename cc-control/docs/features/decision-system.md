@@ -143,9 +143,9 @@ AskUserQuestion 在同一 deciding 事务内重复调用 → 拒绝并提示「�
 
 ## 数据记录（DecisionStore）
 
-- 记录事件：`decision_completed`（正式/兜底，`status:'pending_review'`，`fallback:true` 标记兜底，`source:'text'`）、`decision_overridden`（override 追加，不改写原记录）。
+- 记录事件：`decision_completed`（既有 AI 决策为 `pending_review/source:text`；动态规划人工决策为 `reviewed/source:human`）、`decision_requested`（动态规划高风险 proposal 等待人工结论）、`decision_overridden`（override 追加，不改写原记录）。
 - `decision_completed` 字段：`runStamp` / `event` / `decision_id` / `status` / `fallback` / `source` / `created_at`(ISO，与 run 日志 logDecision `at` 同一) / `result`（完整 Decision Result，fallback 时为 deferred 模板结果）。
-- 不变量：只追加绝不覆盖；幂等（同 `decision_id` 同一 run 文件不重复落盘，防 Stop 双触发）；override 追加进原 decision 所在 run 文件。
+- 不变量：只追加绝不覆盖；旧 `append` 保持同 decision ID 单结果幂等，生命周期 `appendEvent` 按 `decision_id + event` 幂等，允许 requested → completed；override 追加进原 decision 所在 run 文件。
 - run 日志：`RunLogger.logDecision` 写 `[<ISO>] [DECISION][decision_started|decision_completed|decision_overridden] <decision_id> <detail>` 到 `.awf/logs/<run>/main.log`，Review 页可按 created_at/decisionId 对齐。
 
 ## Review（API + 页面）
@@ -155,6 +155,7 @@ AskUserQuestion 在同一 deciding 事务内重复调用 → 拒绝并提示「�
 | `/decisions.html` | GET | Review 页面（深色，内联风格）：时间/Decision ID/问题/answer/type/finality/决定性因素/风险/未知/反转条件/fallback；决策被 override 时随原决策展示覆写日志；操作「标记 reviewed」（客户端本地态）+「Override」 |
 | `/` dashboard | GET | 含「决策 Review」入口链接 |
 | `/awf/decisions` | GET | 聚合列表：各 run 倒序扁平，含 decision_completed 与 decision_overridden 事件 |
+| `/awf/decisions/<decisionId>/resolve` | POST | 动态规划高风险 decision 的人工 resolve：`approve/reject + reviewer`；不暴露为 MCP tool |
 | `/awf/decisions/<decisionId>/override` | POST | body `{ instruction(必填), original_answer? }`；400=缺 instruction、404=目标不存在；成功追加 `decision_overridden` + 纠偏任务，返回 `{ reviewTaskId }` |
 
 - 纠偏任务：`appendDecisionReviewTask` 在 state 写锁下追加 `{ id: <decision_id>-REV, kind:'dev', status:'pending', source:'decision_review', deps:[], plannedFiles:[], constraints:[], prompt(含 instruction/original_answer), acceptance, exec:{ decision_id, instruction, original_answer } }`；已存在同 id 则幂等返回。
@@ -185,7 +186,8 @@ decision/mode-instruction.md    # 决策模式短指令（5 硬约束），serve
 | `deferredFallbackResult()` / `nextDecisionId()` | 兜底 Result 模板 / `D-…` id 生成 | `src/server/server.cjs` |
 | `appendDecisionReviewTask(...)` | override → 追加纠偏任务（state 写锁 + 幂等） | `src/server/server.cjs` |
 | `parseDecisionResult(lastMessage)` / `validateDecisionResult(data)` | 抓 `<AWF_DECISION_RESULT>` JSON + 轻量必填校验 | `src/server/decision.cjs` |
-| `DecisionStore`（runStamp/append/override/listRuns/listAll） | 追加式 jsonl 决策存储 | `src/server/decision-store.cjs` |
+| `DecisionStore`（runStamp/append/appendEvent/eventsFor/override/listRuns/listAll） | 追加式 jsonl 决策存储及 requested→completed 生命周期 | `src/server/decision-store.cjs` |
+| `createDynamicPlanningDecisionPort` | 动态规划 proposal 与正式人工 decision 的适配边界 | `src/server/dynamic-planning/decision-port.cjs` |
 | `decisionPluginDir/decisionInstructionPath/readDecisionInstruction` | 按 marketplace 定位 decision 插件并读决策模式指令 | `src/server/decision-instruction.cjs` |
 | `RunLogger.logDecision(...)` | 决策事件入 run 日志（时间与 store created_at 对齐） | `src/server/run-logger.cjs` |
 | `drainDecisionResume(projectRoot)` | gate on 捕获后单 agent 续跑（注入 answer 继续原任务） | `src/cli/run.js` |

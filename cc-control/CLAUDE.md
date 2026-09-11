@@ -204,7 +204,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 
 ## MCP Tools（3 个 Server）
 
-### awf-state（18 tools）— 状态 CRUD，直接文件 I/O
+### awf-state（20 tools）— 状态 CRUD + 动态任务规划 server 薄入口
 
 | Tool | 用途 |
 |------|------|
@@ -296,7 +296,7 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `plugin/config.json` | ★ 唯一配置源（engineDir / port / marketplace / mcpServers / hooks） |
 | `plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
 | `plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |
-| `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 18 个 tools，直接文件 I/O |
+| `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 20 个 tools；动态规划核心位于 server |
 | `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 5 个 tools |
 | `plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
 | `plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |

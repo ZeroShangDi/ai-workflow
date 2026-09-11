@@ -62,6 +62,7 @@
 | 16 | 异常路径（server 挂 / tmux 丢 / hook 失败） | ❌ | 后续 |
 | 17 | **case 间独立性**（全量连跑 vs 单跑结论一致） | ✅ **T3-011-F1 已收口**：case 需要什么就自起什么（`ownServer(projectRoot, extraEnv)` —— 自起 server 并把**宿主侧** env 一并注入），不再依赖「server 由首个 case 唤起后复用」的隐含前提；本轮全量连跑 151/151 为证 | — |
 | 18 | **per-run 日志目录偶发缺失** | ⚠️ `decision` 曾在连跑中间歇失败（`DecisionStore` 的 runStamp 派生回退）。**机制未定位**；测试侧已加现场取证（缺目录时 dump `state.json` 可读性 / `logs` 清单 / 决策 stamps 进证据 + 打 `[诊断]` 行） | 根因在 `RunLogger._init` 静默早退 → `.awf/issues/005` |
+| 19 | **运行中动态任务规划**（AI 提案 → 人工批准前 hold → 批准 → 新任务先于目标执行） | ❌ 目前只有单元/MCP 集成测试；尚无真 server+MCP 边界证据，也没有真 tmux+Claude 运行证据 | 动态任务规划功能完成门禁，必须新增独立 case 并进入全量 |
 
 ## 纪律
 

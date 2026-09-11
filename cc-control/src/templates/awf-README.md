@@ -18,6 +18,9 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 │   └── TEMPLATE.md         #   新建 Bug 模板
 ├── decisions/              # AI 运行期决策记录（供人复盘）
 │   └── TEMPLATE.md         #   新建决策模板
+├── dynamic-planning/       # 运行期局部计划调整 proposal 与事件
+│   ├── proposals/          #   可批准、可冲突恢复的完整 proposal
+│   └── events.jsonl        #   追加式生命周期记录（首次使用时生成）
 ├── reports/                # 测试/审查/性能/lint/汇总报告
 │   ├── test/               #   测试报告（按版本分目录）
 │   ├── review/             #   审查报告（按版本分目录）
@@ -113,6 +116,10 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通�
 **命名**：`NNN-short-slug.md`
 
 **正文**：场景 → 决策 → 依据 → 是否需人工复核
+
+### dynamic-planning/ — 动态任务规划
+
+保存运行期局部任务调整的 proposal 与追加事件。`run.dynamicPlanning.mode` 决定安全调整是自动应用后复审，还是人工批准后应用；删除任务、删除依赖和改变目标字段会建立正式 decision，必须由人工 resolve 后才应用或拒绝。
 
 ---
 

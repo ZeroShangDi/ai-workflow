@@ -10,7 +10,7 @@ State 管理是 `.awf/state.json` 的唯一事实源（任务图 / WBS / plan �
 | 层 | 文件 | 运行环境 | 用途 |
 |-----|------|---------|------|
 | CLI 侧 | `src/lib/state.js` | Node ESM | `awf plan` / `awf run` 内部读写，含就绪池/调度辅助/门禁闭环 |
-| MCP 侧 | `plugin/core/mcp/awf-state/server.cjs` | 独立子进程 (stdio JSON-RPC) | AI 经 18 个 MCP tools 操作 state |
+| MCP 侧 | `plugin/core/mcp/awf-state/server.cjs` | 独立子进程 (stdio JSON-RPC) | AI 经 20 个 MCP tools 操作 state；动态规划工具只作 server 薄入口 |
 
 另有第三消费方：`src/server/server.cjs`（HTTP Session Server）经 `store` / `store-core` 读写同一份 state（`GET /awf/state`、`/run/state/apply`），三端共用同一 `.awf/state.lock`，跨实现互斥。
 
@@ -23,7 +23,9 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 - **CLI**：`loadState` 读 → 业务 mutate → `saveState`（补 `lastUpdated`，锁内整份原子写）。
 - **CLI 字段级更新**：`setWorkflowMode` / `markTaskActive` 在锁内**重新读最新 state** 再改单字段，避免用旧任务快照覆盖并发落账（`state.js:31` / `state.js:44`）。
 - **MCP**：`tools/call` 分发 → `readState` → mutate → `writeState`，全程在 `withStateLock` 内（`server.cjs:42`）。
-- **MCP server 单写者模式**：`CC_AWF_STATE_SERVER=1` 时，MCP 不再直写文件，改为 `GET /awf/state` 读、`POST /run/state/apply` 写，由 server 以 state.js 锁 + 原子落盘收口（`server.cjs:69-112`）。缺省关 → 离线/plan/单测沿用直写文件。
+- **MCP server 单写者模式**：`CC_AWF_STATE_SERVER=1` 时，MCP 不再直写文件，改为 `GET /awf/state` 读、`POST /run/state/apply` 写；写请求携带读取时的 `lastUpdated` 和 state SHA-256 指纹，server 在 state 锁内比较并写入，陈旧快照返回冲突。缺省关 → 离线/plan/单测沿用锁内直写文件。
+- **任务图写保护**：底层 `prerequisiteFor` 原语可将创建、插入目标之前和依赖重连一次完成；deps 更新校验缺失引用与环，active 任务不能新增未完成依赖，有依赖者的任务不能删除。运行期不直接暴露这些组合步骤，统一由动态规划能力调用。
+- **动态任务规划能力**：run/pause 阶段的结构变更统一走 `awf_dynamic_plan`，核心位于 `src/server/dynamic-planning/`；MCP 不计算位置或副作用。基础 task CRUD 仅保留给 plan/idle。
 - **server**：`pcx.stores.state.readSync()` / `storeCore.readJsonSync(runStateFile(sid))`；写经 `store`（见 store.md）。
 
 ### 读路径
@@ -105,7 +107,7 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 | method | 说明 |
 |--------|------|
 | `initialize` | 返回 `protocolVersion: '2024-11-05'` + `capabilities.tools`（protocolVersion 见 `server.cjs:375`） |
-| `tools/list` | 返回 18 个 tool 定义（`TOOLS` 数组，`server.cjs:116`） |
+| `tools/list` | 返回 20 个 tool 定义（含动态规划提交/查询） |
 | `tools/call` | 按 `name` 分发（未知 tool → `{ ok:false, error:'unknown tool: <name>' }`） |
 | 未知 method | `-32601 method not found` |
 
@@ -152,7 +154,7 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 - `tasks` / `wbs` / `milestones` 均在**根级**（不在 `plan` 下）。
 - `kind=doc` 的 id 约束（`awf_task_create` 校验，`server.cjs:481-495`）：文档产出用 `T1-*`；项目文档门禁用 `T4-*` 且必须携带 `wbsRef: 'W4-*'`，同一 W4 只允许一个 T4 门禁。
 
-## 18 个 MCP Tools
+## 20 个 MCP Tools
 
 | # | Tool | Required | 行为 |
 |---|------|----------|------|
@@ -161,9 +163,9 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 | 3 | `awf_task_result` | `id` | 写 `exec.result` / `exec.files` |
 | 4 | `awf_task_commit` | `id,hash,message` | 追加 `task.commits[]` |
 | 5 | `awf_task_complete` | `id` | 原子提交 status + result + files + commits + verdict + architecture；status 缺省 done（可选 blocked，写 blockedReason） |
-| 6 | `awf_task_create` | `id,title,prompt` | 创建任务，默认 status=pending、kind=dev；kind=doc 走 id/wbsRef 校验 |
-| 7 | `awf_task_update` | `id` | 只更新提供的字段（title/kind/plannedFiles/constraints/prompt/wbsRef/deps/acceptance） |
-| 8 | `awf_task_delete` | `id` | `splice` 删除 |
+| 6 | `awf_task_create` | `id,title,prompt` | 创建任务，默认 status=pending、kind=dev；`prerequisiteFor` 可原子插入并重连目标依赖；kind=doc 走 id/wbsRef 校验 |
+| 7 | `awf_task_update` | `id` | 只更新提供的字段；deps 拒绝缺失引用/环及 active 任务新增未完成依赖 |
+| 8 | `awf_task_delete` | `id` | 无依赖者时删除；否则拒绝 |
 | 9 | `awf_plan_configure` | — | 设置 `plan.*` 六字段（全可选） |
 | 10 | `awf_wbs_create` | `id,name` | 追加根级 `wbs[]`，id 重复 → error |
 | 11 | `awf_wbs_update` | `id` | 更新指定字段 |
@@ -174,12 +176,17 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 | 16 | `awf_version` | `version` | 设置 `state.version` |
 | 17 | `awf_milestone_create` | `id,desc` | 追加 `milestones[]`，默认 status=active |
 | 18 | `awf_milestone_delete` | `id` | `splice` 删除 |
+| 19 | `awf_dynamic_plan` | `reason,operations` | server 侧局部动态规划；按配置自动应用或等待批准，高风险变化建立正式 decision_requested 并等待人工 resolve |
+| 20 | `awf_dynamic_plan_status` | `proposalId` | 查询 proposal、影响闭包、ready 变化和应用状态 |
 
 ## 验收标准
 
 - [ ] CLI/MCP/server 三端写同一 `.awf/state.json` 经同一 `state.lock` 互斥，无撕裂/丢更新
+- [ ] server-mode MCP 陈旧整体快照因 CAS 冲突被拒绝，不覆盖其他写者的新状态
+- [ ] 动态前置任务原子插到目标之前并自动重连；失败不留下半次 mutation
 - [ ] `saveState` / `setWorkflowMode` / `markTaskActive` 的更新落盘后 `lastUpdated` 自动刷新
 - [ ] `findNextTask` / `peekReadyTasks` / `selectReadyBatch` 对 deps、配额、plannedFiles 冲突、commit 独占的判定与 `state.js` 实现一致
 - [ ] 门禁闭环：`spawnGateFixTask` 仅在 blocked + verdict 非 pass 且未达 `MAX_RECHECK` 时派生
-- [ ] MCP `tools/list` 返回 18 个工具，未知 tool/method 分别返回 `ok:false` 与 `-32601`
+- [ ] MCP `tools/list` 返回 20 个工具，未知 tool/method 分别返回 `ok:false` 与 `-32601`
+- [ ] run/pause 阶段 task create/update/delete 不能绕过 server 动态规划能力
 - [ ] `kind=doc` 的 `T1-*` / `T4-*` + `W4-*` 约束生效

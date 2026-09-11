@@ -51,7 +51,7 @@ plugin/
 │   │   ├── awf-skill/SKILL.md
 │   │   └── awf-state/SKILL.md
 │   └── mcp/                    #   MCP server 实现
-│       ├── awf-state/          #     18 tools，直接文件 I/O
+│       ├── awf-state/          #     20 tools；基础状态操作 + 动态规划 server 薄入口
 │       │   ├── server.cjs
 │       │   └── state.template.json
 │       ├── awf-session/        #     7 tools（tmux 生命周期观测 + pause 闩锁保护的修复介入）
@@ -142,7 +142,7 @@ plugin/
 
 ### core — 引擎层（ai-workflow-core）
 
-- **MCP 3 server**：`awf-state`（18 tools，状态 CRUD）、`awf-session`（7 tools，tmux 观测 + 受控介入）、`awf-oneshot`（1 tool，无状态 LLM）
+- **MCP 3 server**：`awf-state`（20 tools，状态 CRUD + 动态规划薄入口）、`awf-session`（7 tools，tmux 观测 + 受控介入）、`awf-oneshot`（1 tool，无状态 LLM）
 - **7 hooks**：`SessionStart` / `UserPromptSubmit` / `Stop` / `SubagentStart` / `SubagentStop` / `PreToolUse`（matcher: AskUserQuestion）/ `PostToolUse`，全部上报 HTTP Session Server
 - **运行态命令**：`w-start` / `w-pause` / `w-monitor` / `w-state`
 - **运行态技能**：`awf-run-decision` / `awf-run-error` / `awf-run-reset` / `awf-run-review` / `awf-run-test` / `awf-task-context` / `awf-skill` / `awf-state`

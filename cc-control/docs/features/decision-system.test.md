@@ -2,7 +2,7 @@
 
 > 对应功能文档：docs/features/decision-system.md
 > 源码：`src/server/server.cjs` / `src/server/decision*.cjs` / `src/cli/run.js` / `src/lib/{run-config,decision-config}.js/.cjs` / `plugin/core/hooks/gateway.cjs` / `plugin/decision/`
-> 测试文件：`tests/integration/decision-gate.test.js` / `tests/unit/{run-config,decision-config,decision,decision-instruction,decision-store,gateway,run-resume,run-logger}.test.js` / `sandbox/decision-smoke/smoke.cjs`
+> 测试文件：`tests/integration/decision-gate.test.js` / `tests/integration/awf-state-server.test.js` / `tests/unit/{run-config,decision-config,decision,decision-instruction,decision-store,dynamic-planning,gateway,run-resume,run-logger}.test.js` / `sandbox/decision-smoke/smoke.cjs`
 > 用例编号与验收标准（T1-028 功能文档「验收标准」7 条）可追溯
 >
 > **决策入口换代**：旧入口 `awf_await_choice` / `awf_await_input` 已于 2026-09-10 在资产层停用（`awf-run-decision` 技能标注 + 提示词改输出 `<AWF_DECISION_REQUIRED>`）；本文件只覆盖决策门阀（新代）。停用说明见 `plugin/core/skills/awf-run-decision/SKILL.md`、`docs/bugs/decision-entry-two-generations.md`（T1-106，互斥化 pending）。
@@ -27,6 +27,8 @@
 | 14 | gate off 回归基线（旧路径不变） | 集成 | 验收 1/7 | `tests/integration/server.test.js` `decision-gate.test.js` |
 | 15 | 决策续跑（decisionResume）接入 run.js | 单元 | 验收 7 | `tests/unit/run-resume.test.js` |
 | 16 | 真 run 冒烟证据 | 冒烟 | 验收 7 | `sandbox/decision-smoke/smoke.cjs` → `smoke-evidence.json` |
+| 17 | 动态规划高风险 proposal → 正式 decision_requested → 人工 resolve | 单元/集成 | 动态规划人工门槛 | `dynamic-planning.test.js` / `awf-state-server.test.js` |
+| 18 | decision 完成记录中断后的同 outcome 幂等补记 | 单元 | 中断恢复 | `dynamic-planning.test.js` / `decision-store.test.js` |
 
 ## 详细测试用例
 
@@ -195,6 +197,18 @@
 - **前置**：fixture gate on；真实 server（port 0）；清空 logs/decisions
 - **执行**：SessionStart→busy→文字触发→结果 Stop→Review API→override→读 main.log
 - **断言**：11/11 checks（block ccOutput / deciding / busy 保持 / capture ready / decisionResume 与 store id 一致 / decision_completed / override 200 / 纠偏任务 `<id>-REV` / main.log 含 decision_completed）；证据落 smoke-evidence.json
+
+### TC27: 动态规划高风险 proposal 的正式人工 decision
+**类别**：单元/集成 · 权限边界 ｜ **落地**：dynamic-planning.test.js / awf-state-server.test.js
+- **前置**：run 状态存在可删除的 pending 任务，动态规划模式任意
+- **执行**：AI 经 `awf_dynamic_plan` 提交删除任务；读取 Review API；尝试普通 proposal approve；再由人工 resolve decision
+- **断言**：自动追加 `decision_requested(status=awaiting_human)`；state 安装 hold 且任务未删除；普通 approve 返回冲突；`/awf/decisions/<id>/resolve` 明确 approve 后任务才删除，并追加 `decision_completed(status=reviewed,source=human)`
+
+### TC28: decision 完成记录中断恢复
+**类别**：单元 · 中断/幂等 ｜ **落地**：dynamic-planning.test.js / decision-store.test.js
+- **前置**：人工已 approve，proposal/state 应用成功，但注入的 decision 端口首次完成记录失败
+- **执行**：使用同 decision ID 与同 outcome 重试 resolve；再尝试反向 outcome
+- **断言**：proposal 标记 `completion_failed` 且状态真实可见；同 outcome 仅补写 completed、不重复应用；反向 outcome 被拒绝；requested/completed 同 ID 分阶段幂等
 
 ## Mock 策略
 

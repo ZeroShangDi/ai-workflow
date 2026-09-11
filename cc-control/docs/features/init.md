@@ -55,6 +55,8 @@ initCommand(options)
 ├── bugs/                  # 运行时缺陷记录
 ├── issues/                # Issue 跟踪
 ├── decisions/             # AI 运行期决策记录
+├── dynamic-planning/      # 动态规划 proposal / 事件扩展边界
+│   └── proposals/
 ├── logs/                  # awf run 全量运行日志
 ├── versions/              # 版本归档
 └── reports/
@@ -62,7 +64,7 @@ initCommand(options)
 ```
 
 > 目录清单取自 `init.js` 的 `dirs` 数组（与 `src/templates/awf-README.md` 的目录说明一致）。
-> 真机回归只校验 7 个顶层目录存在：`bugs / issues / decisions / context / logs / reports / versions`。
+> 真机回归只校验 8 个顶层目录存在：`bugs / issues / decisions / dynamic-planning / context / logs / reports / versions`。
 
 ### `--force` 与幂等语义
 
@@ -88,7 +90,7 @@ initCommand(options)
 
 | 常量 | 值 | 说明 |
 |------|-----|------|
-| 骨架目录 | `bugs, issues, decisions, context, logs, reports/{lint,test,review,perf,summary}, versions` | `init.js` `dirs` 数组 |
+| 骨架目录 | `bugs, issues, decisions, dynamic-planning/proposals, context, logs, reports/{lint,test,review,perf,summary}, versions` | `init.js` `dirs` 数组 |
 | CLAUDE.md 标记 | `<!-- awf-rules start -->` | 判定是否已注入 |
 | state 模板路径 | `plugin/core/mcp/awf-state/state.template.json` | 经 `stateTemplatePath()`（`plugin-bridge.js`）解析 |
 | 默认 scope | `local` | `pluginCommand` 缺省 scope |
@@ -102,6 +104,8 @@ initCommand(options)
 | `run.agents.maxPerModule` | `1` | 单模块内并发上限 |
 | `run.agents.maxPerFeature` | `1` | 单特性内并发上限 |
 | `run.decision.enabled` | `false` | AWF 决策闸门开关（缺省关） |
+| `run.dynamicPlanning.mode` | `approve_then_apply` | 动态任务规划执行模式；也可设 `auto_then_review` |
+| `run.dynamicPlanning.extensions` | `{}` | 未来 reviewer/notifier/policy adapter 的配置空间，核心当前透传记录 |
 | `docs.enabled / types / reports` | `true / [...] / [...]` | 文档体系开关 |
 
 ## 函数清单

@@ -38,7 +38,7 @@
 | 5 | MCP server 均用存在的绝对路径 | `args[0]` 为绝对路径且 `fs.existsSync` |
 | 6 | MCP server 均带 `AWF_PROJECT_ROOT=本项目` | 每个 server 的 `env.AWF_PROJECT_ROOT` |
 | 7 | awf-session 指向带端口的 AWF_BASE | `/^http:\/\/127\.0\.0\.1:\d+$/` |
-| 8 | `.awf` 骨架目录齐（7 项） | `bugs/issues/decisions/context/logs/reports/versions` 存在 |
+| 8 | `.awf` 骨架目录齐（8 项） | `bugs/issues/decisions/dynamic-planning/context/logs/reports/versions` 存在 |
 | 9 | config.json 含 run.agents / run.decision / docs | `cfg.run.agents`、`typeof cfg.run.decision.enabled === 'boolean'`、`cfg.docs` |
 | 10 | init 幂等：重跑后 settings 不变 | 前后 `JSON.stringify` 相等 |
 | 11 | init 幂等：重跑后 .mcp.json 不变 | 前后 `JSON.stringify` 相等 |

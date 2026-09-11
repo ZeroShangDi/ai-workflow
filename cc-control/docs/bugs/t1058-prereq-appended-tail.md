@@ -1,6 +1,6 @@
 # awf 运行中插入前置任务缺少原子重排/重派发协议
 
-- 状态: 已复核根因，待实现（2026-09-09 更新）
+- 状态: 核心修复已实现；deferred/superseded 与自动撤销重派仍待产品决策（2026-09-11 更新）
 - 关联: T1-058（`run.js 改提交/订阅/应答` 需要一个前置 T1-105）、T3-005（依赖 T1-104）
 - 类型: awf 产品缺陷（运行中重规划/任务契约），非单纯数组排序问题
 
@@ -33,3 +33,20 @@
 3. 增加状态版本/CAS，避免 CLI 与会话同时基于旧快照落账。
 4. 禁止把未满足 acceptance 的任务标 done；若需要延期，使用明确的计划变更状态或从当前里程碑移出并重连依赖。
 5. 增加回归测试：运行中为 active 任务插入前置任务后，下一个执行必须是前置任务，原任务不能提前完成或被静默跳过。
+
+## 2026-09-11 实现结果
+
+本次选择“pending/blocked 目标可原子插入；active 目标拒绝写入”的保守协议，没有自动中断执行者：
+
+- `src/lib/task-graph.cjs` 提供完整图校验、`insertPrerequisiteTask`、安全依赖替换和安全删除；
+- `awf_task_create.prerequisiteFor` 将创建、插入目标之前和目标依赖重连合并成一次 mutation；
+- `spawnGateFixTaskAtomic` 在统一 `state.lock` 内重新读取并派生修复任务，避免并发生成重复 F 任务；
+- `markTaskActive` 在实际派发前校验整张任务图；
+- active 任务不能新增未完成依赖，也不能成为 `prerequisiteFor` 的目标；
+- server-mode MCP 写入携带 `lastUpdated` 和 state SHA-256 指纹，server 在锁内比较后再写；冲突返回 `409`；
+- MCP 工具返回 `ok:false` 时不执行整体回写；
+- 回归测试覆盖插入顺序、调度不可越过、缺失依赖、环、重复边、自依赖、active 拒绝、依赖者删除拒绝、门禁并发去重和 stale snapshot CAS。
+
+方向 4 中的 `deferred/superseded` 状态与“原子撤销当前派发再重派”没有在本次自动化；它们会改变执行所有权，需先确定由系统还是人发起。当前不会再用 `done` 伪装这种计划变更，遇到 active 任务前置缺口时会明确失败并要求人工处理。
+
+后续已把上述原语提升为独立的动态任务规划能力：运行期结构变更统一通过 `awf_dynamic_plan → server/dynamic-planning`，由 server 处理位置、影响闭包、副作用、执行模式、proposal 和记录；详见 `docs/discuss/dynamic-task-planning-capability.md`。
