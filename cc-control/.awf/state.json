@@ -1,5 +1,5 @@
 {
-  "mode": "run",
+  "mode": "idle",
   "currentState": "CODE",
   "version": "0.2.0",
   "milestones": [],
@@ -5289,9 +5289,10 @@
         "T1-117",
         "T1-118",
         "T1-119",
+        "T3-010",
         "T3-011-F1"
       ],
-      "status": "active",
+      "status": "pending",
       "plannedFiles": [],
       "constraints": [],
       "acceptance": "npm run test:real -- --case all 全部已注册 case 断言通过、证据 JSON 落盘 sandbox/regression/、docs/discuss/real-run-coverage-gaps.md 覆盖矩阵同步；verdict 明确声明覆盖边界（只证已注册 case 的链路，不宣称功能全绿）。失败按门禁闭环处理",
@@ -5315,8 +5316,7 @@
           "path": "refactor-then-change",
           "scope": "T3-011 全量真机回归门禁（tests/regression 13 case × 150 断言）+ 覆盖矩阵同步（docs/discuss/real-run-coverage-gaps.md）"
         },
-        "recheck": 1,
-        "startedAt": "2026-09-10T20:28:01.355Z"
+        "recheck": 1
       }
     },
     {
@@ -6344,7 +6344,7 @@
       "deps": []
     }
   ],
-  "lastUpdated": "2026-09-10T20:28:01.355Z",
+  "lastUpdated": "2026-09-11T06:25:23Z",
   "plan": {
     "summary": "AWF 架构重构 v0.2.0（全量一次性）—— server 收敛为常驻控制平面(run 域/store/metrics/adapters/cc 收口)、cli 薄化、前端 web/ React 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。",
     "reqDoc": "",

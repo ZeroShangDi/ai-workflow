@@ -3,6 +3,10 @@
     "decision": {
       "enabled": true
     },
+    "dynamicPlanning": {
+      "mode": "approve_then_apply",
+      "extensions": {}
+    },
     "agents": {
       "max": 1,
       "maxModules": 1,
