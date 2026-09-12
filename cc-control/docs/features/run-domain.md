@@ -237,7 +237,7 @@ while (true):
 | `gateFixMeta/spawnGateFixTask` | 门禁派生元判定 / 纯 mutate 派生 | state.js:251,274 |
 | `peekReadyTasks/selectReadyBatch/filesConflict/buildScopeIndex` | 就绪池 / 静态批选择 / 文件冲突 / 作用域索引 | state.js:159,178,134,100 |
 | `waitWhilePaused(root,opts)` / `isWorkflowPaused` | pause 闩锁（三出口）/ 判定 | pause.js:57,31 |
-| `createRunSlot(sid)` | per-sid 内存槽（ready/busy/decision/contextReady） | run-slot.cjs:12 |
+| `createRunSlot(sid)` | per-sid 内存槽（ready/busy/decision） | run-slot.cjs:12 |
 | `createProjectContext/createProjectRegistry` | 每项目上下文容器 + 注册表 | project-context.cjs:41,137 |
 | `defaultSingleExecutor(pcx)` / `sessionChannel(pcx)` / `batchTransportFor(pcx,api)` | server 侧装配方：把端口接到现场 | server.cjs:503,568,731 |
 | `bootstrapRunHost(pcx)` | 每项目惰性装配宿主 | server.cjs:622 |
@@ -254,7 +254,7 @@ while (true):
 | `src/lib/events.cjs` | 进程内事件总线 + 事件类型目录（宿主事件定义的重叠锚点） | events.cjs |
 | `src/server/server.cjs` | 装配方 + HTTP/WS 端点；落账 hook 写 `subagent-*.jsonl` | server.cjs |
 | `src/server/project-context.cjs` | 每项目 `ProjectCtx`（含 `runHost` 装配位、`subagent*Path`） | project-context.cjs |
-| `src/server/run-slot.cjs` | per-sid 内存槽（ready/busy/decision/contextReady 隔离） | run-slot.cjs |
+| `src/server/run-slot.cjs` | per-sid 内存槽（ready/busy/decision 隔离） | run-slot.cjs |
 | `plugin/core/agents/awf-worker.md` | 子 Agent 身份/输出协议（RESULT / NEEDS_INPUT / verdict） | awf-worker.md |
 | `plugin/plugin-code/prompts.json` | 派发/收尾/门禁提示词模板的声明源 | prompts.json |
 

@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { createRunSlot } = require('../../src/server/run-slot.cjs');
 
-// T1-071：内存状态机按 sid 隔离（ready/busy/decision/contextReady 不串 run）。
+// T1-071：内存状态机按 sid 隔离（ready/busy/decision 不串 run）。
 
 describe('createRunSlot（per-run 内存状态机隔离）', () => {
   it('ready/busy 按槽隔离：a busy 不影响 b ready；waitReady 不跨槽唤醒', async () => {
@@ -34,13 +34,21 @@ describe('createRunSlot（per-run 内存状态机隔离）', () => {
     expect(b.decisionPending.question).toBe('B?');
   });
 
-  it('contextReady 按槽隔离 + snapshot/reset', () => {
+  it('snapshot/reset：只暴露真的被维护的字段', () => {
     const a = createRunSlot('a');
-    const b = createRunSlot('b');
-    a.setContextReady(true);
-    expect(a.snapshot()).toMatchObject({ sid: 'a', contextReady: true, decisionPending: null });
-    expect(b.contextReady).toBe(false);
+    a.setDecision({ type: 'choice', question: 'A?' });
+    expect(a.snapshot()).toMatchObject({ sid: 'a', state: 'ready', decisionPending: { question: 'A?' }, activeWaiters: 0 });
     a.reset();
-    expect(a.snapshot()).toMatchObject({ state: 'ready', decisionPending: null, contextReady: false });
+    expect(a.snapshot()).toMatchObject({ state: 'ready', decisionPending: null, activeWaiters: 0 });
+  });
+
+  // issue 004-2：槽里曾有一个 contextReady 字段 + setContextReady()，但全仓零调用 ——
+  // `GET /status?sid` 因此恒返回 false（永假值），而真标记是**项目级**的 pcx.contextReady。
+  // 处置是「摘除」（宁缺勿假），故这里钉住的是**它不存在**，而不是它的行为。
+  it('不暴露永假字段 contextReady（死字段已摘除，见 issue 004-2）', () => {
+    const a = createRunSlot('a');
+    expect('contextReady' in a).toBe(false);
+    expect(a.snapshot()).not.toHaveProperty('contextReady');
+    expect(() => a.setContextReady(true)).toThrow(TypeError);
   });
 });

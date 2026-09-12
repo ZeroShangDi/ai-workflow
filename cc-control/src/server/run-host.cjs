@@ -445,7 +445,9 @@ function createRunHost(opts = {}) {
      */
     pollEvents(q = {}) {
       const after = Number.isInteger(q.afterSeq) && q.afterSeq >= 0 ? q.afterSeq : 0;
-      const limit = q.limit || 200;
+      // issue 004-1：`q.limit` 现在真的会被 /run/events 转发进来，故判据收紧为「正整数才采信」——
+      // 裸 `q.limit || 200` 会让负数落到 slice(0, -n)（去掉尾部 n 条，与「取前 n 条」正好相反）。
+      const limit = Number.isInteger(q.limit) && q.limit > 0 ? q.limit : 200;
       let list = eventRing.filter((e) => e.seq > after);
       if (q.runId != null) list = list.filter((e) => e.runId === String(q.runId));
       if (list.length > limit) list = list.slice(0, limit);

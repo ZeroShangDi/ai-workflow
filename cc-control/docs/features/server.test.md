@@ -221,7 +221,7 @@
 | `static.test.js` | `createStaticHost` resolve（别名/同 html 兜底/`..` 越权拒绝/query 剥离）、serve（200+MIME、未命中 false）、SPA 回退（无扩展名 → index，真实文件优先，带扩展名缺失仍 null） |
 | `ws.test.js` | `acceptKey` RFC6455 官方向量；`encodeTextFrame` 0x81 起始；`encodeFrame` 126/127 长度边界；`parseFrameHeader` 识别 masked close 帧 |
 | `project-registry.test.js` | boot 上下文最先注册；`ctxFor` 懒建+记忆化+路径归一化；`resolveCtx` 无 p→boot、p/bodyProjectRoot 兜底；`list` 枚举；`reset` 复位 mutable；会话名按 projectSid 确定性派生且两项目相异；磁盘锚点各自独立；mutable/per-sid 槽独立 |
-| `run-slot.test.js` | ready/busy 按槽隔离、`waitReady` 不跨槽唤醒；`decisionPending`/`contextReady` 按槽隔离 + snapshot/reset |
+| `run-slot.test.js` | ready/busy 按槽隔离、`waitReady` 不跨槽唤醒；`decisionPending` 按槽隔离 + snapshot/reset；**不暴露**永假字段 `contextReady`（issue 004-2） |
 | `server-idle.test.js` | `isIdleDue` 达阈值触发、阈值 ≤0/非法永不触发；`idleDefaultMs` 默认 30min、env 覆盖、0=禁用 |
 | `server-log.test.js` | 路径落 `.awf/logs`；目录自建；追加写不丢旧内容；超上限单代轮转 `.1`；未超不轮转；`maxBytes<=0` 不轮转；`close()` 幂等 |
 | `interact.test.js` | `validateDecisionRequest` choice/text 决策模型与缺 question 报错；`isAwaitDecision`；ready latch mark/consume/reset；handoff 原子写读 |

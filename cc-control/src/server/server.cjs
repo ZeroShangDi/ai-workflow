@@ -1165,7 +1165,6 @@ const server = http.createServer(async (req, res) => {
         ok: true, sid: statusSid,
         state: slot.state,
         decisionPending: slot.decisionPending,
-        contextReady: slot.contextReady,
         projectRoot: pcx.projectRoot,
       });
     }
@@ -1348,6 +1347,7 @@ const server = http.createServer(async (req, res) => {
     const q = {
       afterSeq: Number.isInteger(afterSeq) && afterSeq >= 0 ? afterSeq : 0,
       runId: url.searchParams.get('runId') || undefined,
+      limit: Number(url.searchParams.get('limit')) || undefined, // issue 004-1：此前被静默丢弃（宿主判据见 run-host.pollEvents）
     };
     return send(res, 200, pcx.runHost.pollEvents(q));
   }

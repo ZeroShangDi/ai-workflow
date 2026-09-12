@@ -81,6 +81,21 @@ function isEsmShell(rel, exists) {
 // 表清空 = 这两条做完，`--strict` 通过。后续再有暂缓项，同样必须写明责任 task id。
 
 export const EXEMPTIONS = {
+  // ── 零生产引用（剥离注释后首次暴露；`03` 修复的连带面，见 .awf/issues/003）──
+  //
+  // 口径来自 `.awf/decisions/runs/0.2.0-2026-09-10T14-21-09.jsonl` 的 Decision Result：
+  // 「保留模块 + 进 EXEMPTIONS」而非删除 —— 删除判据（T1-115：生产侧零引用 **且** 能力已在
+  // live 路径别处实现）对它不成立：交互式版本选择器在别处**没有**实现，两处调用点是人的**有意**
+  // 关闭（"版本处理暂时禁用"）。
+  'src/lib/version.js': {
+    reason: '交互式版本选择器已实现但接线被有意关闭：init.js:5 与 plan.js:2 的 import/调用点均注释为'
+      + '「版本处理暂时禁用」——根因是交互式 prompt 会挂住以 `stdio: pipe` 执行的自动化入口'
+      + '（回归 harness 的 `awf init`、init.test.js）。能力**不在**别处：版本号改由 package.json /'
+      + ' state.json 承载 ≠ 这个选择器被取代，故按「保留 + 登记」处置，不删除模块。'
+      + '本豁免**不会自动失效**：撤销时机 = 产品决定给出非交互入口（如 --version）或正式废弃该功能；'
+      + '下一次必然复核它的地方是发布门禁 T4-001 的文档核对（docs/features/version-prompt.md 的「当前状态」段）',
+    responsible: 'T4-001',
+  },
   // ── 依赖方向越界（既存结构债，见 .awf/reports/architecture-discipline-audit.md F3/F4/F6）
   // 本表不写它们，「在当前树通过」就做不到：门禁第一天全红、npm run build 当场坏。
   // 约束是「不得为了变绿放宽规则」——所以不扩 ALLOWED，而是如实记债 + 指责任任务。
@@ -226,6 +241,25 @@ const REL_IMPORT = /(?:require\(\s*|from\s+|import\(\s*)["'](\.[^"']+)["']/g;
 // 首个参数是 __dirname 的 join 调用（本仓库写作 path.join；放宽到任意 <obj>.join，避免别名写法漏扫）
 const COMPUTED_REQUIRE = /require\(\s*[\w$]+\.join\(\s*__dirname\s*,([^)]*)\)\s*\)/g;
 
+/**
+ * 剥掉注释再扫 import（`.awf/issues/003`）。
+ *
+ * 为什么必须剥：`REL_IMPORT` 是**纯文本**扫描，注释里的 `from '../lib/version.js'` 同样命中 ——
+ * 于是把一个「调用点被注释掉」的模块记成「已被引用」，不变量①（零生产引用）当场失效。
+ * 而「抽象建了没人用」正是它唯一想机器兜住的东西（`.awf/issues/002`）。实测：`src/lib/version.js`
+ * 的两处调用点都被注释，修复前门禁报「① 零生产引用模块：无」。
+ *
+ * 两条规则，各有取舍：
+ *   1. 块注释 → **等量空白（保留换行）**：行号类断言不会因为剥离而错位；
+ *   2. 行注释 → 只剥**整行以 // 开头**的，不截断行尾注释 —— 字符串字面量里的 `//`（如 URL）
+ *      会被行尾截断误伤，而本仓库暂无「行尾注释里写 import」的形态，整行规则已足够。
+ */
+export function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+}
+
 function collect(dir, filter, out = [], root = dir) {
   if (!fs.existsSync(dir)) return out;
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -264,13 +298,13 @@ function resolveComputed(fromFile, argList) {
   return null;
 }
 
-/** 一个文件引用的全部本地文件（字面 + 计算路径） */
+/** 一个文件引用的全部本地文件（字面 + 计算路径；**注释里的不算**，见 stripComments） */
 function importedBy(file) {
   const out = [];
   const reads = (cb) => {
     let src;
     try { src = fs.readFileSync(file, 'utf8'); } catch { return; }
-    cb(src);
+    cb(stripComments(src));
   };
   reads((src) => {
     REL_IMPORT.lastIndex = 0;

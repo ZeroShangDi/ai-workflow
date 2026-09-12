@@ -87,7 +87,7 @@ runCommand(task, options)                                  src/cli/run.js:47
 
 ## `--resume` / `--attach` / `-R, --run-id` 语义
 
-选项声明见 `src/awf.js:31-40`；语义实现见 `run.js:54, 288-372`。
+选项声明见 `src/awf.js:31-38`；语义实现见 `run.js:54, 288-372`。
 
 | 选项 | 语义 |
 |------|------|
@@ -95,8 +95,10 @@ runCommand(task, options)                                  src/cli/run.js:47
 | `--attach` | 仅挂接活跃 run（读 store 落盘进度 + 续观 + 应答中继，不重复提交）；宿主空闲 → 报错退出、保留现场 |
 | `-R, --run-id <runId>` | 指定目标 run：`--attach`/`--resume` 挂接该 run；`fresh` 提交时命名该 run。缺省探宿主活跃 run |
 | `--multi-agent` | 显式多 agent：提交 `mode:'batch'`（不受 `cfg.agents.max` 影响），调度仍由宿主执行 |
-| `-a, --auto` | 已声明（`awf.js:34`）但**当前 `run.js` 未消费**（无 `options.auto` 引用） |
-| `-l, --local` | 已声明（`awf.js:38`）但**当前 `run.js` 未消费**（无 `options.local` 引用） |
+
+> `-a, --auto` 与 `-l, --local` **已从 CLI 移除**（issue 004-3，T1-120）：两者此前只有声明没有实现
+> （`run.js` 里零 `options.auto` / `options.local` 引用，传了没反应），而 `--local` 的语义在 v0.2.0 后
+> 已由「插件声明提示词模板」取代；接线既无对价，帮助文本又在承诺不存在的行为，故摘除选项本身。
 
 - **`--attach` 与 `--resume` 复用现有 server/tmux 现场**：`reuseExisting = connectionMode !== 'fresh'`（`run.js:96`）。
 - 会话复用判定：`tmux display-message` 取 pane 路径，**空输出显式判为「不存在」**（否则 `path.resolve('')` 静默取 cwd 令判断恒真，T1-108 真机回归暴露），路径与 workDir 一致才算复用（`run.js:233-249`）。

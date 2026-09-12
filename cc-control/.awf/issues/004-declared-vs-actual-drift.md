@@ -1,18 +1,34 @@
 ---
 id: "004"
 title: "声明与实现不符清单（T1-100 文档核对中查出，待处置）"
-status: open
+status: resolved
 labels: [bug, tooling]
 assignee: null
 milestone: null
 priority: medium
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 deps: []
 related: ["T1-100", "T1-106", "T3-009", "003"]
 ---
 
 # 声明与实现不符清单（T1-100 文档核对中查出，待处置）
+
+> **处置（T1-120，2026-09-12 · resolved）** —— 逐条：
+>
+> | # | 处置 | 落点 |
+> |---|---|---|
+> | 1 `limit` 被丢弃 | **转发**（取「补路由」而非「删客户端分支」：能力已声明就该成立） | `src/server/server.cjs` `/run/events` 转发 `limit`；判据收紧在 `src/server/run-host.cjs:pollEvents`（正整数才采信） |
+> | 2 `setContextReady` 死值 | **摘除**（宁缺勿假）：槽字段 + setter/getter + `snapshot` 键 + `/status?sid` 响应键一并去掉；项目级 `pcx.contextReady` 不动 | `src/server/run-slot.cjs`、`src/server/server.cjs`、`tests/unit/run-slot.test.js` |
+> | 3 `--auto` / `--local` 空声明 | **从 CLI 移除**（接线无对价：`--local` 的语义已由插件声明提示词模板取代） | `src/awf.js`（+ `docs/features/run.md`、`CLAUDE.md` 同步） |
+> | 4 陈旧代码注释 ×4 | 全部改写为实况 | `src/server/static.cjs`、`plugin/core/hooks/gateway.cjs`、`plugin/core/mcp/awf-oneshot/server.cjs`、`src/adapters/ports.cjs`（仅注释，未动端口契约与名册） |
+> | 5 `CLAUDE.md` 工具表 | 7 tools / 两个介入工具 / await 标注**此前已修**；本轮补的是**常用命令**两行：`awf run` 的 `--auto/--local`、`npm run eval` 的「占位」 | `CLAUDE.md` |
+>
+> **未处置（不在本清单，登记备查）**：`plugin/core/skills/awf-run-decision/references/decision-permissions.md:22`
+> 的「（需用户介入；`--auto` 模式跳过）」仍是旧设计措辞 —— 该文件自述「待合并、合并后删除」，
+> 属未合并草案，未随本次改动触碰。
+>
+> **验证**：`npm test` / `npm run lint` / `npm run build` / `npm run check:arch` 全绿（check:arch EXIT 0）。
 
 T1-100 逐份核对功能文档与代码时，查出以下「对外声明 / 接口 / 注释」与实际实现不符的项。
 **均已逐条复核**（附复现命令与 `文件:行号`），但**本任务只写文档、不改代码**，故在此登记。

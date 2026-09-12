@@ -2,7 +2,12 @@
 /**
  * ports.cjs — adapters 端口契约（7 端口名册 + 非端口工具 + 未收口登记）
  *
- * cc（Claude Code）的一切接入经 adapter 端口收敛，外部源码零 claude 命令字面（纪律 R-cc）。
+ * **目标（纪律 R-cc）**：cc（Claude Code）的一切接入经 adapter 端口收敛，外部源码零 `claude` 命令字面。
+ *
+ * 现状**尚未达成**，别把上面那句读成既成事实（issue 004-4）：`session` 端口仍 `not-landed`（live 走
+ * `scripts/bootstrap.sh`），命令字面仍在 adapters 之外 —— `claude` 在 `scripts/bootstrap.sh:11,42`，
+ * `tmux` 在 `src/server/tmux.cjs`、`src/server/host.cjs`（审计 F5，责任 T1-113）。
+ * 本文件记的是**目标形态 + 未收口的结构化登记**，不是「已经收口了」的完工声明。
  *
  * ## 契约形状
  * 每端口 = `{ name, status, role, methods[] }`：

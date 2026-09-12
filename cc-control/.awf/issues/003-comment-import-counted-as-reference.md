@@ -1,18 +1,31 @@
 ---
 id: "003"
 title: "check-architecture 不变量①漏检：注释里的 import 被当成真引用"
-status: open
+status: resolved
 labels: [bug, tooling]
 assignee: null
 milestone: null
 priority: high
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 deps: []
 related: ["T1-114", "T3-009", "T3-009-F2", "T1-113"]
 ---
 
 # check-architecture 不变量①漏检：注释里的 import 被当成真引用
+
+> **处置（T1-120，2026-09-12 · resolved）**
+> - **修复**：`scripts/check-architecture.mjs` 新增 `stripComments()`，`importedBy()` 先剥注释再扫。
+>   块注释 → 等量空白（保换行，行号不错位）；行注释只剥**整行以 `//` 开头**的，不截断行尾注释
+>   （字符串字面量里的 `//`，如 URL，会被行尾截断误伤 —— 按 issue 里的建议取整行口径）。
+> - **单测**：`tests/unit/check-architecture.test.js` 新增 5 例 —— 整行注释 → 判零引用 / 块注释 → 判零引用 /
+>   真引用与注释并存不误伤 / 行尾注释的**已知残留**（如实钉住当前行为）/ `stripComments` 保留换行数。
+> - **连带面**：剥注释后首次暴露的零生产引用**实测只有 `src/lib/version.js` 一个**，与预期一致；
+>   按 `.awf/decisions/runs/0.2.0-2026-09-10T14-21-09.jsonl` 的裁定落成**保留模块 + EXEMPTIONS 登记**
+>   （`responsible: T4-001`，撤销时机写在该条目里），未删模块、未重注释、未加 glob。
+> - **门禁**：`npm run check:arch` 在当前树 **EXIT 0**（豁免 5 条 = 零引用 1 + 依赖方向 4）。
+> - **残留（已知且有意）**：`const a = 1; // require('…')` 这类**行尾**注释里的 import 仍被计为引用。
+>   这是「只剥整行」换来的：截断行尾会误伤字符串里的 `//`。本仓库无该形态，行为已由单测固定。
 
 ## 现象
 

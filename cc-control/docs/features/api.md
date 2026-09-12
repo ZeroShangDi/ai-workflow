@@ -109,7 +109,7 @@ Content-Type：JSON 端点统一 `application/json`；页面为 `text/html; char
 
 ### 1.6 `sid`（run 槽）
 
-`?sid=<runSid>` 把请求路由到**项目内按 sid 隔离的内存槽**（`pcx.runSlotFor(sid)` → `run-slot.cjs`），ready/busy/decisionPending/contextReady 互不串扰。当前仅用于：
+`?sid=<runSid>` 把请求路由到**项目内按 sid 隔离的内存槽**（`pcx.runSlotFor(sid)` → `run-slot.cjs`），ready/busy/decisionPending 互不串扰。当前仅用于：
 
 - `POST /hook?sid=…`（hook 网关经 `CC_SID` 注入）— 独立 run 槽的 ready/busy/decision
 - `GET /status?sid=…` — 读该槽快照
@@ -162,7 +162,7 @@ server 为常驻进程（由 CLI 惰性拉起、多项目复用）。`process` �
 | POST | `/respond` | CLI 回应决策 | 是 | 是 |
 | POST | `/run/submit` | 提交一个 run 给常驻宿主 | 是 | 是 |
 | GET | `/run/status` | run 状态快照（可选 `?runId=`) | 否 | 否 |
-| GET | `/run/events` | 轮询 run 事件（`?afterSeq=` `?runId=`) | 否 | 否 |
+| GET | `/run/events` | 轮询 run 事件（`?afterSeq=` `?runId=` `?limit=`） | 否 | 否 |
 | POST | `/run/state/mode` | 置工作流 mode（run/idle/pause） | 是 | 是 |
 | POST | `/run/state/task/active` | 标记任务 active | 是 | 是 |
 | POST | `/run/state/gate` | 门禁完成闭环（派生修复 + 回退复审） | 是 | 是 |
@@ -383,6 +383,7 @@ hook 网关（`gateway.cjs`）把 stdin 的 hook JSON 原样 POST 到此端点�
 |---|---|---|
 | `afterSeq` | `0` | 返回 seq 大于该值的增量事件（非整数/负数 → 0） |
 | `runId` | 不过滤 | 仅返回该 run 的事件 |
+| `limit` | `200` | 本批最多返回多少条（issue 004-1：此前**未被转发**，客户端拼了也无效；现按「正整数才采信」透传给 `runHost.pollEvents`，0/NaN/负数/小数一律回落 200） |
 
 **响应**：
 
@@ -524,9 +525,9 @@ hook 网关（`gateway.cjs`）把 stdin 的 hook JSON 原样 POST 到此端点�
 
 ### 6.2 通读源码时发现的「文档/注释与实现不符」或潜在坑
 
-1. **`run-client.pollRunEvents({ limit })` 被静默忽略** —— 客户端会拼 `limit=`（`API_ENDPOINTS`/`pollRunEvents`），但 `server.cjs` 的 `/run/events` 处理器**不读 `limit`**（`grep` 无命中），服务端固定按 200 截断。传 `limit` 不报错也无效果。
-2. **`?sid` 槽的 `contextReady` 是死值** —— `GET /status?sid=` 会返回 `slot.contextReady`，但 server 从无任何地方调用 `run-slot.setContextReady()`（`/context-ready` 只写项目级 `pcx.contextReady`）。故 sid 槽的 `contextReady` 恒为 `false`。
+1. ~~**`run-client.pollRunEvents({ limit })` 被静默忽略**~~ —— **已修**（issue 004-1，T1-120）：`server.cjs` 的 `/run/events` 现在转发 `limit`，宿主按「正整数才采信」处理（负数曾会落进 `slice(0,-n)`）。见 §3.19 参数表。
+2. ~~**`?sid` 槽的 `contextReady` 是死值**~~ —— **已摘除**（issue 004-2，T1-120）：`run-slot` 的 `contextReady` 字段 + `setContextReady()` 全仓零调用，`GET /status?sid=` 因此恒返 `false`。同一事务里有两个同名物（项目级 `pcx.contextReady` 才是活的），故按「宁缺勿假」摘掉槽里那个，`/status?sid` 不再返回该字段。
 3. **`body.event` vs `hook_event_name`** —— `/hook` 读的是 `body.event`（或 query `event=`），而 Claude Code 的原生 hook payload 字段是 `hook_event_name`。经 `gateway.cjs` 调用时事件名走 query，无碍；若有人**绕过网关**直接 POST 原始 payload 且不带 query `event=`，事件名会被解析为 `null`。
 4. **`GET /context-ready` 是带副作用的 GET** —— 绕过 §1.3 的写类判定，无 `?p` 时消费 boot 项目标记（见 §3.8）。
 5. **CLAUDE.md 与实现不符（决策入口）** —— 项目说明称「旧的 `awf_await_choice`/`awf_await_input` 入口已停用（T1-106）」，但 `/choice`、`/ask` 端点仍在 server 存活，且 `plugin/core/mcp/awf-session/server.cjs` 的 `awf_await_choice`/`awf_await_input` 仍实际 POST 它们。停用的只是 tmux 会话内的旧决策语义，HTTP 端点与 MCP 工具未移除。
-6. **`static.cjs` 顶部注释已过时** —— 仍描述「承载 legacy html、迁移完成后退役、`defaultAliases()`」，而实际 `aliases` 只剩 `'/'`，legacy 页已随 T1-119 删除（与 §4 末注一致）。
+6. ~~**`static.cjs` 顶部注释已过时**~~ —— **已修**（issue 004-4，T1-120）：文件头改为如实描述「web/ 构建产物的静态托管原语」，legacy html + `defaultAliases()` 的退役一并写明。

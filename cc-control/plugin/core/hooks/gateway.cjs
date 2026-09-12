@@ -4,7 +4,8 @@
  * gateway.cjs — Claude Code hook 网关（plugin/core/hooks/）
  *
  * 职责：把当前 hook 事件转发给 Session Server，并把 server 返回的 ccOutput 透传到 stdout。
- * 供需要「回传决策/阻断」的事件使用（Stop、PreToolUse(AskUserQuestion)）；普通事件继续用裸 curl。
+ * **hooks.json 里 7 个 hook 全部**经本网关（issue 004-4：此前此处写「普通事件继续用裸 curl」，
+ * 与渲染产物不符；裸 curl 只是手工排查时的等价调用，不是配置里的形态）。
  *
  * 协议：
  *   1. 读 stdin 的 hook JSON payload

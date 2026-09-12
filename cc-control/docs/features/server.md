@@ -232,7 +232,7 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 | `node:fs` / `node:path` | 读 state/产物；子 agent 日志、state.lock 写 |
 | `src/server/tmux.cjs` | `hasSession/sendText/sendEnter/sendCtrlC/capture`（每项目一实例） |
 | `src/server/project-context.cjs` | 单 server 多项目：ProjectCtx 容器 + 注册表（`?p` 寻址） |
-| `src/server/run-slot.cjs` | per-sid 内存状态机（ready/busy/decision/contextReady 隔离） |
+| `src/server/run-slot.cjs` | per-sid 内存状态机（ready/busy/decision 隔离；`contextReady` 死字段已摘除，见 issue 004-2） |
 | `src/server/static.cjs` | 静态托管原语（web 产物 SPA 回退） |
 | `src/server/ws.cjs` | 极简 WebSocket 助手（`/run/events` 实时推送） |
 | `src/server/interact.cjs` | 决策请求校验 / handoff 读写（`validateDecisionRequest`） |

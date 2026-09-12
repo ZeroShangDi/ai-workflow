@@ -20,7 +20,11 @@
 因此：`src/lib/version.js` 的**生产侧引用数为 0**，当前唯一消费方是 `tests/unit/version-prompt.test.js`。
 `awf init` / `awf plan` 启动**不会**弹出此选择器，版本号改由 `package.json` / `.awf/state.json` 直接承载。
 
-> 该状态已由结构门禁 `scripts/check-architecture.mjs` 的不变量①「零生产引用」覆盖 —— 但**目前漏检**（扫描会把注释里的 import 当成真引用），见 `.awf/issues/003-comment-import-counted-as-reference.md`。
+> 该状态已由结构门禁 `scripts/check-architecture.mjs` 的不变量①「零生产引用」覆盖。
+> **2026-09-12（T1-120）**：门禁此前**漏检**此文件（扫描把注释里的 import 当成真引用，见
+> `.awf/issues/003`），剥注释扫描后已如实检出；处理为**保留模块 + 登记豁免**（不是删除 —— 该能力
+> 不在别处实现，两处调用点是人的有意关闭），豁免条目的 `responsible` 指向 `T4-001`，
+> 撤销时机写在 `scripts/check-architecture.mjs` 的 `EXEMPTIONS` 里。
 > 恢复接线时，除去掉两处注释外，还需同步更新 `init.md` / `plan.md` 的交互流程描述。
 
 ## 功能描述

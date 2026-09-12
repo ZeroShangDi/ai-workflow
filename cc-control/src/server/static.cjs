@@ -1,12 +1,15 @@
 'use strict';
 /**
- * static.cjs — 静态托管骨架（现有 html 原样承载，web/ 迁出前的临时宿主）
+ * static.cjs — web/ 构建产物的静态托管原语（src/server/public 的宿主）
  *
- * 现有页面（dashboard/diagnostics/decisions/ui）内联于 src/server/*.html，由 server.cjs 各自
- * readFileSync 返回。本模块提供统一静态宿主接缝：给定 root 目录，把 URL path 解析到文件并
- * 以正确 MIME 输出——迁移到 web/（前端工程产物托管）前先作临时承载；迁移完成后退役。
+ * 页面**只有一个来源**：`web/` 的构建产物（T1-118 接进 pipeline，落 `src/server/public`，
+ * 文件名带内容哈希、由浏览器加载）。本模块给定 root 目录，把 URL path 解析到文件并以正确 MIME 输出。
  *
- * createStaticHost({ root, aliases }) 返回：
+ * 曾经承载的 legacy html（dashboard/diagnostics/decisions/ui 内联页）已随 **T1-119** 退役，
+ * 与之配套的 `defaultAliases()` 一并删除（issue 004-4）——现在别名表**由调用方显式给出**，
+ * 生产调用点只有一处：`server.cjs` 传 `aliases: { '/': 'index.html' }, spa: 'index.html'`。
+ *
+ * createStaticHost({ root, aliases, spa }) 返回：
  *   resolve(urlPath) → 文件绝对路径（越权/不存在 → null）
  *   serve(req, res, urlPath) → 命中写响应返回 true；未命中/越权返回 false（由调用方决定 404/500）
  *

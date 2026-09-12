@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  runCheck, ALLOWED, ENTRY_ALLOWLIST, EXEMPTIONS, STRUCTURE_RULES, unreachableResponsibles,
+  runCheck, ALLOWED, ENTRY_ALLOWLIST, EXEMPTIONS, STRUCTURE_RULES, unreachableResponsibles, stripComments,
 } from '../../scripts/check-architecture.mjs';
 
 /**
@@ -100,6 +100,53 @@ describe('不变量① 零生产引用模块', () => {
   it('没有同名 .cjs 的 .js 不放行（谓词是精确的，不是「只要是 .js 就放」）', () => {
     const root = tree({ 'src/lib/plain.js': 'export const x = 1;\n' });
     expect(keysOf(runCheck({ root, allowlist: BASE_ALLOW, exemptions: {} }), 'zero-ref')).toEqual(['src/lib/plain.js']);
+  });
+});
+
+/**
+ * `.awf/issues/003`：`REL_IMPORT` 曾是纯文本扫描，**注释里的 import 被当成真引用** ——
+ * 于是「调用点被注释掉」的模块被判「已被引用」，不变量①存在的唯一理由（拦住「抽象建了没人用」）
+ * 当场失效。实测被漏检的真身是 `src/lib/version.js`。以下四条把「剥注释」的正反两面都钉住。
+ */
+describe('不变量① 注释里的 import 不算引用（issue 003）', () => {
+  it('整行 // 注释里的 import → 判零引用', () => {
+    const root = tree({
+      'src/lib/version.js': 'export const x = 1;\n',
+      'src/cli/a.js': "// import { x } from '../lib/version.js'; // 暂时禁用\n",
+    });
+    expect(keysOf(runCheck({ root, allowlist: BASE_ALLOW, exemptions: {} }), 'zero-ref'))
+      .toEqual(['src/lib/version.js']);
+  });
+
+  it('块注释里的 import → 判零引用', () => {
+    const root = tree({
+      'src/lib/legacy.js': 'module.exports = 1;\n',
+      'src/cli/a.js': "/*\n * require('../lib/legacy.js'); ← 已下线\n */\nmodule.exports = 1;\n",
+    });
+    expect(keysOf(runCheck({ root, allowlist: BASE_ALLOW, exemptions: {} }), 'zero-ref'))
+      .toEqual(['src/lib/legacy.js']);
+  });
+
+  it('真 import 与注释里的 import 并存 → 不算零引用（剥离不误伤真代码）', () => {
+    const root = tree({
+      'src/lib/used.cjs': 'module.exports = 1;\n',
+      'src/cli/a.js': "require('../lib/used.cjs');\n// require('../lib/used.cjs');\n",
+    });
+    expect(keysOf(runCheck({ root, allowlist: BASE_ALLOW, exemptions: {} }), 'zero-ref')).toEqual([]);
+  });
+
+  it('已知残留：**行尾**注释里的 import 仍被计为引用（只剥整行，避免误伤字符串里的 //）', () => {
+    const root = tree({
+      'src/lib/tail.js': 'module.exports = 1;\n',
+      'src/cli/a.js': "const a = 1; // require('../lib/tail.js')\n",
+    });
+    expect(keysOf(runCheck({ root, allowlist: BASE_ALLOW, exemptions: {} }), 'zero-ref')).toEqual([]);
+  });
+
+  it('stripComments 保留换行数（行号不因剥离而错位）', () => {
+    const src = 'a\n/* x\ny */\nb\n';
+    expect(stripComments(src).split('\n')).toHaveLength(src.split('\n').length);
+    expect(stripComments(src)).not.toContain('x');
   });
 });
 

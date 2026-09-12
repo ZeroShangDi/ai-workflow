@@ -299,6 +299,16 @@ describe('createRunHost — 多 agent 经 runScheduler + 事件轮询', () => {
     const after = host.pollEvents({ runId: r.runId, afterSeq: first.afterSeq });
     expect(after.events).toEqual([]);
     expect(after.tailSeq).toBe(first.tailSeq);
+
+    // issue 004-1：limit 现在真的会被 `/run/events` 转发进来（此前路由只转 afterSeq/runId，
+    // 调用方拼的 limit= 被静默丢弃），故判据收紧为「正整数才采信」。
+    expect(first.events.length).toBeGreaterThan(1);
+    const capped = host.pollEvents({ runId: r.runId, afterSeq: 0, limit: 1 });
+    expect(capped.events.map((e) => e.seq)).toEqual([first.events[0].seq]);
+    // 非法值一律回落到缺省 200：负数曾会落进 slice(0, -n)（去掉尾部 n 条，与「取前 n 条」相反）
+    for (const bad of [-1, 0, NaN, 1.5, undefined]) {
+      expect(host.pollEvents({ runId: r.runId, afterSeq: 0, limit: bad }).events).toHaveLength(first.events.length);
+    }
   });
 
   it('snapshot 无 runId 时列出全部 run 摘要；未知 runId → error', async () => {
