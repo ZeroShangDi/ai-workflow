@@ -45,6 +45,7 @@ cc-control/
 
   scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
   tests/                   # unit / integration / eval / fixtures
+                           #   eval = 声明式真机用例集（tests/eval/README.md；与 regression 的关系见 docs/discuss/real-run-suite-merge.md）
   sandbox/                 # 测试沙箱（gitignored）
   docs/                    # features（功能文档/测试用例）+ discuss + reuse + evals + CHANGELOG
 ```
@@ -251,7 +252,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 # CLI
 awf init                  # 初始化项目
 awf plan "需求描述"        # 规划
-awf run                   # 执行（--auto 跳过等待，--local 跳过 one-shot）
+awf run                   # 执行（自主推进；--multi-agent 并行、--resume/--attach 续接）
 awf server start          # 启动 Session Server
 awf open dashboard        # 打开可视化页面（dashboard / tree / ui）
 awf attach                # 附加到 tmux session 观看实时对话
@@ -260,7 +261,7 @@ awf attach                # 附加到 tmux session 观看实时对话
 npm test                  # 跑测试
 npm run lint              # 语法检查
 npm run build             # 打包验证
-npm run eval              # AI 质量评测（占位）
+npm run eval              # AI 质量评测：声明式真机用例集（`-- --list` 列 case），非占位
 
 # Claude Code 插件（安装统一在 init 阶段处理）
 awf init                  # 本地注入 plugin/settings.json 到 .claude/settings.json

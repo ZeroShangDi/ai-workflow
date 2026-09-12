@@ -1,7 +1,7 @@
 # 仓库提交绝对 node_modules 符号链接导致 worktree 不可安装
 
 - 状态: fixed-in-recovery-branch
-- 优先级: high
+- 严重度: high
 - 发现: 2026-09-09 恢复审计
 
 ## 现象与根因

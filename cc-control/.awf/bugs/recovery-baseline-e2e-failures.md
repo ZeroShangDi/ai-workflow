@@ -1,7 +1,7 @@
 # 恢复基线存在两个 E2E 失败
 
 - 状态: resolved（2026-09-10）
-- 优先级: high
+- 严重度: high
 - 发现: 2026-09-09 恢复审计
 - 基线: 69 files passed / 2 files failed；687 tests passed / 2 failed
 

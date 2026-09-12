@@ -6,7 +6,8 @@
 > （`needs-input-*`）等都在里面。两套体系的来历、差异与合并方案见 `real-run-suite-merge.md`（仍是讨论稿，未落地）；
 > 本文的「两种粒度」设计仍成立，且**本文只描述 `tests/regression/` 这一套**的矩阵。
 
-> 2026-09-11 · 状态：**15 个 case 在册**（T3-011 全量门禁同步 + 动态规划两个 case）
+> 2026-09-12 · 状态：**15 个 case 在册**（T3-011 全量门禁同步 + 动态规划两个 case；
+> 同日改动面定向两 case 在 run 内复跑全绿，见下方「改动面定向」段）
 > 载体：`tests/regression/fullflow-regression.mjs`（`npm run test:real`）
 
 ## 目标形态（用户裁定）
@@ -19,7 +20,7 @@
 两者共用同一 case 注册表（`const CASES`）：加一个功能就加一个 case，全量自动带上。
 产物统一落 `sandbox/regression/`（gitignore 产物区），证据 `evidence-<case>.json`（全量另出 `evidence-all.json`）。
 
-## 现状：15 个 case（截至 2026-09-11）
+## 现状：15 个 case（截至 2026-09-12）
 
 | # | case | 断言数 | 验到的 |
 |---|---|---|---|
@@ -37,24 +38,45 @@
 | 12 | `lifecycle` | 6 | 常驻 server 空闲回收：探活期间不回收 → 静置后进程退出 + 端口关闭 + 日志留痕 |
 | 13 | `web` | 15 | 前端：页面由构建产物承载（或未构建 503+告警）、`/assets` 托管、旧资产 404、`?p` 取数不串、决策 override 落盘 |
 | 14 | `dynamic-planning` | 31 | 动态规划的**跨进程边界**（真 server + 真 awf-state MCP，不起 tmux/claude）：经 MCP JSON-RPC 提案 → proposal 落盘 + `events.jsonl` 追加 + hold 装进 state → 调度器就绪池（`state.js` 判据）排除被 hold 任务 → 第二个开放 proposal 被拒 → 人工 HTTP 批准应用（新任务先于目标、依赖重连、hold 释放、MCP 读回新图）→ **无关变化放行 / 相关变化判 `conflicted`** → 人工拒绝释放 hold → 非 server 模式拒绝本工具 |
-| 15 | `dynamic-planning-run` | 22 | 动态规划的**运行链路（全真）**（真 tmux + 真 Claude，**一次 run 走到底**）：T1 的 prompt 只给策略不给缺口位置，AI 自己从 state 找出「T3 要 `src/adder.js` 而无人产出它」→ 经 MCP 发起提案 → hold 只挡目标、不牵连在跑的任务 → 人工在 **run 进行中**批准（批准时 `/run/status` 仍有活跃 run、目标从未 active）→ **同一个 run** 继续跑完，新任务 `startedAt` 早于目标，四个任务全部 done、产物齐全 |
+| 15 | `dynamic-planning-run` | 21 | 动态规划的**运行链路（全真）**（真 tmux + 真 Claude，**一次 run 走到底**）：T1 的 prompt 只给策略不给缺口位置，AI 自己从 state 找出「T3 要 `src/adder.js` 而无人产出它」→ 经 MCP 发起提案 → hold 只挡目标、不牵连在跑的任务 → 人工在 **run 进行中**批准（批准时 `/run/status` 仍有活跃 run、目标从未 active）→ **同一个 run** 继续跑完，新任务 `startedAt` 早于目标，四个任务全部 done、产物齐全。断言数 22 → 21：删掉「常驻 server 已由本项目重启」（40d67df，该 case 不再自起 server，见下方裁定补记） |
 
 合计 **204 断言**（13 case 的 151 + `dynamic-planning` 的 31 + `dynamic-planning-run` 的 22；T3-011-F1 修复后 151/151 全绿，exit 0，2026-09-11；
 修复前同一命令为 145–146/150，5 项失败全部归因 case 侧 —— 见 `.awf/reports/test/t3-011-full-real-gate.md`）。
 两个动态规划 case 定向实测 **31/31 与 22/22**（各自复跑同结论，`--port` 隔离模式亦同），2026-09-11。
 **2026-09-12 全量连跑**（`npm run test:real -- --case all --port 8799`）：**204/204 全绿、exit 0**，
 15 个 case 一轮 10 分钟，两个新 case 在连跑里同结论 —— 连跑与单跑一致（本文档纪律要求的正是这一条）。
+（`--port` 隔离模式当日已删除，故这是**隔离模式下**的最后一次全量记录；口径删除后 `dynamic-planning-run`
+断言数 22 → 21，**当前 harness 全量应为 203**，但 203 这一轮**尚未跑过** —— 别把 204 当成本文档当前口径的实测值。）
 
 **2026-09-12 定向两 case（改动面口径）** 曾以 `--port 8799`（隔离模式）执行：`single` **6/6 ✔**，
 `dynamic-planning-run` **两次都失败** —— 沙箱会话报 `Unknown command: /ai-workflow-code:w-dev`
 （provider 插件未加载）→ prompt 被丢 → case 崩于 ENOENT。归因见缺口表 **#20**：
-**是隔离模式自身的缺陷，不是 case 或产品的回归**。
+**是隔离模式自身的缺陷，不是 case 或产品的回归**。（此段为历史，隔离模式已删除。）
+
+**2026-09-12 改动面定向（隔离模式删除后，**不带 `--port`**、**在 run 内**执行）**：
+`npm run test:real -- --case single` **6/6 ✔**、`--case dynamic-planning-run` **21/21 ✔**，
+两条 exit 0，证据 `evidence-<case>.json` + `evidence-<case>-summary.json` 落盘。
+被测改动面 = hook 网关失败留痕（`09b9e29`）+ server 写类端点缺 `?p` 的 400 留痕（T1-110）
++ 动态规划批准路径（闭包指纹 + 锁内重放）+ **回归 harness 删除隔离模式**。
+映射：`single` 走真 hook 链（`<项目>/.awf/logs/hook-gateway.log` 实测有 `SessionStart → 已投递`）
+与真写类端点（MCP `awf_task_complete` → server，带 `?p`）；`dynamic-planning-run` 走批准端点全链。
+**前提与边界**：常驻 server（pid 41842）启动于 13:31:54，晚于末次提交 40d67df（13:31:49），
+且工作树无源码改动（`git status` 仅 `.awf/state.json`）—— 故**本轮**被测代码 = 当前工作树；
+该结论是**时点事实**，此后任何源码改动即失效，本文档仍**不一般性地宣称**「被测代码就是工作树最新那份」。
 
 > **同日裁定（用户 Q3）**：**隔离模式已整体删除**（`--port` + 插件副本 + marketplace 重指，
 > 见 `.awf/issues/011`）。真机回归改为**在 run 之外由人跑**：跑之前自己 `awf server stop`
 > 保证常驻 server 带的是当前工作树。run 内不做 server 侧代码的自测 —— 宿主就活在 server 进程里，
 > 重启它等于杀掉在飞的 run（`ownServer` 已加护栏，遇到在飞 run 会显式失败而不是把 run 干掉）。
 > 因此本文档的断言口径里，**不宣称**「被测代码就是工作树最新那份」。
+>
+> **2026-09-12 补记（T3-011 改动面定向）**：上述「在 run 之外跑」对 **`--case all`** 仍然成立 ——
+> `pause-release` 走 `ownServer`，会**按本项目**重启共享 server（它的 2 条 `server.log` 归属断言依赖这次重启），
+> 在 run 内跑等于杀掉在飞 run。但**定向 case 不必受此限**：`dynamic-planning-run` 原先照抄 `pause-release`
+> 用 `ownServer`，其用途（路由新鲜度 / `server.log` 归属）都不是它的断言点，已改为**只探路由**（40d67df），
+> 于是它和 `single` 一样能在 run 内跑。判据：**case 的断言点是否依赖重启 server** —— 不依赖的可 run 内，
+> 依赖的（`pause-release`）留在 run 之外。run 内跑时 `ownServer` 的护栏**按项目**过滤 `?p`，
+> 看不到别的项目的在飞 run，因此护栏拦不住误用 —— 靠「不依赖就别调它」这条纪律，不靠护栏。
 
 ## 覆盖缺口（T3-011 复核后的真实状态）
 
@@ -80,7 +102,7 @@
 | 18 | **per-run 日志目录偶发缺失** | ⚠️ `decision` 曾在连跑中间歇失败（`DecisionStore` 的 runStamp 派生回退）。**机制未定位**；测试侧已加现场取证（缺目录时 dump `state.json` 可读性 / `logs` 清单 / 决策 stamps 进证据 + 打 `[诊断]` 行） | 根因在 `RunLogger._init` 静默早退 → `.awf/issues/005` |
 | 19 | **运行中动态任务规划**（AI 提案 → 人工批准前 hold → 批准 → 新任务先于目标执行） | ✅ **两半都覆盖**：边界半段见 `dynamic-planning`（真 MCP → 真 server → proposal/事件/hold 落盘 → 批准才应用）；运行半段见 `dynamic-planning-run`（AI 自发现缺口、人在飞批准、同一 run 前置先于目标执行）。另有同源 eval 用例 `tests/eval/cases/dynamic-planning/` | 能力文档 §9 两个 case 均已落地 |
 
-| 20 | **隔离模式（`--port`）不覆盖会话的插件 / hook 链** | ✅ **已按用户 Q3 裁定删除**：`--port` + 插件副本 + marketplace 重指整块移除（`.awf/issues/011`）。真机回归改为**在 run 之外由人跑**，跑前 `awf server stop` 让常驻 server 带当前工作树；`ownServer` 加护栏（有在飞 run 时显式失败，不重启 server） | 删除即收口，不新增机制 |
+| 20 | **隔离模式（`--port`）不覆盖会话的插件 / hook 链** | ✅ **已按用户 Q3 裁定删除**：`--port` + 插件副本 + marketplace 重指整块移除（`.awf/issues/011`）。真机回归跑前 `awf server stop` 让常驻 server 带当前工作树；`ownServer` 加护栏（有在飞 run 时显式失败，不重启 server）。**2026-09-12 分档**：定向 case 若**不依赖重启 server** 即可在 run 内跑（`single` / `dynamic-planning-run` 实测两条全绿）；`pause-release` 依赖，仍留在 run 之外 | 删除即收口，不新增机制 |
 
 ## 纪律
 
@@ -91,3 +113,6 @@
   **这条纪律如今有了机器化写法**（T3-011-F1）：case 需要什么就自起什么 —— 需要 `server.log` 或需要
   宿主侧阈值生效，就 `ownServer(projectRoot, extraEnv)` 起自己的 server，而不是依赖「首个 case 唤起后被复用」。
   连跑与单跑结论一致由全量门禁兜住（`--case all` 与 `--case <name>` 必须同结论）。
+- **case 要不要自起 server，看它的断言点**（2026-09-12）：依赖「本项目的 `server.log`」或「宿主侧阈值」
+  才自起（`pause-release`、`pause`），且代价是**不能在 run 内跑**；其余一律不自起，复用常驻 server，
+  于是能在 run 内跑（`single` / `dynamic-planning-run`）。自起 server = 重启共享进程，run 内会杀掉在飞 run。

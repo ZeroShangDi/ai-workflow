@@ -12,3 +12,8 @@ src/server/public/
 /.awf/logs/
 # 覆盖率产物（T3-009 N-1：曾被 3c4a894 误入库，且内容是重构前的旧树）
 /coverage/
+# 运行态一次性安全备份（直改 state 前的手工备份，T3-010 N-4：曾被 ae2b0f3 带入库）。
+# 它不是归档落点 —— 归档走 .awf/versions/<version>-<timestamp>.json
+/.awf/*.bak-*
+# 运行态备份（改 state 前的手工快照，不入库）
+.awf/state.json.bak-*

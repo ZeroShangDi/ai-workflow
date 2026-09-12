@@ -50,7 +50,7 @@ adapters      ↛ server
 **判据**：固定路径或固定名承载本该按 `sid` 分片的数据；模块级 `let` / 模块级容器持有实例状态。
 **取证方式**：会话名与日志目录断言 `cc-<projectSid>` / `.awf/logs/<runStamp>/`（真机 case `dual`、`web` 直接验两项目互不串）；顶层可变状态扫查（目前**无脚本，手工取证**）。
 **当前状态**：成立。单 server 多项目经 `?p` 路由到各自的 `ProjectCtx`（`src/server/project-context.cjs`）；会话名 `cc-<projectSid>`（`src/lib/run-context.cjs` 派生 `p` + sha1 前 12 hex）；per-run 槽 `src/server/run-slot.cjs` 按 `sid` 隔离 ready/busy/decision。
-**已知缺口**：`run-slot` 的 `contextReady` 是**永假死值**（定义了但无人置位）—— 见 `.awf/issues/004`，已立项 `T1-120`。
+**已闭合**（T1-120 / issue 004-2）：`run-slot` 的 `contextReady` 曾是**永假死值**（定义了但无人置位），已按「宁缺勿假」摘除；项目级 `pcx.contextReady` 不受影响。
 
 ### R3 · 事件 schema 版本
 

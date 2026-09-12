@@ -1,5 +1,5 @@
 {
-  "mode": "idle",
+  "mode": "run",
   "currentState": "CODE",
   "version": "0.2.0",
   "milestones": [],
@@ -6550,7 +6550,7 @@
       "deps": []
     }
   ],
-  "lastUpdated": "2026-09-12T05:49:10.048Z",
+  "lastUpdated": "2026-09-12T05:49:09.362Z",
   "plan": {
     "summary": "AWF 架构重构 v0.2.0（全量一次性）—— server 收敛为常驻控制平面(run 域/store/metrics/adapters/cc 收口)、cli 薄化、前端 web/ React 工程化、sessionid 多 run 贯穿、单写者 store、配置/状态单源；纯 JS；外部零 cc。",
     "reqDoc": "",
