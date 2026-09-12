@@ -1,0 +1,63 @@
+'use strict';
+/**
+ * mock/index.cjs — 测试替身（tmux / 日志 / state 落盘）
+ *
+ * 用途：让新 server **脱离 cli、脱离真 tmux** 也能被测。server 对外的副作用只有四类
+ * （见 `projects/context.cjs` 的「出口」），把它们替掉，整个 server 就是纯逻辑，可单测。
+ *
+ * 定位：这是**测试脚手架**，不是产品的降级路径 —— 不参与生产装配、不进 ports 名册。
+ */
+
+/** tmux 替身：记录所有注入调用，可注入 hasSession 结果 */
+function createMockTmux({ session = 'cc-mock', hasSession = true } = {}) {
+  const calls = [];
+  let alive = hasSession;
+  return {
+    SESSION: session,
+    calls,
+    hasSession: () => alive,
+    setAlive: (v) => { alive = !!v; },
+    sendText: (text) => calls.push({ op: 'sendText', text }),
+    sendEnter: () => calls.push({ op: 'sendEnter' }),
+    sendCtrlC: () => calls.push({ op: 'sendCtrlC' }),
+    capture: () => '',
+  };
+}
+
+/** 日志替身：记录通知/决策/prompt，不落盘 */
+function createMockLogger() {
+  const prompts = [];
+  const notices = [];
+  const decisions = [];
+  const choices = [];
+  return {
+    prompts, notices, decisions, choices,
+    logPrompt: (t) => prompts.push(t),
+    logNotice: (kind, msg) => notices.push({ kind, msg }),
+    logDecision: (d) => decisions.push(d),
+    logChoice: (q, v) => choices.push({ q, v }),
+    captureFromTranscript: () => {},
+    captureSubagentTranscript: () => {},
+    resetTranscript: () => {},
+  };
+}
+
+/** state 落盘替身：内存态 + updateSync 语义（mutator 返回 false 表示不写） */
+function createMockStores(initialState = {}) {
+  let state = JSON.parse(JSON.stringify(initialState));
+  return {
+    get current() { return state; },
+    set: (s) => { state = JSON.parse(JSON.stringify(s)); },
+    state: {
+      readSync: () => JSON.parse(JSON.stringify(state)),
+      updateSync: (mutator) => {
+        const draft = JSON.parse(JSON.stringify(state));
+        const changed = mutator(draft);
+        if (changed !== false) state = draft;
+        return changed;
+      },
+    },
+  };
+}
+
+module.exports = { createMockTmux, createMockLogger, createMockStores };

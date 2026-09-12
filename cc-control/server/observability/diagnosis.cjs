@@ -1,0 +1,113 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+// claude -p 收口到 oneshot 端口（R-cc：外部源码零 claude 字面）。
+// **端口由调用方注入**（T1-117）：lib 是地基，不应该反向依赖 adapters 的具体实现 ——
+// 装配根（server.cjs）从 ports.cjs 取端口后传进来。
+
+const DIAGNOSIS_PATH = ['.awf', 'logs', 'run-diagnosis.json'];
+const DIAGNOSIS_TIMEOUT_MS = 5 * 60 * 1000;
+
+function diagnosisFile(projectRoot) {
+  return path.join(projectRoot, ...DIAGNOSIS_PATH);
+}
+
+function readDiagnosis(projectRoot) {
+  try {
+    return JSON.parse(fs.readFileSync(diagnosisFile(projectRoot), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeDiagnosis(projectRoot, value) {
+  const file = diagnosisFile(projectRoot);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  return value;
+}
+
+function buildDiagnosisPrompt(metrics, state) {
+  return `你是一次 AI 工作流运行诊断助手。仅依据下面提供的数据诊断本次运行；不要臆测未提供的事实，不要修改文件，不要执行命令。
+
+请只输出 JSON，不要使用 Markdown。格式：
+{
+  "severity": "healthy|watch|attention",
+  "summary": "一句话结论",
+  "findings": [{ "title": "问题或观察", "evidence": "数据证据", "impact": "可能影响", "recommendation": "下一步建议" }],
+  "dataGaps": ["无法确认的原因或缺少的数据"]
+}
+
+运行指标：
+${JSON.stringify(metrics, null, 2)}
+
+任务状态：
+${JSON.stringify({
+  mode: state.mode || null,
+  currentState: state.currentState || null,
+  tasks: (state.tasks || []).map((task) => ({
+    id: task.id,
+    title: task.title || task.desc || null,
+    status: task.status,
+    startedAt: task.exec?.startedAt || null,
+    completedAt: task.exec?.completedAt || null,
+  })),
+}, null, 2)}`;
+}
+
+function parseDiagnosis(text) {
+  const trimmed = String(text || '').trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : trimmed;
+  const result = JSON.parse(candidate);
+  if (!result || typeof result.summary !== 'string' || !Array.isArray(result.findings)) {
+    throw new Error('diagnosis response is not the expected JSON structure');
+  }
+  return {
+    severity: ['healthy', 'watch', 'attention'].includes(result.severity) ? result.severity : 'watch',
+    summary: result.summary,
+    findings: result.findings.slice(0, 6).map((item) => ({
+      title: String(item.title || '观察'),
+      evidence: String(item.evidence || '未提供'),
+      impact: String(item.impact || '待确认'),
+      recommendation: String(item.recommendation || '继续观察'),
+    })),
+    dataGaps: Array.isArray(result.dataGaps) ? result.dataGaps.map(String).slice(0, 6) : [],
+  };
+}
+
+/**
+ * @param {string} prompt
+ * @param {string} projectRoot
+ * @param {{ oneshot: object }} deps 必需：oneshot 端口（由装配根注入，见文件头）
+ */
+function diagnoseWithClaude(prompt, projectRoot, { oneshot } = {}) {
+  if (!oneshot || typeof oneshot.spawnClaudeP !== 'function') {
+    throw new Error('diagnoseWithClaude: 需注入 oneshot 端口（{ oneshot } 来自 adapters/ports.cjs）');
+  }
+  // 诊断是独立、只读的模型调用，必须隔离项目 hooks；claude -p 经 oneshot 端口（safe-mode + 无会话持久化）
+  return oneshot.spawnClaudeP({
+    prompt,
+    cwd: projectRoot,
+    args: ['--safe-mode', '--no-session-persistence'],
+    timeoutMs: DIAGNOSIS_TIMEOUT_MS,
+  }).then((r) => {
+    if (r.error) return { ok: false, error: r.error };
+    if (!r.ok) return { ok: false, error: r.stderr.trim() || `claude -p exited ${r.code}` };
+    try {
+      return { ok: true, diagnosis: parseDiagnosis(r.stdout) };
+    } catch (error) {
+      return { ok: false, error: `无法解析 AI 诊断结果：${error.message}` };
+    }
+  });
+}
+
+module.exports = {
+  buildDiagnosisPrompt,
+  diagnoseWithClaude,
+  diagnosisFile,
+  parseDiagnosis,
+  readDiagnosis,
+  writeDiagnosis,
+};
