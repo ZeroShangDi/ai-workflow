@@ -10,14 +10,14 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 ├── context/
 │   ├── architecture.md     # 项目架构事实、模块职责和扩展方式
 │   └── handoff.md          # 上下文压缩时生成的会话接力快照
-├── versions/               # 版本归档
-│   └── v0.1.x/state.json   #   各版本的完整状态快照
+├── versions/               # 版本归档（每次 run 完成一份 state 快照）
+│   └── <version>-<timestamp>.json
 ├── issues/                 # Issue 跟踪（等价于 GitHub Issues）
-│   └── TEMPLATE.md         #   新建 Issue 模板
+│   └── NNN-short-slug.md   #   一文件一 Issue（YAML frontmatter）
 ├── bugs/                   # 运行时缺陷记录
-│   └── TEMPLATE.md         #   新建 Bug 模板
+│   └── <slug>.md           #   一文件一 Bug（不编号，元数据块在标题下）
 ├── decisions/              # AI 运行期决策记录（供人复盘）
-│   └── TEMPLATE.md         #   新建决策模板
+│   └── runs/*.jsonl        #   按 run 追加（不拆单文件）
 ├── dynamic-planning/       # 运行期局部计划调整 proposal 与事件
 │   ├── proposals/          #   可批准、可冲突恢复的完整 proposal
 │   └── events.jsonl        #   追加式生命周期记录（首次使用时生成）
@@ -27,8 +27,8 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 │   ├── perf/               #   性能分析报告
 │   ├── lint/               #   Lint 报告（按版本分目录）
 │   └── summary/            #   里程碑汇总报告
-└── logs/                   # awf run 全量运行日志
-    └── YYYY-MM-DD-HHmmss/  #   按运行时间分目录
+└── logs/                   # awf run 全量运行日志 + 跨 run 顶层文件（见 §logs）
+    └── {version}-{ts}/     #   每次 run（main.log + agents/）
 ```
 
 ---
@@ -43,7 +43,7 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 
 ### versions/ — 版本归档
 
-每个版本一个文件夹，内含该版本的完整 `state.json`。版本结束后不再修改，git 作为历史追溯。
+每次 `awf run` 走完（FINISH 收尾调 `backupState`）快照一份当时的 `state.json`，落成**扁平文件** `versions/<version>-<timestamp>.json`（如 `0.2.0-2026-09-10T08-31-17.json`），**不建「每版本一个文件夹」**。快照写入后不再修改，git 作为历史追溯。
 
 ### issues/ — Issue 跟踪
 
@@ -58,7 +58,7 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 | `id` | `string` | 三位编号，如 `"001"` |
 | `title` | `string` | Issue 标题 |
 | `status` | `enum` | `open` / `in_progress` / `resolved` / `wontfix` / `duplicate` |
-| `labels` | `string[]` | `bug` / `feature` / `enhancement` / `discussion` / `question` / `blocked` |
+| `labels` | `string[]` | **自由标签，不做枚举**：建议优先取 `bug` / `discussion` / `tooling` / `blocked`，领域词（`eval` / `recovery` / `real-run` …）按需新增 |
 | `assignee` | `string\|null` | 负责人 |
 | `milestone` | `string\|null` | 关联里程碑，如 `v0.1.4` |
 | `priority` | `enum` | `low` / `medium` / `high` / `critical` |
@@ -68,6 +68,8 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 | `related` | `string[]` | 关联的 task id / wbsRef |
 
 **状态流转**：`open → in_progress → resolved`（可旁路到 `wontfix` / `duplicate`）
+
+> **为什么 `labels` 不做枚举**：标签是**检索维度**，维度会随项目演进而增长 —— 本仓实际已用到 `tooling` / `eval` / `legacy` / `real-run` / `observability` 等领域词，枚举里没有对应项。钉死词表只会逼出两种坏结果：硬塞一个语义不符的枚举值，或让规范与实际长期打架。核心集是**起点**，不是边界。
 
 **查询**：
 ```bash
@@ -84,28 +86,27 @@ grep -l "milestone: v0.1.4" .awf/issues/*.md     # 按里程碑
 
 `awf run` 执行过程中产出的缺陷记录。与 `issues/` 的区别：bugs 是运行时自动或半自动产出的缺陷事实，issues 是需要跟踪管理的所有事项。
 
-**命名**：`NNN-short-slug.md`
+**命名**：`<slug>.md`（kebab-case，取自缺陷本身；**不编号**）
 
-**Frontmatter 字段**：
+> **为什么 bugs 不编号**：issues 是人工建立的跟踪项，编号是它的自然主键（顺序分配、`related` 互引，与 GitHub 一致）；bugs 由 run 运行期产出，没有中央分配器 —— 写记录的一方必须先扫目录，多分支并行还会撞号。slug 自描述、可并发产出、合并无冲突。
 
-| 字段 | 类型 | 说明 |
+**元数据块**：首行 `# <一句话标题>` 之后紧跟一段无序列表（每行 `- <键>: <值>`）。常用键：
+
+| 键 | 必填 | 说明 |
 |------|------|------|
-| `id` | `string` | 三位编号 |
-| `title` | `string` | Bug 标题 |
-| `status` | `enum` | `open` / `confirmed` / `in_fix` / `resolved` / `wontfix` |
-| `severity` | `enum` | `critical` / `high` / `medium` / `low` |
-| `source.task_id` | `string` | 发现时正在执行的任务 |
-| `source.milestone` | `string` | 所属里程碑 |
-| `source.phase` | `string` | 发现时所在阶段（DEV/TEST/REVIEW/COMMIT） |
-| `labels` | `string[]` | 标签 |
-| `created` | `date` | 创建日期 |
-| `resolved` | `date\|null` | 解决日期 |
+| `状态` | 是 | **自由文本，不设枚举**。一句话说清「修到哪一步」，可含时点。例：`fixed（2026-09-12，T3-010-F1 收尾时暴露）`、`部分实现（2026-09-10）——已实现 A、B，未实现 C`、`open` |
+| `类型` | 否 | 缺陷归类，如 `awf 产品缺陷（运行/等待超时语义）` |
+| `严重度` | 否 | `critical` / `high` / `medium` / `low`，可附一句影响 |
+| `发现` | 否 | 发现时点与场景；时点亦可写在 `状态` 里，二者有其一即可 |
+| `关联` | 否 | 任务 ID / Issue / 代码路径 |
 
-**状态流转**：`open → confirmed → in_fix → resolved`（可旁路到 `wontfix` / `duplicate`）
+键可按需增补（如 `基线` / `触发`）。**只写有证据的字段，宁缺毋造。**
 
-**正文**：现象 → 复现步骤 → 根因分析 → 修复方案 → 关联
+**状态为什么不做枚举**：bugs 的价值是「当时到底修到哪一步」的第一手事实；枚举会逼记录者在信息不足时二选一，反而制造失真。与 `issues/` 的枚举制差异是**刻意**的 —— 后者是需要跟踪管理的事项，前者是运行期事实。
 
-Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通过 `related` 字段双向关联。
+**正文**：`## 现象` → `## 根因` → `## 修复 / 处置` → `## 关联`
+
+Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue 并双向关联（bugs 无编号，从 Issue 侧按路径引用）。
 
 ---
 
@@ -113,9 +114,9 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通�
 
 `awf run` 运行过程中 AI 做出的辅助决策记录，供人**运行后复盘**查看，与人为决策（`docs/discuss/`）分开。
 
-**命名**：`NNN-short-slug.md`
+**落点**：`decisions/runs/<runStamp>.jsonl`（一次 run 一个文件，追加式；`runStamp` 与 `.awf/logs/` 对齐，如 `0.2.0-2026-09-10T14-21-09`）。由 `src/server/decision-store.cjs` 写入，**不按「一决策一文件」拆分**。
 
-**正文**：场景 → 决策 → 依据 → 是否需人工复核
+**不变量**：只追加、绝不覆盖历史；同一 `decision_id` 在同一 run 文件内不重复落盘；`override` 以追加事件写入原 decision 所在文件。
 
 ### dynamic-planning/ — 动态任务规划
 
@@ -153,14 +154,18 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue，通�
 
 ### logs/ — 运行日志
 
-每次 `awf run` 的全量记录，按运行时间分目录。
+每次 `awf run` 的全量记录，按运行版本与启动时间分目录；另有几个跨 run 的顶层文件。
 
 ```
 logs/
-└── 0.1.3-2026-07-31T14-30-52/  # 运行版本与启动时间
-    ├── main.log                 # 主 Agent 可读日志
-    └── agents/                  # 每个子 Agent 的可读日志
-        └── T1--agent-id.log
+├── 0.1.3-2026-07-31T14-30-52/  # 运行版本与启动时间
+│   ├── main.log                 # 主 Agent 可读日志
+│   └── agents/                  # 每个子 Agent 的可读日志
+│       └── T1--agent-id.log
+├── server.log                   # 常驻 server 的 stdout/stderr（T1-112）
+├── hook-gateway.log             # hook 网关留痕（失败必留一行，SessionStart 成功也留一行）
+├── subagent-events.jsonl        # 子 Agent 生命周期事件（追加）
+└── run-meta.json                # 当前 run 元信息
 ```
 
 **目录命名**：`{version}-YYYY-MM-DDTHH-mm-ss`（运行版本与启动时间）

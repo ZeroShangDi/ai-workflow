@@ -31,6 +31,7 @@ function httpJsonPost(pathname, bodyObj) {
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
     }, (r) => {
       let raw = '';
+      r.setEncoding('utf8'); // 见 awf-state/server.cjs httpJson：不设编码会切碎多字节字符
       r.on('data', (c) => { raw += c; });
       r.on('end', () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } });
     });
@@ -78,7 +79,8 @@ function legacySpawnClaude(prompt, cwd) {
       timeout: 300000, // 5 min
     });
     let output = '';
-    proc.stdout.on('data', (c) => (output += c.toString()));
+    proc.stdout.setEncoding('utf8'); // 同上：claude -p 输出为中文时逐块 toString 会切碎多字节字符
+    proc.stdout.on('data', (c) => (output += c));
     proc.on('close', (code) => {
       if (code === 0) resolve({ ok: true, text: output.trim() });
       else resolve({ ok: false, error: `claude -p exited ${code}`, text: output.trim() || null });

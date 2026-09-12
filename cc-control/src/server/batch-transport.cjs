@@ -10,7 +10,7 @@
  * 迁自重构前 cli/run-batch.js（CLI 拥有调度权时代的同一套语义），差异只在「谁在跑」：
  * 调度在宿主进程内，不再经 HTTP 回环到 CLI。IO/prompts/时钟全部注入，便于单测。
  *
- * 超时判据（docs/bugs/timeout-must-confirm-no-cc-change.md）：不看墙钟总量，只看「无变化窗口」——
+ * 超时判据（.awf/bugs/timeout-must-confirm-no-cc-change.md）：不看墙钟总量，只看「无变化窗口」——
  * 主会话仍在推进、任务状态有变、子 Agent 事件有增，任一发生即重置窗口；窗口内无任何变化才判超时。
  */
 

@@ -539,7 +539,7 @@ function defaultSingleExecutor(pcx) {
 
       // 等任务自我结算：CC 仍在跑（busy）→ 不计时、永不误判超时（真 run 这类长任务可远超墙钟上限）；
       // 仅当 CC 已就绪(idle)且任务仍未结算时，累计「无变化窗口」，超窗才进入收尾协商
-      // （docs/bugs/timeout-must-confirm-no-cc-change.md：需确认 CC 无变化才算超时）。
+      // （.awf/bugs/timeout-must-confirm-no-cc-change.md：需确认 CC 无变化才算超时）。
       let idleSince = null;
       for (;;) {
         await sleep(500);
@@ -771,6 +771,11 @@ async function runStateGateHandler() {
 function readJson(req) {
   return new Promise((resolve) => {
     let raw = '';
+    // 必须显式 utf8：不设编码时 data 是 Buffer，逐块 `raw += Buffer` 会对**每个 chunk 单独**
+    // toString —— 多字节字符跨 chunk 边界即被切成 U+FFFD。state 请求体（几百 KB 中文）必中，
+    // 于是「读请求体 → 写 state」这条路会把 state.json 里的中文静默改成替换字符。见 .awf/bugs/
+    // mcp-http-response-utf8-chunk-split.md（同一类缺陷，服务端入口侧）。
+    req.setEncoding('utf8');
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
       if (!raw) return resolve({});

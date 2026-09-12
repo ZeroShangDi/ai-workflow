@@ -156,11 +156,12 @@ awf run（薄入口：起环境 + 提交 run + 订阅展示 + 决策中继）
 
 ### 3.1 功能 → 文档 → 源码 → 测试
 
-每份功能文档的实际落点（`docs/features/` 共 36 份，此处给主表）：
+每份功能文档的实际落点（`docs/features/` 共 38 份，此处给主表）：
 
 | 功能 | 功能文档 | 主要源码 | 真机 case |
 |---|---|---|---|
 | Session Server（控制平面） | `server.md` / `api.md` | `src/server/server.cjs`、`static.cjs`、`ws.cjs`、`project-context.cjs` | `web` `lifecycle` |
+| 前端工程（观测与控制台） | `web.md` / `web.test.md` | `web/src/**`（+ 构建 `scripts/build-web.mjs`） | `web` |
 | run 域（编排宿主） | `run-domain.md` | `run-host/run-driver/run-scheduler/batch-transport/task-channel/gate-fix` | `single` `gate` `multi` `pause-release` |
 | `awf run`（CLI 薄入口） | `run.md` | `src/cli/run.js`、`run-client.js`、`src/lib/session/client.js` | `single` `resume` `recover` |
 | store 持久化 | `store.md` | `src/lib/store.cjs`、`store-core.cjs` | （单测 + 真机间接） |
@@ -184,7 +185,7 @@ awf run（薄入口：起环境 + 提交 run + 订阅展示 + 决策中继）
 | slash 命令 | core（`w-start` `w-pause` `w-monitor` `w-state`）+ plugin-code（`w-plan*` `w-dev` `w-debug` `w-review` `w-test` `w-doc` `w-commit` `w-ui-*`） | `plugin/*/commands/` |
 | MCP 工具 | `awf-state` 20 · `awf-session` 7 · `awf-oneshot` 1 | `plugin/core/mcp/` |
 | HTTP API | 36 条路由 | 见 `api.md` |
-| 真机回归 case | 14（`npm run test:real -- --case all`） | `tests/regression/fullflow-regression.mjs` |
+| 真机回归 case | 15（`npm run test:real -- --case all`） | `tests/regression/fullflow-regression.mjs` |
 
 ---
 

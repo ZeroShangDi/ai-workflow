@@ -193,6 +193,8 @@ server 为常驻进程（由 CLI 惰性拉起、多项目复用）。`process` �
 
 > 注：`/ui` 等未列入 `PAGE_PATHS` 的路径不在此处理，落到 §4 静态托管判定。
 
+> **页面怎么来的**（四视图职责、`?p` 取数、模型/视图分层、构建链）见 `web.md`；本节只讲 server 怎么把产物送出去。
+
 ### 3.2 `POST /hook` —— Claude Code hook 回调
 
 hook 网关（`gateway.cjs`）把 stdin 的 hook JSON 原样 POST 到此端点，并把响应里的 `ccOutput` 透传回 stdout。
@@ -465,6 +467,7 @@ hook 网关（`gateway.cjs`）把 stdin 的 hook JSON 原样 POST 到此端点�
 `GET` 请求若未命中任何显式 API 路由，进入静态托管（`static.cjs` 的 `createStaticHost`）。
 
 **根目录**：`CC_WEB_PUBLIC` env（可覆盖，测试用）|| 默认 `src/server/public`（`npm run build` 构建 `web/` 而来）。
+> 前端工程本身（结构 / 四视图 / 取数 / 构建触发点）见 `web.md`；本节是**服务端**侧的托管规则。
 
 **解析规则**（`resolve(urlPath)`）：
 

@@ -143,16 +143,16 @@ description: >
 ## 4. Bug 记录
 
 - **读者 / 用途**：修复者 / 复盘；踩坑记忆，同样的错不犯第二次
-- **位置 / 命名 / frontmatter**：见 `.awf/README.md`（`.awf/bugs/NNN-short-slug.md`；frontmatter：`id` / `title` / `status` / `severity` / `source.*` / `labels` / `created` / `resolved`）
+- **位置 / 命名 / 元数据**：见 `.awf/README.md`（`.awf/bugs/<slug>.md`，**不编号**；首行标题下为 `- <键>: <值>` 元数据块：`状态`（必填，**自由文本、不做枚举**）/ `类型` / `严重度` / `发现` / `关联`）
 - **创建时机**：`awf run` 执行中发现缺陷即记
-- **更新时机**：状态流转 `open → confirmed → in_fix → resolved`（可旁路 `wontfix` / `duplicate`）
-- **正文**：现象 → 复现步骤 → 根因分析 → 修复方案 → 关联
-- 需跨任务跟踪时，在 `issues/` 建对应 Issue 并 `related` 双向关联
+- **更新时机**：改 `状态` 那一行的措辞（写清「修到哪一步」+ 时点），历史不删改
+- **正文**：现象 → 根因 → 修复 / 处置 → 关联
+- 需跨任务跟踪时，在 `issues/` 建对应 Issue 并双向关联（bugs 无编号，从 Issue 侧按路径引用）
 
 ## 5. 问题记录（Issue）
 
 - **读者 / 用途**：决策者；阻塞 / 待决策 / 风险跟踪
-- **位置 / 命名 / frontmatter**：见 `.awf/README.md`（`.awf/issues/NNN-short-slug.md`；frontmatter：`id` / `title` / `status` / `labels` / `assignee` / `milestone` / `priority` / `created` / `updated` / `deps` / `related`）
+- **位置 / 命名 / frontmatter**：见 `.awf/README.md`（`.awf/issues/NNN-short-slug.md`；frontmatter：`id` / `title` / `status` / `labels`（**自由取值、不做枚举**，建议优先取核心集）/ `assignee` / `milestone` / `priority` / `created` / `updated` / `deps` / `related`）
 - **创建时机**：阻塞问题 / 待决策事项 / 风险出现时即记
 - **更新时机**：状态流转 `open → in_progress → resolved`（可旁路 `wontfix` / `duplicate`）
 - **正文**：描述 → 影响 → 选项/权衡 → 决议
@@ -212,7 +212,7 @@ description: >
 - **读者 / 用途**：运行后复盘的人；run 过程可追溯
 - **位置**：`.awf/decisions/`（独立目录，区别于 `docs/discuss/` 的人为架构决策）
 - **定位**：`awf run` 运行过程中的辅助决策记录，供人**运行后复盘**查看，不并入 issues 跟踪
-- **命名 / frontmatter**：见 `.awf/README.md` 的 `decisions/` 章节（待补）
+- **落点 / 命名**：见 `.awf/README.md` 的 `decisions/` 章节 —— `.awf/decisions/runs/<runStamp>.jsonl`（**一次 run 一个文件、追加式**，由 `src/server/decision-store.cjs` 写；不按「一决策一文件」拆分，故无 frontmatter）
 - **创建时机**：AI 在运行期做出辅助决策时即记
 - **更新时机**：append-only
 
@@ -279,8 +279,8 @@ description: >
 |----|------|--------|
 | 运行时状态 | `.awf/state.json` | awf-state MCP tools |
 | 运行配置 | `.awf/config.json` | init / 手工 |
-| 版本归档 | `.awf/versions/vX/state.json` | awf run FINISH 快照 |
-| 运行日志 | `.awf/logs/YYYY-MM-DD-HHmmss/`（run.log / phases.json / errors.json / metrics.json） | CLI/hooks 自动捕获 |
+| 版本归档 | `.awf/versions/<version>-<timestamp>.json`（扁平文件，非「每版本一个文件夹」） | awf run FINISH 快照 |
+| 运行日志 | `.awf/logs/{version}-{ts}/`（main.log + agents/；另有顶层 server.log / hook-gateway.log / subagent-events.jsonl / run-meta.json） | server / hooks 自动捕获 |
 | 计划产物 | `.awf/plan/`（discussion / wbs） | awf-plan-* skills |
 | 跨阶段上下文 | `.awf/context/handoff.md` | code-context-onboard skill |
 

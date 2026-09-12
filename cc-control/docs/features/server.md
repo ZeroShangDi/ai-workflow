@@ -163,6 +163,8 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 ### 6. 静态托管（web/ 构建产物）
 
 - 页面路径集合 `PAGE_PATHS`（`server.cjs:807`）统一处理：读 `webIndexHtml()` = `fs.readFileSync(<webPublicRoot>/index.html)`。
+- **前端工程本身**（工程结构 / 四视图职责 / `?p` 取数 / 事件驱动 / 构建链）见 `web.md`。
+
 - `webPublicRoot()` = `process.env.CC_WEB_PUBLIC || src/server/public`（`server.cjs:795`）。
 - **产物缺失 → 503 + 告警**：`console.warn('[web] 前端产物缺失：…请运行 npm run build')`，响应体含 `expected` 路径（`server.cjs:889-895`）——不给空白页、不静默 404。
 - GET 兜底：`webHostInstance()` = `createStaticHost({ root, aliases:{ '/':'index.html' }, spa:'index.html' })`（`src/server/static.cjs`）；命中即响应，无扩展名前端路由 SPA 回退 `index.html`。

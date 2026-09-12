@@ -70,7 +70,8 @@ if [ -n "${CC_SID:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_SID=\"$CC_SID\""; fi
 
 - `tests/integration/bootstrap.test.js` TC10/TC11：断言 tmux `new-session` 命令行携带
   `CC_SESSION/CC_WORKDIR/CC_PROJECT/CC_PORT/CC_AWF_STATE_SERVER`，且未提供的变量不出现空赋值。
-- `tests/sandbox/fullflow-regression.mjs` 新增「run 会话 env 指向本项目」检查（取 tmux pane 进程 env，
+- 真机回归 harness 新增「run 会话 env 指向本项目」检查（取 tmux pane 进程 env，
   与 `ensureSession` 同用 realpath），dual 另加「两 run 会话 env 不串（CC_PROJECT 互异）」。
+  当时路径为 `tests/sandbox/fullflow-regression.mjs`，该 harness **已归位 `tests/regression/fullflow-regression.mjs`**（T1-098）。
 - 修复后真 run 重跑：single/gate 全绿（修复前 gate 卡在第二次派发的 `still busy (ready timeout)`）。
 - 全量 `npm test`：102 文件 / 858 例绿。

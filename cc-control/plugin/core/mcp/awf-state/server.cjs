@@ -99,6 +99,10 @@ function httpJson(method, pathname, obj) {
       headers: { 'content-type': 'application/json' },
     }, (r) => {
       let raw = '';
+      // 必须显式 utf8：不设编码时 data 给的是 Buffer，逐块 `raw += Buffer` 会对每个 chunk 单独
+      // toString —— 多字节字符跨 chunk 边界即被切成 U+FFFD。state.json 从几十 KB 长到几百 KB 后，
+      // 读取结果必然与磁盘指纹不一致，SERVER_MODE 下每次写都被 CAS 判为冲突（409）。见 .awf/bugs/。
+      r.setEncoding('utf8');
       r.on('data', (c) => { raw += c; });
       r.on('end', () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } });
     });

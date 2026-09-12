@@ -7,7 +7,7 @@
 ## 来源
 
 - 提炼自 `docs/discuss/subagent-settlement-postmortem.md`（0.1.3 run 多 Agent 落账链路 4 层根因复盘）
-- 相关实现：`src/server/server.cjs`、`src/cli/run-batch.js`（修复落地）
+- 相关实现：`src/server/server.cjs`、`src/server/batch-transport.cjs`（多 agent 传输；v0.2.0 起由此承载。当时落地的 `src/cli/run-batch.js` **已随控制平面收敛删除**——见 `docs/features/run-domain.md`）
 
 ## 用法
 

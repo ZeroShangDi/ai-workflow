@@ -73,7 +73,7 @@ function createSessionChannel({
    * 收尾协商 — 校验任务是否 done，未 done 则补发收尾 prompt 再追问。
    *
    * 判据不是「问了几轮」，而是「CC 是否还在产出」（对齐
-   * docs/bugs/timeout-must-confirm-no-cc-change.md：确认无变化才算失败）：
+   * .awf/bugs/timeout-must-confirm-no-cc-change.md：确认无变化才算失败）：
    * 每轮记 session transcript 增量，明显超过提示词体量 → 这一轮它在真干活 → 连续无产出计数清零；
    * 只有连续 MAX_SETTLE_ROUNDS 轮毫无产出且仍未结算，才标 blocked 跳过。
    * SETTLE_MAX_TOTAL_ROUNDS 为绝对保险丝（防「一直产出又永不结算」）。

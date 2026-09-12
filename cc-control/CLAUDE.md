@@ -46,7 +46,7 @@ cc-control/
   scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
   tests/                   # unit / integration / eval / fixtures
   sandbox/                 # 测试沙箱（gitignored）
-  docs/                    # features/issues/bugs/logs/discuss 五类项目文档
+  docs/                    # features（功能文档/测试用例）+ discuss + reuse + evals + CHANGELOG
 ```
 
 ## 核心编排流程
@@ -227,14 +227,16 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 | `awf_mode` | 设置运行模式（idle/plan/run） |
 | `awf_version` | 更新 state.json 版本号 |
 
-### awf-session（5 tools）— tmux 生命周期观测
+### awf-session（7 tools）— tmux 生命周期观测
 
 | Tool | 用途 |
 |------|------|
 | `awf_session_status` | 查询 session ready/busy 状态 |
 | `awf_capture_pane` | 抓取 tmux pane 内容 |
-| `awf_await_choice` | 通知 CLI 需要用户做选择 |
-| `awf_await_input` | 通知 CLI 需要用户自由输入 |
+| `awf_session_intervene` | w-monitor 在 CLI 已 pause 后向 tmux Claude Code 发送修复提示（服务端强制校验 mode=pause） |
+| `awf_session_interrupt` | w-monitor 在 CLI 已 pause 后中断 tmux Claude Code 当前响应（Ctrl-C；仅作升级修复） |
+| `awf_await_choice` | 【已停用】通知 CLI 需要用户做选择 |
+| `awf_await_input` | 【已停用】通知 CLI 需要用户自由输入 |
 | `awf_context_ready` | 通知 CLI：上下文压缩快照已就绪（已按 code-context-onboard 写入 .awf/context/handoff.md）；CLI 将 /clear 并注入快照给下一任务，须在写完快照后调用 |
 
 ### awf-oneshot（1 tool）— 无状态 LLM 调用
@@ -297,7 +299,7 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
 | `plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |
 | `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 20 个 tools；动态规划核心位于 server |
-| `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 5 个 tools |
+| `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 7 个 tools |
 | `plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
 | `plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
@@ -313,14 +315,14 @@ Personal preferences stored in the target project's `.claude/user/`, NOT committ
 ```
 docs/
 ├── features/     # 功能文档 + 测试用例（扁平 <name>.md + <name>.test.md）+ 开发日志（.log.md）
-├── discuss/      # 决策记忆（人）、讨论记录、方案对比、架构决策
+├── discuss/      # 决策记忆（人）、讨论记录、方案对比、架构决策（历史归档在 `_archived/`）
 ├── reuse/        # 可复用资源
-├── CHANGELOG.md  # 项目级版本变迁（重点概括）
-└── reference/    # 参考 / 草稿
+├── evals/        # 能力测评基线数据
+└── CHANGELOG.md  # 项目级版本变迁（重点概括）
 
 .awf/
 ├── issues/       # 问题记录（等价 GitHub Issues）
-├── bugs/         # 缺陷记录
+├── bugs/         # 缺陷记录（Bug 的唯一落点，不在 docs/ 下另开）
 ├── decisions/    # AI 运行期决策记录（供人复盘）
 ├── reports/      # 测试 / 审查 / 性能 / lint / 汇总报告
 └── state.json    # 运行时状态（awf run 读写）

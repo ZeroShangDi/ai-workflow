@@ -2,7 +2,7 @@
 
 > **复盘对象**：v0.2.0「全量一次性架构重构」—— 由 AI 在 `awf run` 编排下主导完成，人只做裁定。
 > **格式**：Stable / Improve / Experiment（默认格式）+ 卡点 / 边界决策 / 验证结论三节留档。
-> **素材**：`.awf/issues/001–004`、`docs/bugs/` 与 `.awf/bugs/` 共 9 条、`.awf/reports/`（test/review/perf/lint/summary）、
+> **素材**：`.awf/issues/001–004`、`.awf/bugs/` 共 9 条（原 8 条在 `docs/bugs/`，2026-09-12 按 T3-010-F1 归并到唯一落点）、`.awf/reports/`（test/review/perf/lint/summary）、
 > `docs/discuss/planned-architecture-landing.md`、`docs/discuss/architecture-v0.2.0.md`、`docs/CHANGELOG.md`。
 > **规模**：167 个 WBS 节点 / 153 个任务（145 done）· 8 个模块门禁 + 1 个模块门禁两次返工 + 1 个全量真机门禁 ·
 > 87 个生产文件受结构门禁约束 · 36 份功能文档 + 1 份架构终稿 · 真机回归 13 case × 150 断言。

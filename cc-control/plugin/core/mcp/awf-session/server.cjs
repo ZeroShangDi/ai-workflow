@@ -46,6 +46,7 @@ function httpPost(path, body) {
     };
     const req = http.request(options, (res) => {
       let raw = '';
+      res.setEncoding('utf8'); // 见 awf-state/server.cjs httpJson：不设编码会切碎多字节字符
       res.on('data', (c) => (raw += c));
       res.on('end', () => {
         try { resolve(JSON.parse(raw)); } catch { resolve(raw); }
@@ -63,6 +64,7 @@ function httpGet(path) {
     const url = new URL(path, baseUrl());
     const req = http.get({ hostname: url.hostname, port: url.port, path: url.pathname + (url.search || '') }, (res) => {
       let raw = '';
+      res.setEncoding('utf8'); // 同上：capture pane 等大中文响应会被切碎
       res.on('data', (c) => (raw += c));
       res.on('end', () => {
         try { resolve(JSON.parse(raw)); } catch { resolve(raw); }

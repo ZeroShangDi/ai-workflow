@@ -31,8 +31,9 @@ import { CYAN, GREEN, YELLOW, RED, DIM, RESET } from '../lib/ui/colors.js';
  *   - 重连（T1-059）：--resume/--attach 复用现有 server/tmux 现场；driveSingle 先探宿主——
  *     有活跃 run（CLI 中断但宿主仍在驱动）→ 挂接续观（不重复提交，读 store 落盘进度展示）；
  *     宿主空闲 → resume 提交续跑 store 剩余 pending / attach 报错。--resume 对暂停闩锁保持原语义。
- *   - 多 agent（--multi-agent）：宿主 batch 传输（inbox/subagent 落账）尚未接线，
- *     暂保留 cli/run-batch.js live 路径（run.js 不实现调度，只路由），host batch 接线后切回。
+ *   - 多 agent（--multi-agent）：**宿主 batch 传输已接线**（`server.cjs` batchTransportFor →
+ *     `src/server/batch-transport.cjs`），run.js 只提交 `mode:'batch'`、不实现调度。当时
+ *     「暂保留 `cli/run-batch.js` live 路径」的说法**已失效**——该模块随控制平面收敛删除。
  *   - 决策闸门/决策续跑：宿主单 agent 通道只等待任务在 state 自我结算；decisionPending/
  *     decisionResume 的中继仍由本 CLI observe 轮询负责（与旧 executeTask 语义一致）。
  */

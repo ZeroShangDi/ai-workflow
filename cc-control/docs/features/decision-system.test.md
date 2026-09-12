@@ -5,7 +5,7 @@
 > 测试文件：`tests/integration/decision-gate.test.js` / `tests/integration/awf-state-server.test.js` / `tests/unit/{run-config,decision-config,decision,decision-instruction,decision-store,dynamic-planning,gateway,run-resume,run-logger}.test.js` / `sandbox/decision-smoke/smoke.cjs`
 > 用例编号与验收标准（T1-028 功能文档「验收标准」7 条）可追溯
 >
-> **决策入口换代**：旧入口 `awf_await_choice` / `awf_await_input` 已于 2026-09-10 在资产层停用（`awf-run-decision` 技能标注 + 提示词改输出 `<AWF_DECISION_REQUIRED>`）；本文件只覆盖决策门阀（新代）。停用说明见 `plugin/core/skills/awf-run-decision/SKILL.md`、`docs/bugs/decision-entry-two-generations.md`（T1-106，互斥化 pending）。
+> **决策入口换代**：旧入口 `awf_await_choice` / `awf_await_input` 已于 2026-09-10 在资产层停用（`awf-run-decision` 技能标注 + 提示词改输出 `<AWF_DECISION_REQUIRED>`）；本文件只覆盖决策门阀（新代）。停用说明见 `plugin/core/skills/awf-run-decision/SKILL.md`、`.awf/bugs/decision-entry-two-generations.md`（T1-106，互斥化 pending）。
 
 ## 测试场景总览
 

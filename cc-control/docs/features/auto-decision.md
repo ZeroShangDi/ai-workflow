@@ -7,7 +7,7 @@
 
 ## 定位（与决策门阀的分工）
 
-本项目存在两条**应互斥、当前共存**的决策链（见 `docs/bugs/decision-entry-two-generations.md`、T1-106）：
+本项目存在两条**应互斥、当前共存**的决策链（见 `.awf/bugs/decision-entry-two-generations.md`、T1-106）：
 
 | 链 | 谁做决定 | 主文档 |
 |---|---|---|

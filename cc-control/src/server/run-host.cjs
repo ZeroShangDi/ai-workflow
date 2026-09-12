@@ -2,11 +2,11 @@
 /**
  * run-host.cjs — server 侧常驻 run host（编排宿主机；可启动/停止、可注入测试）
  *
- * 现状：run 编排（任务选择/阶段推进/多 agent 调度）整体在 CLI（cli/run.js 单 agent、
- * cli/run-batch.js 多 agent），server.cjs 只是 relay 会话服务器。W3-003 方向是让
- * server 常驻托管 run：CLI 薄化为「提交 run → 轮询事件/状态 → 应答 → 收尾」。
+ * 现状：run 编排（任务选择/阶段推进/多 agent 调度）**已整体在本模块**，CLI 只是
+ * 「提交 run → 订阅事件/状态 → 应答 → 收尾」的薄入口（`src/cli/run.js`）；多 agent 传输
+ * 在 `src/server/batch-transport.cjs`（承自重构前的 `cli/run-batch.js`，该模块已删除）。
  *
- * 本模块即该迁入的宿主基座（T1-105 前置能力）：
+ * 宿主基座的能力面（T1-105 起逐项落地，现均已接线）：
  *   - 常驻：createRunHost(...) 产出进程内宿主，start()/stop() 管理宿主生命周期；
  *   - 可注入：run-driver（阶段链/门禁锚点）、run-scheduler（多 agent）、state 原语、
  *     per-task executor（模型通道）全部经注入组装，宿主自身零 import 引擎层逻辑
@@ -19,9 +19,9 @@
  *   - 观测面：每 run 状态快照（snapshot）+ 按序事件轮询（pollEvents，afterSeq 游标），
  *     server 挂 /run/* 端点后即成为 CLI 订阅 run 的唯一入口。
  *
- * 不做（保留给后续任务）：CLI live driver 切换（T1-058）、剩余 state/gate 直写迁移
- * （T1-061）、真 run/双 run 回归（T1-098）。宿主在无人 submit 前保持空闲，零副作用，
- * 不改写 cli/run.js 与 cli/run-batch.js 的 live 路径。
+ * 已完成的迁入项（原「不做，保留给后续任务」）：CLI live driver 切换（T1-058）、剩余
+ * state/gate 直写迁移（T1-061）、真 run/双 run 回归（T1-098）——均已落地。宿主在无人
+ * submit 前保持空闲，零副作用。
  */
 
 /** 宿主自身生命周期状态 */

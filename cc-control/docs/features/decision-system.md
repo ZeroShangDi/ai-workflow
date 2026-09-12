@@ -16,7 +16,7 @@
 ### 决策入口换代（2026-09-10）
 
 - **现状（目标形态）**：需要决策时，AI 把问题作为**本回合最后一段**用 `<AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED>` 包裹输出 → Stop 闸门捕获 → 当前会话切 DC 自决 → 产出 `<AWF_DECISION_RESULT>…</…>` → 落盘 + 续跑。`AskUserQuestion` 是同一闸门的另一个入口（gate 开 → deny 并指引改用决策标签）。
-- **旧入口已停用（资产层）**：`awf_await_choice` / `awf_await_input` 两个 MCP 入口的方案文档 `plugin/core/skills/awf-run-decision/SKILL.md` 已标「已停用 2026-09-10」；`awf init` 不再向项目 `CLAUDE.md` 注入「必须调 awf_await_choice」模板，各提示词改为输出 `<AWF_DECISION_REQUIRED>`（任务 T1-106、`docs/bugs/decision-entry-two-generations.md`）。
+- **旧入口已停用（资产层）**：`awf_await_choice` / `awf_await_input` 两个 MCP 入口的方案文档 `plugin/core/skills/awf-run-decision/SKILL.md` 已标「已停用 2026-09-10」；`awf init` 不再向项目 `CLAUDE.md` 注入「必须调 awf_await_choice」模板，各提示词改为输出 `<AWF_DECISION_REQUIRED>`（任务 T1-106、`.awf/bugs/decision-entry-two-generations.md`）。
 - **注意代码现状**：MCP 工具（`plugin/core/mcp/awf-session/server.cjs` 的 `awf_await_choice`/`awf_await_input`）与 `/choice` `/ask` `/respond` 端点、server `decisionPending` 槽、CLI `handleDecision` 仍存在于代码中；T1-106「两条链互斥化」为 **pending（用户裁定暂缓）**，故旧链代码未删除，只是**当前提示词资产不再驱动它**。
 
 ## 功能描述
