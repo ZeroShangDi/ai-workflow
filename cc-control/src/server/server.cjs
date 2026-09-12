@@ -888,6 +888,10 @@ const server = http.createServer(async (req, res) => {
 
   // 写类端点缺 ?p → 400，绝不兜底到 boot（T1-110）
   if (writeNeedsProject(req.method, pathname) && !url.searchParams.get('p')) {
+    // 以前这里**不留痕**：hook 链整条断掉时，server 侧只剩「一条 [hook] 都没有」，分不清是没发还是被丢
+    // （issue 009 —— run 卡 still busy 死亡却查不到原因）。故必须响。
+    console.warn(`[hook] 拒绝写请求 ${req.method} ${pathname}：缺 ?p（来源 ${req.socket?.remoteAddress || '?'}）。`
+      + '若这是 /hook，说明 hook 网关没拿到 CC_PROJECT（bootstrap 注入缺失）');
     return send(res, 400, {
       ok: false,
       error: `写类端点缺 ?p：拒绝兜底到 boot 项目（${registry.bootRoot}）。请显式带 ?p=<projectRoot>；`
