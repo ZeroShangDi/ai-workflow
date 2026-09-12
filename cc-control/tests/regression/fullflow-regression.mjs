@@ -24,6 +24,13 @@
  *   - lifecycle: 常驻 server 空闲回收（T1-109）——小空闲阈值下探活 → 静置 → 端口关闭 + 进程退出
  *   - web      : 前端可达与取数（T1-109）——页面由构建产物托管/未构建时 503 + 告警（二态断言）、
  *                四视图取数 API 形状、`?p` 项目切换不串、决策 override 端点落盘、旧静态资产已退役
+ *   - dynamic-planning: 运行期结构变更的**跨进程边界链路**（真 server + 真 awf-state MCP，不派生模型会话）——
+ *                经 MCP JSON-RPC 提案 → proposal 落盘 + 事件追加 + hold 挡住调度器就绪池 →
+ *                人工批准应用（新任务先于目标、依赖重连、hold 释放）→ 无关变化放行而相关变化被拒
+ *                （闭包指纹 + 锁内重放）→ 拒绝路径同样释放 hold
+ *   - dynamic-planning-run: 同一能力的**运行链路（全真）**（真 tmux + 真 Claude）——T1 执行期间 AI 自己
+ *                从 task 图里找出 T3 的缺口并调用 `awf_dynamic_plan` 补前置；hold 只挡目标、并行任务
+ *                仍继续；人在 **run 进行中**批准；**同一个 run** 跑完且前置先于目标执行
  *
  * 范围边界（plan 腿）：`awf plan` 是**交互式**入口（src/cli/plan.js → launchInteractiveClaude，
  * stdio inherit；w-plan 全流程含人工 Q&A，且 state.json 只在规划末尾落一次），headless 无法
@@ -47,12 +54,14 @@
  *   --timeout <ms> 单 case 超时（默认 10 分钟）
  *   --port <n>     隔离端口跑（自起 server + 插件副本）：测服务端改动时用，见 §隔离端口
  *   --list         列出注册表内全部 case 后退出
- *   --out <path>   全量汇总证据的 JSON 输出路径
+ *   --out <path>   汇总证据的 JSON 输出路径（缺省：全量为 evidence-all.json，定向为 evidence-<case>-summary.json）
  *
  * 证据落盘约定（sandbox/regression/，gitignore 产物区）：
  *   evidence-<case>.json  每个 case 一份，**跑完即写**（抛错也写，记为失败断言）——
  *                         定向跑与全量跑产物同名同形，便于横向对比历史
- *   evidence-all.json     全量跑的汇总（各 case 结果 + 总计），--out 可改路径
+ *   evidence-all.json     全量跑的汇总（各 case 结果 + 总计）；**只有 `--case all` 会写它**，
+ *                         定向跑写 evidence-<case>-summary.json，避免覆盖上一轮全量证据
+ *   --out <path>          可改汇总输出路径（定向跑时也会覆盖上面的缺省命名）
  *
  * 注意：本脚本从「另一个 run 的会话内」执行时，父 run 会把 CC_SESSION 等变量 export 给
  * 本进程；子 run 必须用 sanitizedEnv() 剔除，否则子 run 会话名与共享 server 的装配不一致。
@@ -66,6 +75,9 @@ import http from 'node:http';
 import net from 'node:net';
 import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
+// 就绪池/被 hold 判据取自**调度器自己用的那个模块**（state.js），不在这里另写一份近似。
+// 「动态规划 hold 真的挡住了派发」只能用调度器的判据来证，否则证的是 harness 的复述。
+import { heldTaskIds, peekReadyTasks } from '../../src/lib/state.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 // 产物落仓库 sandbox/ 下（gitignore 的产物区）：源码入库、生成物不入库
@@ -1249,48 +1261,86 @@ function killPid(pid, signal = 'SIGKILL') {
 }
 
 /**
- * 驱动一个 MCP server：stdio 逐行 JSON-RPC，initialize → tools/list，取工具名。
- * 与真 MCP 客户端同一握手，但不依赖 Claude —— 纯工具面冒烟。
+ * 常驻 MCP stdio 客户端：同一子进程内做多次 `tools/call`。
+ * 与真 MCP 客户端同一握手（initialize → notifications/initialized → tools/call），不依赖 Claude。
+ * 本仓库 MCP 一律用 `textResult(JSON)` 回包，故 `call()` 顺带把 content[0].text 解析出来。
  */
-function mcpToolNames(serverDir, { timeoutMs = 15000 } = {}) {
+function startMcpClient(serverDir, { env = {}, timeoutMs = 20000 } = {}) {
   const repo = path.dirname(path.dirname(AWF_CLI));
   const proc = spawn('node', [path.join(repo, 'plugin', 'core', 'mcp', serverDir, 'server.cjs')], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: sanitizedEnv(),
+    env: sanitizedEnv(env),
   });
-  return new Promise((resolve) => {
-    let buf = '';
-    const names = [];
-    let done = false;
-    const finish = (extra = {}) => {
-      if (done) return;
-      done = true;
-      killPid(proc.pid);
-      resolve({ names, ...extra });
-    };
-    const timer = setTimeout(() => finish({ timedOut: true }), timeoutMs);
-    proc.stdout?.on('data', (c) => {
-      buf += c.toString();
-      let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i);
-        buf = buf.slice(i + 1);
-        if (!line.trim()) continue;
-        let msg;
-        try { msg = JSON.parse(line); } catch { continue; }
-        if (msg.id === 2) {
-          clearTimeout(timer);
-          for (const t of msg.result?.tools || []) names.push(t.name);
-          finish();
-        }
-      }
+  let buf = '';
+  let stderrText = '';
+  let seq = 0;
+  const pending = new Map();
+
+  proc.stdout?.on('data', (c) => {
+    buf += c.toString();
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      if (!line.trim()) continue;
+      let msg;
+      try { msg = JSON.parse(line); } catch { continue; }
+      const slot = pending.get(msg.id);
+      if (!slot) continue;
+      pending.delete(msg.id);
+      clearTimeout(slot.timer);
+      slot.resolve(msg);
+    }
+  });
+  proc.stderr?.on('data', (c) => { stderrText += c.toString(); });
+  proc.on('error', () => {});
+  const send = (o) => { try { proc.stdin.write(JSON.stringify(o) + '\n'); } catch { /* 进程已退 */ } };
+  const request = (method, params) => new Promise((resolve) => {
+    const id = ++seq;
+    const timer = setTimeout(() => { pending.delete(id); resolve({ error: { message: `MCP ${method} 超时` } }); }, timeoutMs);
+    pending.set(id, { resolve, timer });
+    send({ jsonrpc: '2.0', id, method, params });
+  });
+
+  const ready = (async () => {
+    await request('initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'awf-regression', version: '1' },
     });
-    proc.on('error', () => finish({ spawnError: true }));
-    const send = (o) => { try { proc.stdin.write(JSON.stringify(o) + '\n'); } catch { /* 进程已退 */ } };
-    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'awf-regression', version: '1' } } });
-    setTimeout(() => send({ jsonrpc: '2.0', method: 'notifications/initialized' }), 150);
-    setTimeout(() => send({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), 350);
-  });
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  })();
+
+  const call = async (name, args = {}) => {
+    await ready;
+    const msg = await request('tools/call', { name, arguments: args });
+    const text = msg?.result?.content?.[0]?.text;
+    let parsed = null;
+    if (typeof text === 'string') { try { parsed = JSON.parse(text); } catch { /* 非 JSON 文本 */ } }
+    return { transport: msg, parsed, text };
+  };
+
+  return {
+    call,
+    request,
+    close: () => killPid(proc.pid),
+    stderr: () => stderrText,
+    pid: proc.pid,
+  };
+}
+
+/**
+ * 驱动一个 MCP server：stdio 逐行 JSON-RPC，initialize → tools/list，取工具名。
+ * 与真 MCP 客户端同一握手，但不依赖 Claude —— 纯工具面冒烟。
+ */
+async function mcpToolNames(serverDir, { timeoutMs = 15000 } = {}) {
+  const client = startMcpClient(serverDir, { timeoutMs });
+  const msg = await client.request('tools/list', {});
+  const timedOut = !!msg?.error;
+  const names = (msg?.result?.tools || []).map((t) => t.name);
+  client.close();
+  // spawn 失败与握手超时在这里都表现为「拿不到 tools/list」，都该判失败
+  return { names, timedOut, spawnError: timedOut && names.length === 0 };
 }
 
 /** 播一条决策记录（前端决策视图要取的数据，不必为此跑一次真决策） */
@@ -1514,6 +1564,259 @@ async function caseWeb() {
 }
 
 /**
+ * 动态任务规划：**跨进程边界链路**（真 server + 真 awf-state MCP）。
+ *
+ * 为什么必须单独一个 case：能力文档 §9 把「真 server + 真 MCP」定为完成门槛 ——
+ * 单测与 MCP 集成测试都在**同进程**里直接调 service/HTTP，证不了 MCP 薄入口 → HTTP → server 能力
+ * 这条边界真的接通，也证不了 hold 落盘之后**调度器**真的不再派发。本 case 只走真实入口：
+ * 提案走 MCP 的 stdio JSON-RPC，批准/拒绝走 HTTP（人工入口刻意不暴露为 MCP tool），
+ * 不 import 任何 src/ 业务模块来代替它们 —— 唯一的例外是就绪池判据（见文件头 import 注释）。
+ *
+ * 覆盖（本 case 不起 tmux/claude，也不启动 run：这些是编排层事实，不需要模型参与）：
+ *   1. 提案 → proposal 文件落盘 + events.jsonl 追加 + state 装 hold
+ *   2. hold 生效：调度器就绪池把目标及其下游排除，且**计划本身还没变**
+ *   3. 同一项目第二个开放 proposal 被拒（第一版单开放约束）
+ *   4. 人工批准 → 原子应用：新任务先于目标、目标依赖重连、hold 释放；MCP 读到新图
+ *   5. 无关变化放行：提案后 state 被别处改动但落在受影响闭包之外（mode 切换）→ 批准仍应用，
+ *      且应用的是基于最新 state 的重放结果、不回退该改动
+ *   6. 相关变化拦住：受影响闭包内的目标被别处结算 → conflicted，**不覆盖**最新 state
+ *   7. 人工拒绝 → 释放 hold 且计划不变
+ *   8. 非 server 模式下 MCP 拒绝本工具（能力只在 server 侧存在）
+ */
+async function caseDynamicPlanning() {
+  const projectRoot = makeProject('dynamic-planning', {
+    tasks: taskSet('dev2'),
+    summary: '动态规划跨进程边界（真 server + 真 MCP）',
+  });
+  const port = await pickFreePort(SERVER_PORT + 500);
+  const srv = startServer(projectRoot, { port });
+  const up = await waitServerUp(port);
+
+  const proposalsDir = path.join(projectRoot, '.awf', 'dynamic-planning', 'proposals');
+  const eventsPath = path.join(projectRoot, '.awf', 'dynamic-planning', 'events.jsonl');
+  const readProposalFile = (id) => readJson(path.join(proposalsDir, `${id}.json`));
+  const readEvents = () => {
+    try {
+      return fs.readFileSync(eventsPath, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+    } catch { return []; }
+  };
+  const proposalFiles = () => (fs.existsSync(proposalsDir) ? fs.readdirSync(proposalsDir).filter((n) => n.endsWith('.json')) : []);
+  const insertOp = (id, targetId, file) => ({
+    type: 'insert_task',
+    relation: { type: 'prerequisite_for', targetTaskId: targetId },
+    task: {
+      id,
+      title: `补 ${targetId} 缺失的前置：${file}`,
+      prompt: `执行 /ai-workflow-code:w-dev ${id}：创建 ${file}，导出 makeAdder(n)，`
+        + `完成后用 awf_task_complete 把 ${id} 落账为 done。`,
+      acceptance: `${file} 存在且导出 makeAdder`,
+      plannedFiles: [file],
+    },
+  });
+  const holdIdsOf = (state) => Object.values(state?.dynamicPlanning?.holds || {}).flatMap((h) => h.taskIds || []);
+
+  // 真 MCP：以 server 单写者模式运行（CC_AWF_STATE_SERVER=1），端点与项目根全由 env 决定，
+  // 与 run 会话内注入的那套同源（plugin/core/mcp/awf-state/server.cjs:69-77）。
+  const mcp = startMcpClient('awf-state', {
+    env: { AWF_PROJECT_ROOT: projectRoot, CC_AWF_STATE_SERVER: '1', CC_PORT: String(port) },
+  });
+
+  // 0) MCP 确实在 server 模式并读到本项目 state —— 否则后面所有断言都测不到边界
+  const read0 = await mcp.call('awf_read_state', {});
+  const read0Ids = (read0.parsed?.tasks || []).map((t) => t.id);
+  const readyBeforePropose = peekReadyTasks(readStateSafe(projectRoot)).map((t) => t.id);
+
+  // 1) 提案（MCP 薄入口 → HTTP → server 能力）
+  const prop1 = await mcp.call('awf_dynamic_plan', {
+    reason: 'T2 依赖的累加器能力缺失，补一个前置任务',
+    trigger: 'ai_runtime',
+    requestedBy: 'regression',
+    operations: [insertOp('T2-PRE', 'T2', 'src/adder.js')],
+  });
+  const p1 = prop1.parsed?.proposal;
+  const p1Id = p1?.proposalId;
+  const p1File = p1Id ? readProposalFile(p1Id) : null;
+  const stateAfterPropose = readStateSafe(projectRoot);
+  const readyAfterPropose = peekReadyTasks(stateAfterPropose).map((t) => t.id);
+  const t2AtPropose = (stateAfterPropose?.tasks || []).find((t) => t.id === 'T2');
+  const eventsAfterPropose = readEvents();
+  const heldAfterPropose = holdIdsOf(stateAfterPropose);
+  const idsAtPropose = new Set((stateAfterPropose?.tasks || []).map((t) => t.id));
+
+  // 2) 同一项目第二个开放 proposal 必须被拒（第一版「单开放」约束）
+  const propDup = await mcp.call('awf_dynamic_plan', {
+    reason: '重复提案应被拒',
+    operations: [insertOp('T1-PRE', 'T1', 'src/base.js')],
+  });
+  const filesAfterDup = proposalFiles();
+
+  // 3) MCP 读回 proposal（GET 面）；人工批准前状态仍为 awaiting_approval
+  const status1 = await mcp.call('awf_dynamic_plan_status', { proposalId: p1Id });
+
+  // 4) 人工批准（HTTP 人工入口，刻意不暴露为 MCP tool）→ 原子应用
+  const approve1 = await postToServer(`/run/dynamic-planning/proposals/${p1Id}/approve`, projectRoot,
+    { reviewer: 'regression', note: '边界链路验证' }, port);
+  const stateAfterApprove = readStateSafe(projectRoot);
+  const idsAfterApprove = (stateAfterApprove?.tasks || []).map((t) => t.id);
+  const t2AfterApprove = (stateAfterApprove?.tasks || []).find((t) => t.id === 'T2');
+  const readyAfterApprove = peekReadyTasks(stateAfterApprove).map((t) => t.id);
+  const readApplied = await mcp.call('awf_read_state', {});
+  const readAppliedIds = (readApplied.parsed?.tasks || []).map((t) => t.id);
+  const readAppliedT2 = (readApplied.parsed?.tasks || []).find((t) => t.id === 'T2');
+
+  // 5) **无关变化放行**：提案后 state 被别处改动，但改动落在受影响闭包之外（这里把 mode 切成 run）
+  //    → 批准仍应应用，且应用的是基于最新 state 的重放结果，不得回退这次改动。
+  //    （旧口径拿整份 state 哈希做 CAS，这种前进必然打成 conflicted，真机 case
+  //     `dynamic-planning-run` 实测踩到；判据已改为「受影响闭包 + plan.acceptanceCriteria」。）
+  const prop2 = await mcp.call('awf_dynamic_plan', {
+    reason: '为 T1 补前置',
+    operations: [insertOp('T1-PRE', 'T1', 'src/base.js')],
+  });
+  const p2Id = prop2.parsed?.proposal?.proposalId;
+  const perturbed = await postToServer('/run/state/mode', projectRoot, { mode: 'run' }, port);
+  const stateBeforeApprove2 = readStateSafe(projectRoot);
+  const approve2 = await postToServer(`/run/dynamic-planning/proposals/${p2Id}/approve`, projectRoot,
+    { reviewer: 'regression', note: '无关变化应放行' }, port);
+  const stateAfterP2 = readStateSafe(projectRoot);
+  const t1AfterP2 = (stateAfterP2?.tasks || []).find((t) => t.id === 'T1');
+
+  // 6) **相关变化拦住**：这次动的是受影响闭包内的目标（模拟它被别处结算）
+  const prop3 = await mcp.call('awf_dynamic_plan', {
+    reason: '为 T2 再补一个前置（这条会被冲突拦下）',
+    operations: [insertOp('T2-PRE2', 'T2', 'src/adder2.js')],
+  });
+  const p3Id = prop3.parsed?.proposal?.proposalId;
+  const snapshot = (await getFromServer('/awf/state', projectRoot, port)).json;
+  (snapshot?.tasks || []).find((t) => t.id === 'T2').status = 'blocked';
+  const drifted = await postToServer('/run/state/apply', projectRoot, { state: snapshot }, port);
+  const approve3 = await postToServer(`/run/dynamic-planning/proposals/${p3Id}/approve`, projectRoot,
+    { reviewer: 'regression', note: '目标已被别处结算，应被拒' }, port);
+  const stateAfterConflict = readStateSafe(projectRoot);
+  const t2AfterConflict = (stateAfterConflict?.tasks || []).find((t) => t.id === 'T2');
+
+  // 7) 人工拒绝路径：释放 hold，计划不变
+  const prop4 = await mcp.call('awf_dynamic_plan', {
+    reason: '这条提案将被人工拒绝',
+    operations: [insertOp('T2-PRE3', 'T2', 'src/adder3.js')],
+  });
+  const p4Id = prop4.parsed?.proposal?.proposalId;
+  const reject4 = await postToServer(`/run/dynamic-planning/proposals/${p4Id}/reject`, projectRoot,
+    { reviewer: 'regression', note: '不需要这个前置' }, port);
+  const stateAfterReject = readStateSafe(projectRoot);
+
+  // 8) 非 server 模式下本工具不可用（能力只在 server 侧存在，MCP 不复制业务语义）
+  const bareMcp = startMcpClient('awf-state', { env: { AWF_PROJECT_ROOT: projectRoot } });
+  const barePlan = await bareMcp.call('awf_dynamic_plan', { reason: '无 server 模式', operations: [insertOp('X', 'T1', 'x.js')] });
+  bareMcp.close();
+
+  // 收尾：恢复 mode（步骤 5 把项目切成了 run），停掉本 case 自起的 server
+  await postToServer('/run/state/mode', projectRoot, { mode: 'idle' }, port);
+  mcp.close();
+  killPid(srv.pid);
+
+  const eventsAll = readEvents();
+  const eventNames = eventsAll.map((e) => e.event);
+
+  return {
+    case: 'dynamic-planning',
+    projectRoot,
+    server: { pid: srv.pid, port, up: up.ok },
+    proposals: { p1: p1Id, p2: p2Id, p3: p3Id, p4: p4Id },
+    readySets: { before: readyBeforePropose, afterPropose: readyAfterPropose, afterApprove: readyAfterApprove },
+    events: eventNames,
+    checks: [
+      check('server 起得来（/status 可达）', up.ok, `last=${up.last ?? ''}`),
+      check('MCP 以 server 模式读到本项目 state（跨进程边界成立）',
+        read0.parsed?.tasks?.length === 2 && read0Ids.includes('T1') && read0Ids.includes('T2'),
+        `parsed=${read0.parsed ? 'ok' : read0.text}`),
+
+      // 1) 提案
+      check('MCP 提案返回 ok 且未自动应用（approve_then_apply）',
+        prop1.parsed?.ok === true && prop1.parsed?.applied === false, prop1.text),
+      check('proposal 状态 awaiting_approval，nextAction 指向人工审批',
+        p1?.status === 'awaiting_approval' && p1?.nextAction?.type === 'human_approval', p1?.status),
+      check('对外不返回内部 proposedState（数据边界）', !!p1 && !('proposedState' in p1)),
+      check('proposal 文件落盘且内容一致',
+        !!p1File && p1File.proposalId === p1Id && p1File.status === 'awaiting_approval', p1Id),
+      check('events.jsonl 追加 proposal.awaiting_approval',
+        eventsAfterPropose.some((e) => e.event === 'proposal.awaiting_approval' && e.proposalId === p1Id),
+        eventNames.join(',')),
+      check('state 装上 hold，覆盖目标 T2（新增任务此刻还不存在，无需也无法被 hold）',
+        !!p1Id && heldAfterPropose.includes('T2'), JSON.stringify(heldAfterPropose)),
+      check('hold 不牵连未受影响的并行任务，也不出现幽灵 id',
+        !heldAfterPropose.includes('T1') && heldAfterPropose.every((id) => idsAtPropose.has(id)),
+        JSON.stringify(heldAfterPropose)),
+      check('hold 生效：调度器就绪池排除被 hold 的任务（用 state.js 判据）',
+        !readyAfterPropose.includes('T2') && !readyAfterPropose.includes('T2-PRE'),
+        `before=${readyBeforePropose.join(',')} after=${readyAfterPropose.join(',')}`),
+      check('批准前计划本身未被改写（只装了 hold）',
+        JSON.stringify(t2AtPropose?.deps || []) === '[]' && !(stateAfterPropose?.tasks || []).some((t) => t.id === 'T2-PRE')),
+
+      // 2) 单开放约束
+      check('同一项目第二个开放 proposal 被拒',
+        propDup.parsed?.ok === false && String(propDup.parsed?.error || '').includes(p1Id),
+        propDup.text),
+      check('被拒的重复提案没有留下文件', filesAfterDup.length === 1, filesAfterDup.join(',')),
+
+      // 3) MCP 读回
+      check('MCP 按 proposalId 读回提案',
+        status1.parsed?.ok === true && status1.parsed?.proposal?.proposalId === p1Id,
+        status1.text?.slice(0, 120)),
+
+      // 4) 批准应用
+      check('人工批准端点应用 proposal',
+        approve1.status === 200 && approve1.json?.ok === true && approve1.json?.proposal?.status === 'applied',
+        `status=${approve1.status} ${approve1.json?.error ?? approve1.json?.proposal?.status ?? ''}`),
+      check('新任务插在目标之前（稳定序列位置）',
+        idsAfterApprove.indexOf('T2-PRE') >= 0 && idsAfterApprove.indexOf('T2-PRE') < idsAfterApprove.indexOf('T2'),
+        idsAfterApprove.join(',')),
+      check('目标依赖已重连到新任务',
+        (t2AfterApprove?.deps || []).includes('T2-PRE'), JSON.stringify(t2AfterApprove?.deps)),
+      check('hold 已释放（无残留 dynamicPlanning）',
+        !stateAfterApprove?.dynamicPlanning, JSON.stringify(Object.keys(stateAfterApprove?.dynamicPlanning || {}))),
+      check('应用后就绪池含新任务、不含被阻塞的目标',
+        readyAfterApprove.includes('T2-PRE') && !readyAfterApprove.includes('T2'), readyAfterApprove.join(',')),
+      check('MCP 读回已应用的新图（server 单写者边界真的改了盘）',
+        readAppliedIds.includes('T2-PRE') && (readAppliedT2?.deps || []).includes('T2-PRE'), readAppliedIds.join(',')),
+      check('events.jsonl 追加 proposal.approved_and_applied',
+        eventsAll.some((e) => e.event === 'proposal.approved_and_applied' && e.proposalId === p1Id), eventNames.join(',')),
+
+      // 5) 无关变化不阻塞批准；6) 相关变化拦得住
+      check('提案后 state 被别处改动（mode 被切成 run），但改动在受影响闭包之外',
+        perturbed.status === 200 && stateBeforeApprove2?.mode === 'run', `mode=${stateBeforeApprove2?.mode}`),
+      check('无关变化不阻塞：批准仍然应用',
+        approve2.status === 200 && approve2.json?.proposal?.status === 'applied',
+        `status=${approve2.status} ${approve2.json?.proposal?.status ?? approve2.json?.error ?? ''}`),
+      check('应用的是基于最新 state 的重放结果，未回退无关改动',
+        stateAfterP2?.mode === 'run', `mode=${stateAfterP2?.mode}`),
+      check('重放后受影响闭包仍按提案落地（新任务先于目标、依赖重连、hold 释放）',
+        (stateAfterP2?.tasks || []).some((t) => t.id === 'T1-PRE')
+        && (t1AfterP2?.deps || []).includes('T1-PRE') && !stateAfterP2?.dynamicPlanning,
+        `T1.deps=${JSON.stringify(t1AfterP2?.deps)}`),
+      check('相关变化（目标被别处结算）被判 conflicted，不覆盖最新 state',
+        drifted.status === 200 && approve3.status === 200 && approve3.json?.proposal?.status === 'conflicted',
+        `apply=${drifted.status} approve=${approve3.status} ${approve3.json?.proposal?.status ?? approve3.json?.error ?? ''}`),
+      check('冲突后最新 state 未被 proposal 覆盖（目标仍是 blocked、无 T2-PRE2）',
+        t2AfterConflict?.status === 'blocked'
+        && !(stateAfterConflict?.tasks || []).some((t) => t.id === 'T2-PRE2'),
+        `T2=${t2AfterConflict?.status}`),
+      check('冲突后 hold 也被释放（不留死锁）', !stateAfterConflict?.dynamicPlanning),
+
+      // 7) 拒绝路径
+      check('人工拒绝端点生效',
+        reject4.status === 200 && reject4.json?.proposal?.status === 'rejected', `status=${reject4.status}`),
+      check('拒绝后计划不变且 hold 释放',
+        !(stateAfterReject?.tasks || []).some((t) => t.id === 'T2-PRE3') && !stateAfterReject?.dynamicPlanning),
+
+      // 8) 能力只在 server 侧
+      check('非 server 模式下 MCP 拒绝 awf_dynamic_plan',
+        barePlan.parsed?.ok === false && /requires state server mode/.test(String(barePlan.parsed?.error || '')),
+        barePlan.text),
+    ],
+  };
+}
+
+/**
  * pause 期间「目标任务已结算 → 立即放行」（T1-111）。
  *
  * 事故形态（2026-09-10）：宿主在收尾/派发的闩锁里被**无限期**挂住，期间任务早已 done，
@@ -1609,6 +1912,187 @@ async function casePauseRelease({ timeoutMs }) {
   };
 }
 
+/**
+ * 动态任务规划：**运行链路（全真）**（真 tmux + 真 Claude + 真 server，**一次 run 走到底**）。
+ *
+ * 与 `dynamic-planning` 分工：那个 case 证「MCP → server → 落盘/审批」这条边界接通（无模型）；
+ * 这个 case 证**运行中的 AI 自己发现计划缺口、自己发起提案 → 人在 run 进行中批准 → 同一个 run 继续**。
+ * 两者合起来才是能力文档 §9 的门槛。
+ *
+ * 场景：T1 → T2 → T3，其中 T3 需要 `src/adder.js` 的 `makeAdder`，而任务图里**没有任何任务会产出它**。
+ * T1 的 prompt 只给策略（「发现某个待执行任务的产出无人负责时，用 awf_dynamic_plan 补前置」），
+ * 不告诉它缺口在哪 —— 目标任务与载荷由 AI 自己从 state 里找出来。
+ *
+ * 关键断言链：
+ *   1. 提案出现在 mode=run 期间、requestedBy=ai，且 targetTaskId 是 **T3**（AI 自己找到的缺口）
+ *   2. hold 只挡 T3 及其下游，不牵连 T1/T2；「未受影响的并行任务仍可继续」（capability §4）
+ *      由**同一个 run 照样跑完**来证（第 4 条），而不是靠某一瞬间的就绪池快照
+ *   3. 人工批准发生在 run **进行中**：批准时 `/run/status` 仍有在飞 run，且 T3 连 active 都没进过
+ *   4. **同一个 run** 继续跑完：新任务的 startedAt 早于 T3，四个任务全部 done，产物齐全
+ *   5. 审计记录完整（提案 → 待批准 → 批准应用）
+ */
+async function caseDynamicPlanningRun({ timeoutMs }) {
+  const dev = (id, file, extra = {}) => ({
+    id,
+    title: `创建 ${file}`,
+    kind: 'dev',
+    status: 'pending',
+    deps: [],
+    wbsRef: 'W1',
+    // 遵循 `awf-plan-prompt`：prompt 只留「命令 + task ID + 一句话目标」，范围/约束/验收走结构化字段
+    prompt: `/ai-workflow-code:w-dev ${id}\n\n在项目根创建 ${file}，导出一个具名工厂函数。`,
+    plannedFiles: [file],
+    constraints: [`只创建 ${file}`],
+    acceptance: `${file} 存在`,
+    ...extra,
+  });
+  const t1 = dev('T1', 'src/counter.js');
+  t1.prompt = '/ai-workflow-code:w-dev T1\n\n在项目根创建 src/counter.js，导出自增计数器 makeCounter()，返回 { inc(), value() }。';
+  // 「发现缺口就补正式任务」是**工作方式约束**，属于 constraints 的结构化语义，不该写进 prompt 正文；
+  // 策略给全、缺口位置不给 —— AI 必须自己去 state 里比对"待执行任务需要的产出有没有任务负责"
+  t1.constraints = [
+    '只创建 src/counter.js',
+    '收尾前做一次计划自检：读 .awf/state.json，逐个检查尚未执行的任务，它需要复用的产出是否都有任务负责产出',
+    '若某个待执行任务依赖一个没有任何任务会产出它的文件，不要自己代做，用 MCP 工具 awf_dynamic_plan 为那个任务补一个前置任务：'
+      + '新任务 id 用「<目标任务的 id>-PRE」，operations 用一条 insert_task，relation.type = prerequisite_for，targetTaskId 填那个目标任务',
+    '调用后不论返回 awaiting_approval 还是别的状态都不要等待审批，继续收尾',
+  ];
+  const t2 = dev('T2', 'src/queue.js', { deps: ['T1'] });
+  const t3 = dev('T3', 'src/accumulator.js', { deps: ['T2'] });
+  // 缺口写在这里：T3 要复用 src/adder.js，而任务图里没有产出它的任务 —— 但不告诉 AI 该补什么
+  t3.prompt = '/ai-workflow-code:w-dev T3\n\n在项目根创建 src/accumulator.js，导出 makeAccumulator()，其内部复用来自 src/adder.js 的 makeAdder(n)。';
+  t3.constraints = ['只创建 src/accumulator.js', '不要创建 src/adder.js（它应由任务图里的前置任务提供）'];
+  t3.acceptance = 'src/accumulator.js 存在且复用 src/adder.js 的 makeAdder';
+
+  const projectRoot = makeProject('dynamic-planning-run', {
+    tasks: [t1, t2, t3],
+    summary: '动态规划运行链路（全真：AI 自发现 → 人在飞批准 → 同一 run 继续）',
+  });
+  // 同 pause-release：本项目自起 server，run 复用它（非隔离模式下 ownServer 返回 null，复用常驻 server）
+  const own = await ownServer(projectRoot);
+  const routeProbe = await getFromServer('/awf/dynamic-planning/proposals', projectRoot);
+  const routesOk = routeProbe.status === 200;
+
+  const run = launchRun(projectRoot, { logSuffix: '-run' });
+
+  // 1) 等会话内的 AI 自己把提案发出来（harness 全程不调 awf_dynamic_plan）
+  const proposalSeen = await waitUntil(() => getFromServer('/awf/dynamic-planning/proposals', projectRoot)
+    .then((r) => (r.json?.proposals || []).find((p) => p.status === 'awaiting_approval') || false), {
+    timeoutMs: Math.min(timeoutMs, 480000), intervalMs: 1000,
+  });
+  const proposal = proposalSeen.value || null;
+  const proposalId = proposal?.proposalId || null;
+  const stateAtProposal = readStateSafe(projectRoot);
+  const readyAtProposal = peekReadyTasks(stateAtProposal || {}).map((t) => t.id);
+  const heldAtProposal = [...heldTaskIds(stateAtProposal || {})];
+
+  // 2) 立刻人工批准 —— 必须在 T2 跑完之前落地，run 才不会撞上「无就绪任务」而收尾
+  const stateAtApprove = readStateSafe(projectRoot);
+  const t3AtApprove = (stateAtApprove?.tasks || []).find((t) => t.id === 'T3');
+  const runStatusAtApprove = await getFromServer('/run/status', projectRoot);
+  const activeRunsAtApprove = (runStatusAtApprove.json?.runs || [])
+    .filter((r) => r.status === 'queued' || r.status === 'running').length;
+  const approve = proposalId
+    ? await postToServer(`/run/dynamic-planning/proposals/${proposalId}/approve`, projectRoot,
+      { reviewer: 'regression', note: '运行链路验证' })
+    : { status: 0, json: null };
+
+  // 3) 同一个 run 走到收敛（不重提 run）
+  const settled = await waitFor(projectRoot, (s) => s.mode === 'idle'
+    && s.tasks.every((t) => ['done', 'blocked'].includes(t.status)), { timeoutMs: Math.min(timeoutMs, 900000) });
+  const finalState = readStateSafe(projectRoot);
+  const finalIds = (finalState?.tasks || []).map((t) => t.id);
+  const byId = (id) => (finalState?.tasks || []).find((t) => t.id === id);
+  const insertedId = finalIds.indexOf('T3') > 0 ? finalIds[finalIds.indexOf('T3') - 1] : null;
+  const appliedProposal = await getFromServer('/awf/dynamic-planning/proposals', projectRoot)
+    .then((r) => (r.json?.proposals || []).find((p) => p.proposalId === proposalId));
+
+  const readEvents = () => {
+    try {
+      return fs.readFileSync(path.join(projectRoot, '.awf', 'dynamic-planning', 'events.jsonl'), 'utf8')
+        .split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+    } catch { return []; }
+  };
+  const eventNames = readEvents().map((e) => e.event);
+
+  return {
+    case: 'dynamic-planning-run',
+    projectRoot,
+    run,
+    serverBoot: own ? { pid: own.pid, up: own.up.ok } : null,
+    proposalId,
+    proposedTargetTask: proposal?.operations?.[0]?.relation?.targetTaskId || null,
+    insertedTaskId: insertedId,
+    readyAtProposal,
+    heldAtProposal,
+    appliedProposalStatus: appliedProposal?.status || null,
+    events: eventNames,
+    summary: taskSummary(projectRoot),
+    checks: [
+      check('server 提供动态规划路由（常驻 server 可能是旧代码，须加 --port 重测）',
+        routesOk, `probe=${routeProbe.status}${routesOk ? '' : ' — 常驻 server 未注册该路由，请用 --port <n> 跑本 case'}`),
+      check('server 由本项目唤起（隔离模式下 server 归本项目）',
+        !own || own.up.ok, own ? `pid=${own.pid} freed=${own.freed} up=${own.up.ok}` : '非隔离模式，复用常驻 server'),
+
+      // 1) 会话内的 AI 自己发起，并自己找出缺口
+      check('run 运行中 AI 经 MCP 发起了提案（harness 全程未调用该工具）',
+        proposalSeen.ok && !!proposalId, proposalSeen.ok ? proposalId : '未观察到 awaiting_approval 的提案'),
+      check('提案发起时 state.mode = run（在飞 run 内，而非事后补做）',
+        stateAtProposal?.mode === 'run', `mode=${stateAtProposal?.mode}`),
+      check('提案 requestedBy=ai（会话内 MCP 的缺省调用路径）',
+        proposal?.requestedBy === 'ai', String(proposal?.requestedBy)),
+      check('缺口由 AI 自己找出来：目标任务是 T3', proposal?.operations?.[0]?.relation?.targetTaskId === 'T3',
+        `target=${proposal?.operations?.[0]?.relation?.targetTaskId ?? '(无)'}`),
+      check('提案内容是为该目标插一个前置（insert_task / prerequisite_for）',
+        proposal?.operations?.[0]?.type === 'insert_task'
+        && proposal?.operations?.[0]?.relation?.type === 'prerequisite_for',
+        JSON.stringify(proposal?.operations?.[0]?.type)),
+      check('proposal 文件与事件日志落盘',
+        !!proposalId && fs.existsSync(path.join(projectRoot, '.awf', 'dynamic-planning', 'proposals', `${proposalId}.json`))
+        && eventNames.includes('proposal.awaiting_approval'), eventNames.join(',')),
+
+      // 2) hold 只挡目标及其下游：并行任务仍可继续（这是「同一 run 不停机」的前提）
+      check('hold 覆盖目标 T3', heldAtProposal.includes('T3'), JSON.stringify(heldAtProposal)),
+      check('hold 不牵连上游/无关任务（只覆盖目标及其下游）',
+        !heldAtProposal.includes('T1') && !heldAtProposal.includes('T2'), JSON.stringify(heldAtProposal)),
+      check('被 hold 的任务不进调度器就绪池（state.js 判据）',
+        !readyAtProposal.includes('T3'),
+        `ready=${readyAtProposal.join(',') || '（此刻无就绪：T1 正在跑）'}`),
+
+      // 3) 人在 run 进行中批准
+      check('批准时 run 仍在飞（/run/status 有活跃 run）',
+        activeRunsAtApprove >= 1, `activeRuns=${activeRunsAtApprove} status=${runStatusAtApprove.status}`),
+      check('批准前 T3 从未被派发（仍是 pending、无 startedAt）',
+        t3AtApprove?.status === 'pending' && !t3AtApprove?.exec?.startedAt,
+        `status=${t3AtApprove?.status} startedAt=${t3AtApprove?.exec?.startedAt ?? '无'}`),
+      check('人工批准端点应用了提案',
+        approve.status === 200 && approve.json?.proposal?.status === 'applied',
+        `status=${approve.status} ${approve.json?.proposal?.status ?? approve.json?.error ?? ''}`),
+      check('应用后提案终态可读（applied）', appliedProposal?.status === 'applied', String(appliedProposal?.status)),
+
+      // 4) 同一个 run 继续跑完
+      check('run 收敛（未重提 run）', settled.ok,
+        `mode=${finalState?.mode} ${JSON.stringify(taskSummary(projectRoot).counts)}`),
+      check('四个任务全部 done', (finalState?.tasks || []).every((t) => t.status === 'done'),
+        (finalState?.tasks || []).map((t) => `${t.id}:${t.status}`).join(',')),
+      check('AI 插入的前置任务落在 T3 之前',
+        !!insertedId && insertedId !== 'T2' && insertedId !== 'T1', `inserted=${insertedId} 序=${finalIds.join(',')}`),
+      check('T3 的依赖已重连到新任务', (byId('T3')?.deps || []).includes(insertedId),
+        JSON.stringify(byId('T3')?.deps)),
+      check('新任务在 T3 **之前**被派发（用 startedAt 判据，不依赖日志文本）',
+        !!insertedId && !!byId(insertedId)?.exec?.startedAt && !!byId('T3')?.exec?.startedAt
+        && byId(insertedId).exec.startedAt < byId('T3').exec.startedAt,
+        `${insertedId}.startedAt=${byId(insertedId)?.exec?.startedAt ?? '无'} T3.startedAt=${byId('T3')?.exec?.startedAt ?? '无'}`),
+      check('四个任务的产物都在（前置确实先跑出来了）',
+        ['src/counter.js', 'src/queue.js', 'src/adder.js', 'src/accumulator.js']
+          .every((f) => fs.existsSync(path.join(projectRoot, f))),
+        fs.readdirSync(path.join(projectRoot, 'src')).join(',')),
+      check('审计记录完整（提案 → 待批准 → 批准应用）',
+        ['proposal.awaiting_approval', 'proposal.approved_and_applied'].every((e) => eventNames.includes(e)),
+        eventNames.join(',')),
+    ],
+  };
+}
 // ── case 注册表 ─────────────────────────────────────────────────────────────
 
 /**
@@ -1629,6 +2113,8 @@ const CASES = [
   { id: 'init', title: 'awf init 产出（插件注册/项目 MCP/骨架/幂等）', run: caseInit },
   { id: 'mcp', title: 'MCP 工具面冒烟（state/session/oneshot 握手 + 工具名）', run: caseMcp },
   { id: 'lifecycle', title: '常驻 server 空闲回收（探活 → 静置 → 退出）', run: caseLifecycle },
+  { id: 'dynamic-planning', title: '动态规划跨进程边界（真 server + 真 MCP：提案/hold/批准/冲突/拒绝）', run: caseDynamicPlanning },
+  { id: 'dynamic-planning-run', title: '动态规划运行链路（全真：AI 自发现缺口 → 人在飞批准 → 同一 run 继续）', run: caseDynamicPlanningRun },
   { id: 'web', title: '前端页可达 + 取数 + 项目切换 + 决策 override', run: caseWeb },
 ];
 
@@ -1692,7 +2178,10 @@ async function main() {
       passed: results.flatMap((r) => r.checks).filter((c) => c.pass).length,
     },
   };
-  const out = args.out || path.join(SANDBOX_ROOT, 'evidence-all.json');
+  // 定向跑**不得**写 evidence-all.json：那个文件名是全量汇总的约定位置（覆盖矩阵/报告都按它取证），
+  // 单 case 跑一次就把它替换成单 case 摘要 = 静默销毁上一轮全量证据（2026-09-11 实际发生）。
+  const out = args.out
+    || path.join(SANDBOX_ROOT, args.case === 'all' ? 'evidence-all.json' : `evidence-${args.case}-summary.json`);
   fs.writeFileSync(out, JSON.stringify(evidence, null, 2) + '\n');
   if (ISOLATED_PLUGIN_DIR) stopIsolatedServer(); // 隔离 server 用完即停，不留常驻进程
   console.log(`\n证据: ${out}`);

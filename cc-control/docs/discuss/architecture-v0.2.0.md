@@ -184,7 +184,7 @@ awf run（薄入口：起环境 + 提交 run + 订阅展示 + 决策中继）
 | slash 命令 | core（`w-start` `w-pause` `w-monitor` `w-state`）+ plugin-code（`w-plan*` `w-dev` `w-debug` `w-review` `w-test` `w-doc` `w-commit` `w-ui-*`） | `plugin/*/commands/` |
 | MCP 工具 | `awf-state` 20 · `awf-session` 7 · `awf-oneshot` 1 | `plugin/core/mcp/` |
 | HTTP API | 36 条路由 | 见 `api.md` |
-| 真机回归 case | 13（`npm run test:real -- --case all`） | `tests/regression/fullflow-regression.mjs` |
+| 真机回归 case | 14（`npm run test:real -- --case all`） | `tests/regression/fullflow-regression.mjs` |
 
 ---
 

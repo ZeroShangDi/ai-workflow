@@ -51,7 +51,7 @@ node tests/eval/run-eval.mjs --keep
   "config": { "run": { "agents": {...} } }, // 可选：写入沙箱 .awf/config.json；run.agents.max>1 → 走多 agent 批次循环
   "files": { "package.json": "..." },     // 可选：run 前写入沙箱的额外文件
   "seed": {                               // 等价于 plan 产物的 state.json
-    "tasks": [ /* 任务列表，prompt 用 /w-dev + XML 结构；多 agent 用例需带 kind(dev/review/test/doc) */ ]
+    "tasks": [ /* 任务列表，prompt 用 /ai-workflow-code:w-dev + XML 结构；多 agent 用例需带 kind(dev/review/test/doc) */ ]
   },
   "expected": {
     "files": ["src/sum.js"],              // 必须存在的产物（含多 agent 的 eval-marker/<taskId>.done）
@@ -64,7 +64,27 @@ node tests/eval/run-eval.mjs --keep
 }
 ```
 
-## 评分维度
+> ⚠️ **命令必须用插件命名空间形式**（`/ai-workflow-code:w-dev`，不是 `/w-dev`）。
+> 裸名在插件化改造后已不再解析，写成裸名的用例会表现为「任务永不结算、挂到超时」——
+> **整套 eval 曾因此静默失效**（`.awf/issues/007`）。新增用例务必用命名空间命令并实跑一次。
+
+## 运行中钩子（可选）：`hooks.mjs`
+
+声明式 `case.json` 只能「跑完看结果」。有些能力的关键动作发生在 run **进行中**（例如人工批准一次
+动态规划 proposal），此时在用例目录放一个 `hooks.mjs`：
+
+```js
+// tests/eval/cases/<id>/hooks.mjs
+export async function duringRun({ readState, get, post, sleep }) { return { checks: [{ ok: true, msg: '…' }] }; }
+export async function afterRun({ readState, sandbox }) { return { checks: [] }; }
+```
+
+- 两者都与 `awf run` **并发**执行（runner 先起 run，再调 `duringRun`，最后 `await` run 结束）；
+- `get` / `post` 打本项目 server（自动带 `?p=<sandbox>`），端口与 `awf run` 同源；
+- 返回的 `checks` 并入该用例评分；
+- 参考实现：`tests/eval/cases/dynamic-planning/hooks.mjs`。
+
+
 
 1. **任务完成** — 所有任务 `status=done`，且 done 任务 `exec.result` 非空（双证据，防伪完成）
 2. **产物存在** — `expected.files` 列出的文件落盘

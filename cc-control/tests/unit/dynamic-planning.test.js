@@ -210,19 +210,64 @@ describe('dynamic planning service', () => {
     expect(service.get(proposal.proposalId).status).toBe('applied');
   });
 
-  it('人工批准前 state 已变化则标记 conflict，不覆盖新状态', () => {
+  it('等待人工批准期间**无关任务**继续推进不阻塞批准，且重放不回退这些新状态', () => {
     const service = createDynamicPlanningService({
       projectRoot: root,
       configLoader: () => ({ mode: MODES.APPROVE_THEN_APPLY, extensions: {} }),
     });
     const proposal = service.propose(insertRequest());
-    const changed = baseState();
-    changed.marker = 'newer';
-    fs.writeFileSync(statePath, JSON.stringify(changed, null, 2));
+
+    // 模拟 run 在等人批准期间继续前进：A 不在此次调整的受影响闭包内（闭包 = I/B/G），它被结算了；
+    // 顶层也多了一个别处写入的字段。旧实现拿整份 state 的哈希做判据，这种前进必然把提案打成 conflicted
+    // —— 而 approve_then_apply 的设计前提恰恰是「未受影响的并行任务仍可继续」。
+    const progressed = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    progressed.marker = 'newer';
+    progressed.tasks.find((task) => task.id === 'A').exec = { result: 'A 已由 run 结算', files: ['src/a.js'] };
+    fs.writeFileSync(statePath, JSON.stringify(progressed, null, 2));
+
+    const applied = service.approve(proposal.proposalId, { reviewer: 'human', note: '同意补对接任务' });
+    expect(applied.status).toBe('applied');
+
+    const after = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(after.tasks.map((task) => task.id)).toEqual(['A', 'I', 'B', 'G']);
+    // 应用的是**基于最新 state 重放**的结果，不是提案创建时的旧快照
+    expect(after.marker).toBe('newer');
+    expect(after.tasks.find((task) => task.id === 'A').exec.result).toBe('A 已由 run 结算');
+    expect(after.dynamicPlanning).toBeUndefined();
+  });
+
+  it('受影响闭包本身被改动（目标被别处结算）才判 conflicted，且不留半次应用', () => {
+    const service = createDynamicPlanningService({
+      projectRoot: root,
+      configLoader: () => ({ mode: MODES.APPROVE_THEN_APPLY, extensions: {} }),
+    });
+    const proposal = service.propose(insertRequest());
+
+    // B 在受影响闭包内：它被别处改动（这里模拟被外部结算为 blocked），提案的前提已经变了
+    const drifted = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    drifted.tasks.find((task) => task.id === 'B').status = 'blocked';
+    fs.writeFileSync(statePath, JSON.stringify(drifted, null, 2));
 
     const result = service.approve(proposal.proposalId, { reviewer: 'human' });
     expect(result.status).toBe('conflicted');
-    expect(JSON.parse(fs.readFileSync(statePath, 'utf8').toString()).marker).toBe('newer');
+    expect(result.conflict.actualScopeFingerprint).not.toBe(result.conflict.expectedScopeFingerprint);
+    const after = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    expect(after.tasks.map((task) => task.id)).toEqual(['A', 'B', 'G']);
+    expect(after.tasks.find((task) => task.id === 'B').status).toBe('blocked');
+    expect(after.dynamicPlanning).toBeUndefined();
+  });
+
+  it('高层目标字段（plan.acceptanceCriteria）被改动同样拦住批准', () => {
+    const service = createDynamicPlanningService({
+      projectRoot: root,
+      configLoader: () => ({ mode: MODES.APPROVE_THEN_APPLY, extensions: {} }),
+    });
+    const proposal = service.propose(insertRequest());
+    const drifted = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    drifted.plan.acceptanceCriteria = ['降级为单文件实现'];
+    fs.writeFileSync(statePath, JSON.stringify(drifted, null, 2));
+
+    expect(service.approve(proposal.proposalId, { reviewer: 'human' }).status).toBe('conflicted');
   });
 
   it('高风险调整建立正式 decision，不能绕过 decision 直接批准', () => {

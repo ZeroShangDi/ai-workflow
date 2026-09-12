@@ -1,0 +1,63 @@
+{
+  "id": "dynamic-planning",
+  "name": "动态任务规划全真：AI 运行中发现计划缺口 → 人在飞批准 → 同一个 run 继续",
+  "requirements": "任务图里缺一个前置（T3 要复用 src/adder.js 的 makeAdder，但没有任何任务负责产出它）。执行 T1 的 AI 需要自己从 state 里发现这个缺口，用 awf_dynamic_plan 提交一次提案；人工在 run 进行中批准；同一个 run 必须继续跑完，且新任务要先于它的目标执行。验证点是「能力在真实编排里可用」，不是「某个函数被调用过」——所以缺口位置与载荷都不写进 prompt，只给策略。",
+  "seed": {
+    "mode": "run",
+    "version": "0.2.0",
+    "currentState": "CODE",
+    "plan": {
+      "summary": "动态规划全真：运行中自发现缺口 → 人工在飞批准 → 同一 run 继续",
+      "reqDoc": "",
+      "hasUI": false,
+      "inScope": ["三个任务的执行链", "运行期补一个缺失的前置任务"],
+      "outOfScope": ["不重提 run", "不由 harness 代调 awf_dynamic_plan"],
+      "acceptanceCriteria": ["AI 在 run 中自己发现缺口并发起提案", "批准前目标不被派发", "批准后同一 run 内前置先于目标执行"]
+    },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "实现 makeCounter 并做一次计划自检",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/counter.js"],
+        "acceptance": "src/counter.js 具名导出 makeCounter；且已用 awf_dynamic_plan 为缺失前置的任务提交过一次提案",
+        "constraints": [
+          "ESM 模块，只创建 src/counter.js；不要实现别的任务该产出的文件",
+          "收尾前做一次计划自检：读 .awf/state.json，逐个检查尚未执行的任务，它需要复用的产出是否都有任务负责产出",
+          "若某个待执行任务依赖一个没有任何任务会产出它的文件，不要自己代做，用 MCP 工具 awf_dynamic_plan 为那个任务补一个前置任务：新任务 id 用「<目标任务的 id>-PRE」，operations 用一条 insert_task，relation.type = prerequisite_for，targetTaskId 填那个目标任务",
+          "调用后不论返回 awaiting_approval 还是别的状态都不要等待审批，继续收尾"
+        ],
+        "prompt": "/ai-workflow-code:w-dev T1\n\n在 src/counter.js 实现并具名导出 makeCounter()，返回 { inc(), value() }。"
+      },
+      {
+        "id": "T2",
+        "title": "实现 makeQueue",
+        "wbsRef": "W1-002",
+        "status": "pending",
+        "deps": ["T1"],
+        "plannedFiles": ["src/queue.js"],
+        "acceptance": "src/queue.js 具名导出 makeQueue；push 后 shift 能取回同一值",
+        "constraints": ["ESM 模块，只创建 src/queue.js"],
+        "prompt": "/ai-workflow-code:w-dev T2\n\n在 src/queue.js 实现并具名导出 makeQueue()，返回 { push(v), shift() }。"
+      },
+      {
+        "id": "T3",
+        "title": "实现 makeAccumulator（复用 src/adder.js）",
+        "wbsRef": "W1-003",
+        "status": "pending",
+        "deps": ["T2"],
+        "plannedFiles": ["src/accumulator.js"],
+        "acceptance": "src/accumulator.js 存在且复用 src/adder.js 的 makeAdder",
+        "constraints": ["ESM 模块，只创建 src/accumulator.js", "不要创建 src/adder.js（它应由任务图里的前置任务提供）"],
+        "prompt": "/ai-workflow-code:w-dev T3\n\n在 src/accumulator.js 实现并具名导出 makeAccumulator()，其内部复用来自 src/adder.js 的 makeAdder(n)。"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": ["src/counter.js", "src/queue.js", "src/adder.js", "src/accumulator.js"],
+    "tasksDone": true
+  }
+}

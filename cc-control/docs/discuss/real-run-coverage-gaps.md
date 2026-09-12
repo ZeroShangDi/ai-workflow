@@ -6,7 +6,7 @@
 > （`needs-input-*`）等都在里面。两套体系的来历、差异与合并方案见 `real-run-suite-merge.md`（仍是讨论稿，未落地）；
 > 本文的「两种粒度」设计仍成立，且**本文只描述 `tests/regression/` 这一套**的矩阵。
 
-> 2026-09-11 · 状态：**13 个 case 在册**（T3-011 全量门禁同步）
+> 2026-09-11 · 状态：**15 个 case 在册**（T3-011 全量门禁同步 + 动态规划两个 case）
 > 载体：`tests/regression/fullflow-regression.mjs`（`npm run test:real`）
 
 ## 目标形态（用户裁定）
@@ -19,7 +19,7 @@
 两者共用同一 case 注册表（`const CASES`）：加一个功能就加一个 case，全量自动带上。
 产物统一落 `sandbox/regression/`（gitignore 产物区），证据 `evidence-<case>.json`（全量另出 `evidence-all.json`）。
 
-## 现状：13 个 case（截至 T3-011，2026-09-11）
+## 现状：15 个 case（截至 2026-09-11）
 
 | # | case | 断言数 | 验到的 |
 |---|---|---|---|
@@ -36,9 +36,14 @@
 | 11 | `mcp` | 10 | MCP 工具面：三 server 各做 initialize + tools/list，工具数与必含工具齐全 |
 | 12 | `lifecycle` | 6 | 常驻 server 空闲回收：探活期间不回收 → 静置后进程退出 + 端口关闭 + 日志留痕 |
 | 13 | `web` | 15 | 前端：页面由构建产物承载（或未构建 503+告警）、`/assets` 托管、旧资产 404、`?p` 取数不串、决策 override 落盘 |
+| 14 | `dynamic-planning` | 31 | 动态规划的**跨进程边界**（真 server + 真 awf-state MCP，不起 tmux/claude）：经 MCP JSON-RPC 提案 → proposal 落盘 + `events.jsonl` 追加 + hold 装进 state → 调度器就绪池（`state.js` 判据）排除被 hold 任务 → 第二个开放 proposal 被拒 → 人工 HTTP 批准应用（新任务先于目标、依赖重连、hold 释放、MCP 读回新图）→ **无关变化放行 / 相关变化判 `conflicted`** → 人工拒绝释放 hold → 非 server 模式拒绝本工具 |
+| 15 | `dynamic-planning-run` | 22 | 动态规划的**运行链路（全真）**（真 tmux + 真 Claude，**一次 run 走到底**）：T1 的 prompt 只给策略不给缺口位置，AI 自己从 state 找出「T3 要 `src/adder.js` 而无人产出它」→ 经 MCP 发起提案 → hold 只挡目标、不牵连在跑的任务 → 人工在 **run 进行中**批准（批准时 `/run/status` 仍有活跃 run、目标从未 active）→ **同一个 run** 继续跑完，新任务 `startedAt` 早于目标，四个任务全部 done、产物齐全 |
 
-合计 **151 断言**（T3-011-F1 修复后实测 **151/151 全绿，exit 0**，2026-09-11；
+合计 **204 断言**（13 case 的 151 + `dynamic-planning` 的 31 + `dynamic-planning-run` 的 22；T3-011-F1 修复后 151/151 全绿，exit 0，2026-09-11；
 修复前同一命令为 145–146/150，5 项失败全部归因 case 侧 —— 见 `.awf/reports/test/t3-011-full-real-gate.md`）。
+两个动态规划 case 定向实测 **31/31 与 22/22**（各自复跑同结论，`--port` 隔离模式亦同），2026-09-11。
+**2026-09-12 全量连跑**（`npm run test:real -- --case all --port 8799`）：**204/204 全绿、exit 0**，
+15 个 case 一轮 10 分钟，两个新 case 在连跑里同结论 —— 连跑与单跑一致（本文档纪律要求的正是这一条）。
 
 ## 覆盖缺口（T3-011 复核后的真实状态）
 
@@ -62,7 +67,7 @@
 | 16 | 异常路径（server 挂 / tmux 丢 / hook 失败） | ❌ | 后续 |
 | 17 | **case 间独立性**（全量连跑 vs 单跑结论一致） | ✅ **T3-011-F1 已收口**：case 需要什么就自起什么（`ownServer(projectRoot, extraEnv)` —— 自起 server 并把**宿主侧** env 一并注入），不再依赖「server 由首个 case 唤起后复用」的隐含前提；本轮全量连跑 151/151 为证 | — |
 | 18 | **per-run 日志目录偶发缺失** | ⚠️ `decision` 曾在连跑中间歇失败（`DecisionStore` 的 runStamp 派生回退）。**机制未定位**；测试侧已加现场取证（缺目录时 dump `state.json` 可读性 / `logs` 清单 / 决策 stamps 进证据 + 打 `[诊断]` 行） | 根因在 `RunLogger._init` 静默早退 → `.awf/issues/005` |
-| 19 | **运行中动态任务规划**（AI 提案 → 人工批准前 hold → 批准 → 新任务先于目标执行） | ❌ 目前只有单元/MCP 集成测试；尚无真 server+MCP 边界证据，也没有真 tmux+Claude 运行证据 | 动态任务规划功能完成门禁，必须新增独立 case 并进入全量 |
+| 19 | **运行中动态任务规划**（AI 提案 → 人工批准前 hold → 批准 → 新任务先于目标执行） | ✅ **两半都覆盖**：边界半段见 `dynamic-planning`（真 MCP → 真 server → proposal/事件/hold 落盘 → 批准才应用）；运行半段见 `dynamic-planning-run`（AI 自发现缺口、人在飞批准、同一 run 前置先于目标执行）。另有同源 eval 用例 `tests/eval/cases/dynamic-planning/` | 能力文档 §9 两个 case 均已落地 |
 
 ## 纪律
 

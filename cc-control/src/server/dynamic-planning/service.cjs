@@ -12,6 +12,77 @@ function fingerprint(state) {
   return crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex');
 }
 
+// 批准判据的口径（2026-09-11 修正）。
+// 旧口径拿**整份 state** 的哈希做 CAS，而 approve_then_apply 的设计前提恰恰是「未受影响的并行任务
+// 仍可继续」（capability.md §4）—— 只要 run 在动（别的任务结算、markActive、阶段与 mode 切换），
+// 哈希必变，于是运行中发出的提案永远批不过（真机 case `dynamic-planning-run` 实测踩到）。
+// 新口径分两步：
+//   1) 只比**受影响闭包的结构指纹 + plan.acceptanceCriteria**：不相关的前进不再误伤，
+//      `conflicted` 恢复为「相关前提真的变了」；
+//   2) 通过后不是照抄提案创建时的快照，而是在锁内用**当初的 operations 对最新 state 重放**，
+//      写出去的是重放结果。少了这一步，即使不判冲突，写回旧快照也会把 run 的新进展回退掉。
+const VOLATILE_TASK_FIELDS = ['exec', 'commits'];
+
+/** 受影响任务在**当前 state** 中的结构快照（提案新插入的任务此刻还不存在，两侧都不计入） */
+function scopeSnapshot(state, taskIds) {
+  const byId = new Map((state?.tasks || []).map((task) => [task.id, task]));
+  return (taskIds || [])
+    .filter((id) => byId.has(id))
+    .sort()
+    .map((id) => {
+      const structural = { ...byId.get(id) };
+      for (const field of VOLATILE_TASK_FIELDS) delete structural[field];
+      return structural;
+    });
+}
+
+function scopeFingerprint(state, taskIds) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    affectedTasks: scopeSnapshot(state, taskIds),
+    acceptanceCriteria: state?.plan?.acceptanceCriteria ?? null,
+  })).digest('hex');
+}
+
+/**
+ * 应用前的双检：先比受影响闭包指纹，再基于最新 state 重放 operations。
+ * @returns {{ok: true, nextState: object, analysis: object}|{ok: false, conflict: object}}
+ */
+function prepareApply(currentState, proposal) {
+  const affected = proposal.analysis?.affectedTaskIds || [];
+  const expectedScope = proposal.approvalBase?.scopeFingerprint;
+  if (expectedScope) {
+    const actualScope = scopeFingerprint(currentState, affected);
+    if (actualScope !== expectedScope) {
+      return {
+        ok: false,
+        conflict: {
+          kind: 'scope_changed',
+          expectedScopeFingerprint: expectedScope,
+          actualScopeFingerprint: actualScope,
+        },
+      };
+    }
+  } else {
+    // 旧记录（没有 scope 指纹）退回整份 state 的哈希判据
+    const expected = proposal.approvalBase?.fingerprint || proposal.base.fingerprint;
+    const actual = fingerprint(currentState);
+    if (actual !== expected) {
+      return { ok: false, conflict: { kind: 'state_changed', expectedFingerprint: expected, actualFingerprint: actual } };
+    }
+  }
+  try {
+    const { nextState, analysis } = planAdjustment(currentState, {
+      reason: proposal.reason,
+      operations: proposal.operations,
+    });
+    return { ok: true, nextState, analysis };
+  } catch (error) {
+    // 结构前提已经变了（目标不再 pending/blocked、下游已 active/done、图不再合法……）：
+    // 与指纹漂移同属「相关前提变了」，按冲突处理，不外抛也不留半次应用。
+    return { ok: false, conflict: { kind: 'replay_failed', error: error.message } };
+  }
+}
+
 function proposalId() {
   return `DP-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17)}-${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -63,15 +134,24 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
     proposal.hold = { taskIds };
     proposal.approvalBase = {
       lastUpdated: state.lastUpdated,
+      // 保留整份指纹作诊断/审计，但**不再是批准判据**（见 prepareApply 注释）
       fingerprint: fingerprint(state),
+      scopeFingerprint: scopeFingerprint(state, proposal.analysis.affectedTaskIds),
+      affectedTaskIds: [...proposal.analysis.affectedTaskIds],
     };
   }
 
-  function releaseHold(state, proposalId) {
-    if (!state?.dynamicPlanning?.holds?.[proposalId]) return false;
-    delete state.dynamicPlanning.holds[proposalId];
+  /** 只清 hold，不落盘（应用路径要在写 nextState 前先摘掉自己那把锁） */
+  function clearHold(state, id) {
+    if (!state?.dynamicPlanning?.holds?.[id]) return false;
+    delete state.dynamicPlanning.holds[id];
     if (Object.keys(state.dynamicPlanning.holds).length === 0) delete state.dynamicPlanning.holds;
     if (Object.keys(state.dynamicPlanning).length === 0) delete state.dynamicPlanning;
+    return true;
+  }
+
+  function releaseHold(state, proposalId) {
+    if (!clearHold(state, proposalId)) return false;
     state.lastUpdated = new Date().toISOString();
     storeCore.writeJsonAtomicSync(statePath, state);
     return true;
@@ -180,30 +260,35 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
         throw new Error(`proposal ${id} cannot be approved while status=${proposal.status}`);
       }
       const currentState = storeCore.readJsonSync(statePath);
-      const actual = fingerprint(currentState);
-      const expected = proposal.approvalBase?.fingerprint || proposal.base.fingerprint;
-      if (actual !== expected) {
+      const prepared = prepareApply(currentState, proposal);
+      if (!prepared.ok) {
         proposal.status = 'conflicted';
         proposal.nextAction = null;
-        proposal.conflict = { expectedFingerprint: expected, actualFingerprint: actual };
+        proposal.conflict = prepared.conflict;
         releaseHold(currentState, proposal.proposalId);
         response = save(proposal, 'proposal.conflicted');
         return;
       }
       if (typeof extensions.beforeApply === 'function') extensions.beforeApply({ proposal, currentState });
-      proposal.proposedState.lastUpdated = new Date().toISOString();
-      storeCore.writeJsonAtomicSync(statePath, proposal.proposedState);
+      const nextState = prepared.nextState;
+      clearHold(nextState, proposal.proposalId); // 重放基于含 hold 的最新 state，写回前必须摘掉自己那把锁
+      nextState.lastUpdated = new Date().toISOString();
+      storeCore.writeJsonAtomicSync(statePath, nextState);
       proposal.status = 'applied';
       proposal.nextAction = null;
       proposal.approvedBy = reviewer;
       proposal.approvalNote = note || null;
       proposal.appliedAt = new Date().toISOString();
+      proposal.applied = {
+        basis: 'replay',
+        affectedTaskIds: prepared.analysis.affectedTaskIds,
+      };
       proposal.result = {
-        stateFingerprint: fingerprint(proposal.proposedState),
-        readyTaskIds: proposal.analysis.readyAfter,
+        stateFingerprint: fingerprint(nextState),
+        readyTaskIds: prepared.analysis.readyAfter,
       };
       response = save(proposal, 'proposal.approved_and_applied');
-      if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: proposal.proposedState });
+      if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: nextState });
     });
     return response;
   }
@@ -295,26 +380,31 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
         releaseHold(currentState, proposal.proposalId);
         response = save(proposal, 'proposal.decision_rejected', { decisionId });
       } else {
-        const actual = fingerprint(currentState);
-        const expected = proposal.approvalBase?.fingerprint || proposal.base.fingerprint;
-        if (actual !== expected) {
+        const prepared = prepareApply(currentState, proposal);
+        if (!prepared.ok) {
           proposal.status = 'conflicted';
           proposal.nextAction = null;
-          proposal.conflict = { expectedFingerprint: expected, actualFingerprint: actual };
+          proposal.conflict = prepared.conflict;
           releaseHold(currentState, proposal.proposalId);
           response = save(proposal, 'proposal.decision_approved_but_conflicted', { decisionId });
         } else {
           if (typeof extensions.beforeApply === 'function') extensions.beforeApply({ proposal, currentState });
-          proposal.proposedState.lastUpdated = new Date().toISOString();
-          storeCore.writeJsonAtomicSync(statePath, proposal.proposedState);
+          const nextState = prepared.nextState;
+          clearHold(nextState, proposal.proposalId);
+          nextState.lastUpdated = new Date().toISOString();
+          storeCore.writeJsonAtomicSync(statePath, nextState);
           proposal.status = 'applied';
           proposal.nextAction = null;
           proposal.approvedBy = reviewer;
           proposal.approvalNote = note || null;
           proposal.appliedAt = new Date().toISOString();
+          proposal.applied = {
+            basis: 'replay',
+            affectedTaskIds: prepared.analysis.affectedTaskIds,
+          };
           proposal.result = {
-            stateFingerprint: fingerprint(proposal.proposedState),
-            readyTaskIds: proposal.analysis.readyAfter,
+            stateFingerprint: fingerprint(nextState),
+            readyTaskIds: prepared.analysis.readyAfter,
           };
           response = save(proposal, 'proposal.decision_approved_and_applied', { decisionId });
           if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: proposal.proposedState });

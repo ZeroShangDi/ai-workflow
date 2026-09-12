@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **hook 链路失败不再静默（issue 009）** —— hook 网关此前拿到非 2xx / 超时 / 连接失败一律静默 `exit 0`，server 侧 `/hook` 缺 `?p` 直接 400 且**不落日志**；于是整条 hook 链断掉时两边都没有现场，run 卡 `still busy (ready timeout)` 死亡却查不到原因。现在：网关在**run 会话内**把失败（含 `CC_PROJECT` 缺失会被 400 丢弃、连接失败、HTTP 错误码）写到 stderr 与 `<项目>/.awf/logs/hook-gateway.log`，SessionStart 成功也留一行（hook 链是否建立的唯一判据）；server 的 `缺 ?p` 400 分支补 `console.warn`。普通交互会话（非 run）保持安静，不刷屏。
+- **动态任务规划：人工批准的应用判据**（真机 case `dynamic-planning-run` 驱动）——旧口径拿**整份 state 的哈希**做 CAS，而 `approve_then_apply` 的设计前提恰恰是「未受影响的并行任务仍可继续」：只要 run 在动（别的任务结算、`markActive`、阶段与 mode 切换），哈希必变，于是**运行中发出的提案永远批不过**（实测 proposal 创建 2 秒后 T1 结算，批准即 `conflicted`）。现改为**双检**：先比「受影响闭包的结构指纹 + `plan.acceptanceCriteria`」，再在锁内用当初的 operations 对**最新 state 重放**，写出去的是重放结果（只放宽判据不重放，会把 run 的新进展回退掉）。`conflicted` 恢复为「相关前提真的变了」。
+- **真机回归 harness：定向跑覆盖全量汇总证据** —— `--case <name>` 曾把汇总写进 `evidence-all.json`（全量汇总的约定位置），一次定向跑就静默销毁上一轮全量证据；现在只有 `--case all` 写它，定向写 `evidence-<case>-summary.json`。
+
+### Added
+
+- **动态任务规划的两组真机证据** —— 回归侧 `dynamic-planning`（31 断言，真 server + 真 awf-state MCP 的跨进程边界链路）与 `dynamic-planning-run`（22 断言，真 tmux + 真 Claude，**一次 run 走到底**：AI 自己从 state 里找出计划缺口并发起提案 → 人在 run 进行中批准 → 同一 run 继续，前置先于目标执行）；eval 侧同源用例 `tests/eval/cases/dynamic-planning/`。
+- **eval 用例的运行中钩子机制** —— `tests/eval/cases/<id>/hooks.mjs` 可导出 `duringRun` / `afterRun`，与 `awf run` **并发**执行（声明式 `case.json` 只能「跑完看结果」，而人工批准这类动作必须发生在 run 进行中）。
+
 ## [0.2.0] - 2026-09-11
 
 > **全量一次性架构重构 + 决策闸门里程碑**（2026-09-07 决策闸门收敛 → 2026-09-11 重构收尾）。

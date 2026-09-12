@@ -18,7 +18,9 @@ import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import http from 'node:http';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AWF = path.join(ROOT, 'src', 'awf.js');
@@ -188,6 +190,65 @@ function writeFile(p, content) {
 function readState(sandbox) {
   try { return JSON.parse(fs.readFileSync(path.join(sandbox, '.awf', 'state.json'), 'utf-8')); }
   catch { return null; }
+}
+
+// ── 用例钩子（可选）：与 run **并发**的交互 ────────────────────────────────────
+// 声明式 case.json 只能描述「跑完看结果」。有些能力的关键动作发生在 run **进行中**
+// （如人工批准一次动态规划 proposal、暂停编排、注入干预），故用例目录可放 `hooks.mjs`：
+//   export async function duringRun(ctx)  —— 在 `awf run` 起来之后、跑完之前调用
+//   export async function afterRun(ctx)   —— 在 run 结束、评分之前调用（断言顺序类证据）
+// 两者都可返回 { checks: [{ok,msg}] }，并入该用例的评分。
+function evalServerPort() {
+  const req = createRequire(import.meta.url);
+  return req(path.join(ROOT, 'src', 'lib', 'runtime-config.cjs')).getServerPort(process.env);
+}
+
+/** 打本项目 server（`?p=<sandbox>` 路由），端口与 `awf run` 同源 */
+function awfJson(method, pathname, projectRoot, body) {
+  const payload = body === undefined ? null : JSON.stringify(body);
+  const sep = pathname.includes('?') ? '&' : '?';
+  const url = projectRoot ? `${pathname}${sep}p=${encodeURIComponent(projectRoot)}` : pathname;
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: evalServerPort(),
+      path: url,
+      method,
+      headers: payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {},
+    }, (res) => {
+      let raw = '';
+      res.on('data', (c) => { raw += c; });
+      res.on('end', () => {
+        let json = null;
+        try { json = JSON.parse(raw); } catch { /* 非 JSON 响应 */ }
+        resolve({ status: res.statusCode, json, raw });
+      });
+    });
+    req.on('error', (e) => resolve({ status: 0, json: null, raw: '', error: e.message }));
+    req.setTimeout(10000, () => req.destroy(new Error('请求超时')));
+    req.end(payload ?? undefined);
+  });
+}
+
+async function loadCaseHook(c) {
+  const hookPath = path.join(CASES_DIR, c.id, 'hooks.mjs');
+  if (!fs.existsSync(hookPath)) return null;
+  const mod = await import(pathToFileURL(hookPath).href);
+  return mod && typeof mod === 'object' ? mod : null;
+}
+
+async function runHookPhase(hook, phase, ctx, timeoutMs) {
+  const fn = hook?.[phase];
+  if (typeof fn !== 'function') return [];
+  try {
+    const r = await Promise.race([
+      fn(ctx),
+      new Promise((resolve) => setTimeout(() => resolve({ checks: [{ ok: false, msg: `钩子 ${phase} 超时（${Math.round(timeoutMs / 1000)}s）` }] }), timeoutMs)),
+    ]);
+    return Array.isArray(r?.checks) ? r.checks : [];
+  } catch (e) {
+    return [{ ok: false, msg: `钩子 ${phase} 抛错: ${e?.message ?? e}` }];
+  }
 }
 
 function scoreCase(sandbox, expected, logPath) {
@@ -367,27 +428,40 @@ async function runCase(c) {
     writeFile(path.join(sandbox, '.awf', 'config.json'), JSON.stringify(c.config, null, 2));
   }
 
-  // 3. run
+  // 3. run（用例钩子必须与 run **并发**：先起 run，再在它跑着时执行 duringRun）
   console.log(`\n▸ awf run · ${c.id}（实时 CLI 输出）\n`);
   const recordTaskEvent = createTaskEventRecorder(log);
   const executionStartedAt = Date.now();
   const runArgs = [AWF, 'run'];
   if (multiAgent) runArgs.push('--multi-agent');
-  const runRes = await runCmd(process.execPath, runArgs, {
+  const hook = await loadCaseHook(c);
+  const hookCtx = {
+    sandbox,
+    logPath,
+    readState: () => readState(sandbox),
+    get: (pathname) => awfJson('GET', pathname, sandbox),
+    post: (pathname, body) => awfJson('POST', pathname, sandbox, body),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  };
+  const runPromise = runCmd(process.execPath, runArgs, {
     cwd: sandbox,
     teeOutput: true,
     onOutput: recordTaskEvent,
   });
+  const duringChecks = hook ? await runHookPhase(hook, 'duringRun', hookCtx, 8 * 60 * 1000) : [];
+  const runRes = await runPromise;
   const executionEndedAt = Date.now();
   initLog.end();
   log.end();
   if (runRes.timedOut || runRes.code !== 0) {
     const msg = runRes.timedOut ? 'awf run 超时' : `awf run 失败（exit ${runRes.code}）`;
-    return { id: c.id, name: c.name, ok: false, checks: [{ ok: false, msg }], sandbox, logPath };
+    return { id: c.id, name: c.name, ok: false, checks: [{ ok: false, msg }, ...duringChecks], sandbox, logPath };
   }
 
-  // 4. 评分
+  // 4. 评分（声明式断言 + 钩子断言）
   const checks = scoreCase(sandbox, c.expected || {}, logPath);
+  checks.push(...duringChecks);
+  checks.push(...(hook ? await runHookPhase(hook, 'afterRun', hookCtx, 60 * 1000) : []));
   const verifyCode = await runVerify(sandbox, c.expected?.verify);
   if (verifyCode !== null) {
     checks.push(verifyCode === 0

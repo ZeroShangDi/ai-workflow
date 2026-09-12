@@ -1,6 +1,7 @@
 # 动态任务规划能力设计
 
-> 状态：核心实现与自动化测试已通过；功能尚未完成，须补真实运行测试并取得证据
+> 状态：核心实现与自动化测试已通过；**两组真机证据均已落地**（见 §9）。仍未把它标记为「完成」——
+> v1 的延后项（§10）与 decision 侧的同等改造尚未收口。
 > 日期：2026-09-11
 
 ## 主要信息摘要
@@ -91,8 +92,16 @@ src/server/dynamic-planning/
 - server 只保存 proposal，状态为 `awaiting_approval`；
 - 任务计划本身不变，但会在 state 控制区写入该 proposal 的 execution hold；
 - hold 覆盖直接受影响任务及其下游闭包，未受影响的并行任务仍可继续；
-- 人工批准端点在锁内复核 state fingerprint，一致才应用；
-- state 已变化则 proposal 进入 `conflicted`，禁止覆盖最新状态。
+- 人工批准端点在锁内做**双检**：先比「受影响闭包的结构指纹 + `plan.acceptanceCriteria`」，
+  再基于**最新 state** 用当初的 operations 重放一次，写出去的是重放结果；
+- 只有**相关前提真的变了**（闭包内任务被改动、目标不再 pending/blocked、下游已 active/done、图不再合法）
+  才进入 `conflicted`，禁止覆盖最新状态；不相关的前进（别的任务结算、`markActive`、阶段与 mode 切换）
+  不再阻塞批准。
+
+> 口径修正（2026-09-11，真机 case `dynamic-planning-run` 驱动）：旧口径拿**整份 state 的哈希**做 CAS，
+> 而本节第一条恰恰写着「未受影响的并行任务仍可继续」—— 只要 run 在动，哈希必变，于是**运行中发出的
+> 提案永远批不过**（实测：proposal 创建后 2 秒 T1 结算，批准即 `conflicted`）。只放宽判据不够：
+> 照抄提案创建时的快照会把 run 的新进展回退掉，故必须同时改成锁内重放。
 
 缺省值为 `approve_then_apply`。
 
@@ -133,7 +142,7 @@ src/server/dynamic-planning/
 - `plan.acceptanceCriteria` 不得被动态规划操作修改；
 - 自动路径不得删除任务、删除依赖或改变承载目标的字段；
 - 一次 operations 作为整体分析和应用，失败不产生部分 state；
-- 人工批准基于 proposal 创建时的 state fingerprint，冲突不覆盖；
+- 人工批准复核「受影响闭包 + `plan.acceptanceCriteria`」的指纹，并在锁内对最新 state 重放 operations；冲突不覆盖；
 - 第一版同一项目只允许一个开放 proposal，避免多个 hold 相互制造伪冲突；
 - 调度器必须先原子占用任务再派发；hold 与占用共用 state 锁，审批前不会漏派；
 - 派发通道失败时只把仍为 active 的占用安全回退 pending，不覆盖已结算状态；
@@ -172,10 +181,16 @@ src/server/dynamic-planning/
 
 ## 9. 完成门槛：新增真实测试
 
-本能力不能只复用普通单元/集成测试来宣告完成，必须在 `tests/regression/fullflow-regression.mjs` 新增独立 case，并纳入 `npm run test:real -- --case all`。至少保留两组证据：
+本能力不能只复用普通单元/集成测试来宣告完成，必须新增独立 case，并纳入 `npm run test:real -- --case all`。至少保留两组证据：
 
 1. **真实边界链路**：启动真实 server 与真实 `awf-state` MCP，经 JSON-RPC 提交 proposal；确认 proposal 文件、事件日志和 state hold 真正落盘，人工批准端点应用后 hold 解除，MCP 读取到新任务图。
+   ✅ **已落地**：`dynamic-planning` case（`tests/regression/fullflow-regression.mjs`，**31 断言**，定向实测 31/31）。除上述外还覆盖：第二个开放 proposal 被拒、hold 不牵连未受影响的并行任务、无关变化放行而相关变化被拒、人工拒绝释放 hold、非 server 模式拒绝本工具。
 2. **真实运行链路**：在真 tmux、真 Claude、真 server 的 run 中发现缺失前置任务，由 AI 调用 `awf_dynamic_plan`；批准前目标及下游没有被派发，人工批准后新增任务先于目标执行，最终任务顺序、依赖、产物和审计记录全部收敛。
+   ✅ **已落地（全真）**：`dynamic-planning-run` case，**一次 run 走到底，不重提 run**。T1 的 prompt 只给策略不给缺口位置，AI 自己从 state 里找出「T3 要 `src/adder.js` 而无人产出它」并发起提案；钩子扮演人工在 run 进行中批准；断言覆盖 hold 只挡目标、批准前目标从未 active、新任务的 `startedAt` 早于目标、四个任务全部 done、产物齐全。定向实测 22/22，复跑同结论。
+   ✅ **同源 eval 用例**：`tests/eval/cases/dynamic-planning/`（`case.json` + `hooks.mjs`），与回归 case 同一场景，走 eval 的声明式评分 + 运行中钩子（`duringRun` / `afterRun`）。
+   ✅ **已进全量连跑**：2026-09-12 `--case all --port 8799` → 204/204 全绿、exit 0（15 个 case 一轮 10 分钟）。
+
+> 两套真机体系的定位差异与「至少要区分开」的收口，见 `docs/discuss/real-run-suite-merge.md`（待落地）。
 
 真实 case 必须可定向单跑、可重复、自带沙箱、生成 `evidence-dynamic-planning.json`，并在全量连跑中得到同样结论。只有定向 case 与全量 case 都通过，才将本文状态改为“完成”。
 
