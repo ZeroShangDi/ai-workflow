@@ -10,9 +10,9 @@
  * `stopServer` 用箭头函数延迟取 bootstrap（打破构造期的循环引用）。
  */
 
-const { createProjectRegistry } = require('./projects/registry.cjs');
-const { createApi } = require('./api/index.cjs');
-const { createBootstrap } = require('./bootstrap/index.cjs');
+const { createProjectRegistry } = require('./runtime/registry.cjs');
+const { createApi } = require('./web/api/index.cjs');
+const { createBootstrap } = require('./runtime/lifecycle.cjs');
 
 // ── 装配：三块按依赖顺序串起来 ──
 const registry = createProjectRegistry({ env: process.env }); // ① 注册表（构造即预置 boot runtime）

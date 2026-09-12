@@ -19,7 +19,7 @@
 const execFileSync = global.__CC_EXEC_FILE_SYNC__ || require('child_process').execFileSync;
 
 // 会话名单源：经 run-context 装配（config runtime.session / CC_SESSION；无 sid 回落基础名）
-const { buildRunContext } = require('../../core/run-context.cjs');
+const { buildRunContext } = require('../../shared/run-context.cjs');
 
 /**
  * 按会话名构建 tmux 原语集合（单 server 多项目时每项目一个实例，会话名唯一）。

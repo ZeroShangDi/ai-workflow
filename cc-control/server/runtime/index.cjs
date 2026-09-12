@@ -17,15 +17,15 @@
  *           ─→ adapters（经 ports 取 cc 能力）
  */
 
-const { createProjectContext } = require('./context.cjs');
-const { createSession } = require('../session/index.cjs');
-const { createSingleExecutor } = require('../session/executor.cjs');
-const { createSessionChannelFactory } = require('../session/channel.cjs');
-const { createSubagentRecorder } = require('../observability/subagent.cjs');
+const { createProjectContext } = require('./project.cjs');
+const { createSession } = require('./session.cjs');
+const { createSingleExecutor } = require('./executor.cjs');
+const { createSessionChannelFactory } = require('./channel.cjs');
+const { createSubagentRecorder } = require('../run/subagent.cjs');
 const { createObservability } = require('../observability/index.cjs');
-const { createDecisionHandler } = require('../decision/handler.cjs');
-const gateRules = require('../decision/gate.cjs');
-const replanning = require('../replanning/index.cjs');
+const { createDecisionHandler } = require('../features/decision/handler.cjs');
+const gateRules = require('../features/decision/gate.cjs');
+const replanning = require('../features/replanning/index.cjs');
 
 /**
  * @param {{ projectRoot: string, env?: object, sid?: string, tmuxFactory?: Function, RunLogger?: Function }} input
@@ -110,7 +110,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         };
         return runStateApi;
       }
-      const state = await import('../core/state.js');
+      const state = await import('../shared/state.js');
       // 包一层显式端口：把 core/state 的函数收敛成 runtime 对外承诺的固定接口（cli/api 只见这层）
       runStateApi = {
         saveState: (r, s) => state.saveState(r, s),
@@ -137,8 +137,8 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
    * 派发经会话注入 subagentDispatch 提示词（主会话派生后台子 Agent），完成感知轮询本项目 state。
    */
   async function batchTransportFor(stateApi) {
-    const bridge = await import('../core/prompts.js');
-    const { waitWhilePaused } = await import('../core/pause.js');
+    const bridge = await import('../shared/prompts.js');
+    const { waitWhilePaused } = await import('../features/pause/index.js');
     const { createBatchTransport } = require('../run/transport.cjs');
     return createBatchTransport({
       send: async (text, label = 'batch-send') => {
@@ -184,7 +184,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         batch = override.batch;
       } else {
         // 生产路径：动态装载 run 配置 / 调度器 / 门禁修复，再建执行器与批传输
-        const state = await import('../core/state.js');
+        const state = await import('../shared/state.js');
         stateApi = {
           loadState: (r) => state.loadState(r),
           saveState: (r, s) => state.saveState(r, s),
@@ -198,7 +198,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         cfg = rc.loadRunConfig(ctx.projectRoot);
         const sch = await import('../run/scheduler.js');
         schedulerFn = sch.runScheduler;
-        const gf = await import('../run/gate-fix.js');
+        const gf = await import('../features/gate/fix.js');
         gateFix = gf.handleGateCompletion;
         chain = require('../run/driver.cjs');
         executor = createSingleExecutor({ ctx, session, channel, observability }); // 单 agent 执行器

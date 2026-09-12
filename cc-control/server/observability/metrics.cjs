@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 // run-meta 读写归位 store（JsonFileStore 原子写）；usage/config/transcript 解析仍走本地 readJson
-const store = require('../core/store.cjs');
+const store = require('../shared/store.cjs');
 
 const RUN_META_PATH = ['.awf', 'logs', 'run-meta.json'];
 const CONTEXT_USAGE_PATH = ['.awf', 'context', 'usage.json'];

@@ -14,9 +14,9 @@
 // 边界：本模块只做「幂等判定 + 派生修复任务」；读盘/写盘靠 core/state.js 的原子原语，
 // 修复提示词靠插件模板（core/prompts.js），修复目标文案规则归 gate-loop.cjs。
 
-import { loadState, spawnGateFixTaskAtomic, gateFixMeta, MAX_RECHECK } from '../core/state.js';
-import { gateFixPrompt } from '../core/prompts.js';
-import { buildFixTarget } from './gate-loop.cjs';
+import { loadState, spawnGateFixTaskAtomic, gateFixMeta, MAX_RECHECK } from '../../shared/state.js';
+import { gateFixPrompt } from '../../shared/prompts.js';
+import { buildFixTarget } from './loop.cjs';
 
 /**
  * 处理门禁完成：blocked + verdict 非 pass → 派生修复任务 + 回退门禁待复审。

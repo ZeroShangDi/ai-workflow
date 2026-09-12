@@ -21,7 +21,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const storeCore = require('./core/store-core.cjs');
+const storeCore = require('../shared/store-core.cjs');
 
 /**
  * 校验并构造决策模型。

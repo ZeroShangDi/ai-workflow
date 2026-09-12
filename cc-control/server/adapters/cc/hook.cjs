@@ -22,7 +22,7 @@
 
 // HOOK_EVENT_MAP：hook_event_name → 领域事件 type（值为 null 表示该 hook 不产出事件）
 // createEvent：把 (type, payload) 归一化为 { type, at, runId, payload }，缺必需载荷键会抛错
-const { HOOK_EVENT_MAP, createEvent } = require('../../observability/events.cjs');
+const { HOOK_EVENT_MAP, createEvent } = require('../../shared/events.cjs');
 
 /**
  * 事件所需的载荷字段最小映射（hook 字段 → 事件 payload 键）；缺省给默认占位。

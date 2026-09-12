@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { createApi } = require('../../server/api/index.cjs');
-const { createProjectRuntime } = require('../../server/projects/runtime.cjs');
+const { createApi } = require('../../server/web/api/index.cjs');
+const { createProjectRuntime } = require('../../server/runtime/index.cjs');
 const { createMockTmux } = require('../../server/mock/index.cjs');
 
 const BASE_STATE = {

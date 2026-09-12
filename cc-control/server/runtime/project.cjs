@@ -20,13 +20,13 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
-const { buildRunContext, projectSid } = require('../core/run-context.cjs');
-const { createRunStores } = require('../core/store.cjs');
-const storeCore = require('../core/store-core.cjs');
+const { buildRunContext, projectSid } = require('../shared/run-context.cjs');
+const { createRunStores } = require('../shared/store.cjs');
+const storeCore = require('../shared/store-core.cjs');
 const { RunLogger: RealRunLogger } = require('../observability/run-logger.cjs');
 const { createTmux } = require('../adapters/cc/tmux.cjs');
-const { isDecisionEnabled } = require('../decision/config.cjs');
-const { DecisionStore } = require('../decision/store.cjs');
+const { isDecisionEnabled } = require('../features/decision/config.cjs');
+const { DecisionStore } = require('../features/decision/store.cjs');
 
 /**
  * @param {{ projectRoot: string, env?: object, sid?: string, tmuxFactory?: Function, RunLogger?: Function }} input

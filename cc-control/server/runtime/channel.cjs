@@ -59,10 +59,10 @@ function createSessionChannelFactory({ ctx, session, observability }) {
     if (cached) return cached;
     // cached 存的是 promise（不是结果），并发调用共享同一次装配；装配失败清缓存以便下次重试
     cached = (async () => {
-      const bridge = await import('../core/prompts.js');
-      const { waitWhilePaused } = await import('../core/pause.js');
+      const bridge = await import('../shared/prompts.js');
+      const { waitWhilePaused } = await import('../features/pause/index.js');
       const { createSessionChannel } = require('../run/channel.cjs');        // 收尾协商（run）
-      const { createContextCompactor } = require('../context/compaction.cjs'); // 上下文压缩（context）
+      const { createContextCompactor } = require('../features/context/compaction.cjs'); // 上下文压缩（context）
 
       /** 发 prompt 并等会话回 ready（超时由上层状态回查兜底） */
       const send = async (text, label = 'session-channel') => {

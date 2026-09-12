@@ -11,7 +11,7 @@
  */
 
 const path = require('node:path');
-const { createProjectRuntime } = require('./runtime.cjs');
+const { createProjectRuntime } = require('./index.cjs');
 
 /**
  * @param {{ env?: object, bootRoot?: string, tmuxFactory?: Function, RunLogger?: Function }} [deps]

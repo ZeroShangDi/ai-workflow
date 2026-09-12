@@ -10,7 +10,7 @@
 // 边界：本模块只做「选谁派、能不能并行」的纯决策，不碰 IO —— 读 state 靠 core/state.js，
 // 派发/完成感知靠注入的 dispatcher/waitAnyDone；因此可脱离真实通道做单测。
 
-import { loadState, peekReadyTasks, buildScopeIndex, filesConflict, EXCLUSIVE_KINDS } from '../core/state.js';
+import { loadState, peekReadyTasks, buildScopeIndex, filesConflict, EXCLUSIVE_KINDS } from '../shared/state.js';
 
 /** 归一化配额（硬上限，缺省 1） */
 function makeQuota(cfg) {

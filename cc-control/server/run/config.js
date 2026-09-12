@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import decisionConfig from '../decision/config.cjs';
+import decisionConfig from '../features/decision/config.cjs';
 
 /**
  * run 运行时配置 — 读 .awf/config.json 的 run.* 段

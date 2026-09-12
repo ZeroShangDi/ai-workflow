@@ -26,7 +26,7 @@ import crypto from 'node:crypto';
 // 持久化统一走 store-core（单写序列化 + 原子写），不再各自实现 state.lock + writeFileSync
 import { withFileLock as withStateLock, readJsonSync, writeJsonAtomicSync, updateStateSync } from './store-core.cjs';
 // 任务图校验与安全插入的唯一实现（纯内存、不做 I/O）；本模块在落账边界调用它兜住非法图
-import taskGraph from '../replanning/graph.cjs';
+import taskGraph from '../features/replanning/graph.cjs';
 
 const { assertTaskGraph, assertTaskDependenciesDone, insertPrerequisiteTask } = taskGraph;
 

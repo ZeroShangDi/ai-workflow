@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { createSession } = require('../../server/session/index.cjs');
-const { createProjectRuntime } = require('../../server/projects/runtime.cjs');
+const { createSession } = require('../../server/runtime/session.cjs');
+const { createProjectRuntime } = require('../../server/runtime/index.cjs');
 const { createMockTmux } = require('../../server/mock/index.cjs');
 
 const tmpRoots = [];

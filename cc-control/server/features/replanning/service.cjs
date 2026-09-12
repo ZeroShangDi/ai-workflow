@@ -23,7 +23,7 @@
  */
 const crypto = require('node:crypto');
 const path = require('node:path');
-const storeCore = require('../core/store-core.cjs');
+const storeCore = require('../../shared/store-core.cjs');
 const { MODES, loadDynamicPlanningConfig } = require('./config.cjs');
 const { DynamicPlanningStore } = require('./store.cjs');
 const { planAdjustment } = require('./planner.cjs');

@@ -10,8 +10,8 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const storeCore = require('../core/store-core.cjs');
-const store = require('../core/store.cjs');
+const storeCore = require('../../shared/store-core.cjs');
+const store = require('../../shared/store.cjs');
 
 class DynamicPlanningStore {
   constructor(projectRoot) {

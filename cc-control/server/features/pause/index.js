@@ -13,7 +13,7 @@
  * 死等，run 静默停摆 4 小时。现引入 isSettled 出口，等待期间必须同时盯「我还要做的事是否已无需做」。
  */
 
-import { loadState } from './state.js';
+import { loadState } from '../../shared/state.js';
 
 /** 自带的等待原语 —— server 不依赖 cli 的 session/client */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

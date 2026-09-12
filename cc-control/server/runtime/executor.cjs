@@ -55,7 +55,7 @@ function createSingleExecutor({ ctx, session, channel, observability }) {
       }
 
       // 派发闩锁：暂停期间不派发新任务；但若这个任务已被别处结算（done/blocked），不必再等
-      const { waitWhilePaused } = await import('../core/pause.js');
+      const { waitWhilePaused } = await import('../features/pause/index.js');
       const gate = await waitWhilePaused(ctx.projectRoot, {
         label: `dispatch:${taskId}`,
         log: pauseNoticeLog(),

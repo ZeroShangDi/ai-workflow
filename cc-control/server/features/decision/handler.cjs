@@ -15,7 +15,7 @@
 const gateRules = require('./gate.cjs');
 const { parseDecisionResult } = require('./core.cjs');
 const decisionInstruction = require('./instruction.cjs');
-const { ccShapes } = require('../adapters/ports.cjs');
+const { ccShapes } = require('../../adapters/ports.cjs');
 
 /**
  * @param {object} deps

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createContextCompactor, COMPACTION } = require('../../server/context/compaction.cjs');
+const { createContextCompactor, COMPACTION } = require('../../server/features/context/compaction.cjs');
 
 /** 造一个记录调用的 compactor 环境 */
 function makeEnv({ pct = null, snapshot = null, readyAfterCheck = true } = {}) {

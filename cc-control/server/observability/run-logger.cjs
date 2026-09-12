@@ -19,8 +19,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const store = require('../core/store.cjs');
-const storeCore = require('../core/store-core.cjs');
+const store = require('../shared/store.cjs');
+const storeCore = require('../shared/store-core.cjs');
 const extract = require('../adapters/cc/extract.cjs');
 
 const SEP = '─'.repeat(60) + '\n'; // 提示词段前的分隔线：长日志里一眼分清每轮 prompt 边界

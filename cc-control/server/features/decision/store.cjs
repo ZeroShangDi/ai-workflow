@@ -15,7 +15,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 // 决策 jsonl 追加/读取经 store 层 AppendFileStore（json 模式，进程内串行 + 坏行容忍）
-const store = require('../core/store.cjs');
+const store = require('../../shared/store.cjs');
 
 const VERSION_FILE = path.join('.awf', 'state.json');
 const LOGS_DIR = path.join('.awf', 'logs');
