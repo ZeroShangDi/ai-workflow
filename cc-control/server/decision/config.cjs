@@ -4,6 +4,15 @@
  *
  * 与 CLI run-config 同源防漂移：src/lib/run-config.js 的 decision 段也委托本模块读取。
  * 缺省 enabled=false（不配置 = 关 = 旧上抛逻辑），仅接受布尔，非法值回落缺省。
+ *
+ * ## 边界
+ * 只回答「闸门开没开」一个问题，不解析决策内容、不感知会话态。开与关的语义差异全部由
+ * gate.cjs / handler.cjs 消费：关 = 完全沿用旧行为（AskUserQuestion 照常上抛、Stop 不拦截、
+ * 不产生任何决策记录）；开 = 拦截并引导走决策内核。
+ *
+ * ## 为什么缺省关
+ * 闸门会改写 Stop / AskUserQuestion 的控制流（拦截回合、注入决策指令），属侵入性行为；
+ * 未显式配置的项目不应被它改变既有运行方式，故缺省 false，开启须在 .awf/config.json 显式声明。
  */
 const fs = require('node:fs');
 const path = require('node:path');

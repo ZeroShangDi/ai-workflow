@@ -11,7 +11,12 @@
  * 本模块纯内存、不改写任何现有逻辑。
  */
 
-/** 事件类型目录：type → { source, persist?, payloadKeys } */
+/**
+ * 事件类型目录：type → { source, persist?, payloadKeys }。
+ *   source      映射锚点：这条事件由谁产生（claude hook / run driver / scheduler / settle…）
+ *   persist     可选：落到哪个 sink 类型（wirePersist 用它决定是否分发）；无 = 不落盘
+ *   payloadKeys 必需载荷键：createEvent 会校验缺一即抛（保证消费方拿得到字段）
+ */
 const EVENT_DEFS = {
   // run 生命周期（run driver / run-slot；runId 走顶层字段，非 payload 键）
   'run.started': { source: 'run.driver', persist: 'log.append', payloadKeys: [] },
@@ -44,7 +49,15 @@ const HOOK_EVENT_MAP = {
 /** 事件类型集合（供校验/订阅参考） */
 const EVENT_TYPES = Object.keys(EVENT_DEFS);
 
-/** 归一化事件：补 at/runId；缺必需载荷键抛错 */
+/**
+ * 归一化事件：补 at/runId，并校验必需载荷键。
+ * runId 放**顶层**而非 payload（见文件头），便于订阅方按 run 过滤。
+ * @param {string} type 事件类型（必须在 EVENT_DEFS 中）
+ * @param {object} [payload] 事件载荷
+ * @param {string} [runId] 所属 run；缺省 null
+ * @returns {{ type: string, at: string, runId: string|null, payload: object }}
+ * @throws 未知类型、或缺任一 payloadKeys 时抛错（宁可显式失败，也不放残缺事件进总线）
+ */
 function createEvent(type, payload = {}, runId) {
   const def = EVENT_DEFS[type];
   if (!def) throw new Error(`events: 未知事件类型 ${type}`);
@@ -54,7 +67,7 @@ function createEvent(type, payload = {}, runId) {
   return { type, at: new Date().toISOString(), runId: runId ?? null, payload };
 }
 
-/** 事件 → 落盘 sink type（无 → null） */
+/** 事件 → 落盘 sink type；无 persist 锚点（或不认识该类型）→ null */
 function persistSinkFor(type) {
   const def = EVENT_DEFS[type];
   return def?.persist || null;
@@ -68,6 +81,7 @@ function createEventBus() {
   const typeHandlers = new Map(); // type → Set<fn>
   let wildcards = [];
 
+  /** 订阅：type 为具体类型 → 定投；为 '*' → 通配（每次 emit 都会收到）。返回取消订阅函数 */
   function on(type, fn) {
     if (typeof fn !== 'function') throw new Error('events.on: fn 须为函数');
     if (type === '*') {
@@ -79,6 +93,7 @@ function createEventBus() {
     return () => { typeHandlers.get(type)?.delete(fn); };
   }
 
+  /** 发布：先定投、后通配，按注册顺序调用；返回「尝试调用的 handler 数」 */
   function emit(event) {
     const { type } = event;
     const set = typeHandlers.get(type);
@@ -95,7 +110,14 @@ function createEventBus() {
   return { on, emit, types: () => [...typeHandlers.keys()] };
 }
 
-/** 便捷：把落盘 sinks 接到总线上（按事件 persist 锚点分发；无锚点事件忽略） */
+/**
+ * 便捷：把落盘 sinks 接到总线上（通配订阅，按事件 persist 锚点分发；无锚点事件忽略）。
+ * 只负责「翻译 + 转交」，真正写盘由调用方注入的 `dispatch` 完成 —— 本模块不碰 IO。
+ * @param {object} bus createEventBus 产物
+ * @param {object} sinks sink 集合（保留形参以表明去向）
+ * @param {{ dispatch?: Function }} [opts] dispatch({ type, payload }) 由调用方提供
+ * @returns {Function} 取消订阅函数
+ */
 function wirePersist(bus, sinks, { dispatch } = {}) {
   return bus.on('*', (event) => {
     const sinkType = persistSinkFor(event.type);

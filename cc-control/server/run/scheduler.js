@@ -6,6 +6,9 @@
 //
 // 配额语义：硬上限，非目标——池子按实际就绪任务填充，不足不凑满。
 // 预留「延时补位」：waitAnyDone 可容忍完成信号延迟，补位不依赖即时信号。
+//
+// 边界：本模块只做「选谁派、能不能并行」的纯决策，不碰 IO —— 读 state 靠 core/state.js，
+// 派发/完成感知靠注入的 dispatcher/waitAnyDone；因此可脱离真实通道做单测。
 
 import { loadState, peekReadyTasks, buildScopeIndex, filesConflict, EXCLUSIVE_KINDS } from '../core/state.js';
 
@@ -32,12 +35,14 @@ function makeRunning() {
     has(id) { return tasks.has(id); },
     getTask(id) { return tasks.get(id); },
     taskIds() { return [...tasks.keys()]; },
+    /** 加入一个运行中任务并按其 scope 累加模块/功能计数（activeModules 记「当前活跃模块」） */
     add(task, scope) {
       tasks.set(task.id, task);
       if (scope?.moduleId) perModule.set(scope.moduleId, (perModule.get(scope.moduleId) || 0) + 1);
       if (scope?.featureId) perFeature.set(scope.featureId, (perFeature.get(scope.featureId) || 0) + 1);
       if (scope?.moduleId) activeModules.add(scope.moduleId);
     },
+    /** 移除任务并按其 scope 递减计数；计数到 0 时清出活跃模块。返回被移除的 task（供落账侧） */
     remove(id, scope) {
       const task = tasks.get(id);
       tasks.delete(id);
@@ -51,6 +56,12 @@ function makeRunning() {
       }
       return task;
     },
+    /**
+     * 能否再占一个槽位（四级配额全过才 true，且**本身不改变状态**，纯判据）：
+     *   1) 总并发 < max；2) 该功能并发 < maxPerFeature；3) 该模块并发 < maxPerModule；
+     *   4) 模块未活跃时，活跃模块总数 < maxModules（首入一个模块要占一个模块名额）。
+     * 缺 scope（无 moduleId/featureId）时只受总并发约束。
+     */
     canOccupy(task, scope, quota) {
       if (tasks.size >= quota.max) return false;
       if (scope?.featureId && (perFeature.get(scope.featureId) || 0) >= quota.maxPerFeature) return false;
@@ -127,6 +138,9 @@ export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, 
   let dispatched = 0;
   let suspended = false; // 决策上抛挂起：不补位，等决策解决
 
+  // 主循环不变式：每轮先「尽量补位到配额满」，再「等至少一个完成」，完成后刷新池与 scope 再补位；
+  // 直到池空且无运行中才退出。running 只记「已成功派发」的任务（见下面 accepted===false 分支），
+  // 否则 waitAnyDone 会永远等一个从没派出去的任务。
   while (true) {
     // 补位：填到配额满或池无可派（含文件冲突/独占/保守串行阻塞）；决策挂起时跳过
     if (!suspended) {

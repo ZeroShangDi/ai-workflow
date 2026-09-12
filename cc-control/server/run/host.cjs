@@ -22,6 +22,20 @@
  * 已完成的迁入项（原「不做，保留给后续任务」）：CLI live driver 切换（T1-058）、剩余
  * state/gate 直写迁移（T1-061）、真 run/双 run 回归（T1-098）——均已落地。宿主在无人
  * submit 前保持空闲，零副作用。
+ *
+ * 边界（宿主**不**做什么，读代码时别在别处找）：
+ *   - 不 spawn tmux、不自己发 prompt —— 那是传输层/会话层的事，宿主只经注入的
+ *     executor.runTask / batch.dispatch 下指令；
+ *   - 不读插件提示词、不直接写 state.json 字节 —— 一切 state 变更经注入的 state 原语；
+ *   - 单槽：同一时刻只驱动一个 run（activeRunId 为唯一写者），第二个 submit 一律 409。
+ *
+ * 阅读地图（按一次 run 的数据流串起来看最省力）：
+ *   submitRun → createRunRecord →（异步）drive（置 run 模式 / 兜底复位 mode）
+ *     ├ single: driveSingle —— findNextTask 顺序取 → decideChain 标注阶段链 →
+ *     │          markTaskActive 原子占用 → executor.runTask → settleTaskCompletion（门禁）
+ *     └ batch : driveBatch  —— runScheduler 滑动窗口 → batch.dispatch/waitAnyDone →
+ *                              onTaskComplete（门禁）
+ *   → 收尾 backupState → 复位 mode。全过程经 emit 进事件环，CLI 用 snapshot/pollEvents 订阅。
  */
 
 /** 宿主自身生命周期状态 */
@@ -55,6 +69,7 @@ const HOST_EVENT_TYPES = [
   'gate.fix',
 ];
 
+/** 校验 run 状态迁移是否合法；同态视为 no-op（幂等），非法迁移抛错（尽早暴露驱动器 bug） */
 function assertRunTransition(from, to, runId) {
   if (from === to) return;
   const allowed = RUN_TRANSITIONS[from] || [];
@@ -63,6 +78,7 @@ function assertRunTransition(from, to, runId) {
   }
 }
 
+/** 校验宿主生命周期状态取值（idle/running/stopped），未知值即抛 */
 function assertState(hostState) {
   if (!HOST_STATES.includes(hostState)) throw new Error(`run-host: 未知宿主状态 ${hostState}`);
 }
@@ -135,11 +151,21 @@ function createRunHost(opts = {}) {
   // 实时订阅者（T1-091：WS 推送等长连接消费；emit 同步扇出）
   const subscribers = new Set();
 
+  /** 判定本次 run 的调度模式：配额 max>1 → 'batch'，否则 'single'（submitRun 可显式覆盖） */
   function mode() {
     return (cfg?.agents?.max || 1) > 1 ? 'batch' : 'single';
   }
 
   // ── 事件发布 ──
+
+  /**
+   * 发布一条事件：取单调递增 seq → 入环（超上限从头裁剪并抬高 trimmedBase）→
+   * 同步扇出到 bus / onEvent / 实时订阅者 / logger。
+   * 每个扇出点各自 try/catch：单个订阅者/总线 handler 抛错不得拖垮宿主（韧性）。
+   * @param {string} type 见 HOST_EVENT_TYPES（也允许 server 决策闸门经 publish 推自定义类型）
+   * @param {string|null} runId
+   * @param {object} [payload]
+   */
   function emit(type, runId, payload) {
     const at = clock();
     const event = { seq: ++seq, runId, type, at, payload: payload || {} };
@@ -159,6 +185,7 @@ function createRunHost(opts = {}) {
     logger?.({ type, runId, at, payload: payload || {} });
   }
 
+  /** 是否已有 run 在驱动（宿主单槽判据；submitRun 据此拒绝并发） */
   function hasActiveRun() {
     return activeRunId != null;
   }
@@ -195,11 +222,19 @@ function createRunHost(opts = {}) {
     return s;
   }
 
+  /** 从磁盘 state 取指定任务的最新快照（读盘而非内存，确保看到别处刚落下的 status/verdict） */
   function taskById(run, id) {
     const s = stateApi.loadState(projectRoot);
     return s?.tasks?.find((t) => t.id === id) || null;
   }
 
+  /**
+   * 迁移 run 状态并打时间戳：首次进入 running 时落 startedAt，进入终态时落 finishedAt。
+   * 迁移合法性交给 assertRunTransition（非法即抛，避免静默进入不可能状态）。
+   * @param {object} run
+   * @param {'running'|'done'|'error'|'stopped'} next
+   * @param {{ error?: string|null, at?: string }} [opts]
+   */
   function setRunStatus(run, next, { error = null, at } = {}) {
     assertRunTransition(run.status, next, run.runId);
     run.status = next;
@@ -210,6 +245,13 @@ function createRunHost(opts = {}) {
   }
 
   // ── 门禁锚点：host 侧统一经 run-driver.gateCompletionHook（单/多 agent 收敛同一锚点） ──
+
+  /**
+   * 门禁锚点：仅当任务 kind 属门禁（review/test）时，经 run-driver.gateCompletionHook 委托
+   * 注入的 handleGateCompletion（cli gate-fix）派生修复任务 + 回退门禁复审。
+   * 未注入 chain/handleGateCompletion 时静默返回 false（不阻断 run）。
+   * @returns {Promise<boolean>} 是否真的处理了门禁（true 时补发一条 gate.fix 事件）
+   */
   async function runGateHook(run, id, taskSnapshot) {
     if (!chain?.gateCompletionHook || typeof handleGateCompletion !== 'function') return false;
     const hook = chain.gateCompletionHook(projectRoot, { handleGateCompletion });
@@ -252,7 +294,7 @@ function createRunHost(opts = {}) {
         lastPhase = phase;
         emit('run.phase', run.runId, { phase });
       }
-      if (s.currentState === 'FINISH') break;
+      if (s.currentState === 'FINISH') break; // FINISH 是 run 的自然终点（收尾里程碑），到此收工
       const task = stateApi.findNextTask(s);
       if (!task) break; // 无就绪任务：要么全 done，要么 blocked 需人工
       if (++steps > MAX_TASK_STEPS) {
@@ -495,6 +537,7 @@ function createRunHost(opts = {}) {
     },
   };
 
+  /** run 记录 → 对外快照（只暴露观测字段，不泄露内部句柄；snapshot() 复用） */
   function summarize(run) {
     return {
       runId: run.runId,

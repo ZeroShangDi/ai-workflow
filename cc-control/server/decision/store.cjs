@@ -50,6 +50,16 @@ function logRunDirs(projectRoot, version) {
   return names.sort().reverse();
 }
 
+/**
+ * 决策记录的追加式存储。一个 run 一个 jsonl 文件（`runs/<runStamp>.jsonl`），
+ * 记录以 decision_id 为聚合键：requested/completed/overridden 等生命周期事件按写入顺序追加。
+ *
+ * 为什么 run 级分文件而不是单文件：run 是天然的会话边界，读一份 run 就拿到该次运行的全部
+ * 决策上下文；override 以「追加事件」写回原 decision 所在 run 文件，不改写原记录（append-only）。
+ * runStamp 与 run-logger 命名对齐，使决策记录与运行日志可相互定位。
+ *
+ * 并发/幂等由 store 层 AppendFileStore 保障（进程内串行 + 坏行容忍），本类只做业务去重。
+ */
 class DecisionStore {
   /**
    * @param {string} projectRoot - 用户项目根目录

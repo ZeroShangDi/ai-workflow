@@ -10,6 +10,10 @@
  *   answer / type / finality / real_question / decisive_factors / reconsider_when
  * 轻量校验（不引 ajv）：字符串字段非空、数组字段必须是数组（可空数组视为已提供）。
  */
+// 抓取 <AWF_DECISION_RESULT>…</AWF_DECISION_RESULT> 之间的内容并 JSON.parse。
+// 与 gate.cjs 的 DECISION_REQUIRED_RE 关键差异：此处**不锚定结尾**——结果块出现在回合文本的
+// 任何位置都能被捞到；标签两侧容忍空白（`\s*`），因为模型常写成 `<AWF_DECISION_RESULT >`
+// 或带换行。非贪婪 `[\s\S]*?` 保证只吃到一个块，遇到多个标记不会跨块吞并。
 const MARKER_RE = /<\s*AWF_DECISION_RESULT\s*>([\s\S]*?)<\s*\/\s*AWF_DECISION_RESULT\s*>/;
 
 const REQUIRED_FIELDS = ['answer', 'type', 'finality', 'real_question', 'decisive_factors', 'reconsider_when'];
@@ -35,6 +39,10 @@ function validateDecisionResult(data) {
 
 /**
  * 从最后一条消息解析 Decision Result。
+ *
+ * 三种失败互斥且按优先级短路：先无标记 → no_marker；标记在但内容不是合法 JSON → invalid_json；
+ * JSON 合法但缺必填 → missing_required（附 missing 字段）。调用方（handler）对任何一种失败
+ * 都走 deferred fallback，所以此处的错误码只用于日志区分，不改变控制流。
  * @param {string} lastMessage - Stop hook 的 last_assistant_message
  * @returns {{ valid: true, result: object } | { valid: false, error: 'no_marker'|'invalid_json'|'missing_required', missing?: string[] }}
  */

@@ -35,11 +35,13 @@ const { DecisionStore } = require('../decision/store.cjs');
  *   sid          显式 run 标签；缺省用确定性 projectSid(projectRoot)
  *   tmuxFactory  (sessionName) => tmux 原语集；缺省 createTmux（测试可注入 mock）
  *   RunLogger    RunLogger 类；缺省真实实现（测试注入 mock）
+ * @returns 一个**纯容器**：身份 + 路径 + 出口（见文件头），构造过程不读写业务文件
  */
 function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory, RunLogger = RealRunLogger } = {}) {
   const root = path.resolve(projectRoot || env.CC_PROJECT || process.cwd());
   const runSid = sid || projectSid(root);
   // 命名 ctx：带 sid 标签（tmux 会话名 cc-<sid>）；磁盘 ctx：无 sid（.awf/state.json 现行布局）
+  // 两个 ctx 分离是刻意的：会话名按 run 分片，但磁盘锚保持「本项目唯一 state.json」，不因 sid 漂移
   const nameCtx = buildRunContext({ projectRoot: root, sid: runSid, env });
   const storeCtx = buildRunContext({ projectRoot: root, env });
   const logger = new RunLogger(root);
@@ -52,14 +54,16 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
   /** sid 落盘路径（软边界，仅 ?sid= 显式路径用；根锚本项目） */
   function runStateFile(sidKey) {
     return sidKey
-      ? path.join(root, '.awf', 'runs', sidKey, 'state.json')
-      : path.join(root, '.awf', 'state.json');
+      ? path.join(root, '.awf', 'runs', sidKey, 'state.json') // 显式分片：.awf/runs/<sid>/state.json
+      : path.join(root, '.awf', 'state.json');                // 无 sid：现行布局，绝不静默分片
   }
+  /** 与 runStateFile 配套的锁文件路径（同目录，.lock 后缀） */
   function runStateLockFile(sidKey) {
     return sidKey
       ? path.join(root, '.awf', 'runs', sidKey, 'state.lock')
       : path.join(root, '.awf', 'state.lock');
   }
+  /** 写某个 sid 的 state.json：建目录 → 加文件锁 → 原子写（只在显式 sid 路径用） */
   function writeRunStateSid(sidKey, state) {
     const file = runStateFile(sidKey);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -71,7 +75,7 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
     projectRoot: root,
     sid: runSid,
     session: nameCtx.session,
-    runSessionName: nameCtx.runSessionName,
+    runSessionName: nameCtx.runSessionName, // tmux 会话名 cc-<sid>
     port: nameCtx.port,
     nameCtx,
     storeCtx,
@@ -90,8 +94,8 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
     stores,                                   // ② 落盘
     storeCore,
     logger,                                   // ③ 日志
-    newDecisionStore: () => new DecisionStore(root), // ④ 决策存储
-    decisionEnabled: () => isDecisionEnabled(root),
+    newDecisionStore: () => new DecisionStore(root), // ④ 决策存储（工厂：每次取新实例）
+    decisionEnabled: () => isDecisionEnabled(root),  // 决策开关（读项目配置，运行期可变）
   };
 }
 

@@ -22,21 +22,28 @@ const { oneshot: oneshotPort } = require('../adapters/ports.cjs');
  */
 function createObservability({ ctx, session, oneshot = oneshotPort }) {
   const agents = new Map();              // 子 agent 观测（按 session/agent id）
-  let metricsCache = { at: 0, value: null };
-  let diagnosisInFlight = false;
+  let metricsCache = { at: 0, value: null }; // 指标 1s 缓存：{ at: 上次采集时刻, value: 上次结果 }
+  let diagnosisInFlight = false;         // 诊断互斥闩：一次只允许一个诊断在跑
 
   /**
    * 诊断重启后，会话 id 变了就把 mainSessionId / run-meta 对齐到诊断快照（否则 CLI 会认错会话）。
    * 同时把快照里记录的子 agent transcript 还原进 run-meta（它们已经不在了）。
+   *
+   * 背景：诊断会拉起一个独立的 claude 进程，cc 可能换了主会话 id；CLI 侧按 mainSessionId 认会话，
+   * 不对齐就会出现「CLI 找的会话不是真正在跑的那个」。此函数每轮指标读取前都会跑（见 metricsSnapshot），
+   * 一旦发现诊断快照里的会话 id 与当前不同，即以快照为准修正 session 与 run-meta（run-meta 是观测产物）。
    */
   function reconcileDiagnosisSession() {
     const record = readDiagnosis(ctx.projectRoot);
+    // 只认 status==='running' 的快照（进行中的诊断才会带来新会话事实）
     const snapshot = record?.status === 'running' ? record.metrics : null;
     const snapshotSessionId = snapshot?.sources?.mainSessionId;
     if (!snapshotSessionId || snapshotSessionId === session.mainSessionId) return;
 
     const meta = readRunMeta(ctx.projectRoot);
     const existingSubagents = meta.subagents || {};
+    // run-meta 已有子 agent 就保留；否则从快照记录的 transcript 路径反推子 agent 清单
+    // （排除主会话 transcript，用文件名去扩展名当 agentId）
     const restoredSubagents = Object.keys(existingSubagents).length > 0 ? existingSubagents : Object.fromEntries(
       (snapshot.sources.transcriptPaths || [])
         .filter((transcriptPath) => transcriptPath !== snapshot.sources.mainTranscriptPath)
@@ -54,11 +61,15 @@ function createObservability({ ctx, session, oneshot = oneshotPort }) {
       subagents: restoredSubagents,
       updatedAt: new Date().toISOString(),
     }));
-    metricsCache = { at: 0, value: null };
+    metricsCache = { at: 0, value: null }; // 会话换了，缓存作废，强制重采
     console.log('[diagnosis] restored main session from diagnostic snapshot');
   }
 
-  /** 运行指标快照（1s 缓存；会话/子 agent 数作为入参参与计算） */
+  /**
+   * 运行指标快照（1s 缓存；会话/子 agent 数作为入参参与计算）。
+   * 缓存命中直接返回上一份；否则 readRunMetrics 重新采集（要遍历解析 transcript，比较贵）。
+   * 注意 reconcile 放在缓存判断**之前**：会话对齐不能被缓存跳过。
+   */
   function metricsSnapshot() {
     reconcileDiagnosisSession();
     if (Date.now() - metricsCache.at < 1000 && metricsCache.value) return metricsCache.value;
@@ -77,7 +88,12 @@ function createObservability({ ctx, session, oneshot = oneshotPort }) {
     return ctx.stores.state.readSync() || {};
   }
 
-  /** 触发一次诊断（异步跑 claude -p；进行中重复调用返回错误） */
+  /**
+   * 触发一次诊断（异步跑 claude -p；进行中重复调用返回错误）。
+   * 写入分两拍：先写 status:'running' 占位快照（立即返回给调用方展示），
+   * 诊断结束后用最终结果（complete/failed）覆盖同一文件。diagnosisInFlight 保证互斥。
+   * @returns {{ ok: true, diagnosis: object } | { ok: false, error: string }}
+   */
   async function startDiagnosis() {
     if (diagnosisInFlight) return { ok: false, error: 'diagnosis already running' };
 
@@ -126,22 +142,24 @@ function createObservability({ ctx, session, oneshot = oneshotPort }) {
     console.error(`[${kind}][${level}] ${msg}`);
   }
 
-  /** pause 闩锁的日志出口 */
+  /** pause 闩锁的日志出口：包成 (level, msg) => void，供 core/pause.waitWhilePaused 直接当 logger 用 */
   function pauseNoticeLog() {
     return (level, msg) => notice('pause', level, msg);
   }
 
-  /** 子 agent 观测登记（hook 侧调用） */
+  /** 子 agent 观测登记（hook 侧调用）：把 patch 合并进该 key 的既有记录（同一 agent 会多次上报，如 Start/Stop） */
   function trackAgent(key, patch) {
     const prev = agents.get(key) || {};
     agents.set(key, { ...prev, ...patch });
     return agents.get(key);
   }
 
+  /** 当前活跃（status==='running'）子 agent 数（供 /status 与指标采集） */
   function activeAgentCount() {
     return [...agents.values()].filter((a) => a.status === 'running').length;
   }
 
+  /** 收干净观测态（测试复位 / shutdown）：清 agents、作废缓存、解除诊断闩 */
   function reset() {
     agents.clear();
     metricsCache = { at: 0, value: null };
@@ -158,6 +176,7 @@ function createObservability({ ctx, session, oneshot = oneshotPort }) {
     notice,
     pauseNoticeLog,
     reset,
+    // 以下 getter/setter 供测试与外部复位读写观测内部态（如强制作废缓存、模拟诊断进行中）
     get diagnosisInFlight() { return diagnosisInFlight; },
     set diagnosisInFlight(v) { diagnosisInFlight = v; },
     set metricsCache(v) { metricsCache = v; },

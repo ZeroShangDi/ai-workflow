@@ -7,8 +7,12 @@
 // （MAX_RECHECK，state.js 定义，超限保持 blocked 需人工介入）。
 //
 // 接线：
-//  - 多 agent：runScheduler.onTaskComplete → 本模块（run-batch.js）
-//  - 单 agent：runLoop 完成感知后（run.js）
+//  - 多 agent：runScheduler.onTaskComplete → 本模块
+//  - 单 agent：driveSingle → settleTaskCompletion → 门禁锚点（driver.gateCompletionHook）
+// 入口统一为 host 侧：单/多 agent 都经 run-driver.gateCompletionHook 收敛到本函数（见 run/host.cjs runGateHook）。
+//
+// 边界：本模块只做「幂等判定 + 派生修复任务」；读盘/写盘靠 core/state.js 的原子原语，
+// 修复提示词靠插件模板（core/prompts.js），修复目标文案规则归 gate-loop.cjs。
 
 import { loadState, spawnGateFixTaskAtomic, gateFixMeta, MAX_RECHECK } from '../core/state.js';
 import { gateFixPrompt } from '../core/prompts.js';
@@ -36,10 +40,12 @@ export async function handleGateCompletion(projectRoot, id, task) {
   const meta = gateFixMeta(gate);
   if (!meta) return;
 
-  const v = gate.exec?.verdict;
+  const v = gate.exec?.verdict; // 仅用于日志展示；能否派生的判定在 gateFixMeta / spawnGateFixTaskAtomic
   const fixTarget = buildFixTarget(gate); // verdict→修复目标规则归位 gate-loop
   const prompt = await gateFixPrompt({ fixId: meta.fixId, fixTarget });
 
+  // 原子派生修复任务 + 回退门禁 pending + deps 串联。返回空可能是：已达复审上限（recheck≥MAX_RECHECK）
+  // 或幂等 no-op（已派生过）；用 recheck 计数区分后给出对应日志结论。
   const applied = spawnGateFixTaskAtomic(projectRoot, id, prompt, meta.fixId);
   const fixId = applied?.fixId || null;
   if (fixId) {

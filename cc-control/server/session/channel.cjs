@@ -22,11 +22,12 @@ const { submitText } = require('./executor.cjs');
  * @param {object} deps.ctx           项目上下文（stores / logger / projectRoot）
  * @param {object} deps.session       会话态
  * @param {object} deps.observability 观测面（notice / pauseNoticeLog）
- * @returns {Function} channel() → Promise<SessionChannel>（每项目惰性单例）
+ * @returns {Function} channel() → Promise<SessionChannel>（每项目惰性单例）；
+ *                     该函数上还挂 sendPromptAndWait / sendLocalCmd 两个注入原语
  */
 function createSessionChannelFactory({ ctx, session, observability }) {
   const { notice, pauseNoticeLog } = observability;
-  let cached = null;
+  let cached = null; // 惰性单例的 promise（装配失败会清空以便重试）
 
   /** 注入 prompt 并等本回合收尾；超时返回 false（不抛 —— 由上层回查 state 决定下一步） */
   async function sendPromptAndWait(text) {
@@ -36,7 +37,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
     session.setBusy();
     ctx.logger.logPrompt(text);
     await submitText(ctx, text);
-    return session.waitReady(READY_TIMEOUT_MS);
+    return session.waitReady(READY_TIMEOUT_MS); // 等回合收尾（Stop hook 放回 ready）
   }
 
   /** 注入本地 slash 命令：等就绪 → 标 busy → 注入 → 起兜底（本地命令无 Stop hook） */
@@ -45,6 +46,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
     if (!ok) return false;
     session.setBusy();
     await submitText(ctx, cmd);
+    // 本地命令不触发 Stop hook，会话态会一直 busy —— 必须起兜底把它放回 ready
     session.clearFallbackTimer();
     session.setFallbackTimer(setTimeout(() => {
       if (session.state === 'busy') session.setReady();
@@ -55,6 +57,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
   /** 每项目惰性单例：channel() 取「会话内两段协商」的合并面 */
   async function channel() {
     if (cached) return cached;
+    // cached 存的是 promise（不是结果），并发调用共享同一次装配；装配失败清缓存以便下次重试
     cached = (async () => {
       const bridge = await import('../core/prompts.js');
       const { waitWhilePaused } = await import('../core/pause.js');
@@ -63,10 +66,11 @@ function createSessionChannelFactory({ ctx, session, observability }) {
 
       /** 发 prompt 并等会话回 ready（超时由上层状态回查兜底） */
       const send = async (text, label = 'session-channel') => {
-        await waitWhilePaused(ctx.projectRoot, { label, log: pauseNoticeLog() });
+        await waitWhilePaused(ctx.projectRoot, { label, log: pauseNoticeLog() }); // 暂停期不打扰会话
         return sendPromptAndWait(text);
       };
 
+      /** 读本项目 .awf/context/usage.json 的上下文占用百分比；缺失/异常 → null（视为无实测） */
       const readUsagePct = async () => {
         try {
           const pct = JSON.parse(
@@ -75,6 +79,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
           return typeof pct === 'number' ? pct : null;
         } catch { return null; }
       };
+      /** 读上次上下文压缩留下的 handoff 快照；缺失 → null */
       const readHandoffSnapshot = async () => {
         try {
           return await fsp.readFile(path.join(ctx.projectRoot, '.awf', 'context', 'handoff.md'), 'utf-8');
@@ -82,6 +87,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
       };
 
       // 上下文压缩（横切）：只依赖「读占用 / 读快照 / 清会话 / 发提示词」
+      // 5 个端口都是函数，压缩逻辑本身不 import 任何本项目模块 —— 可独立测试
       const compactor = createContextCompactor({
         send,
         prompts: { contextCheck: bridge.contextCheck },
@@ -119,7 +125,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
       // 合并面：执行器按「任务前压缩 → 派发 → 等结算 → 收尾协商」顺序使用
       return { maybeCompact: compactor.maybeCompact, settleTask: settle.settleTask };
     })().catch((err) => {
-      cached = null;
+      cached = null; // 装配失败不缓存失败结果，下次调用重新装配
       throw err;
     });
     return cached;

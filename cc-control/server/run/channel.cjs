@@ -16,6 +16,9 @@
  *   - readHandoffSnapshot()   —— .awf/context/handoff.md 快照
  *   - consumeContextReady()   —— 一次性读 contextReady 标记（AI 已写快照并通知）
  *   - clearSession()          —— /clear 清空对话（压缩后注入快照）
+ *
+ * ports 为必填（构造时逐一校验，缺失即抛）；readTurnBytes / isAwaitingHuman / waitWhilePaused /
+ * sleepFn / log 为可选，见 createSessionChannel 参数默认值。
  */
 
 /** 连续「CC 无产出」的最大轮数，超过则标 blocked 跳过 */
@@ -50,6 +53,7 @@ function createSessionChannel({
   waitWhilePaused = async () => {},
   log = () => {},
 } = {}) {
+  // 端口装配校验：必填端口缺失即抛（尽早暴露装配漏项，而不是运行到一半才炸）
   for (const [name, fn] of Object.entries({ send, readTaskStatus, markBlocked, readUsagePct, readHandoffSnapshot, consumeContextReady, clearSession })) {
     if (typeof fn !== 'function') throw new Error(`task-channel: 端口 ${name} 必填`);
   }
@@ -76,6 +80,8 @@ function createSessionChannel({
     let noWorkRounds = 0; // 连续「CC 无产出」轮数
     let rounds = 0;       // 已介入轮数（含首轮 wrapup）
 
+    // 循环不变式：每轮要么确认任务已结算（done/blocked）返回，要么注入一次收尾/追问 prompt。
+    // 两把保险丝防止「永不结算」把 run 挂死：连续无产出 MAX_SETTLE_ROUNDS、总轮数 SETTLE_MAX_TOTAL_ROUNDS。
     for (;;) {
       // 正在等人工决策应答：人类思考时间无上限，绝不能计入轮数、更不能判死
       // （2026-09-10 现场：CC 调 awf_await_choice 后结束回合，编排器不知情，8 分钟内把任务判 blocked，

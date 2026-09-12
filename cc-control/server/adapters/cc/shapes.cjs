@@ -16,16 +16,23 @@
  * 门阀停在 deciding、决策从未真正发生（单测按错字段断言，故一直全绿）。
  */
 function blockDecision(reason) {
+  // 外层包 `ccOutput`：hook 响应里承载「给 cc 的回写指令」的字段名（server 侧据此写回 hook stdout）
   return { ccOutput: { decision: 'block', reason } };
 }
 
-/** PreToolUse 权限 deny：拒绝工具并给原因，updatedInput.questions 清空（AskUserQuestion 处理） */
+/**
+ * PreToolUse 权限 deny：拒绝工具并给原因，updatedInput.questions 清空（AskUserQuestion 处理）。
+ * @param {string} reason 拒绝原因（回灌给模型，告诉它为什么被拒）
+ * @param {{ updatedInput?: object }} [opts] 覆盖默认的 updatedInput（缺省 { questions: [] }）
+ */
 function denyPermission(reason, { updatedInput } = {}) {
   return {
     ccOutput: {
       hookSpecificOutput: {
+        // 'deny' 是 cc PreToolUse 权限决策的取值；配合 reason 让模型知道被拒缘由
         permissionDecision: 'deny',
         permissionDecisionReason: reason,
+        // 清空 questions：阻止 AskUserQuestion 真的弹给用户（awf run 下决策由门阀接管，不抛回用户）
         updatedInput: updatedInput || { questions: [] },
       },
     },

@@ -29,13 +29,23 @@ const replanning = require('../replanning/index.cjs');
 
 /**
  * @param {{ projectRoot: string, env?: object, sid?: string, tmuxFactory?: Function, RunLogger?: Function }} input
+ * @returns runtime：ctx（纯上下文）+ 各能力实例 + 惰性装配入口（ensureRunHost / ensureRunStateApi / dynamicPlanning）
  */
 function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } = {}) {
+  // 装配顺序（有依赖，别乱动）：
+  //   ① ctx（纯上下文）先建 —— 后面所有成员都从这里取出口
+  //   ② session（会话态）—— decision/subagent/observability/channel 都依赖它
+  //   ③ observability / subagent —— 依赖 ctx + session
+  //   ④ decision —— 依赖 session + ctx 出口 + publishEvent
+  //   ⑤ channel（通道）—— 依赖 ctx + session + observability
+  //   ⑥ runHost / runStateApi / dynamicPlanning —— 惰性（首次用到才建），见各自 ensure*
   const ctx = createProjectContext({ projectRoot, env, sid, tmuxFactory, RunLogger });
 
   // ── 会话态：主槽一个 Session；每个 sid 一个（承接原 run-slot 的职责）──
+  // 主槽 sid = ctx.sid；sid 槽按需懒建并缓存。decisionSeqGen 由 gate 规则提供，保证决策序号单调。
   const sessions = new Map();
   const session = createSession({ sid: ctx.sid, decisionSeqGen: gateRules.createDecisionSeq() });
+  /** 取某 sid 的会话槽（懒建）；空 sid → null（无 sid 的请求走主槽） */
   function sessionFor(sidKey) {
     if (sidKey == null || sidKey === '') return null;
     const key = String(sidKey);
@@ -54,6 +64,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
   });
 
   // ── run host 装配位（惰性）──
+  // runHost：装配后的宿主；runHostReady：装配中的 promise（防并发重复装配）；runHostBootErr：失败原因
   let runHost = null;
   let runHostReady = null;
   let runHostBootErr = null;
@@ -76,13 +87,20 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
   const channel = createSessionChannelFactory({ ctx, session, observability });
 
   // ── state 写原语（惰性装载；测试可经 __CC_RUN_HOST_DEPS__.stateApi 覆盖）──
+  // 用「ready promise + 结果变量」双重缓存：-Ready 防并发重复装载，-Api 是可用引用（失败时置 null）
   let runStateApi = null;
   let runStateApiReady = null;
+  /**
+   * 装载 state 写原语（saveState / replaceStateIfUnchanged / setWorkflowMode / markTaskActive / backupState）。
+   * 优先用测试覆盖（global.__CC_RUN_HOST_DEPS__.stateApi），否则动态 import core/state.js。
+   * 失败不抛：清引用并返回 null，由调用方检查后回 503。
+   */
   async function ensureRunStateApi() {
     if (runStateApiReady) return runStateApiReady;
     runStateApiReady = (async () => {
       const override = global.__CC_RUN_HOST_DEPS__?.stateApi;
       if (override) {
+        // 测试覆盖：缺哪个方法就补一个返回固定值的占位（保持形状，便于断言「没被调用」）
         runStateApi = {
           saveState: override.saveState || (() => false),
           replaceStateIfUnchanged: override.replaceStateIfUnchanged || null,
@@ -93,6 +111,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         return runStateApi;
       }
       const state = await import('../core/state.js');
+      // 包一层显式端口：把 core/state 的函数收敛成 runtime 对外承诺的固定接口（cli/api 只见这层）
       runStateApi = {
         saveState: (r, s) => state.saveState(r, s),
         replaceStateIfUnchanged: (r, s, expected, fingerprint) => (
@@ -104,6 +123,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
       };
       return runStateApi;
     })().catch((err) => {
+      // 失败要清掉两个缓存，否则后续调用会拿到 rejected/半成品
       runStateApi = null;
       runStateApiReady = null;
       console.error(`[server] state api 装载失败: ${err.message}`);
@@ -154,6 +174,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
       let executor;
       let batch;
       if (override) {
+        // 测试路径：所有依赖从 override 取（不进磁盘、不起常驻宿主逻辑）
         stateApi = override.stateApi;
         cfg = override.cfg;
         chain = override.chain;
@@ -162,6 +183,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         executor = override.executor;
         batch = override.batch;
       } else {
+        // 生产路径：动态装载 run 配置 / 调度器 / 门禁修复，再建执行器与批传输
         const state = await import('../core/state.js');
         stateApi = {
           loadState: (r) => state.loadState(r),
@@ -179,8 +201,8 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         const gf = await import('../run/gate-fix.js');
         gateFix = gf.handleGateCompletion;
         chain = require('../run/driver.cjs');
-        executor = createSingleExecutor({ ctx, session, channel, observability });
-        batch = await batchTransportFor(stateApi);
+        executor = createSingleExecutor({ ctx, session, channel, observability }); // 单 agent 执行器
+        batch = await batchTransportFor(stateApi); // 多 agent 传输
       }
       const { createRunHost } = require('../run/host.cjs');
       const host = createRunHost({
@@ -193,10 +215,11 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         executor,
         batch,
       });
-      host.start();
+      host.start(); // 宿主立即开始运转（事件环 + 调度）
       runHost = host;
       return host;
     })().catch((err) => {
+      // 装配失败：记原因返回 null（api 据此回 503），不改 runHost
       runHostBootErr = err;
       console.error(`[server] run host bootstrap 失败: ${err.message}`);
       return null;
@@ -223,12 +246,13 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
     session.clearFallbackTimer();
     session.reset();
     for (const s of sessions.values()) {
-      s.clearFallbackTimer();
+      s.clearFallbackTimer(); // 兜底定时器不属于 session.reset，单独清
       s.reset();
     }
     sessions.clear();
     observability.reset();
-    if (runHost) { try { runHost.stop(); } catch { /* ignore */ } }
+    if (runHost) { try { runHost.stop(); } catch { /* ignore */ } } // 停宿主
+    // 清掉所有惰性装配缓存，使下次 ensure* 重新装配
     runHost = null;
     runHostReady = null;
     runHostBootErr = null;
@@ -239,19 +263,20 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
 
   return {
     ctx,
-    session,
-    sessions,
-    sessionFor,
-    subagent,
-    decision,
+    session,      // 主槽会话（无 sid 的请求用它）
+    sessions,     // sid → Session（多 run 分片）
+    sessionFor,   // 取/建 sid 槽
+    subagent,     // 子 Agent 记录器（SubagentStart/Stop 落账）
+    decision,     // 决策处理器（onStop / onAskUserQuestion）
     observability,
-    channel,
+    channel,      // 会话通道工厂（sendPromptAndWait / sendLocalCmd / channel()）
     ensureRunHost,
     ensureRunStateApi,
     batchTransportFor,
     publishEvent,
     dynamicPlanning: dynamicPlanningService,
     reset,
+    // 惰性装配的只读视图（getter：读到的是最新装配结果，不是快照）
     get runHost() { return runHost; },
     get runHostBootErr() { return runHostBootErr; },
     get runStateApi() { return runStateApi; },

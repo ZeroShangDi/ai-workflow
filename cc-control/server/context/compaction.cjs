@@ -42,15 +42,25 @@ function createContextCompactor({
   send, prompts, readUsagePct, readHandoffSnapshot, consumeContextReady, clearSession,
   log = (level, msg) => console.log(`[context][${level}] ${msg}`),
 } = {}) {
+  /**
+   * 任务前压缩检查主入口（两层判定，见文件头语义）。
+   * @param {string} taskPrompt 原任务提示词
+   * @param {number} taskIndex 任务序号（从 1 起；用于 skipFirstCount 跳过）
+   * @returns {Promise<string>} 最终应发给会话的提示词（未压缩 = 原样返回）
+   */
   async function maybeCompact(taskPrompt, taskIndex) {
     if (!COMPACTION.enabled) return taskPrompt;
+    // 首个任务上下文必然干净，跳过前 skipFirstCount 个，避免无谓的检查开销
     if (taskIndex <= COMPACTION.skipFirstCount) return taskPrompt;
 
+    // 第一层（粗）：有实测占用且低于阈值 → 直接放行，不打扰 AI；无实测（null）则只能进第二层
     const pct = await readUsagePct();
     if (pct !== null && pct < COMPACTION.checkThreshold) return taskPrompt;
 
+    // 第二层（细）：让 AI 自行判断是否需要压缩（可能决定写快照），完成与否看 contextReady 标记
     await send(await prompts.contextCheck(formatContextUsage(pct)));
 
+    // AI 没标记 contextReady → 它认为无需压缩（或未处理），原样返回任务
     if (!consumeContextReady()) return taskPrompt;
 
     // 快照不可读时保守跳过（清空却不注入比保留旧上下文更糟）
@@ -59,6 +69,7 @@ function createContextCompactor({
       log('warn', '快照不可读 (.awf/context/handoff.md)，跳过压缩');
       return taskPrompt;
     }
+    // 只有快照确实拿到手，才清空会话并把快照前置到任务提示词（接力不丢上下文）
     await clearSession();
     log('ok', '已注入上下文快照 (.awf/context/handoff.md)');
     return `【上下文快照】按 code-context-onboard 生成，接手前先读\n${snapshot}\n\n${taskPrompt}`;

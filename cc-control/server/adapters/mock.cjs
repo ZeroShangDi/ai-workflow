@@ -7,12 +7,26 @@
  *
  * createMockAdapters() → { ports, calls, reset }
  *   ports.host.hasSession() → true；ports.hook.hook() → 1；oneshot.runOneShot → {ok:true,text:''}
+ *
+ * 契约对齐：这是**测试替身**，不是第二份实现 —— 目的是让上层（cli/server）在不启动真 cc / tmux
+ * 的前提下跑通接线。所以方法集必须与 ports.cjs 的 PORT_CONTRACT 一一对齐（对齐由
+ * tests/unit/ports-contract.test.js 断言守着）：若 mock 比契约多/少方法，「测试绿」就证明不了契约成立。
+ *
+ * 顺带一提，mock 里也保留了 `session` 端口（契约中它是 not-landed）—— 这是为了让消费方能提前
+ * 按目标形态编码；生产侧 createCcAdapters 并不返回它。
+ *
+ * @returns {{ ports: object, calls: Array, reset: Function }}
+ *   ports  7 端口（host/hook/oneshot/tooling/interactive/probe/session）的 mock 实现
+ *   calls  调用记录数组，元素形如 `[方法名, ...实参]`，供断言「谁被以什么参数调了」
+ *   reset  清空 calls（用例间复用同一夹具时调用）
  */
 
 function createMockAdapters() {
+  // 调用记录表；rec(name) 生成一个「记一笔再返回 undefined」的桩函数（用于无返回值的写操作）
   const calls = [];
   const rec = (name) => (...args) => { calls.push([name, ...args]); return undefined; };
 
+  // host：有会话、能抓 pane；无返回值的 send* 走 rec 记录
   const host = {
     sessionName: 'mock-cc',
     hasSession: (...a) => { calls.push(['host.hasSession', ...a]); return true; },
@@ -22,18 +36,21 @@ function createMockAdapters() {
     capture: (...a) => { calls.push(['host.capture', ...a]); return 'pane'; },
   };
 
+  // hook：返回值对齐真实适配器语义 —— hook() 回「本次翻译出并 emit 的事件条数」
   const hook = {
     hook: (...a) => { calls.push(['hook.hook', ...a]); return 1; },
   };
 
   // 方法集必须与 ports.cjs 的 PORT_CONTRACT 逐一对齐（T1-116：契约是「端口对象上真实存在的方法」，
   // 夹具若自说自话，测试绿也证明不了契约成立）。ports-contract.test.js 有一条断言守着这点。
+  // oneshot：三个方法的返回形状对齐 cc/oneshot.cjs（runOneShot → {ok,text}；spawnClaudeP → {ok,stdout,stderr,code}）
   const oneshot = {
     runOneShot: async (...a) => { calls.push(['oneshot.runOneShot', ...a]); return { ok: true, text: '' }; },
     spawnClaudeP: async (...a) => { calls.push(['oneshot.spawnClaudeP', ...a]); return { ok: true, stdout: '', stderr: '', code: 0 }; },
     claudePArgs: (...a) => { calls.push(['oneshot.claudePArgs', ...a]); return ['-p', String(a[0] ?? '')]; },
   };
 
+  // tooling：build* 返回「将要执行的命令行字符串」而非真跑（与真实实现一致：install/uninstall 才是执行面）
   const tooling = {
     install: async (...a) => { calls.push(['tooling.install', ...a]); return { ok: true }; },
     uninstall: async (...a) => { calls.push(['tooling.uninstall', ...a]); return { ok: true }; },
@@ -47,16 +64,19 @@ function createMockAdapters() {
     launchDialog: async (...a) => { calls.push(['interactive.launchDialog', ...a]); return { ok: true }; },
   };
 
+  // probe：返回一次侦查快照；state 'ready' 是 mock 缺省（真实值来自 server /status）
   const probe = {
     inspect: async () => { calls.push(['probe.inspect']); return { ok: true, state: 'ready' }; },
   };
 
+  // session：契约里 not-landed、生产不返回；这里给出目标形态实现，供消费方提前编码（见文件头说明）
   const session = {
     start: async (...a) => { calls.push(['session.start', ...a]); return { ok: true }; },
     stop: async (...a) => { calls.push(['session.stop', ...a]); return { ok: true }; },
   };
 
   return {
+    // reset 是闭包（清空同一个 calls 数组），不要用 calls = [] 重建 —— 那样会丢掉外部已持有的引用
     ports: { host, hook, oneshot, tooling, interactive, probe, session },
     calls,
     reset: () => { calls.length = 0; },

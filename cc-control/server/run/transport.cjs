@@ -41,7 +41,8 @@ function maxTsFromLog(logPath) {
  * @param {object} ports
  *   - send(text)              注入一条 prompt 到主会话（含 waitReady / pause 闩锁）
  *   - prompts                 { subagentDispatch({taskId,taskTitle,taskPrompt}), resend({agentId,reason}) }
- *   - markActive(taskId)      调度标记 active（state 单写者）
+ *   - markActive(taskId)      调度标记 active（state 单写者，与 dynamic-planning hold 共用 state.lock）
+ *   - releaseActive(taskId)   回滚 active 占用（仅在 send 失败时调用，避免任务卡在 active）
  *   - readTasks()             读本项目 state.tasks
  *   - isBusy()                主会话是否仍在推进
  *   - decisionPending()       当前决策槽（{answered} 或 null）
@@ -139,7 +140,11 @@ function createBatchTransport({
   }
 
   return {
-    /** 派发一个任务：先原子占用，再注入提示词；发送失败则释放占用。 */
+    /**
+     * 派发一个任务：先原子占用再注入提示词；发送失败则释放占用。
+     * @returns {Promise<boolean>} true=已派发；false=跳过（暂停期间已被别处结算，或被动态规划 hold）
+     * @throws 透传 send 的异常（此时已 releaseActive，调用方/调度器不会误计入 running）
+     */
     async dispatch(task) {
       // pause 闩锁 + 「已被别处结算就不必派」：暂停期间不能让派发路径挂死看不到结算
       const gate = await waitWhilePaused({
@@ -173,7 +178,16 @@ function createBatchTransport({
       return true;
     },
 
-    /** 等运行中集合里至少一个任务结算（done/blocked）；决策挂起时返回 suspended 让调度器停补位 */
+    /**
+     * 等运行中集合里至少一个任务结算（done/blocked）。轮询循环每轮：
+     *   pause 期间不计时 → 决策挂起(未应答)不计时不补位 → 补发落账失败的子 Agent → 收 NEEDS_INPUT →
+     *   做「推进探测」：busy/状态指纹/事件日志体积任一有变即重置无变化窗口 → 判定完成。
+     * 超时用「无变化窗口」而非墙钟总时长（见文件头 + .awf/bugs/timeout-must-confirm-no-cc-change.md）。
+     * @param {{ taskIds(): string[] }} running 运行中集合
+     * @returns {Promise<{ done: string[], suspended: boolean }>}
+     *   suspended=true 表示有任务上抛 NEEDS_INPUT 且尚未解决 → 调度器应暂停补位
+     * @throws 无变化窗口耗尽时抛错（保留现场待 w-monitor）
+     */
     async waitAnyDone(running) {
       const ids = running.taskIds();
       pendingNeeds = new Set([...pendingNeeds].filter((id) => ids.includes(id)));
@@ -212,6 +226,8 @@ function createBatchTransport({
         const suspended = pendingNeeds.size > 0;
         if (done.length > 0 || suspended) {
           for (const id of done) pendingNeeds.delete(id);
+          // 有完成就先处理完成（顺带把已完成的从挂起集摘掉）；只有「本轮无完成且确实挂起」才回报
+          // suspended，否则会把已跑完的任务也一起憋住不落账。
           return { done, suspended: suspended && done.length === 0 };
         }
 

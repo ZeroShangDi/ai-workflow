@@ -9,8 +9,12 @@
  *   STAGE_CHAINS：simple=DEV→COMMIT；medium=DEV→TEST→COMMIT；complex=DEV→DOCS→REVIEW→TEST→COMMIT
  *   decideChain(task)：按任务复杂度选链（门禁/文档/提交类给保守链，避免无谓门禁）
  *   STAGE_ORDER / nextStage / assertStage 供驱动循环推进
+ *
+ * 边界：本模块是**纯规则层**，零 IO、零状态 —— 只做「任务 → 阶段链」的判定与链内推进校验；
+ * 谁按链去发 prompt、谁来落账，都在宿主/执行器一侧。
  */
 
+/** 阶段链字典：链名 → 有序阶段数组；顺序即执行顺序，COMMIT 收尾 */
 const STAGE_CHAINS = {
   simple: ['DEV', 'COMMIT'],
   medium: ['DEV', 'TEST', 'COMMIT'],
@@ -20,7 +24,9 @@ const STAGE_CHAINS = {
 /** 门禁/文档/提交任务用保守链，不参与通用复杂分级 */
 const SPECIAL_KIND_CHAIN = { review: 'simple', test: 'simple', doc: 'simple', commit: 'simple' };
 
-/** 通用复杂度分级启发式：按计划改动面/依赖/约束粗分（可按实际收敛） */
+/** 通用复杂度分级启发式：按计划改动面/依赖/约束粗分（可按实际收敛）
+ *  打分 = plannedFiles×2 + deps + constraints；≥8 复杂、≥3 中等、否则简单。
+ *  阈值是经验值，目的是「改动面越大越该上门禁」，不追求精确。 */
 function classifyComplexity(task = {}) {
   const files = task.plannedFiles?.length || 0;
   const deps = task.deps?.length || 0;
@@ -58,6 +64,8 @@ function assertStage(stages, stage) {
  * 由调用方注入 handleGateCompletion（cli gate-fix），driver 只做过滤/编排——单/多 agent 收敛到同一锚点。
  * @param {string} projectRoot
  * @param {{ handleGateCompletion?: Function, kinds?: string[] }} deps
+ *   kinds 缺省 ['review','test']；handleGateCompletion 未注入则不处理（返回 false，不阻断 run）
+ * @returns {(id: string, task: object) => Promise<boolean>} 真处理了门禁 → true，否则 false
  */
 function gateCompletionHook(projectRoot, { handleGateCompletion, kinds = ['review', 'test'] } = {}) {
   return async (id, task) => {

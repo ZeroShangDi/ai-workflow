@@ -12,20 +12,28 @@
  * 往一个共享可变对象上贴字段。
  *
  * 边界（明确不做什么）：
- *   - 只管**内存态**，不落盘：持久化走 `pcx.stores`（出口之一）。
+ *   - 只管**内存态**，不落盘：持久化走 `ctx.stores`（出口之一）。
  *   - 不含「当前是不是决策模式」的判定规则：`decisionGate` 只是承载位，判定在 decision 模块。
- *   - 不知道 cc / tmux 的任何事：注入由调用方经 `pcx.tmux` 完成。
+ *   - 不知道 cc / tmux 的任何事：注入由调用方经 `ctx.tmux` 完成。
+ *
+ * ready/busy 状态机（全链路的核心语义）：
+ *   - 会话默认 `ready`；`/send`（或 /intervene /respond）注入后置 `busy`；
+ *     CC 的 Stop hook（或本地命令/决策的兜底定时器）把它放回 `ready`。
+ *   - `waitReady(timeout)` 是「等这个回合结束」的同步点：就绪立即 true；busy 则排队等唤醒或超时。
+ *   - 只有**主会话**翻这个闩锁 —— 子 agent 的 SessionStart/Stop 不应把主会话拉回 ready（靠 mainSessionId 区分）。
+ *   - 兜底定时器兜的是「CC 不回 Stop」的情况，防止会话永久卡 busy。
  */
 
 /**
  * @param {{ sid?: string|null, decisionSeqGen?: object|null }} opts
  *   sid            本会话的 run 标签（多 run 分片用；主槽为 null）
  *   decisionSeqGen 决策序号生成器（由 decision 侧注入 —— 本模块不 import 能力层）
+ * @returns Session 对象：私有状态 + 访问器（getter/setter）+ 一次性闩锁的消费方法
  */
 function createSession({ sid = null, decisionSeqGen = null } = {}) {
   let state = 'ready';        // 'ready' | 'busy'
   let decisionPending = null; // null | { type, question, options?, multiSelect?, header?, source?, answer?, answered? }
-  let waiters = [];           // waitReady 等待者
+  let waiters = [];           // waitReady 等待者（每项是「被唤醒时调用」的 resolve 包装）
   let fallbackTimer = null;   // 本地命令兜底回 ready 的定时器
   let contextReady = false;   // 上下文快照已就绪（一次性消费）
   let mainSessionId = null;   // 主会话 id（区分主/子 agent，子 agent 不翻 ready/busy 闩锁）
@@ -37,7 +45,7 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
   function setReady() {
     state = 'ready';
     const pending = waiters;
-    waiters = [];
+    waiters = []; // 先清空再逐个调用：重置期间新排入的 waiter 不该被本轮唤醒
     for (const fn of pending) fn();
   }
 
@@ -47,9 +55,9 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
 
   /** 等本会话 ready；超时返回 false（不抛 —— 由调用方决定下一步） */
   function waitReady(timeout) {
-    if (state === 'ready') return Promise.resolve(true);
+    if (state === 'ready') return Promise.resolve(true); // 快路径：已就绪，不排队
     return new Promise((resolve) => {
-      let done = false;
+      let done = false; // 防「超时后又就绪」或「就绪后又超时」的双重结算
       const fn = () => {
         if (done) return;
         done = true;
@@ -59,7 +67,7 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
       const timer = setTimeout(() => {
         if (done) return;
         done = true;
-        waiters = waiters.filter((w) => w !== fn);
+        waiters = waiters.filter((w) => w !== fn); // 超时要把自己从等待集摘掉，否则 setReady 会调用已结算的 fn
         resolve(false);
       }, timeout);
       waiters.push(fn);
@@ -74,6 +82,7 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
     if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
   }
 
+  /** 内存态快照（观测/测试用；waiters 只暴露数量，不暴露函数本身） */
   function snapshot() {
     return {
       sid: sid ?? null,
@@ -88,6 +97,7 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
     };
   }
 
+  /** 全量复位（测试 / 项目 reset 用）：回到初始态并清兜底定时器 */
   function reset() {
     state = 'ready';
     decisionPending = null;
@@ -119,6 +129,7 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
   return {
     sid: sid ?? null,
 
+    // 只读访问器：外部读取当前态；写一律走下方具名方法（避免直接赋值绕过语义）
     get state() { return state; },
     get decisionPending() { return decisionPending; },
     get fallbackTimer() { return fallbackTimer; },
@@ -129,10 +140,11 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
     get decisionResume() { return decisionResume; },
     get decisionSeqGen() { return decisionSeqGen; },
 
+    // 仅这两个字段允许直接赋值（mainSessionId 由 SessionStart 记；decisionGate 由 decision 模块托放）
     set mainSessionId(v) { mainSessionId = v; },
     set decisionGate(v) { decisionGate = v; },
 
-    bumpSessionSeq() { sessionSeq += 1; return sessionSeq; },
+    bumpSessionSeq() { sessionSeq += 1; return sessionSeq; }, // 返回自增后的值，供调用方直接用
     setContextReady,
     consumeContextReady,
     setDecisionResume,

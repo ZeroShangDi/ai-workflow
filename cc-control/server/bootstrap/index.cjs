@@ -23,9 +23,10 @@ const { isIdleDue, idleDefaultMs } = require('./idle.cjs');
  */
 function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionName }) {
   const server = http.createServer(handler);
-  server.on('upgrade', onUpgrade || (() => {}));
+  server.on('upgrade', onUpgrade || (() => {})); // 未注入 upgrade 处理器时挂空函数，避免事件无监听者报错
 
   let lastActivityAt = Date.now();
+  /** 刷新最近活动时间（server 每次收到请求都会调用，空闲回收据此判「还有人在用」） */
   const touch = () => { lastActivityAt = Date.now(); };
 
   /** 任一项目有 run 在驱动（空闲回收判定） */
@@ -40,6 +41,11 @@ function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionNam
     return false;
   }
 
+  /**
+   * 在 127.0.0.1 监听：port=0 时由系统分配（resolve 回真实端口）。
+   * 一次性 error 监听用于捕获 EADDRINUSE 等启动失败 → reject；成功后立即移除，
+   * 否则后续运行期错误会被这个「只该管启动」的 handler 误当启动失败。
+   */
   function start(port) {
     return new Promise((resolve, reject) => {
       server.once('error', reject);
@@ -51,6 +57,9 @@ function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionNam
     });
   }
 
+  /** 停止：先停各项目 runHost（安全点收尾不再驱动），再关 http server。
+   *  closeAllConnections 强制断开 keep-alive 长连接，否则 server.close 会一直等连接自然结束。
+   *  @returns {Promise<void>} close 回调触发后 resolve */
   function stop() {
     for (const rt of registry.all()) {
       if (rt.runHost) { try { rt.runHost.stop(); } catch { /* ignore */ } }
@@ -68,17 +77,18 @@ function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionNam
       + ` pid=${process.pid} project=${projectRoot} at ${new Date().toISOString()}`);
 
     const idleMs = idleDefaultMs();
+    // 只有阈值 >0 才启用空闲回收（0 = 禁用，用于测试或人工管理生命周期）
     if (idleMs > 0) {
       const idleCheckMs = Number(process.env.CC_SERVER_IDLE_CHECK_MS || 60000);
       const idleTimer = setInterval(() => {
-        if (anyHostActive()) return;
+        if (anyHostActive()) return; // 有 run 在驱动就不算空闲：长任务期间即使无请求也不能被回收
         if (isIdleDue({ now: Date.now(), lastActivityAt, idleMs })) {
           clearInterval(idleTimer);
           console.log(`[server] 空闲 ${Math.round(idleMs / 60000)}min 无活动且无 run 驱动，自动关闭（常驻回收）`);
           stop().then(() => process.exit(0));
         }
       }, idleCheckMs);
-      if (idleTimer.unref) idleTimer.unref();
+      if (idleTimer.unref) idleTimer.unref(); // 不阻止进程退出：进程要退时不该被这个 timer 拽住
     }
     return { port: actual, server };
   }

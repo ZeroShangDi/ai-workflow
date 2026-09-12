@@ -14,6 +14,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+// 定位 decision 插件的两个锚点：插件名（进 marketplace 注册表查）与指令文件相对路径（相对插件目录）。
+// 二者分离，故插件改名只需改前者，指令文件挪位置只需改后者。
 const DECISION_PLUGIN_NAME = 'ai-workflow-decision';
 const INSTRUCTION_REL = path.join('decision', 'mode-instruction.md');
 

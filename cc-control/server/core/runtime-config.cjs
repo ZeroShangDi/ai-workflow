@@ -12,7 +12,11 @@
  * 无法引用 core/；它们只读由 CLI/渲染链按同一单源注入的 argv/env（gateway 收 argv 端口、
  * awf-session 收 AWF_BASE / CC_SESSION、awf-state 收 AWF_PROJECT_ROOT）。
  *
- * 本模块只解析、不改写；不同 run 的多实例会话名/路径装配由上层（run-context 装配器）承接。
+ * 边界与取舍：
+ *   - 只解析、不改写；不同 run 的多实例会话名/路径装配由上层（run-context 装配器）承接。
+ *   - 无缓存：每次调用都重新读 config 文件，保证「改配置即时生效」；高频调用时注意 I/O 成本
+ *     （getServerPort + getSessionName 各触发一次文件读）。
+ *   - strict：配置缺失/非法直接抛错，不静默回落——config 是唯一默认源，静默兜底只会掩盖漂移。
  */
 
 const path = require('node:path');
@@ -23,7 +27,12 @@ function runtimeConfigPath() {
   return path.resolve(__dirname, '..', '..', 'plugin', 'config.json');
 }
 
-/** 运行期常量规则：默认值来自 config 单源文件，CC_* 环境变量可覆盖（strict 校验） */
+/**
+ * 运行期常量规则（声明式，交给 config-loader 校验）：
+ *   - port：整数，1–65535，必填；CC_PORT 可覆盖
+ *   - runtime.session：非空字符串，必填；CC_SESSION 可覆盖
+ * 两个字段都 required：配置文件缺失这两项时 strict 直接抛错，暴露「config 单源不完整」。
+ */
 const RUNTIME_RULES = {
   port: { env: 'CC_PORT', type: 'integer', min: 1, max: 65535, required: true },
   'runtime.session': { env: 'CC_SESSION', type: 'string', pattern: /^.+$/, required: true },
@@ -34,8 +43,11 @@ const RUNTIME_RULES = {
  * env(CC_PORT/CC_SESSION) > config 文件 > （缺失即 strict 报错，config 是唯一默认源）。
  * @param {object} [env] 环境变量（缺省 process.env），便于测试注入
  * @returns {{ port: number, session: string }}
+ * @throws {ConfigError} config 缺失/字段非法时（strict）
  */
 function readRuntimeConfig(env = process.env) {
+  // passthrough=true：以整份 config 为基底，rules 只对 port/runtime.session 兜底/覆盖，
+  // 其余字段原样保留；调用方只取需要的两个字段（其余留给未来消费方）。
   const cfg = loadConfig({ rules: RUNTIME_RULES, source: { filePath: runtimeConfigPath() }, passthrough: true, env, strict: true });
   return { port: cfg.port, session: cfg.runtime?.session };
 }
@@ -50,4 +62,5 @@ function getSessionName(env) {
   return readRuntimeConfig(env).session;
 }
 
+// 对外：整份读取（readRuntimeConfig）+ 两个取单值的便捷函数 + 配置路径（测试/诊断用）。
 module.exports = { runtimeConfigPath, readRuntimeConfig, getServerPort, getSessionName };

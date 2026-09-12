@@ -18,12 +18,16 @@
  * @returns {{ statusLine: object }}
  */
 function generateRunSettings({ workdir, contextUsageScript, usagePath }) {
+  // 每个参数都加双引号：这三个都是绝对路径，可能含空格，不加会被 shell 拆错
   const args = [`"${contextUsageScript}"`, `"${workdir}"`];
+  // usagePath 可选：给了才作为第 3 个位置参数传给脚本（每 run 的 usage.json 落点）
   if (usagePath) args.push(`"${usagePath}"`);
   return {
     statusLine: {
+      // cc 的 statusLine 契约：type 'command' + command 字符串，cc 会周期性地跑它并用 stdout 做状态行
       type: 'command',
       command: `node ${args.join(' ')}`,
+      // 刷新间隔（秒）：30s 一次，够及时又不至于频繁 spawn 脚本
       refreshInterval: 30,
     },
   };

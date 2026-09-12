@@ -20,7 +20,8 @@ const DEFAULT_AGENTS = {
 
 /** 归一化 agents 配置：非法/缺省值回落到默认（正整数 ≥ 1） */
 function normalizeAgents(src = {}) {
-  const out = { ...DEFAULT_AGENTS };
+  const out = { ...DEFAULT_AGENTS }; // 先铺默认，再逐键覆盖，保证任一键缺失都有兜底
+  // 只采信「正整数」；字符串/0/负数/NaN 一律保留默认，避免坏配置漏进调度器的配额计算
   for (const key of Object.keys(DEFAULT_AGENTS)) {
     const v = src[key];
     if (typeof v === 'number' && Number.isInteger(v) && v >= 1) out[key] = v;

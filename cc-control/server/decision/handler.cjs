@@ -38,7 +38,12 @@ function createDecisionHandler({
     return gateRules.deferredFallbackResult();
   }
 
-  /** 捕获落盘 + 置续跑位；返回 decisionId */
+  /**
+   * 捕获落盘 + 置续跑位；返回 decisionId。
+   * 顺序有意固定：先 append（幂等，重复完成不会二次落盘）→ 记日志 → 置续跑位 → 上报事件。
+   * 续跑位（decisionResume）只是「待消费的答复」，不驱动执行；真正注入由 run 域在就绪时读取，
+   * 从而决策与执行解耦（本模块不持有执行权）。
+   */
   function persist(result, source) {
     const decisionId = nextId();
     const createdAt = new Date().toISOString();
@@ -70,6 +75,8 @@ function createDecisionHandler({
 
   /**
    * AskUserQuestion 的 PreToolUse 决策化。
+   * 这是决策门阀的**第二条入口**（第一条是 Stop 的文本标记）：闸门关时只「捕获」不改写控制流，
+   * 把待决问题存进会话（供 Review/记忆），返回 null 表示不干预，提问工具照常工作。
    * @returns {object|null} 需回给 cc 的 ccOutput 片段（null = 不干预）
    */
   function onAskUserQuestion(body) {
@@ -82,6 +89,7 @@ function createDecisionHandler({
     if (action.kind === 'capture') {
       const q = action.question || questions[0];
       session.setDecision({
+        // 归一成决策内核认识的形状：多选 → multiSelect，单选 → choice；选项只留 label。
         type: q.multiSelect ? 'multiSelect' : 'choice',
         multiSelect: !!q.multiSelect,
         question: q.question,
@@ -102,6 +110,8 @@ function createDecisionHandler({
 
   /**
    * Stop 统一闸门。
+   * 按 gateRules.classifyStop 给的三分支分派：deciding=拦截并注入指令；resolve=解析落盘并放行；
+   * complete=清态放行。三种分支都以「本回合结束后的会话态」为准做清理，避免残留 deciding 标记。
    * @returns {object|null} 需回给 cc 的 ccOutput（null = 放行）
    */
   function onStop(body) {
@@ -116,6 +126,7 @@ function createDecisionHandler({
 
     if (branch.branch === 'deciding') {
       const startedAt = new Date().toISOString();
+      // 首次进入：落 deciding 相位并把上一轮残留的续跑位清空（本次决策尚未产出答复）。
       session.decisionGate = { phase: 'deciding', startedAt };
       session.setDecisionResume(null);
       logger.logDecision({
@@ -128,6 +139,7 @@ function createDecisionHandler({
       try {
         instruction = decisionInstruction.readDecisionInstruction();
       } catch {
+        // 指令文件缺失（如部署布局里没有 decision 插件）不能让闸门卡死：用一句话兜底文案继续。
         instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
       }
       return ccShapes.blockDecision(instruction);
@@ -135,6 +147,7 @@ function createDecisionHandler({
 
     if (branch.branch === 'resolve') {
       const parsed = parseDecisionResult(text);
+      // 解析失败不悬空：用 deferred fallback 走同一条落盘链路（见 gate.deferredFallbackResult）。
       if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
       persist(parsed.valid ? parsed.result : fallbackResult(), 'text');
       session.decisionGate = null;
@@ -144,7 +157,7 @@ function createDecisionHandler({
       return null;
     }
 
-    // complete
+    // complete：闸门关或普通回合收尾——清掉一切决策态后放行（放行 = 返回 null）。
     session.clearDecision();
     session.decisionGate = null;
     session.setDecisionResume(null);
@@ -158,7 +171,11 @@ function createDecisionHandler({
 
 /**
  * override → 向任务列表追加纠偏任务（kind=dev / source=decision_review）。
+ *
  * 与 handler 分开导出：它是「任务图写入」，不是「决策流程」，消费方是 decisions 路由。
+ * 幂等：任务 id 固定为 `<decision_id>-REV`，同一决策重复 override 只保留一条纠偏任务
+ * （updateSync 返回 false = 不改写 state，existing 标记告知调用方已存在）。
+ * @returns {{ ok: boolean, taskId?: string, existing?: boolean, error?: string }}
  */
 function appendDecisionReviewTask(stores, { decision_id, instruction, original_answer }) {
   let out;

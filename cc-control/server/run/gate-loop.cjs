@@ -2,9 +2,11 @@
 /**
  * gate-loop.cjs — 门禁闭环规则（verdict → 修复目标）归位（供 cli gate-fix 与后续 run 域复用）
  *
- * 把「门禁 verdict → 修复任务目标文案」的纯规则从 cli/gate-fix.js（现 src/server/gate-fix.js）收敛到 lib，
+ * 把「门禁 verdict → 修复任务目标文案」的纯规则从 cli/gate-fix.js（现 server/run/gate-fix.js）收敛到 lib，
  * 单一实现；派发（spawnGateFixTask）、元判定（gateFixMeta/MAX_RECHECK，state.js）与
  * 提示词模板（plugin-bridge.gateFixPrompt）仍在各自边界。
+ *
+ * 边界：本模块零 IO、零状态，只做「任务快照 → 文案」的纯映射。
  */
 
 /**
@@ -16,6 +18,7 @@ function buildFixTarget(gate) {
   const v = gate.exec?.verdict;
   const architecture = gate.exec?.architecture;
   const reportPath = (gate.exec?.files || []).find((f) => f.startsWith('.awf/reports/')) || '';
+  // 优先指向报告文件（里面逐条列了问题，对修复 Agent 最可执行）；无报告才退化为引用 verdict 结论。
   let target = reportPath
     ? `修复门禁 ${gate.id} 报告 ${reportPath} 中列出的全部问题。`
     : `修复门禁 ${gate.id} 判定中列出的问题：${v?.conclusion || v?.level || ''}。`;

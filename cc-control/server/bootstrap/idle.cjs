@@ -11,14 +11,16 @@
 /** 默认空闲阈值 ms（30min）；env CC_SERVER_IDLE_MS 可覆盖，0 = 禁用 */
 const IDLE_MS_DEFAULT = 30 * 60 * 1000;
 
+/** 解析空闲阈值：env CC_SERVER_IDLE_MS 合法且 ≥0 时采用（0 = 禁用回收），否则回落默认 30min */
 function idleDefaultMs() {
   const raw = Number(process.env.CC_SERVER_IDLE_MS);
   return Number.isFinite(raw) && raw >= 0 ? raw : IDLE_MS_DEFAULT;
 }
 
 /**
+ * 判定「是否已到空闲回收点」。
  * @param {{ now: number, lastActivityAt: number, idleMs: number }} o
- * @returns {boolean} 距最近活动已 >= 阈值（阈值<=0 永不触发）
+ * @returns {boolean} 距最近活动已 >= 阈值；阈值<=0（禁用）或 lastActivityAt 非法时恒 false
  */
 function isIdleDue({ now, lastActivityAt, idleMs }) {
   if (!idleMs || idleMs <= 0) return false;

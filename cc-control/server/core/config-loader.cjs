@@ -20,12 +20,22 @@
  *
  * 消费约定：点分 key 定位嵌套字段（如 'run.agents.max'）；文件侧来自 JSON 已带类型，不强制转，
  * 只校验；env 侧一律是字符串，先强转后校验。
+ *
+ * 边界：本模块只管「按 rules 读一份配置」，不决定有哪些配置项、也不做跨字段依赖校验
+ * （如「A 开启则 B 必填」需消费方自行判断）。
  */
 
 const fs = require('node:fs');
 
-/** 校验失败聚合错误：errors 为逐字段说明（严格模式抛出） */
+/**
+ * 校验失败聚合错误：errors 为逐字段说明（严格模式抛出）。
+ * 一次抛全部而非首个：避免调用方「改一个报一个」来回多轮。
+ */
 class ConfigError extends Error {
+  /**
+   * @param {string} message 汇总信息（含错误条数与逐条说明）
+   * @param {string[]} [errors] 逐字段错误说明
+   */
   constructor(message, errors = []) {
     super(message);
     this.name = 'ConfigError';
@@ -33,6 +43,7 @@ class ConfigError extends Error {
   }
 }
 
+/** 普通对象判定：排除 null 与数组（配置的「对象」只认键值结构） */
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -40,11 +51,15 @@ function isPlainObject(v) {
 /**
  * 深合并：普通对象逐层递归合并（patch 优先），数组/标量整体替换；返回新对象，不改入参。
  * 典型用途：默认配置整段 + 用户 JSON 覆盖 → 默认值合并。
+ * @param {*} base 基底（非普通对象时直接以 patch 为准）
+ * @param {*} patch 覆盖值
+ * @returns {*} 合并结果（新对象；base/patch 有一个非对象时返回 patch）
  */
 function deepMerge(base, patch) {
   if (!isPlainObject(base) || !isPlainObject(patch)) return patch;
-  const out = { ...base };
+  const out = { ...base }; // 浅拷贝后逐键处理，避免改到入参
   for (const [k, pv] of Object.entries(patch)) {
+    // 双方同为普通对象才递归；否则 patch 值整体胜出（数组也是整体替换，不做元素合并）
     out[k] = isPlainObject(pv) && isPlainObject(out[k]) ? deepMerge(out[k], pv) : pv;
   }
   return out;
@@ -54,10 +69,15 @@ function deepMerge(base, patch) {
  * 读 JSON 文件 → 解析值。
  *   optional=false（缺省）：缺失 / 非法 JSON → 抛 ConfigError（配置单源必须存在时用）
  *   optional=true：缺失 / 非法 JSON → 返回 null（默认兜底由消费方接管，如 .awf/config.json）
+ * @param {string} filePath
+ * @param {{ optional?: boolean }} [opts]
+ * @returns {*} 解析后的 JSON 值；optional 且读不到时为 null
+ * @throws {ConfigError} 非 optional 时读失败或 JSON 非法（附 code = fs 错误码，如 ENOENT）
  */
 function readJsonFile(filePath, { optional = false } = {}) {
   let text;
   try {
+    // 去掉 UTF-8 BOM：某些编辑器保存的 JSON 会带 BOM，JSON.parse 遇 BOM 直接报错
     text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
   } catch (err) {
     if (optional) return null;
@@ -74,7 +94,12 @@ function readJsonFile(filePath, { optional = false } = {}) {
   }
 }
 
-/** 点分路径读取（内部）；段缺失返回 undefined */
+/**
+ * 点分路径读取（内部）；段缺失或中途撞到非对象 → undefined。
+ * @param {object} obj
+ * @param {string} dottedPath 如 'run.agents.max'
+ * @returns {*}
+ */
 function getPath(obj, dottedPath) {
   let cur = obj;
   for (const seg of dottedPath.split('.')) {
@@ -84,12 +109,19 @@ function getPath(obj, dottedPath) {
   return cur;
 }
 
-/** 点分路径写入（内部）；父段缺失自动建普通对象 */
+/**
+ * 点分路径写入（内部）；父段缺失或非普通对象时自动建普通对象（会覆盖标量/数组父段）。
+ * @param {object} obj 就地修改并返回
+ * @param {string} dottedPath
+ * @param {*} value
+ * @returns {object} obj
+ */
 function setPath(obj, dottedPath, value) {
   const segs = dottedPath.split('.');
   let cur = obj;
   for (let i = 0; i < segs.length - 1; i++) {
     const seg = segs[i];
+    // 父段不是普通对象（缺失/标量/数组）就替换成 {}，保证后续能继续下钻
     if (!isPlainObject(cur[seg])) cur[seg] = {};
     cur = cur[seg];
   }
@@ -97,22 +129,33 @@ function setPath(obj, dottedPath, value) {
   return obj;
 }
 
+/** 类型名 → 中文名（错误信息可读性用） */
 const TYPE_NAMES = { string: '字符串', number: '数字', integer: '整数', boolean: '布尔值', object: '对象', array: '数组', json: 'JSON' };
 
-/** 由 default 推断 env 强转类型（缺省 string） */
+/**
+ * 由 rule.default 推断类型（规则未显式声明 type 时用于 env 强转）。
+ * 布尔/数字能从 JS 值直接判出；其余（含无 default）按 string 处理。
+ */
 function inferType(defaultValue) {
   if (typeof defaultValue === 'boolean') return 'boolean';
   if (typeof defaultValue === 'number') return Number.isInteger(defaultValue) ? 'integer' : 'number';
   return 'string';
 }
 
-/** 格式化值（错误信息用），超长截断 */
+/** 格式化值（错误信息用）：字符串加引号，超 60 字符截断，避免错误信息里塞进超大对象 */
 function repr(value) {
   const s = typeof value === 'string' ? `"${value}"` : JSON.stringify(value);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
 }
 
-/** env 字符串按 type 强转；失败返回 { error } */
+/**
+ * env 字符串按 type 强转；失败返回 { error }（不抛，交由 loadConfig 聚合）。
+ * 各类型可接受形式：boolean 收 true/false/1/0（大小写不敏感）；integer/number 走 Number()；
+ * json 走 JSON.parse（非法 JSON 由外层 try 兜住 → error）；string/default 原样。
+ * @param {*} raw env 原始值（通常已是字符串）
+ * @param {string} type 目标类型
+ * @returns {{ value?: * } | { error: string }}
+ */
 function coerceEnv(raw, type) {
   const s = String(raw);
   try {
@@ -132,7 +175,7 @@ function coerceEnv(raw, type) {
         return Number.isFinite(n) ? { value: n } : { error: `需为有限数字` };
       }
       case 'json':
-        return { value: JSON.parse(s) };
+        return { value: JSON.parse(s) }; // 非法 JSON 抛错 → 由下方 catch 归一为 error
       case 'string':
       default:
         return { value: s };
@@ -145,6 +188,12 @@ function coerceEnv(raw, type) {
 /**
  * 校验最终值是否符合规则；返回错误列表（空 = 通过）。
  * 文件/默认值已带类型，只做类型与边界校验；env 值已在 coerceEnv 强转。
+ *
+ * 逐项检查：type（'json' 跳过，因 JSON 值类型不定）→ min/max（仅数字）→ pattern（仅字符串）
+ * → enum（任意值）。全部问题都收集，不做短路——配合 strict 一次报全。
+ * @param {*} value 待校验值
+ * @param {object} rule 规则（type/min/max/pattern/enum）
+ * @returns {string[]} 错误说明列表
  */
 function checkValue(value, rule) {
   const errors = [];
@@ -193,6 +242,10 @@ function checkValue(value, rule) {
  *
  * 优先级：env（rule.env 命中）> 文件值 > rule.default。
  * 返回按点分 key 展开为嵌套对象的配置；strict 抛 ConfigError，其 errors 为逐字段原因。
+ *
+ * @param {object} spec 见上（rules/source/env/strict/passthrough）
+ * @returns {object} 展开为嵌套结构的配置对象
+ * @throws {ConfigError} strict 且任一路径出错（读取失败、缺必填、类型/边界不符）
  */
 function loadConfig({ rules, source, env = process.env, strict = true, passthrough = false } = {}) {
   const fileObj = source ? readJsonFile(source.filePath, { optional: source.optional }) : null;
@@ -201,8 +254,9 @@ function loadConfig({ rules, source, env = process.env, strict = true, passthrou
   const out = passthrough && isPlainObject(fileObj) ? fileObj : {};
 
   for (const [key, specRule] of Object.entries(rules || {})) {
+    // 先用 default 推断 type/required，再让 specRule 显式声明的字段覆盖（显式优先于推断）
     const rule = { type: inferType(specRule.default), required: false, ...specRule };
-    if (rule.type === undefined) rule.type = 'string';
+    if (rule.type === undefined) rule.type = 'string'; // 无 default 无 type → 按 string
 
     const hasEnv = rule.env != null && env[rule.env] !== undefined;
     const fileValue = fileObj === null ? undefined : getPath(fileObj, key);
@@ -218,12 +272,15 @@ function loadConfig({ rules, source, env = process.env, strict = true, passthrou
     let value;
     let fieldErrors = [];
     if (hasEnv) {
+      // env 最高优先级：字符串先强转，强转失败即为该字段错误
       const coerced = coerceEnv(env[rule.env], rule.type);
       if (coerced.error) fieldErrors.push(`[${key}] 环境变量 ${rule.env} 需为 ${TYPE_NAMES[rule.type]}：${coerced.error}，收到 ${repr(env[rule.env])}`);
       else value = coerced.value;
     } else {
+      // 文件值优先于 default（default 只在两端都没有时兜底）
       value = hasFile ? fileValue : rule.default;
     }
+    // 强转已失败的字段不再重复校验（避免报两条互相矛盾的原因）
     if (fieldErrors.length === 0) fieldErrors = checkValue(value, rule).map((e) => `[${key}] ${e}`);
 
     if (fieldErrors.length > 0) {
@@ -236,13 +293,17 @@ function loadConfig({ rules, source, env = process.env, strict = true, passthrou
         continue; // 非严格且无默认：丢弃该字段（保持现状的静默回落）
       }
     }
+    // value 仍为 undefined 说明出错字段被判不写回（strict 分支），跳过写入
     if (value !== undefined) setPath(out, key, value);
   }
 
+  // strict 收集完全部字段错误后一次性抛出：errors 里有逐条原因，message 是汇总
   if (strict && errors.length > 0) {
     throw new ConfigError(`配置校验失败（${errors.length} 项）：\n  ${errors.join('\n  ')}`, errors);
   }
   return out;
 }
 
+// 对外：loadConfig（主入口）+ deepMerge（整段合并）+ readJsonFile（单独读文件）+ ConfigError（错误类型）。
+// 注意 readJsonFile / getPath / setPath / coerceEnv / checkValue 中只有前两者导出，内部细节不外露。
 module.exports = { ConfigError, deepMerge, readJsonFile, loadConfig };

@@ -19,7 +19,11 @@ const extract = require('../adapters/cc/extract.cjs');
  *   stores state 存储（子 agent 落账写 state）
  */
 function createSubagentRecorder({ paths, stores } = {}) {
-  /** 解析子 Agent 固定格式 RESULT（`RESULT: {json}`）；成功返回结果对象，失败 null */
+  /**
+   * 解析子 Agent 固定格式 RESULT（`RESULT: {json}`，在末条 assistant message 里）。
+   * @param {object} body SubagentStop hook 载荷
+   * @returns {object|null} { taskId, status, result?, files?, verdict?, architecture?, commits? }；无/非法 → null
+   */
   function parseResult(body) {
     return extract.parseSubagentResult(body?.last_assistant_message);
   }
@@ -29,6 +33,7 @@ function createSubagentRecorder({ paths, stores } = {}) {
     return extract.parseNeedsInput(body?.last_assistant_message);
   }
 
+  /** 追加一行 JSON 到 jsonl 落点；失败只打印不抛（观测落账绝不能反向阻断主流程） */
   function appendJsonl(file, record) {
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -38,12 +43,18 @@ function createSubagentRecorder({ paths, stores } = {}) {
     }
   }
 
-  /** 子 agent 生命周期事件（Start/Stop 原样留档） */
+  /**
+   * 子 agent 生命周期事件（Start/Stop 原样留档到 subagent-events.jsonl）。
+   * 纯留档：body 原样存，供事后排查「子 agent 何时起、何时停、hook 载荷长什么样」。
+   */
   function logEvent(event, body) {
     appendJsonl(paths.event, { ts: new Date().toISOString(), event, body });
   }
 
-  /** 落账失败留档（供 CLI 补发判定） */
+  /**
+   * 落账失败留档（subagent-failed.jsonl，供 CLI 补发判定）。
+   * 记下 agentId、失败原因、以及从 RESULT 里尽力解析出的 resultTaskId（可能为 null）。
+   */
   function logFailure(body, settled) {
     appendJsonl(paths.failed, {
       ts: new Date().toISOString(),
@@ -53,7 +64,10 @@ function createSubagentRecorder({ paths, stores } = {}) {
     });
   }
 
-  /** 上抛决策留档 */
+  /**
+   * 上抛决策留档（subagent-needs-input.jsonl）：子 Agent 以 NEEDS_INPUT 请求人工介入时记录，
+   * 宿主读它感知「有决策挂起」，据此暂停补位。
+   */
   function logNeedsInput(body, needs) {
     appendJsonl(paths.needsInput, {
       ts: new Date().toISOString(),
@@ -73,7 +87,13 @@ function createSubagentRecorder({ paths, stores } = {}) {
   }
 
   /**
-   * SubagentStop 落账：写 state（task status + exec.result/files/commits/verdict/architecture）。
+   * SubagentStop 落账：把子 Agent 的 RESULT 写进 state（task status + exec.result/files/commits/verdict/architecture）。
+   *
+   * 经 stores.state.updateSync 做读改写的原子提交；mutator 返回 false 表示不写盘（校验失败时）。
+   * 各类失败用 out.recoverable 区分：
+   *   - 无有效 RESULT / state 读不出 / task 不存在 / 目标已是终态 → 不可恢复（多为 RESULT 写错 taskId 或重复落账），
+   *     由调用方决定补发还是放弃；recoverable === false 明确表示「重发也没用」。
+   *   - status 'failed'/'fail' 归一为 'blocked'，与 state 的状态机一致。
    * @returns {{ ok: boolean, taskId?: string, status?: string, reason?: string, recoverable?: boolean }}
    */
   function settle(body) {
@@ -85,6 +105,7 @@ function createSubagentRecorder({ paths, stores } = {}) {
       const task = (s.tasks || []).find((t) => t.id === result.taskId);
       if (!task) { out = { ok: false, reason: `task ${result.taskId} not found` }; return false; }
       if (task.status === 'done' || task.status === 'blocked') {
+        // 已是终态：多半是 RESULT 里的 taskId 错写到了别的任务，或重复落账。重发无意义 → recoverable:false
         out = {
           ok: false,
           reason: `task ${result.taskId} already ${task.status}（RESULT taskId 可能错写）`,
@@ -93,6 +114,7 @@ function createSubagentRecorder({ paths, stores } = {}) {
         return false;
       }
       if (!task.exec) task.exec = {};
+      // 'failed'/'fail' 统一映射为 state 的终态 'blocked'（state 无 failed 状态）
       task.status = (result.status === 'failed' || result.status === 'fail') ? 'blocked' : result.status;
       task.exec.completedAt = new Date().toISOString();
       if (result.result !== undefined) task.exec.result = result.result;

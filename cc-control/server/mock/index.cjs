@@ -8,7 +8,11 @@
  * 定位：这是**测试脚手架**，不是产品的降级路径 —— 不参与生产装配、不进 ports 名册。
  */
 
-/** tmux 替身：记录所有注入调用，可注入 hasSession 结果 */
+/**
+ * tmux 替身：记录所有注入调用，可注入 hasSession 结果。
+ * @param {{ session?: string, hasSession?: boolean }} [opts] 会话名 / 初始存活状态
+ * @returns tmux 原语集：calls 顺序记录注入操作；setAlive 可动态改存活（模拟会话中途死掉）
+ */
 function createMockTmux({ session = 'cc-mock', hasSession = true } = {}) {
   const calls = [];
   let alive = hasSession;
@@ -24,7 +28,10 @@ function createMockTmux({ session = 'cc-mock', hasSession = true } = {}) {
   };
 }
 
-/** 日志替身：记录通知/决策/prompt，不落盘 */
+/**
+ * 日志替身：记录通知/决策/prompt/choice，不落盘。
+ * captureFromTranscript / resetTranscript 为 no-op —— transcript 捕获不是被测重点，只需满足调用面。
+ */
 function createMockLogger() {
   const prompts = [];
   const notices = [];
@@ -42,7 +49,12 @@ function createMockLogger() {
   };
 }
 
-/** state 落盘替身：内存态 + updateSync 语义（mutator 返回 false 表示不写） */
+/**
+ * state 落盘替身：内存态 + updateSync 语义（mutator 返回 false 表示不写）。
+ * 读/写都做深拷贝进出，保证调用方拿到的 state 与内部态彼此隔离（避免测试里无意间共享引用）。
+ * @param {object} [initialState] 初始 state（会被深拷贝，调用方后续改原对象不影响替身）
+ * @returns {object} current（读当前态）/ set（整体替换）/ state（对齐真实 store 的 readSync/updateSync）
+ */
 function createMockStores(initialState = {}) {
   let state = JSON.parse(JSON.stringify(initialState));
   return {
@@ -50,6 +62,7 @@ function createMockStores(initialState = {}) {
     set: (s) => { state = JSON.parse(JSON.stringify(s)); },
     state: {
       readSync: () => JSON.parse(JSON.stringify(state)),
+      // mutator 在草稿上改；返回 false → 丢弃草稿不写（与真实 JsonFileStore.updateSync 约定一致）
       updateSync: (mutator) => {
         const draft = JSON.parse(JSON.stringify(state));
         const changed = mutator(draft);
