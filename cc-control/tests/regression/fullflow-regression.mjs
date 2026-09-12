@@ -52,7 +52,6 @@
  *   --awf <path>   指定 awf CLI 入口（默认用本仓库 src/awf.js；传另一工作副本的 src/awf.js 可钉住被回归链路）
  *   --keep         保留沙箱目录（默认保留，证据留存）；--clean 跑前先删
  *   --timeout <ms> 单 case 超时（默认 10 分钟）
- *   --port <n>     隔离端口跑（自起 server + 插件副本）：测服务端改动时用，见 §隔离端口
  *   --list         列出注册表内全部 case 后退出
  *   --out <path>   汇总证据的 JSON 输出路径（缺省：全量为 evidence-all.json，定向为 evidence-<case>-summary.json）
  *
@@ -86,14 +85,13 @@ const SANDBOX_ROOT = process.env.AWF_REGRESSION_ROOT || path.join(ROOT, 'sandbox
 // ── CLI 参数 ────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const out = { case: 'single', awf: null, timeoutMs: 10 * 60 * 1000, clean: false, out: null, list: false, port: null };
+  const out = { case: 'single', awf: null, timeoutMs: 10 * 60 * 1000, clean: false, out: null, list: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--case') out.case = argv[++i];
     else if (a === '--awf') out.awf = argv[++i];
     else if (a === '--timeout') out.timeoutMs = Number(argv[++i]);
     else if (a === '--out') out.out = argv[++i];
-    else if (a === '--port') out.port = Number(argv[++i]);
     else if (a === '--list') out.list = true;
     else if (a === '--clean') out.clean = true;
     else if (a === '--keep') out.clean = false;
@@ -245,7 +243,6 @@ function makeProject(name, { tasks, summary, agentsMax = 1, decision = false }) 
   fs.rmSync(projectRoot, { recursive: true, force: true });
   fs.mkdirSync(projectRoot, { recursive: true });
   execFileSync('node', [AWF_CLI, 'init'], { cwd: projectRoot, env: sanitizedEnv(), stdio: 'pipe' });
-  if (ISOLATED_PLUGIN_DIR) repointMarketplace(projectRoot, ISOLATED_PLUGIN_DIR); // §隔离端口
   const cfgPath = path.join(projectRoot, '.awf', 'config.json');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   cfg.run.agents.max = agentsMax;
@@ -256,7 +253,6 @@ function makeProject(name, { tasks, summary, agentsMax = 1, decision = false }) 
 }
 
 let AWF_CLI = null;
-let ISOLATED_PLUGIN_DIR = null; // --port 时为插件副本目录，否则 null（挂仓库自身 plugin/）
 
 function readState(projectRoot) {
   return JSON.parse(fs.readFileSync(path.join(projectRoot, '.awf', 'state.json'), 'utf8'));
@@ -291,7 +287,7 @@ function launchRun(projectRoot, { multiAgent = false, extraArgs = [], logSuffix 
       PATH: `${openShimDir()}${path.delimiter}${process.env.PATH}`,
       CC_SERVER_IDLE_MS: '0', // 回归期间不自动回收常驻 server
       // 与 harness 对话的 server 对齐（sanitizedEnv 会剔除继承来的 CC_PORT）：
-      // 缺省 = config 缺省端口；--port 时 = 专用端口，子 run 自起 server
+      // 缺省 = config 缺省端口（与 harness 对话的常驻 server 同一个）
       CC_PORT: String(SERVER_PORT),
       ...env, // per-case 覆盖（如把 pause 告警阈值调小以便真机验证）
     }),
@@ -361,49 +357,42 @@ function check(name, pass, detail) {
  * 常驻 server 端口。与子 run 同源：子 run 的 env 已被 sanitizedEnv 剔除 CC_PORT，故按 config
  * 缺省端口 —— 于是本 harness 对话的，正是**机器上已驻留的那个 server**。
  *
- * 注意（T1-108 踩到）：服务端改动只有在该 server 重启后才生效 —— 插件 hooks 的端口是渲染期
- * 烘进 `plugin/core/hooks/hooks.json` 的固定值（`gateway.cjs <port>`），换端口跑会让 hook 事件
- * 发往默认端口、子 run 收不到 SessionStart/Stop，session 状态机永远回不到 ready。故本 harness
- * **不能**靠换端口来对齐代码；要测服务端改动，得先让常驻 server 带新代码重启。
+ * ⚠️ 它跑的是**启动时**的代码。若本次改动涉及 `src/server/**`，本 harness 测到的仍是旧实现 ——
+ * 跑之前先 `awf server stop`（下一次 `awf run` 会带新代码重新拉起）。run 内不做这类自测，
+ * 理由见下方「不再隔离」段与 `.awf/issues/011`。
  */
 let SERVER_PORT = null;
 
-function resolveServerPort(explicit) {
-  if (explicit) return explicit;
+function resolveServerPort() {
   const repoRoot = path.dirname(path.dirname(AWF_CLI));
   const req = createRequire(import.meta.url);
   return req(path.join(repoRoot, 'src', 'lib', 'runtime-config.cjs')).getServerPort(sanitizedEnv());
 }
 
 /**
- * §隔离端口：常驻 server 跑的是它启动时的代码 —— 改了 src/server/** 又不重启它，真机回归测的还是旧实现。
- * 换端口能自起 server，但**插件 hooks 的端口是渲染期写死在 `plugin/core/hooks/hooks.json` 里的 argv**
- * （`node gateway.cjs 8787`），`CC_PORT` 只是兜底、argv 优先。所以换端口会让 hook 事件发往默认端口，
- * 子 run 收不到 SessionStart/Stop，会话状态机永远回不到 ready（T1-108 踩过）。
- * 解法：把 plugin/ 复制一份到沙箱、只把副本 hooks 的端口改掉，再让沙箱项目挂这个副本。
- * 只动沙箱内的副本，不碰仓库里的 plugin/，也不打扰机器上正在跑的 run。
+ * 不再隔离（2026-09-12 裁定的删除，用户 Q3）。
+ *
+ * 曾经的做法：`--port <n>` 另起一个 server 跑当前工作树 + 复制一份 plugin/ 改掉副本 hooks 的端口、
+ * 把沙箱项目的 marketplace 指过去（因为端口是渲染期烘死在 `hooks.json` argv 与 `.mcp.json` 的
+ * `AWF_BASE` 里的，不复制就没法让会话打别的端口）。
+ *
+ * 为什么删：
+ *   1. **它要解决的问题不属于本项目的能力面** —— 「测试时用的 server 是不是最新代码」是"跑之前把
+ *      环境准备好"，不是编排器该保证的东西；
+ *   2. **平白增加复杂度、降低稳定性**：副本成了仓库会话的第二个插件来源（skill 从副本解析、hook
+ *      被劈成两份，SessionStart/Stop 只走副本那条死端口 → run 卡 `still busy` 而亡）；副本残留、
+ *      marketplace 被反复重指、与 Claude Code 的插件安装/缓存注册表较劲（`.awf/issues/011`）；
+ *   3. **它连目的都没达成**：实测 `single` 的 hook 投到了 8787 而非被测端口，`dynamic-planning-run`
+ *      的沙箱会话干脆没加载 provider 插件（`/ai-workflow-code:w-dev` 被判未知命令）。
+ *
+ * 现在的口径：**在 run 之外由人跑**。跑之前自己保证常驻 server 带的是当前工作树
+ * （`awf server stop`，下一次 `awf run` 会重新拉起）。run 内不做 server 侧代码的自测 ——
+ * 宿主就活在 server 进程里，重启它等于杀掉在飞的 run（见 ownServer 的护栏）。
+ * 详情与放弃的理由：`.awf/issues/011`。
  */
-function isolatedPluginDir(port) {
-  const dir = path.join(SANDBOX_ROOT, `.plugin-${port}`);
-  const src = path.join(path.dirname(path.dirname(AWF_CLI)), 'plugin');
-  // 每次重建：副本若被复用会静默钉住上一轮的插件代码，回归就成了「测旧副本」
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.cpSync(src, dir, { recursive: true });
-  const hooksPath = path.join(dir, 'core', 'hooks', 'hooks.json');
-  const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
-  for (const entries of Object.values(hooks.hooks || {})) {
-    for (const entry of entries) {
-      for (const h of entry.hooks || []) {
-        h.command = String(h.command).replace(/(gateway\.cjs\"?\s+)\d+/, `$1${port}`);
-      }
-    }
-  }
-  fs.writeFileSync(hooksPath, JSON.stringify(hooks, null, 2) + '\n');
-  return dir;
-}
 
-/** 停掉本次用的隔离 server（best-effort：常驻 server 留着只会在机器上攒端口） */
-function stopIsolatedServer() {
+/** 停掉常驻 server（best-effort）。ownServer 重启它之前用；**有在飞 run 时会被护栏拦下**。 */
+function stopResidentServer() {
   try {
     execFileSync('node', [AWF_CLI, 'server', 'stop'], {
       cwd: path.dirname(SANDBOX_ROOT),
@@ -411,16 +400,6 @@ function stopIsolatedServer() {
       stdio: 'ignore',
     });
   } catch { /* 没起来/已停都不影响结果 */ }
-}
-
-/** 让沙箱项目挂隔离副本（改写 awf init 写下的 marketplace 路径），其余字段原样保留 */
-function repointMarketplace(projectRoot, pluginDir) {
-  const settingsPath = path.join(projectRoot, '.claude', 'settings.json');
-  const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  for (const m of Object.values(settings.extraKnownMarketplaces || {})) {
-    if (m?.source?.source === 'directory') m.source.path = pluginDir;
-  }
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 }
 
 /** 读 state 容坏（写侧原子写 + 本进程并发轮询，仍可能出现瞬时半写） */
@@ -900,7 +879,7 @@ async function casePause({ timeoutMs }) {
     projectRoot,
     run,
     summary: sum,
-    // 本 case 自起 server 并注入 CC_PAUSE_ALERT_MS（宿主侧阈值）；非隔离模式下为 null
+    // 本 case 自起 server 并注入 CC_PAUSE_ALERT_MS（宿主侧阈值）—— 阈值必须进 server 进程
     serverBoot: own ? { pid: own.pid, freed: own.freed, up: own.up.ok } : null,
     latch: { readyBeforeProbe, dispatchedBeforeWindow, dispatchedDuringWindow, dispatchedAfterResume },
     checks: [
@@ -1207,19 +1186,29 @@ async function waitServerUp(port, { timeoutMs = 30000 } = {}) {
 /**
  * 让**本项目**成为 server 的 boot 项目（T3-011-F1）。
  *
- * 为什么需要：隔离端口下 server 由首个 case 唤起并被后续 case 全程复用，而 T1-112 只在
+ * 为什么需要：常驻 server 由首个 case 唤起后被后续 case 全程复用，而 T1-112 只在
  * **spawn 那一刻**把输出接到 `<boot 项目>/.awf/logs/server.log` —— 于是「本项目 + server.log」
  * 只在自起时成立。需要按本项目断言 server.log 的 case（pause-release），必须停掉复用的那个、
  * 再以本项目为 boot 起重起，否则断言测的是**第一个 case 的**日志（case 间不独立）。
  *
- * 非隔离模式（无 `--port`）不动机器上的常驻 server，返回 null。
+ * ⚠️ 它会**重启常驻 server**（同一端口、以本项目为 boot），因此有在飞 run 时是禁止的 ——
+ * 宿主就活在 server 进程里，重启等于当场杀掉它（用户 Q3 的结论）。护栏见函数首段。
  * 起法与 T1-112 的接线一致（同一脚本、同一 env、同一日志文件），不经 tmux。
  * `extraEnv` 一并注入 server 进程 —— 宿主侧的阈值（如 `CC_PAUSE_ALERT_MS`）**必须**走这里，
  * 只传给 `launchRun` 的 env 只作用于 CLI 进程，宿主仍用默认值（T3-011-F1 踩过）。
  */
 async function ownServer(projectRoot, extraEnv = {}) {
-  if (!ISOLATED_PLUGIN_DIR) return null;
-  stopIsolatedServer();
+  // 护栏：有在飞 run 就拒绝，而不是把 run 干掉。真机回归在 run 之外跑（见文件头「不再隔离」）。
+  // 探**不带 ?p**（落到 server 的 boot 项目）：宿主是随 server 一起起来的，危险的那个 run 就在
+  // boot 项目里。T3-011 复核时指出过旧写法按沙箱项目的 ?p 过滤，看不到别的项目的在飞 run ——
+  // 于是「在 cc-control 的 run 里跑沙箱 case」会绕过护栏，把宿主连同 run 一起停掉。
+  const rs = await httpRequest('GET', '/run/status', null, SERVER_PORT).catch(() => null);
+  const active = (rs?.json?.runs || []).filter((r) => r.status === 'queued' || r.status === 'running');
+  if (active.length) {
+    throw new Error(`ownServer 拒绝重启常驻 server：boot 项目有在飞 run（${active.map((r) => r.runId).join(', ')}）。`
+      + '宿主活在 server 进程里，重启会当场杀掉它 —— 真机回归请在 run 之外执行');
+  }
+  stopResidentServer();
   // `awf server stop` 走 /shutdown，是**异步**关停：不等端口真的空出来就 spawn，新 server 会
   // EADDRINUSE 起不来，而 CLI 那边已经按「复用现有服务」决策过 → 随后 ECONNREFUSED 崩掉
   // （T3-011-F1 自测时踩到）。故：等端口关闭 → 起 → 等就绪；起不来再重试一次。
@@ -1377,9 +1366,8 @@ async function caseInit() {
     .filter((d) => fs.existsSync(path.join(projectRoot, '.awf', d)));
 
   // 幂等：T3-011-F1 —— 口径修正。
-  // 旧写法拿「makeProject 之后（含 §隔离端口 的 marketplace 重指）」与「init 再跑一次」比字节，
-  // 比的是**隔离动作**而不是 init 的幂等：隔离模式把 marketplace 指向插件副本，而 `awf init`
-  // 会把它写回仓库 plugin/（init 自有立场）→ 该断言在 --port 下必然假红。
+  // 旧写法拿「makeProject 的副作用」与「init 再跑一次」比字节，比的是**副作用**而不是幂等：
+  // 任何在 init 之后改动 settings 的动作（如曾经的 marketplace 重指）都会让该断言假红。
   // 正确口径：init 的输出必须自洽 —— 连跑两次，第二三次之间不得漂移；并以此为后续断言的读数。
   execFileSync('node', [AWF_CLI, 'init'], { cwd: projectRoot, env: sanitizedEnv(), stdio: 'pipe' });
   const pass1 = { settings: readJson(settingsPath), mcp: readJson(mcpPath) };
@@ -1831,7 +1819,7 @@ async function casePauseRelease({ timeoutMs }) {
     tasks: taskSet('dev2'),
     summary: 'T1-111 暂停期间目标结算即放行',
   });
-  // T3-011-F1：本 case 要按**本项目**断言 `<项目>/.awf/logs/server.log`，而隔离模式下 server 由
+  // T3-011-F1：本 case 要按**本项目**断言 `<项目>/.awf/logs/server.log`，而常驻 server 由
   // 首个 case 唤起并被复用（日志落在那个项目下）。先让本项目成为 boot 项目，断言才测的是自己。
   const own = await ownServer(projectRoot);
   const run = launchRun(projectRoot, { env: { CC_PAUSE_ALERT_MS: '5000' } });
@@ -1886,8 +1874,8 @@ async function casePauseRelease({ timeoutMs }) {
     projectRoot,
     run,
     summary: sum,
-    // 本 case 是否自起 server（隔离模式下为真）；为 null 时 server.log 断言依赖常驻 server 的归属
-    serverBoot: own ? { pid: own.pid, up: own.up.ok } : null,
+    // 本 case 自起 server（重启常驻 server、以本项目为 boot）——server.log 的归属靠它成立
+    serverBoot: own ? { pid: own.pid, freed: own.freed, up: own.up.ok } : null,
     checks: [
       check('中断前任务确实在飞（active）', inflight.ok, `elapsed=${inflight.elapsedMs}ms`),
       check('置 mode=pause 成功', paused.status === 200 && paused.json?.ok === true, `status=${paused.status}`),
@@ -1898,7 +1886,7 @@ async function casePauseRelease({ timeoutMs }) {
       check('放行不是因为 mode 被恢复（此刻仍为 pause）', modeWhileReleased === 'pause', `mode=${modeWhileReleased}`),
       check('运行日志记录放行原因（目标任务已结算）', /已结算/.test(logText), tailOf(logText, 3)),
       check('放行记录带上阶段与结算态', /已结算/.test(logText) && logText.includes('dispatch:T2'), '见运行日志 NOTICE 行'),
-      check('server 由本项目唤起（隔离模式下 server.log 才有归属）', !own || own.up.ok, own ? `pid=${own.pid} freed=${own.freed} up=${own.up.ok}` : '非隔离模式，跳过（复用常驻 server）'),
+      check('常驻 server 已由本项目重启（server.log 才有归属）', own?.up?.ok === true, `pid=${own?.pid} up=${own?.up?.ok}`),
       check('server.log 落盘（含启动横幅与 pid/项目）', /cc-control listening on .*pid=\d+ project=/.test(serverLog), serverLog ? '有' : '空'),
       check('能从 server.log 读到宿主等待阶段行（无需 transcript 反推）',
         serverLog.includes('pause 闩锁已挂起') && serverLog.includes('dispatch:T2'), tailOf(serverLog, 3)),
@@ -1968,8 +1956,9 @@ async function caseDynamicPlanningRun({ timeoutMs }) {
     tasks: [t1, t2, t3],
     summary: '动态规划运行链路（全真：AI 自发现 → 人在飞批准 → 同一 run 继续）',
   });
-  // 同 pause-release：本项目自起 server，run 复用它（非隔离模式下 ownServer 返回 null，复用常驻 server）
-  const own = await ownServer(projectRoot);
+  // 刻意**不**用 ownServer：本 case 要能在 run 内跑（T3-011 就是）。重启 server 会杀掉在飞的 run，
+  // 而它真正验的东西（AI 自发现缺口 / hold / 在飞批准 / 顺序）都不需要重启 —— 常驻 server 是不是
+  // 当前代码由「跑前 awf server stop」这个前提保证，这里只探一下路由是否存在并在缺失时明确报出。
   const routeProbe = await getFromServer('/awf/dynamic-planning/proposals', projectRoot);
   const routesOk = routeProbe.status === 200;
 
@@ -2019,7 +2008,6 @@ async function caseDynamicPlanningRun({ timeoutMs }) {
     case: 'dynamic-planning-run',
     projectRoot,
     run,
-    serverBoot: own ? { pid: own.pid, up: own.up.ok } : null,
     proposalId,
     proposedTargetTask: proposal?.operations?.[0]?.relation?.targetTaskId || null,
     insertedTaskId: insertedId,
@@ -2029,10 +2017,8 @@ async function caseDynamicPlanningRun({ timeoutMs }) {
     events: eventNames,
     summary: taskSummary(projectRoot),
     checks: [
-      check('server 提供动态规划路由（常驻 server 可能是旧代码，须加 --port 重测）',
-        routesOk, `probe=${routeProbe.status}${routesOk ? '' : ' — 常驻 server 未注册该路由，请用 --port <n> 跑本 case'}`),
-      check('server 由本项目唤起（隔离模式下 server 归本项目）',
-        !own || own.up.ok, own ? `pid=${own.pid} freed=${own.freed} up=${own.up.ok}` : '非隔离模式，复用常驻 server'),
+      check('常驻 server 提供动态规划路由',
+        routesOk, `probe=${routeProbe.status}${routesOk ? '' : ' — 常驻 server 未注册该路由（旧代码），先 awf server stop 再跑'}`),
 
       // 1) 会话内的 AI 自己发起，并自己找出缺口
       check('run 运行中 AI 经 MCP 发起了提案（harness 全程未调用该工具）',
@@ -2129,19 +2115,11 @@ async function main() {
     return;
   }
   AWF_CLI = resolveAwfCli(args.awf);
-  SERVER_PORT = resolveServerPort(args.port);
-  // 顺序要紧：隔离插件副本住在 SANDBOX_ROOT 里，而 --clean 删的是整个 SANDBOX_ROOT。
-  // 先建副本、后 --clean = 把刚建的副本自己删掉 —— 沙箱项目的 marketplace 指向不存在的目录，
-  // 插件/agent/hook 全部解析失败（会话永不 ready → run 卡在 ready timeout，形似产品回归）。
-  // 故：先清/建沙箱根，再建副本。（2026-09-11 T3-011 全量门禁踩到）
+  SERVER_PORT = resolveServerPort();
   if (args.clean) fs.rmSync(SANDBOX_ROOT, { recursive: true, force: true });
   fs.mkdirSync(SANDBOX_ROOT, { recursive: true });
-  if (args.port) {
-    ISOLATED_PLUGIN_DIR = isolatedPluginDir(SERVER_PORT);
-  } else {
-    console.log(`[回归] 复用常驻 server(:${SERVER_PORT})，测的是它启动时的代码；`
-      + '要测当前工作树（尤其 src/server/**）请加 --port <n> 走隔离 server\n');
-  }
+  console.log(`[回归] 复用常驻 server(:${SERVER_PORT})，测的是它**启动时**的代码；`
+    + '本次改动若涉及 src/server/**，请先 `awf server stop`（下一次 awf run 会带新代码拉起）再跑\n');
   preflight();
 
   const selected = args.case === 'all' ? CASES : CASES.filter((c) => c.id === args.case);
@@ -2183,7 +2161,6 @@ async function main() {
   const out = args.out
     || path.join(SANDBOX_ROOT, args.case === 'all' ? 'evidence-all.json' : `evidence-${args.case}-summary.json`);
   fs.writeFileSync(out, JSON.stringify(evidence, null, 2) + '\n');
-  if (ISOLATED_PLUGIN_DIR) stopIsolatedServer(); // 隔离 server 用完即停，不留常驻进程
   console.log(`\n证据: ${out}`);
   console.log(`合计 ${evidence.totals.passed}/${evidence.totals.checks} 断言通过`);
   process.exit(evidence.totals.passed === evidence.totals.checks ? 0 : 1);

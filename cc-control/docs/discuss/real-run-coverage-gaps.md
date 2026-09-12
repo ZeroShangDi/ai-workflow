@@ -45,6 +45,17 @@
 **2026-09-12 全量连跑**（`npm run test:real -- --case all --port 8799`）：**204/204 全绿、exit 0**，
 15 个 case 一轮 10 分钟，两个新 case 在连跑里同结论 —— 连跑与单跑一致（本文档纪律要求的正是这一条）。
 
+**2026-09-12 定向两 case（改动面口径）** 曾以 `--port 8799`（隔离模式）执行：`single` **6/6 ✔**，
+`dynamic-planning-run` **两次都失败** —— 沙箱会话报 `Unknown command: /ai-workflow-code:w-dev`
+（provider 插件未加载）→ prompt 被丢 → case 崩于 ENOENT。归因见缺口表 **#20**：
+**是隔离模式自身的缺陷，不是 case 或产品的回归**。
+
+> **同日裁定（用户 Q3）**：**隔离模式已整体删除**（`--port` + 插件副本 + marketplace 重指，
+> 见 `.awf/issues/011`）。真机回归改为**在 run 之外由人跑**：跑之前自己 `awf server stop`
+> 保证常驻 server 带的是当前工作树。run 内不做 server 侧代码的自测 —— 宿主就活在 server 进程里，
+> 重启它等于杀掉在飞的 run（`ownServer` 已加护栏，遇到在飞 run 会显式失败而不是把 run 干掉）。
+> 因此本文档的断言口径里，**不宣称**「被测代码就是工作树最新那份」。
+
 ## 覆盖缺口（T3-011 复核后的真实状态）
 
 | # | 场景 | 现状 | 归属 |
@@ -68,6 +79,8 @@
 | 17 | **case 间独立性**（全量连跑 vs 单跑结论一致） | ✅ **T3-011-F1 已收口**：case 需要什么就自起什么（`ownServer(projectRoot, extraEnv)` —— 自起 server 并把**宿主侧** env 一并注入），不再依赖「server 由首个 case 唤起后复用」的隐含前提；本轮全量连跑 151/151 为证 | — |
 | 18 | **per-run 日志目录偶发缺失** | ⚠️ `decision` 曾在连跑中间歇失败（`DecisionStore` 的 runStamp 派生回退）。**机制未定位**；测试侧已加现场取证（缺目录时 dump `state.json` 可读性 / `logs` 清单 / 决策 stamps 进证据 + 打 `[诊断]` 行） | 根因在 `RunLogger._init` 静默早退 → `.awf/issues/005` |
 | 19 | **运行中动态任务规划**（AI 提案 → 人工批准前 hold → 批准 → 新任务先于目标执行） | ✅ **两半都覆盖**：边界半段见 `dynamic-planning`（真 MCP → 真 server → proposal/事件/hold 落盘 → 批准才应用）；运行半段见 `dynamic-planning-run`（AI 自发现缺口、人在飞批准、同一 run 前置先于目标执行）。另有同源 eval 用例 `tests/eval/cases/dynamic-planning/` | 能力文档 §9 两个 case 均已落地 |
+
+| 20 | **隔离模式（`--port`）不覆盖会话的插件 / hook 链** | ✅ **已按用户 Q3 裁定删除**：`--port` + 插件副本 + marketplace 重指整块移除（`.awf/issues/011`）。真机回归改为**在 run 之外由人跑**，跑前 `awf server stop` 让常驻 server 带当前工作树；`ownServer` 加护栏（有在飞 run 时显式失败，不重启 server） | 删除即收口，不新增机制 |
 
 ## 纪律
 
