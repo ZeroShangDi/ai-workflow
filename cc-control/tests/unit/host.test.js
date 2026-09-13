@@ -41,6 +41,11 @@ describe('createHost — host 基座（会话名参数化 cc-<sid>）', () => {
     expect(createHost({ sessionName: 'cc', execFileSync: ok.fn }).capture()).toBe('pane text');
   });
 
+  it('sendText 异常向上传播（注入失败不能被吞掉 —— 调用方据此判「派发未生效」）', () => {
+    const fn = () => { throw new Error('tmux down'); };
+    expect(() => createHost({ sessionName: 'cc', execFileSync: fn }).sendText('hi')).toThrow('tmux down');
+  });
+
   it('缺省 sessionName = cc（单 run 兼容）', () => {
     const { fn } = stubExec();
     const host = createHost({ execFileSync: fn });
