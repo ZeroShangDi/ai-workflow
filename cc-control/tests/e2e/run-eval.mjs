@@ -224,7 +224,7 @@ function readState(sandbox) {
 // 两者都可返回 { checks: [{ok,msg}] }，并入该用例的评分。
 function evalServerPort() {
   const req = createRequire(import.meta.url);
-  return req(path.join(ROOT, 'src', 'lib', 'runtime-config.cjs')).getServerPort(process.env);
+  return req(path.join(ROOT, 'server', 'shared', 'runtime-config.cjs')).getServerPort(process.env);
 }
 
 /** 打本项目 server（`?p=<sandbox>` 路由），端口与 `awf run` 同源 */

@@ -84,13 +84,11 @@ import { spawn, execFileSync } from 'node:child_process';
 let peekReadyTasks = null;
 let heldTaskIds = null;
 
-/** 按被测 CLI 推导 state 模块并加载（旧树 src/lib/state.js；新树 server/shared/state.js） */
+/** 加载被测 CLI 配套的 state 模块（就绪判据单源在 server/shared/state.js） */
 async function loadReadyCriteria() {
   if (peekReadyTasks) return;
-  const dir = path.dirname(AWF_CLI);
-  const modulePath = path.basename(dir) === 'cli'
-    ? path.join(path.dirname(dir), 'server', 'shared', 'state.js')
-    : path.join(dir, 'lib', 'state.js');
+  const repoRoot = path.dirname(path.dirname(AWF_CLI)); // <root>/cli/awf.cjs → <root>
+  const modulePath = path.join(repoRoot, 'server', 'shared', 'state.js');
   const mod = await import(pathToFileURL(modulePath).href);
   peekReadyTasks = mod.peekReadyTasks;
   heldTaskIds = mod.heldTaskIds;
@@ -408,7 +406,7 @@ let SERVER_PORT = null;
 function resolveServerPort() {
   const repoRoot = path.dirname(path.dirname(AWF_CLI));
   const req = createRequire(import.meta.url);
-  return req(path.join(repoRoot, 'src', 'lib', 'runtime-config.cjs')).getServerPort(sanitizedEnv());
+  return req(path.join(repoRoot, 'server', 'shared', 'runtime-config.cjs')).getServerPort(sanitizedEnv());
 }
 
 /**
