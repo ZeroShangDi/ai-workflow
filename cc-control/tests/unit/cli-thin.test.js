@@ -81,10 +81,12 @@ describe('cli · 环境边界（env）', () => {
 });
 
 describe('cli · 上下文（context）', () => {
-  it('服务端入口是隔壁 server/server.cjs，引导脚本共用 scripts/bootstrap.sh', () => {
+  it('服务端入口与引导脚本取自 run-context 单源（CLI 不再自己算）', () => {
     const ctx = buildContext('/tmp/p', { env: {} });
-    expect(ctx.serverEntry).toBe(path.resolve(__dirname, '..', '..', 'server', 'server.cjs'));
-    expect(ctx.bootstrapScript).toBe(path.resolve(__dirname, '..', '..', 'scripts', 'bootstrap.sh'));
+    expect(ctx.serverScriptPath).toBe(path.resolve(__dirname, '..', '..', 'server', 'server.cjs'));
+    expect(ctx.bootstrapScriptPath).toBe(path.resolve(__dirname, '..', '..', 'scripts', 'bootstrap.sh'));
+    expect(ctx.serverEntry).toBeUndefined(); // 别名已随旧树退役取消，单一名字：serverScriptPath
+    expect(ctx.bootstrapScript).toBeUndefined();
   });
 
   it('路径/端口取自 server/shared/run-context（不在这里重算布局）', () => {

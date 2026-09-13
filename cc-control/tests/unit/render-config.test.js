@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readPluginConfig, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings } from '../../src/lib/plugin-config.js';
+import { readPluginConfig, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings } from '../../server/shared/plugin-render.cjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const PLUGIN = path.join(REPO, 'plugin');

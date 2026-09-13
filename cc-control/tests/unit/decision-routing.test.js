@@ -106,7 +106,26 @@ describe('server · 决策记录（不管走哪条路由都要留痕）', () => 
     const handler = createDecisionHandler({
       session,
       logger: { logDecision: () => {}, captureFromTranscript: () => {} },
-      newDecisionStore: () => ({ append: (r) => { records.push(r); return { appended: true }; } }),
+      // 假 store 必须**忠实模拟真 store 的去重口径**，否则会掩盖缺陷（2026-09-13 实测：
+      // 旧替身 append 恒返回 true，把「answered 被 requested 挡掉」这个真 bug 藏了整整一轮）。
+      // 真 store：append 按 decision_id 跨事件去重；appendEvent 按 (decision_id, event) 去重。
+      newDecisionStore: () => ({
+        // 口径与真 store 一致（都扫**已落记录**）：
+        //   append      —— 同 decision_id 已落过（**不分事件**）→ 跳过
+        //   appendEvent —— 同 (decision_id, event) 已落过 → 跳过
+        // 旧替身用的是「一个 Set 混装两种键」，两种键永不碰撞 → 把 answered 被 requested 挡掉
+        // 这个真 bug 藏了整整一轮（2026-09-13 实测）。
+        append: (r) => {
+          if (r.decision_id && records.some((x) => x.decision_id === r.decision_id)) return { appended: false };
+          records.push(r);
+          return { appended: true };
+        },
+        appendEvent: (r) => {
+          if (records.some((x) => x.decision_id === r.decision_id && x.event === r.event)) return { appended: false };
+          records.push(r);
+          return { appended: true };
+        },
+      }),
       decisionEnabled: () => enabled,
       stores: {},
     });
@@ -121,13 +140,30 @@ describe('server · 决策记录（不管走哪条路由都要留痕）', () => 
     expect(records[0].request).toMatchObject({ question: '用哪版？', options: ['v1', 'v2'] });
   });
 
+  it('同一 decision_id 的 requested 与 answered **都要落**（真实时序：先问后答）', () => {
+    // 回归守卫（2026-09-13 实测的真 bug）：记录写入若用 store.append，而 append 是**按 decision_id
+    // 跨事件**去重的 —— 于是 requested 一落，同一次决策的 answered 就被静默丢弃，
+    // 「谁答的」永远查不到。生命周期事件必须用 appendEvent（按 (decision_id, event) 去重）。
+    const { handler, records } = harness();
+    handler.onAskUserQuestion({ tool_input: { questions: [{ question: '用哪版？', options: [{ label: 'v1' }, { label: 'v2' }] }] } });
+    const decisionId = records[0].decision_id;
+    handler.recordAnswered({ decisionId, value: 'v1', answeredBy: 'human' });
+
+    expect(records.map((r) => r.event)).toEqual(['decision_requested', 'decision_answered']);
+    expect(records[1]).toMatchObject({ decision_id: decisionId, answered_by: 'human', value: 'v1' });
+  });
+
   it('应答落 decision_answered，answered_by 区分路由（人 / 自动 / AI）', () => {
+    // 三次**不同**决策，各走一条路由 —— 同一次决策只能被答一次（同 (id,event) 会被 store 去重挡掉），
+    // 故不能用「同一 decisionId 答两次」来表达「路由可区分」。
     const { handler, records } = harness();
     handler.recordAnswered({ decisionId: 'D-1', value: '1', answeredBy: 'auto' });
-    handler.recordAnswered({ decisionId: 'D-1', value: 'v2', answeredBy: 'human' });
+    handler.recordAnswered({ decisionId: 'D-2', value: 'v2', answeredBy: 'human' });
+    handler.recordAnswered({ decisionId: 'D-3', value: 'v3', answeredBy: 'ai' });
     expect(records.map((r) => [r.event, r.answered_by, r.value])).toEqual([
       ['decision_answered', 'auto', '1'],
       ['decision_answered', 'human', 'v2'],
+      ['decision_answered', 'ai', 'v3'],
     ]);
   });
 

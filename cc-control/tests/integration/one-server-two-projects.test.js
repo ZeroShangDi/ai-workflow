@@ -42,7 +42,7 @@ process.env.CC_ENTER_DELAY_MS = '0';
 global.__CC_TMUX__ = m.tmux;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 let mod;
 let base;
 

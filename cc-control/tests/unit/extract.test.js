@@ -5,7 +5,7 @@ import {
   parseTranscriptLine,
   entryParts,
   renderTranscriptText,
-} from '../../src/lib/extract.cjs';
+} from '../../server/adapters/cc/extract.cjs';
 
 // cc 产物提取迁入（W1-048）：RESULT/NEEDS_INPUT/transcript 行级提取单源。
 

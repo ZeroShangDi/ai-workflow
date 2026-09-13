@@ -5,7 +5,7 @@ import {
   runSessionEnv,
   serverSpawnEnv,
   withoutRunIdentity,
-} from '../../src/lib/run-env.cjs';
+} from '../../cli/lib/env.cjs';
 
 const PARENT = {
   PATH: '/bin',

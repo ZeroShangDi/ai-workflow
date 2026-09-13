@@ -40,7 +40,7 @@ process.env.CC_READY_TIMEOUT_MS = '700'; // 无变化窗口压到 0.7s，便于�
 process.env.CC_ENTER_DELAY_MS = '0';
 process.env.CC_SESSION_READY_TIMEOUT_MS = '0';
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let server;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createProbe } from '../../src/adapters/probe.cjs';
+import { createProbe } from '../../server/adapters/cc/probe.cjs';
 
 describe('probe adapter（w-monitor 外部会话侦查）', () => {
   it('host.hasSession + status → 结构化报告', async () => {

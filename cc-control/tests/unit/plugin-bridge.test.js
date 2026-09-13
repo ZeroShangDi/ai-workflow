@@ -1,113 +1,82 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import fs from 'node:fs/promises';
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
 
-// ── fixture：临时项目里的插件 prompts.json（模拟 plugin/plugin-code/prompts.json）──
-const FAKE_ROOT = mkdtempSync(path.join(os.tmpdir(), 'cc-plugin-bridge-'));
+const require = createRequire(import.meta.url);
+const pluginAssets = require('../../server/shared/plugin-assets.cjs');
 
-const PROMPTS = {
-  'plan-start': {
-    prompt: '/ai-workflow-code:w-plan {desc}',
-    description: 'awf plan 传入需求描述时的入口提示词',
-  },
-  'plan-resume': {
-    prompt: '/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求',
-    description: 'awf plan --resume 恢复上次规划会话的入口提示词',
-  },
-  'plan-default': {
-    prompt: '/ai-workflow-code:w-plan 请开始需求规划',
-    description: 'awf plan 无描述时的默认入口提示词',
-  },
-  'task-wrapup': {
-    prompt: '用 awf_task_status 标记 {taskId} done。用 awf_task_result 记录 {taskId} 的执行结果。只做这两步。',
-    description: '任务未标记 done 时，补发的收尾 prompt（强制标记 + 记录）',
-  },
-  'context-check': {
-    prompt: '上下文检查：当前占用：{usage}。只判断是否压缩，不做任何任务工作。低于 65% 回复 AWF_CONTEXT_OK，否则写快照并通知。',
-    description: '每个任务执行前的上下文压缩检查',
-  },
-  'batch-dispatch': {
-    prompt: '批次执行：本批次编号：{batchId}\n待执行任务：\n{tasks}\n并行派生子 Agent，子 Agent 不写 state。',
-    description: '多任务批次派发',
-  },
-  'batch-reconcile': {
-    prompt: '批次 {batchId} 尚有任务未标记 done，请核对收尾，不要重新执行。',
-    description: '批次收尾 reconcile prompt',
-  },
-  'subagent-dispatch': {
-    prompt: '请用 Agent 工具（subagent_type: ai-workflow-core:awf-worker, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。任务标题：{taskTitle}。只派生一个且只派生一次，严禁重复派发同一任务、严禁派生其他任务。子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』；dev 必须应用 code-architecture，review 必须应用 code-review-architecture）：{taskPrompt}。【决策上抛】若子 Agent 返回 NEEDS_INPUT，你必须用 AskUserQuestion 问用户，获答后 SendMessage 恢复子 Agent。',
-    description: '滑动窗口单任务派发',
-  },
-  'gate-fix': {
-    prompt: '/ai-workflow-code:w-dev {fixId}\n\n{fixTarget}',
-    description: '门禁 fail 派生修复任务的执行提示词（命令 + 任务 ID + 修复目标，由 CLI 填充）',
-  },
-};
+import {
+  planEntry, resolvePrompt, stateTemplatePath, taskWrapup, taskSettle, contextCheck,
+  batchDispatch, batchReconcile, subagentDispatch, subagentRedispatch, subagentResend, gateFixPrompt,
+} from '../../server/shared/prompts.js';
 
-vi.mock('../../src/lib/paths.js', () => ({
-  getPaths: vi.fn(() => ({ projectRoot: FAKE_ROOT })),
-}));
+/**
+ * plugin-bridge（server 侧 prompts.js）— 「取插件模板 + 填占位符」
+ *
+ * 随旧树退役重写。旧版在临时目录伪造一份 prompts.json、再 mock 根路径去读它 —— 那套 fixture
+ * 已经不成立：模板**随包分发**，根由 shared/plugin-assets.cjs 单源推导（不再由调用方传根）。
+ *
+ * 现在改为**以 prompts.json 本身为期望值**：断言「产出 = 模板原文 + 占位符被替换」。
+ * 这样提示词改文案不会误伤测试（旧版硬编码文案，一改就红），而 bridge 的职责（读哪一份、
+ * 填哪些键）仍被钉住 —— 正是 `.awf/issues/008`「手抄提示词漂移」要防的那类。
+ */
 
-import { planEntry, resolvePrompt, stateTemplatePath, taskWrapup, contextCheck, batchDispatch, batchReconcile, subagentDispatch, gateFixPrompt } from '../../src/lib/plugin-bridge.js';
+const registry = JSON.parse(fs.readFileSync(
+  pluginAssets.pluginAssetPath('ai-workflow-code', 'prompts.json'), 'utf-8',
+));
 
-beforeAll(async () => {
-  const dir = path.join(FAKE_ROOT, 'plugin', 'plugin-code');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'prompts.json'), JSON.stringify(PROMPTS, null, 2));
-});
+/** 按 bridge 的同一规则填占位符（split/join，非正则） */
+function fill(key, vars = {}) {
+  let text = registry[key].prompt;
+  for (const [k, v] of Object.entries(vars)) text = text.split(`{${k}}`).join(v ?? '');
+  return text;
+}
 
-afterAll(async () => {
-  await fs.rm(FAKE_ROOT, { recursive: true, force: true });
-});
-
-describe('planEntry — 场景选模板', () => {
-  it('有 description → plan-start，填充 {desc}', async () => {
-    expect(await planEntry('搭建测试基础设施', false)).toBe('/ai-workflow-code:w-plan 搭建测试基础设施');
+describe('resolvePrompt — 取模板 + 填值', () => {
+  it('填值与模板原文一致（占位符全被替换）', async () => {
+    expect(await resolvePrompt('plan-start', { desc: '需求 X' })).toBe(fill('plan-start', { desc: '需求 X' }));
   });
 
-  it('无 description → plan-default', async () => {
-    expect(await planEntry(undefined, false)).toBe('/ai-workflow-code:w-plan 请开始需求规划');
+  it('变量值里的特殊字符不被当成替换模式（split/join 而非 RegExp）', async () => {
+    const res = await resolvePrompt('plan-start', { desc: 'A $& / 需求 {x} 等' });
+    expect(res).toBe(fill('plan-start', { desc: 'A $& / 需求 {x} 等' }));
+    expect(res).toContain('A $& / 需求 {x} 等');
   });
 
-  it('--resume → plan-resume（优先于 description）', async () => {
-    expect(await planEntry('任意文本', true)).toBe('/ai-workflow-code:w-plan --resume 请恢复上次规划会话，继续对齐需求');
-  });
-});
-
-describe('resolvePrompt — 模板读取与占位符', () => {
-  it('填充 {desc}，description 内特殊字符原样保留', async () => {
-    const res = await resolvePrompt('plan-start', { desc: 'A / 需求 {x} 等' });
-    expect(res).toBe('/ai-workflow-code:w-plan A / 需求 {x} 等');
-  });
-
-  it('未知 key → 抛错', async () => {
+  it('未知 key → 抛错（宁可失败也不发空提示词）', async () => {
     await expect(resolvePrompt('no-such-key')).rejects.toThrow('prompt template not found: no-such-key');
   });
 });
 
-describe('stateTemplatePath — 插件内部路径收敛', () => {
-  it('从 getPaths().projectRoot 派生 awf-state 模板路径', () => {
-    expect(stateTemplatePath()).toBe(path.join(FAKE_ROOT, 'plugin', 'core', 'mcp', 'awf-state', 'state.template.json'));
+describe('planEntry — 场景选模板（resume 优先于 description）', () => {
+  it('有 description → plan-start', async () => {
+    expect(await planEntry('搭建测试基础设施', false)).toBe(fill('plan-start', { desc: '搭建测试基础设施' }));
+  });
+
+  it('无 description → plan-default', async () => {
+    expect(await planEntry(undefined, false)).toBe(fill('plan-default'));
+  });
+
+  it('--resume 优先，忽略新描述', async () => {
+    expect(await planEntry('任意文本', true)).toBe(fill('plan-resume'));
   });
 });
 
-describe('taskWrapup — 任务收尾 prompt', () => {
-  it('填充 {taskId}，使用插件模板中的 MCP tool 指令', async () => {
-    expect(await taskWrapup('T3')).toBe('用 awf_task_status 标记 T3 done。用 awf_task_result 记录 T3 的执行结果。只做这两步。');
+describe('收尾/上下文/批次/门禁 —— 各模板填充', () => {
+  it('taskWrapup 填 {taskId}', async () => {
+    expect(await taskWrapup('T3')).toBe(fill('task-wrapup', { taskId: 'T3' }));
   });
-});
 
-describe('contextCheck — 任务前上下文检查 prompt', () => {
-  it('填充 {usage} 占位符（statusline 实测 / 未知回退）', async () => {
-    expect(await contextCheck('已用约 62%（statusline 实测）')).toContain('当前占用：已用约 62%（statusline 实测）');
-    expect(await contextCheck('未知（statusline 未配置，请自行估算）')).toContain('当前占用：未知（statusline 未配置，请自行估算）');
+  it('taskSettle 填 {taskId}', async () => {
+    expect(await taskSettle('T3')).toBe(fill('task-settle', { taskId: 'T3' }));
   });
-});
 
-describe('batchDispatch — 批次派发 prompt', () => {
-  it('填充 {batchId}，把任务数组序列化为可读列表（taskId/kind/title/prompt）', async () => {
+  it('contextCheck 填 {usage}', async () => {
+    expect(await contextCheck('已用约 62%（statusline 实测）'))
+      .toBe(fill('context-check', { usage: '已用约 62%（statusline 实测）' }));
+  });
+
+  it('batchDispatch 把任务数组排成「- <id> [<kind>] <title>\\n  提示词：<prompt>」清单', async () => {
     const res = await batchDispatch({
       batchId: 'B1',
       tasks: [
@@ -115,41 +84,64 @@ describe('batchDispatch — 批次派发 prompt', () => {
         { taskId: 'T2', title: '做 B', kind: 'review', prompt: '审查 A' },
       ],
     });
+    expect(res).toBe(fill('batch-dispatch', {
+      batchId: 'B1',
+      tasks: '- T1 [dev] 做 A\n  提示词：/ai-workflow-code:w-dev <task>…\n- T2 [review] 做 B\n  提示词：审查 A',
+    }));
     expect(res).toContain('本批次编号：B1');
-    expect(res).toContain('- T1 [dev] 做 A');
-    expect(res).toContain('提示词：/ai-workflow-code:w-dev <task>…');
-    expect(res).toContain('- T2 [review] 做 B');
-    expect(res).toContain('子 Agent 不写 state');
+  });
+
+  it('batchDispatch 也接受已排好版的字符串（原样透传）', async () => {
+    const res = await batchDispatch({ batchId: 'B2', tasks: '（调用方自己排的版）' });
+    expect(res).toContain('（调用方自己排的版）');
+  });
+
+  it('batchReconcile 填 {batchId}', async () => {
+    expect(await batchReconcile('B1')).toBe(fill('batch-reconcile', { batchId: 'B1' }));
+  });
+
+  it('subagentResend 填 {agentId} + {reason}', async () => {
+    expect(await subagentResend({ agentId: 'a1', reason: 'no valid RESULT' }))
+      .toBe(fill('subagent-resend', { agentId: 'a1', reason: 'no valid RESULT' }));
+  });
+
+  it('gateFixPrompt 填 {fixId} + {fixTarget}（命令字面活在模板里）', async () => {
+    expect(await gateFixPrompt({ fixId: 'R1-F1', fixTarget: '修 x' }))
+      .toBe(fill('gate-fix', { fixId: 'R1-F1', fixTarget: '修 x' }));
   });
 });
 
-describe('batchReconcile — 批次收尾 prompt', () => {
-  it('填充 {batchId}，明确不重新执行', async () => {
-    expect(await batchReconcile('B1')).toContain('批次 B1 尚有任务未标记 done');
-    expect(await batchReconcile('B1')).toContain('不要重新执行');
-  });
-});
-
-describe('subagentDispatch — 滑动窗口单任务派发', () => {
-  it('填充 taskId + taskPrompt，用 awf-worker 类型 + 只派生一次 + 声明任务 ID + 决策上抛', async () => {
+describe('subagentDispatch / subagentRedispatch — 派发提示词的**协议要件**', () => {
+  // 这几条是派发协议的要件（改文案可以，丢要件不行）。2026-09-13 的卡死事故正是「要件被误解」
+  // 造成：旧文案「严禁重复派发同一任务」被模型当成「有派发记录就别派」的理由 → 见
+  // .awf/bugs/dispatch-without-subagent-hangs-run.md
+  it('subagentDispatch：填 taskId/taskTitle/taskPrompt，且保留四种要件', async () => {
     const res = await subagentDispatch({ taskId: 'R1', taskTitle: '审查 math 标题', taskPrompt: '审查 math' });
+    expect(res).toBe(fill('subagent-dispatch', { taskId: 'R1', taskTitle: '审查 math 标题', taskPrompt: '审查 math' }));
     expect(res).toContain('subagent_type: ai-workflow-core:awf-worker'); // 约束身份化到 awf-worker
-    expect(res).toContain('执行任务 R1');
-    expect(res).toContain('任务标题：审查 math 标题');
-    expect(res).toContain('只派生一个且只派生一次'); // 防重复派发同一任务
-    expect(res).toContain('严禁派生其他任务'); // 防擅自追加
-    expect(res).toContain('你的任务 ID 是 R1'); // 子 Agent prompt 开头声明任务 ID 防错写
+    expect(res).toContain('你的任务 ID 是 R1'); // 子 Agent prompt 开头声明任务 ID，防错写
     expect(res).toContain('NEEDS_INPUT'); // 决策上抛协议
     expect(res).toContain('AskUserQuestion'); // 主 Agent 收到 NEEDS_INPUT 必须问用户
-    expect(res).toContain('code-architecture');
-    expect(res).toContain('code-review-architecture');
-    expect(res).toContain('审查 math');
+  });
+
+  it('subagentDispatch：不再出现「严禁重复派发同一任务」这类会被当成不派理由的话术', async () => {
+    const res = await subagentDispatch({ taskId: 'T3', taskTitle: 't', taskPrompt: 'p' });
+    expect(res).not.toContain('严禁重复派发同一任务');
+  });
+
+  it('subagentRedispatch：点明上一回合没起子 Agent，并要求立刻补救', async () => {
+    const res = await subagentRedispatch({ taskId: 'T3', taskPrompt: '做事' });
+    expect(res).toBe(fill('subagent-redispatch', { taskId: 'T3', taskPrompt: '做事' }));
+    expect(res).toContain('没有任何子 Agent 被派生');
+    expect(res).toContain('你的任务 ID 是 T3');
+    expect(res).not.toContain('{taskId}'); // 占位符必须被填掉，不能被当成协议字面发出去
   });
 });
 
-describe('gateFixPrompt — 门禁修复任务提示词（命令由插件模板声明）', () => {
-  it('填充 fixId + fixTarget，命令字符串来自模板而非 CLI', async () => {
-    const res = await gateFixPrompt({ fixId: 'R1-F1', fixTarget: '修复门禁 R1 报告 x.md 中列出的全部问题。' });
-    expect(res).toBe('/ai-workflow-code:w-dev R1-F1\n\n修复门禁 R1 报告 x.md 中列出的全部问题。');
+describe('stateTemplatePath — 插件资产路径（包根单源）', () => {
+  it('指向已安装插件的 awf-state 模板，且文件真实存在', () => {
+    const p = stateTemplatePath();
+    expect(p.endsWith('state.template.json')).toBe(true);
+    expect(fs.existsSync(p)).toBe(true);
   });
 });

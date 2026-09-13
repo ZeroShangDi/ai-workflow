@@ -5,8 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { gate } = require('../../server/features/index.js');
-const { MAX_RECHECK, gateFixMeta, spawnGateFixTask, spawnGateFixTaskAtomic } = gate;
+// 原经 server/features/index.js 这个「统一出口」取；该聚合桶无人生产引用（复盘 K1「建抽象没人用」），
+// 已随收口删除 —— 直接指向真正的实现（tools 侧一律显式导入，不走桶）
+const { MAX_RECHECK, gateFixMeta, spawnGateFixTask, spawnGateFixTaskAtomic } =
+  require('../../server/features/gate/closure.js');
 
 // 门禁闭环协议：fail → 派生修复 → 回退待复审，直到 pass 或达轮次上限。
 // 规则归 features/gate（本文件），通用落账原语归 shared/state.js 的 mutateState。

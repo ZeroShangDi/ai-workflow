@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import taskGraph from '../../src/lib/task-graph.cjs';
+import taskGraph from '../../server/shared/task-graph.cjs';
 
 const {
   taskGraphErrors,

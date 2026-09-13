@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import decision from '../../src/server/decision.cjs';
+import decision from '../../server/features/decision/core.cjs';
 
 const { parseDecisionResult, validateDecisionResult, REQUIRED_FIELDS } = decision;
 

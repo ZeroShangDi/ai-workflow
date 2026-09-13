@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { buildRunContext, ensureRunLayoutSync, INFRA_ROOT, SID_PATTERN } from '../../src/lib/run-context.cjs';
+import { buildRunContext, ensureRunLayoutSync, INFRA_ROOT, SID_PATTERN } from '../../server/shared/run-context.cjs';
 
 // run-context 装配器（W1-005 / T1-008）：纯派生，零副作用。
 // 输入 { sid?, projectRoot?, env? } → 标识/路径/会话名/端口/settings 引用。
@@ -97,7 +97,7 @@ describe('settings / infra 引用', () => {
   it('插件注册/安装单源与运行脚本路径', () => {
     expect(ctx.pluginSettingsPath).toBe(path.join(ctx.infraRoot, 'plugin', 'settings.json'));
     expect(ctx.infraConfigPath).toBe(path.join(ctx.infraRoot, 'plugin', 'config.json'));
-    expect(ctx.serverScriptPath).toBe(path.join(ctx.infraRoot, 'src', 'server', 'server.cjs'));
+    expect(ctx.serverScriptPath).toBe(path.join(ctx.infraRoot, 'server', 'server.cjs'));
     expect(ctx.bootstrapScriptPath).toBe(path.join(ctx.infraRoot, 'scripts', 'bootstrap.sh'));
     expect(ctx.repoDevSettingsPath).toBe(path.join(ctx.infraRoot, '.claude', 'settings.json'));
   });

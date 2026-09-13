@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { makeApi } from '../helpers/http-api.js';
+import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const diagnosisLib = require('../../src/lib/run-diagnosis.cjs');
 
 // ── mocks：注入到 server.cjs（原生 require 的 CJS 依赖无法用 vi.mock 拦截）──
 
@@ -28,12 +28,6 @@ const m = {
     logPrompt: vi.fn(),
     logDecision: vi.fn(),
   },
-  diagnose: vi.fn(async () => ({
-    ok: true,
-    diagnosis: {
-      severity: 'watch', summary: '输出吞吐偏低，需要观察等待时间。', findings: [], dataGaps: ['未采集模型流式首 token 时间'],
-    },
-  })),
 };
 
 class MockRunLogger {
@@ -74,9 +68,8 @@ process.env.CC_LOCAL_CMD_MS = '60';        // /cmd fallback
 process.env.HOME = fakeHome;
 global.__CC_TMUX__ = m.tmux;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
-global.__CC_RUN_DIAGNOSIS__ = { ...diagnosisLib, diagnoseWithClaude: m.diagnose };
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 
 let server;
 let api;
@@ -94,7 +87,6 @@ afterAll(async () => {
   await server?.stop();
   delete global.__CC_TMUX__;
   delete global.__CC_RUNLOGGER__;
-  delete global.__CC_RUN_DIAGNOSIS__;
   delete process.env.CC_WEB_PUBLIC;
   for (const k of ['CC_PROJECT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_LOCAL_CMD_MS']) {
     delete process.env[k];
@@ -220,31 +212,9 @@ describe('路由', () => {
     expect(res.body).toEqual({ ok: true, diagnosis: null });
   });
 
-  it('TC8d: POST /awf/diagnostics → 独立 AI 诊断并持久化结果', async () => {
-    const res = await api('POST', '/awf/diagnostics');
-    expect(res.status).toBe(202);
-    expect(res.body.diagnosis.status).toBe('running');
-    await sleep(0);
-    const saved = await api('GET', '/awf/diagnostics');
-    expect(m.diagnose).toHaveBeenCalledTimes(1);
-    expect(saved.body.diagnosis.status).toBe('complete');
-    expect(saved.body.diagnosis.diagnosis.summary).toContain('输出吞吐偏低');
-  });
-
-  it('TC8e: 诊断期间的隔离会话不能重置主会话', async () => {
-    let finishDiagnosis;
-    m.diagnose.mockImplementationOnce(() => new Promise((resolve) => { finishDiagnosis = resolve; }));
-    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
-    const requested = await api('POST', '/awf/diagnostics');
-    expect(requested.status).toBe(202);
-
-    const foreign = await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-diagnosis' });
-    expect(foreign.status).toBe(200);
-    expect(server._getState().mainSessionId).toBe('sess-main');
-
-    finishDiagnosis({ ok: true, diagnosis: { severity: 'healthy', summary: '正常。', findings: [], dataGaps: [] } });
-    await sleep(0);
-  });
+  // TC8d/TC8e（诊断）已移到下方 describe「诊断介入（monitor）」：新树的诊断走 features/monitor
+  // 的 oneshot 端口，旧树的 global.__CC_RUN_DIAGNOSIS__ 注入缝未搬过来，故在这层（server.cjs
+  // 的真实 runtime）里无法注入替身；改在可注入的 runtime/api 装配面上测。
 
   it('TC9: GET /status?snapshot=true → 包含 snapshot', async () => {
     const res = await api('GET', '/status?snapshot=true');
@@ -371,6 +341,102 @@ describe('路由', () => {
 });
 
 // ─────────────────────────────────────────────
+// 诊断介入（monitor）
+// ─────────────────────────────────────────────
+//
+// 诊断在新树里是 features/monitor 的一个端口（`createMonitor({ ..., oneshot })`，形状与旧树不同），
+// 旧树的 `global.__CC_RUN_DIAGNOSIS__` 注入缝没有搬过来 —— 所以不能再注入到 server.cjs 的真实
+// runtime 上。这里改在**可注入的装配面**上测：自建 runtime + createApi，诊断进程用替身 oneshot。
+// （协议细节 —— 互斥 / 两拍写 / 失败收口 / --safe-mode 安全隔离 / 后效对齐 —— 由
+//  tests/unit/server-monitor.test.js 直接覆盖；本组钉的是它在 HTTP 面上的路由与守卫。）
+describe('诊断介入（monitor）', () => {
+  const { createProjectRuntime } = require('../../server/runtime/index.cjs');
+  const { createApi } = require('../../server/web/api/index.cjs');
+  const { createMonitor } = require('../../server/features/monitor/index.cjs');
+
+  let diagRoot;
+  let diagServer;
+  let diagPort;
+  let rt;
+
+  const call = (method, p, body) => fetch(
+    `http://127.0.0.1:${diagPort}${p}?p=${encodeURIComponent(diagRoot)}`,
+    {
+      method,
+      headers: body === undefined ? {} : { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+  );
+
+  beforeAll(async () => {
+    diagRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-server-diag-'));
+    fs.mkdirSync(path.join(diagRoot, '.awf'), { recursive: true });
+    const registry = {
+      bootRoot: diagRoot,
+      resolveRuntime: () => rt,
+      list: () => [{ projectRoot: diagRoot }],
+      all: () => [rt],
+    };
+    const diagApi = createApi({ registry, stopServer: async () => {} });
+    diagServer = http.createServer(diagApi.handle);
+    await new Promise((r) => diagServer.listen(0, '127.0.0.1', r));
+    diagPort = diagServer.address().port;
+  });
+
+  afterAll(async () => {
+    await new Promise((r) => diagServer.close(r));
+    fs.rmSync(diagRoot, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    rt = createProjectRuntime({ projectRoot: diagRoot });
+  });
+
+  it('TC8d: POST /awf/diagnostics → 独立 AI 诊断并持久化结果', async () => {
+    // 把 runtime 的 monitor 换成带替身 oneshot 的实例（诊断进程不起真 claude）
+    let finishOneshot;
+    const oneshot = {
+      spawnClaudeP: vi.fn(() => new Promise((resolve) => { finishOneshot = resolve; })),
+    };
+    rt.monitor = createMonitor({ ctx: rt.ctx, session: rt.session, observability: rt.observability, oneshot });
+    fs.rmSync(path.join(diagRoot, '.awf', 'logs', 'run-diagnosis.json'), { force: true });
+
+    const res = await call('POST', '/awf/diagnostics');
+    expect(res.status).toBe(202);
+    expect((await res.json()).diagnosis.status).toBe('running'); // 第一拍：立刻受理并回占位快照
+
+    finishOneshot({
+      ok: true,
+      stdout: JSON.stringify({ severity: 'watch', summary: '输出吞吐偏低，需要观察等待时间。', findings: [], dataGaps: [] }),
+      stderr: '', code: 0,
+    });
+    await sleep(0);
+
+    expect(oneshot.spawnClaudeP).toHaveBeenCalledTimes(1);
+    const saved = await (await call('GET', '/awf/diagnostics')).json(); // 第二拍：同一份快照被覆盖为 complete
+    expect(saved.diagnosis.status).toBe('complete');
+    expect(saved.diagnosis.diagnosis.summary).toContain('输出吞吐偏低');
+  });
+
+  it('TC8e: 诊断期间的隔离会话不能重置主会话', async () => {
+    // 主会话就位（此刻没有诊断在跑）
+    await call('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    expect(rt.session.mainSessionId).toBe('sess-main');
+
+    // 模拟诊断进行中：monitor 的 inFlight 闩（新树守卫的判据，见 web/api/hook.cjs）。直接置闩，不真起进程。
+    rt.monitor.inFlight = true;
+    const foreign = await call('POST', '/hook', { event: 'SessionStart', session_id: 'sess-diagnosis' });
+    expect(foreign.status).toBe(200);
+    expect(rt.session.mainSessionId).toBe('sess-main'); // 隔离会话的启动被忽略，主会话未被重置
+
+    // 反证：闩解除（诊断结束）后，同一异会话 SessionStart 会正常接管主会话 —— 证明上面的「不动」来自守卫本身
+    rt.monitor.inFlight = false;
+    await call('POST', '/hook', { event: 'SessionStart', session_id: 'sess-diagnosis' });
+    expect(rt.session.mainSessionId).toBe('sess-diagnosis');
+  });
+});
+
+// ─────────────────────────────────────────────
 // /stop 中断
 // ─────────────────────────────────────────────
 
@@ -442,9 +508,11 @@ describe('w-monitor 受控介入', () => {
 describe('状态机', () => {
   it('TC21: SessionStart → setReady 唤醒所有 waiters', async () => {
     server.setBusy();
+    // 新树不在快照里暴露真实等待者（_getState().waiters 恒空，注释明写「已不在快照里暴露」），
+    // 故不断言 waiters 数量，改断言**效果**：先前挂起的 waitReady 在 SessionStart 触发的
+    // setReady 后真的解挂并返回 true。
     const p1 = server.waitReady(10000);
     const p2 = server.waitReady(10000);
-    expect(server._getState().waiters).toHaveLength(2);
 
     const res = await api('POST', '/hook', { event: 'SessionStart' });
     expect(res.status).toBe(200);

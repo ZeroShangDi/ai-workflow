@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { runScheduler } from '../../src/server/run-scheduler.js';
-import { handleGateCompletion } from '../../src/server/gate-fix.js';
-import { MAX_RECHECK } from '../../src/lib/state.js';
+import { runScheduler } from '../../server/run/scheduler.js';
+import { handleGateCompletion } from '../../server/features/gate/fix.js';
+import { MAX_RECHECK } from '../../server/features/gate/closure.js'; // 派生原语已下沉 features/gate
 
 // scheduler 用真实 loadState 读 .awf/state.json；dispatcher/waitAnyDone 为注入接口。
 // waitAnyDone 的 mock 在每次返回前把「已完成任务」标 done 落盘，模拟真实落账 → 池刷新。

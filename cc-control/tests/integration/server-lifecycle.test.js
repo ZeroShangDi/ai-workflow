@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 // T1-067 冒烟：① cli 薄化后命令面测试绿（run/cli-aux 等既有单测，本文件聚焦冒烟）；
 // ② 单写者（并发经 server /run/state/* 写一致）；③ 常驻 server：空闲超时自回收 + /shutdown。
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-lifecycle-'));

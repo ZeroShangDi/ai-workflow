@@ -1,425 +1,242 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { EventEmitter } from 'node:events';
-import { mockExecSync, mockExec, mockSpawn } from '../helpers/mock-child-process.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const { mockLogger, mockLogStep, mockFs } = vi.hoisted(() => ({
-  mockLogger: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  mockLogStep: vi.fn(),
-  mockFs: {
-    mkdir: vi.fn(),
-    stat: vi.fn(),
-    lstat: vi.fn(),
-    symlink: vi.fn(),
-    unlink: vi.fn(),
-    readlink: vi.fn(),
-    rm: vi.fn(),
-    readFile: vi.fn(),
-    writeFile: vi.fn(),
-  },
-}));
+import { pluginCommand, runPerSpec, execAsync } from '../../cli/commands/plugin.cjs';
+import { serverCommand } from '../../cli/commands/server.cjs';
+import { openCommand, TARGETS } from '../../cli/commands/open.cjs';
+import { attachCommand } from '../../cli/commands/attach.cjs';
 
-vi.mock('../../src/lib/ui/log.js', () => ({ logger: mockLogger, logStep: mockLogStep }));
-vi.mock('node:fs/promises', () => ({ ...mockFs, default: mockFs }));
-vi.mock('../../src/lib/paths.js', () => ({
-  getPaths: vi.fn(() => ({
-    projectRoot: '/tmp/mock-project',
-    claudePlugins: '/tmp/mock-claude-plugins',
-    ccSettings: '/tmp/mock-settings.json',
-    tmuxServer: '/tmp/server.cjs',
-    bootstrapScript: '/tmp/bootstrap.sh',
-  })),
-  pluginCmd: vi.fn((cmd) => `/ai-workflow-code:${cmd}`),
-  PLUGIN_NS: 'ai-workflow-code',
-}));
+/**
+ * cli-aux — 旁路命令（plugin / server / open / attach）
+ *
+ * ## 为什么这份测试长这样（重要）
+ * 旧版靠 `vi.mock` 拦住 `ui/log`、`run-context`、`node:child_process`。**这套机制对新树不成立**：
+ * 新 CLI 是 CJS（`.cjs` + `require()`），而 vitest 的 `vi.mock` 不拦截 CJS 模块里的 `require`
+ * （旧 CLI 是 ESM，所以能拦）。`server.deps.inline` 也救不回来。
+ *
+ * 新树自己的惯例因此是「纯函数 / 真临时目录 / 显式注入端口」—— 本文件沿用：
+ *   - plugin local：**真**跑一遍，断言真落盘的文件（比旧版 mock 断言更强）；
+ *   - server stop/status/start：只 stub 全局 fetch（可用），不 spawn 真进程；
+ *   - open：用命令自带的可注入 `browser` 参数换成无副作用的 `true`；
+ *   - attach：只走「会话不存在 → 报错退出」这条（真调 tmux，但目标是必然不存在的会话）。
+ *
+ * 未覆盖的执行路径（真跑 `claude plugin …`、server start 的 spawn、open 的 spawn 参数、
+ * attach 成功路径）已登记 `.awf/issues/014-cli-command-layer-untestable.md`。
+ */
 
-// run-context 装配器注入（替代旧 getPaths 的 server/bootstrap 注入点）
-vi.mock('../../src/lib/server-log.js', () => ({
-  serverLogPath: (dir) => `${dir}/server.log`,
-  openServerLog: vi.fn((logPath) => ({ fd: 99, path: logPath, rotated: false, close: () => {} })),
-}));
-vi.mock('../../src/lib/run-context.cjs', () => ({
-  buildRunContext: vi.fn(() => ({
-    sid: null,
-    session: 'cc',
-    runSessionName: 'cc',
-    port: 8787,
-    projectRoot: '/tmp/mock-project',
-    infraRoot: '/tmp/mock-project',
-    logsDir: '/tmp/mock-project/.awf/logs',
-    serverScriptPath: '/tmp/server.cjs',
-    bootstrapScriptPath: '/tmp/bootstrap.sh',
-    runSettingsPath: '/tmp/mock-project/.awf/run-settings.json',
-  })),
-  projectSid: vi.fn(() => 'p123'),
-}));
+let TMP;
 
-// ── http mock for server check ──
-const httpCheckState = vi.hoisted(() => ({ ok: true, timeout: false }));
-// 优雅关闭探测（serverCommand stop 的 requestShutdown 用全局 fetch）——
-// 必须 stub：否则会真的去打 127.0.0.1:8787，命中并发测试文件/本机真 run 的服务 → 跨文件污染。
-const fetchState = vi.hoisted(() => ({ shutdownOk: false, calls: [] }));
+function tmpProject() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-cliaux-'));
+  fs.mkdirSync(path.join(dir, '.awf'), { recursive: true });
+  return dir;
+}
 
-vi.mock('node:http', async () => {
-  const { EventEmitter: EE } = await import('node:events');
-  const fake = {
-    get(url, cb) {
-      const req = new EE();
-      let timeoutCb;
-      req.setTimeout = (ms, fn) => { timeoutCb = fn; };
-      req.destroy = vi.fn();
-      queueMicrotask(() => {
-        if (httpCheckState.ok) {
-          const res = new EE();
-          res.statusCode = 200;
-          cb(res);
-          queueMicrotask(() => { res.emit('data', JSON.stringify({ state: 'ready' })); res.emit('end'); });
-        } else if (httpCheckState.timeout) {
-          timeoutCb?.();
-        } else {
-          req.emit('error', new Error('ECONNREFUSED'));
-        }
-      });
-      return req;
-    },
-    request: vi.fn(),
-  };
-  return { ...fake, default: fake, get: fake.get, request: fake.request };
-});
-
-import { pluginCommand } from '../../src/cli/plugin.js';
-import { serverCommand } from '../../src/cli/server.js';
-import { openCommand } from '../../src/cli/open.js';
-import { attachCommand } from '../../src/cli/attach.js';
-
-function resetLogger() {
-  Object.values(mockLogger).forEach((f) => f.mockReset());
+/** 造一个 fetch 应答：client.request 读 res.ok + res.text() */
+function jsonRes(ok, body) {
+  return { ok, status: ok ? 200 : 500, text: async () => JSON.stringify(body) };
 }
 
 describe('cli-aux', () => {
-  beforeEach(() => {
-    vi.spyOn(process, 'cwd').mockReturnValue('/tmp/mock-cwd');
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  let logs;
+  let errors;
+  const net = { probe: false, status: false, shutdown: false, calls: [] };
 
-    resetLogger();
-    mockLogStep.mockReset();
-    mockExecSync.mockReset();
-    mockExecSync.mockImplementation(() => Buffer.from(''));
-    mockExec.mockReset();
-    mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
-    mockSpawn.mockReset();
-    mockSpawn.mockImplementation(() => {
-      const p = new EventEmitter();
-      p.unref = vi.fn();
-      return p;
-    });
-    Object.values(mockFs).forEach((f) => f.mockReset());
-    httpCheckState.ok = true;
-    httpCheckState.timeout = false;
-    fetchState.shutdownOk = false;
-    fetchState.calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (url, opts) => {
-      fetchState.calls.push({ url: String(url), opts });
-      return { ok: fetchState.shutdownOk };
+  beforeEach(() => {
+    TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-cliaux-root-'));
+    logs = [];
+    errors = [];
+    vi.spyOn(console, 'log').mockImplementation((...a) => { logs.push(a.join(' ')); });
+    vi.spyOn(console, 'error').mockImplementation((...a) => { errors.push(a.join(' ')); });
+
+    net.probe = false;
+    net.status = false;
+    net.shutdown = false;
+    net.calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const u = String(url);
+      net.calls.push(u);
+      // 失败时 body 也必须带 ok:false —— client.request 会把 body 展开到返回值上，
+      // 只把 HTTP 状态码设成 500 而 body 里写 ok:true 的话，ok 会被盖回 true（假成功）。
+      if (u.includes('/probe')) return net.probe ? jsonRes(true, { ok: true }) : jsonRes(false, { ok: false, error: '无 /probe' });
+      if (u.includes('/shutdown')) return net.shutdown ? jsonRes(true, { ok: true }) : jsonRes(false, { ok: false, error: '连接不可达' });
+      return net.status ? jsonRes(true, { ok: true, state: 'ready' }) : jsonRes(false, { ok: false, error: '未运行' });
     }));
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    fs.rmSync(TMP, { recursive: true, force: true });
   });
 
   // ═══════════════════ plugin ═══════════════════
 
-  describe('pluginCommand', () => {
-    const PROFILE_PLUGINS = JSON.stringify({
-      plugins: ['superpowers@claude-plugins-official', 'figma@claude-plugins-official', 'ai-workflow-code@ai-workflow-dev'],
+  describe('pluginCommand — 本地注册（真跑，真落盘）', () => {
+    it('TC1: install → 项目 .claude/settings.json 与 .mcp.json 真被写入', async () => {
+      const proj = tmpProject();
+      vi.spyOn(process, 'cwd').mockReturnValue(proj);
+
+      await pluginCommand('install');
+
+      const settings = JSON.parse(fs.readFileSync(path.join(proj, '.claude', 'settings.json'), 'utf8'));
+      expect(settings.enabledPlugins).toBeTruthy(); // 来自 plugin/settings.json 的安装清单
+      const mcp = JSON.parse(fs.readFileSync(path.join(proj, '.mcp.json'), 'utf8'));
+      expect(Object.keys(mcp.mcpServers).sort()).toEqual(['awf-oneshot', 'awf-session', 'awf-state']);
+      // 绝对路径 + 每条 server 都知道自己在哪个项目（单 server 多项目 ?p 路由的依据）
+      expect(mcp.mcpServers['awf-state'].args.every((a) => path.isAbsolute(a))).toBe(true);
+      expect(mcp.mcpServers['awf-state'].env.AWF_PROJECT_ROOT).toBe(proj);
+      expect(logs.join('\n')).toContain('已本地注册');
+      expect(logs.join('\n')).toContain('已注册项目 MCP');
     });
 
-    it('TC1: install — 全局正常安装（从 settings.json.plugins 读取）', async () => {
-      mockFs.readlink.mockRejectedValue(new Error('ENOENT')); // 无旧 symlink
-      mockFs.unlink.mockResolvedValue();
-      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
-      mockExecSync.mockImplementation((cmd) => (cmd.includes('cat') ? Buffer.from('{"plugins":{}}') : Buffer.from('')));
-
-      await pluginCommand('install', { scope: 'global' });
-
-      expect(mockExec).toHaveBeenCalledWith(
-        'claude plugin install ai-workflow-code@ai-workflow-dev',
-        expect.any(Object),
-        expect.any(Function),
-      );
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'ok', '已安装');
+    it('TC2: install 幂等 —— 连跑两次不产生重复项', async () => {
+      const proj = tmpProject();
+      vi.spyOn(process, 'cwd').mockReturnValue(proj);
+      await pluginCommand('install');
+      const first = fs.readFileSync(path.join(proj, '.claude', 'settings.json'), 'utf8');
+      await pluginCommand('install');
+      expect(fs.readFileSync(path.join(proj, '.claude', 'settings.json'), 'utf8')).toBe(first);
     });
 
-    it('TC2: install — 已用户级安装则跳过', async () => {
-      mockFs.readlink.mockRejectedValue(new Error('ENOENT'));
-      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
-      mockExecSync.mockImplementation((cmd) => {
-        if (cmd.includes('cat')) return Buffer.from(JSON.stringify({ plugins: {
-          'superpowers@claude-plugins-official': [{ scope: 'user' }],
-          'figma@claude-plugins-official': [{ scope: 'user' }],
-          'ai-workflow-code@ai-workflow-dev': [{ scope: 'user' }],
-        } }));
-        return Buffer.from('');
-      });
-
-      await pluginCommand('install', { scope: 'global' });
-
-      expect(mockExec).not.toHaveBeenCalled();
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'skip', '已安装');
+    it('TC3: uninstall → 按模板键精确清理，不留注入痕迹', async () => {
+      const proj = tmpProject();
+      vi.spyOn(process, 'cwd').mockReturnValue(proj);
+      await pluginCommand('install');
+      await pluginCommand('uninstall');
+      const settings = JSON.parse(fs.readFileSync(path.join(proj, '.claude', 'settings.json'), 'utf8'));
+      expect(settings.enabledPlugins).toBeUndefined();
+      expect(logs.join('\n')).toContain('已注销');
     });
 
-    it('TC3: uninstall — 全局正常卸载', async () => {
-      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
-
-      await pluginCommand('uninstall', { scope: 'global' });
-
-      expect(mockExec).toHaveBeenCalledWith(
-        'claude plugin uninstall ai-workflow-code@ai-workflow-dev',
-        expect.any(Object),
-        expect.any(Function),
-      );
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'ok', '已卸载');
+    it('TC4: uninstall 无可注销内容 → 明确说「无」，不假装成功', async () => {
+      const proj = tmpProject();
+      vi.spyOn(process, 'cwd').mockReturnValue(proj);
+      await pluginCommand('uninstall');
+      expect(logs.join('\n')).toContain('无可注销内容');
     });
 
-    it('TC4: install — exec 失败报错不阻断', async () => {
-      mockFs.readlink.mockRejectedValue(new Error('ENOENT'));
-      mockFs.unlink.mockResolvedValue();
-      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
-      mockExecSync.mockImplementation((cmd) => (cmd.includes('cat') ? Buffer.from('{"plugins":{}}') : Buffer.from('')));
-      mockExec.mockImplementation((_c, _o, cb) => cb(new Error('boom')));
-
-      await pluginCommand('install', { scope: 'global' });
-
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'error', expect.stringContaining('安装失败'));
-    });
-
-    it('TC5: uninstall — exec 失败报错不阻断', async () => {
-      mockFs.readFile.mockResolvedValue(PROFILE_PLUGINS);
-      mockExec.mockImplementation((_c, _o, cb) => cb(new Error('boom')));
-
-      await pluginCommand('uninstall', { scope: 'global' });
-
-      expect(mockLogStep).toHaveBeenCalledWith('ai-workflow-code', 'error', expect.stringContaining('卸载失败'));
-    });
-
-    it('TC6: 无效 action → 报错退出', async () => {
-      vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
+    it('TC5: 未知 action → 报错退出（exit 2）', async () => {
+      const code = [];
+      vi.spyOn(process, 'exit').mockImplementation((c) => { code.push(c); throw new Error('exit'); });
       await expect(pluginCommand('invalid')).rejects.toThrow('exit');
-      expect(mockLogger.error).toHaveBeenCalledWith('未知操作: invalid，可用: install | uninstall');
+      expect(code).toEqual([2]);
+      expect(errors.join('\n')).toContain('未知操作：invalid');
+    });
+  });
+
+  describe('runPerSpec — 全局批处理（逐 spec 逻辑，注入 run 故可测）', () => {
+    it('TC6: 全部成功 → 汇总 2/2', async () => {
+      const seen = [];
+      await runPerSpec('安装', ['a', 'b'], async (s) => { seen.push(s); });
+      expect(seen).toEqual(['a', 'b']);
+      expect(logs.join('\n')).toContain('已全局安装 2/2 个插件');
+    });
+
+    it('TC7: 单个失败**不阻断**其余（旧 CLI 的保证，新 CLI 初版丢了，已补回）', async () => {
+      const seen = [];
+      await runPerSpec('安装', ['a', 'b'], async (s) => {
+        seen.push(s);
+        if (s === 'a') throw new Error('boom');
+      });
+      expect(seen).toEqual(['a', 'b']); // b 照跑
+      expect(errors.join('\n')).toContain('安装失败 a：boom');
+      expect(logs.join('\n')).toContain('已全局安装 1/2 个插件');
+      expect(logs.join('\n')).toContain('失败：a'); // 部分失败必须看得见，不静默
+    });
+
+    it('TC8: execAsync 把 stderr 归一成 Error（供失败汇总用）', async () => {
+      await expect(execAsync('node -e "process.exit(3)"')).rejects.toThrow();
     });
   });
 
   // ═══════════════════ server ═══════════════════
 
   describe('serverCommand', () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it('TC7: start — 首次启动完整流程', async () => {
-      httpCheckState.ok = false;
-
-      mockExecSync.mockImplementation((cmd) => {
-        if (cmd.includes('tmux has-session')) throw new Error('not found');
-        return Buffer.from('');
-      });
-
-      const promise = serverCommand('start');
-      // Advance past first check (fails) + sleep(500), then toggle to success
-      await vi.advanceTimersByTimeAsync(600);
-      httpCheckState.ok = true;
-      await vi.advanceTimersByTimeAsync(20000);
-      await promise;
-
-      expect(mockSpawn).toHaveBeenCalledWith('node', ['/tmp/server.cjs'], expect.any(Object));
-      expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('bootstrap'), expect.any(Object));
+    it('TC9: start — 已在运行（/probe 通）→ 复用，不起第二个进程', async () => {
+      net.probe = true;
+      await serverCommand('start');
+      expect(logs.join('\n')).toContain('已在运行');
+      expect(net.calls.some((u) => u.includes('/probe'))).toBe(true);
     });
 
-    it('TC8: start — 已运行则跳过 server 启动', async () => {
-      httpCheckState.ok = true; // check() returns true
-      mockExecSync.mockImplementation((cmd) => {
-        if (cmd.includes('tmux has-session')) return Buffer.from(''); // session exists
-        return Buffer.from('');
-      });
-
-      const promise = serverCommand('start');
-      await vi.advanceTimersByTimeAsync(1000);
-      await promise;
-
-      expect(mockSpawn).not.toHaveBeenCalled();
+    it('TC10: start — 端口被**不兼容的旧版** server 占着 → 报错，不静默混用', async () => {
+      net.probe = false;
+      net.status = true; // 有 server 应答 /status，但没有 /probe
+      await expect(serverCommand('start')).rejects.toThrow(/不兼容的旧版实现/);
     });
 
-    it('TC9: start — tmux session 已存在跳过创建', async () => {
-      httpCheckState.ok = true;
-      mockExecSync.mockImplementation((cmd) => {
-        if (cmd.includes('tmux has-session')) return Buffer.from(''); // exists
-        return Buffer.from('');
-      });
-
-      const promise = serverCommand('start');
-      await vi.advanceTimersByTimeAsync(1000);
-      await promise;
-
-      expect(mockExecSync).not.toHaveBeenCalledWith(expect.stringContaining('bootstrap'), expect.any(Object));
-    });
-
-    it('TC10: start — tmux session 不存在时创建', async () => {
-      httpCheckState.ok = true;
-      mockExecSync.mockImplementation((cmd) => {
-        if (cmd.includes('tmux has-session')) throw new Error('not found');
-        if (cmd.includes('bootstrap')) return Buffer.from('');
-        return Buffer.from('');
-      });
-
-      const promise = serverCommand('start');
-      await vi.advanceTimersByTimeAsync(1000);
-      await promise;
-
-      expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('bootstrap'), expect.any(Object));
-    });
-
-    it('TC11: stop — 优雅关闭探测失败时 kill tmux + lsof 端口兜底', async () => {
+    it('TC11: stop — 请求 /shutdown', async () => {
+      net.shutdown = true;
       await serverCommand('stop');
-
-      expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('tmux kill-session'), expect.any(Object));
-      expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('lsof'), expect.any(Object));
-      expect(mockLogger.success).toHaveBeenCalledWith('已停止');
+      expect(net.calls.some((u) => u.includes('/shutdown'))).toBe(true);
+      expect(logs.join('\n')).toContain('已请求关闭');
     });
 
-    it('TC11b: stop — 优雅关闭成功则不再 kill-by-port', async () => {
-      fetchState.shutdownOk = true;
-
+    it('TC12: stop — 关闭请求失败 → 如实报错（不谎报已停止）', async () => {
+      net.shutdown = false;
       await serverCommand('stop');
-
-      expect(fetchState.calls[0].url).toContain('/shutdown');
-      expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('tmux kill-session'), expect.any(Object));
-      expect(mockExecSync).not.toHaveBeenCalledWith(expect.stringContaining('lsof'), expect.any(Object));
-      expect(mockLogger.success).toHaveBeenCalledWith('已停止');
+      expect(logs.join('\n')).toContain('关闭失败');
     });
 
-    it('TC12: status — 运行中返回 URL', async () => {
-      httpCheckState.ok = true;
-
+    it('TC13: status — 运行中打印 /status 快照', async () => {
+      net.status = true;
       await serverCommand('status');
-
-      expect(mockLogger.success).toHaveBeenCalledWith('tmux-http 运行中: http://localhost:8787');
+      expect(logs.join('\n')).toContain('"state": "ready"');
     });
 
-    it('TC13: status — 未运行返回提示', async () => {
-      httpCheckState.ok = false;
-
+    it('TC14: status — 未运行 → 提示端口', async () => {
+      net.status = false;
       await serverCommand('status');
-
-      expect(mockLogger.info).toHaveBeenCalledWith('tmux-http 未运行');
+      expect(logs.join('\n')).toContain('未运行');
     });
 
-    it('TC14: status — 200 → 运行中', async () => {
-      httpCheckState.ok = true;
-      await serverCommand('status');
-      expect(mockLogger.success).toHaveBeenCalledWith('tmux-http 运行中: http://localhost:8787');
-    });
-
-    it('TC14b: check() 超时 → 未运行（2s timeout 回调）', async () => {
-      httpCheckState.ok = false;
-      httpCheckState.timeout = true;
-      await serverCommand('status');
-      expect(mockLogger.info).toHaveBeenCalledWith('tmux-http 未运行');
-    });
-
-    it('TC15: 无效 action → 报错退出', async () => {
-      vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
+    it('TC15: 未知 action → 报错退出（exit 2）', async () => {
+      const code = [];
+      vi.spyOn(process, 'exit').mockImplementation((c) => { code.push(c); throw new Error('exit'); });
       await expect(serverCommand('restart')).rejects.toThrow('exit');
-      expect(mockLogger.error).toHaveBeenCalledWith('未知操作: restart，可用: start | stop | status');
+      expect(code).toEqual([2]);
+      expect(errors.join('\n')).toContain('未知动作：restart');
     });
   });
 
   // ═══════════════════ open ═══════════════════
 
   describe('openCommand', () => {
-    // 多项目作用域：打开的 URL 带 ?p=<cwd>（缺 p 会落到 server 的 boot 项目）
-    const SCOPE = 'p=%2Ftmp%2Fmock-cwd';
-
-    it('TC16: dashboard — 打开带项目作用域的 URL', async () => {
-      await openCommand('dashboard');
-
-      expect(mockLogger.info).toHaveBeenCalledWith(`打开 dashboard: http://localhost:8787/?${SCOPE}`);
-      // openBrowser calls spawn('open', [url], ...)
-      expect(mockSpawn).toHaveBeenCalledWith('open', [`http://localhost:8787/?${SCOPE}`], expect.any(Object));
+    it('TC16: 三个别名都有对应路径（与 CLAUDE.md 命令表一致）', () => {
+      expect(Object.keys(TARGETS).sort()).toEqual(['dashboard', 'tree', 'ui']);
     });
 
-    it('TC17: ui 已废弃（T1-094）——作为目标报错', async () => {
-      vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-      await expect(openCommand('ui')).rejects.toThrow('exit');
-      expect(mockLogger.error).toHaveBeenCalledWith('未知目标: ui，可用: tree | dashboard');
+    it('TC17: 打印带项目作用域的 URL（缺 ?p 会落到 server 的 boot 项目）', () => {
+      const proj = tmpProject();
+      vi.spyOn(process, 'cwd').mockReturnValue(proj);
+      // browser 换成无副作用的 `true`（命令自带的可注入参数，不必为此加产线缝）
+      openCommand('dashboard', { browser: 'true' });
+      expect(logs.join('\n')).toContain(`http://localhost:8787/dashboard?p=${encodeURIComponent(proj)}`);
     });
 
-    it('TC18: tree — 指向 web WBS-Tree 视图（?view=wbs-tree + 项目作用域）', async () => {
-      await openCommand('tree');
-
-      expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('WBS-Tree'));
-      expect(mockSpawn).toHaveBeenCalledWith('open', [`http://localhost:8787/?view=wbs-tree&${SCOPE}`], expect.any(Object));
-      expect(mockFs.writeFile).not.toHaveBeenCalled(); // 不再生成 w-tree.html
-    });
-
-    it('TC21: openBrowser 平台选择 + spawn 参数', async () => {
-      const original = process.platform;
-      const cases = [
-        ['darwin', 'open'],
-        ['win32', 'start'],
-        ['linux', 'xdg-open'],
-      ];
-      for (const [plat, cmd] of cases) {
-        Object.defineProperty(process, 'platform', { value: plat, configurable: true });
-        await openCommand('dashboard');
-        const call = mockSpawn.mock.calls.at(-1);
-        expect(call[0]).toBe(cmd);
-        expect(call[1]).toEqual([`http://localhost:8787/?${SCOPE}`]);
-        expect(call[2]).toEqual({ stdio: 'ignore', detached: true });
-        // spawn 返回的 proc 调用了 unref
-        const proc = mockSpawn.mock.results.at(-1).value;
-        expect(proc.unref).toHaveBeenCalled();
-      }
-      Object.defineProperty(process, 'platform', { value: original, configurable: true });
-    });
-
-    it('TC22: 无效 target → 报错退出', async () => {
-      vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
-      await expect(openCommand('invalid')).rejects.toThrow('exit');
-      expect(mockLogger.error).toHaveBeenCalledWith('未知目标: invalid，可用: tree | dashboard');
+    it('TC18: 未知 target → 报错退出（exit 2）', () => {
+      const code = [];
+      vi.spyOn(process, 'exit').mockImplementation((c) => { code.push(c); throw new Error('exit'); });
+      expect(() => openCommand('invalid')).toThrow('exit');
+      expect(code).toEqual([2]);
+      expect(errors.join('\n')).toContain('未知页面：invalid');
     });
   });
 
   // ═══════════════════ attach ═══════════════════
 
   describe('attachCommand', () => {
-    it('TC23: session 存在 → attach', async () => {
-      mockExecSync.mockImplementation((cmd) => {
-        if (cmd.includes('tmux has-session')) return Buffer.from('');
-        if (cmd.includes('tmux attach')) return Buffer.from('');
-      });
-
-      await attachCommand();
-
-      expect(mockLogger.info).toHaveBeenCalledWith("接入 session 'cc'（Ctrl-B D 脱离）...");
-      expect(mockExecSync).toHaveBeenCalledWith('tmux attach -t cc', { stdio: 'inherit' });
-    });
-
-    it('TC24: session 不存在 → 报错退出', async () => {
-      mockExecSync.mockImplementation((cmd) => {
-        if (cmd.includes('tmux has-session')) throw new Error('not found');
-      });
-      vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
-      await expect(attachCommand()).rejects.toThrow('exit');
-      expect(mockLogger.error).toHaveBeenCalledWith("tmux session 'cc' 不存在，请先执行 awf run");
+    it('TC19: 会话不存在 → 报错退出（exit 1），不静默吞掉', () => {
+      // 指向一个必然没有对应 tmux 会话的临时目录（会话名 = cc-<projectSid(该目录)>）
+      vi.spyOn(process, 'cwd').mockReturnValue(tmpProject());
+      const code = [];
+      vi.spyOn(process, 'exit').mockImplementation((c) => { code.push(c); throw new Error('exit'); });
+      expect(() => attachCommand()).toThrow('exit');
+      expect(code).toEqual([1]);
+      expect(errors.join('\n')).toContain('无法接入会话');
     });
   });
 });

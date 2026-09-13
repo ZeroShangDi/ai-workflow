@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import tooling from '../../src/adapters/tooling.cjs';
+import tooling from '../../server/adapters/cc/tooling.cjs';
 
 const { buildMarketplaceAdd, buildInstall, buildUninstall, install, uninstall } = tooling;
 

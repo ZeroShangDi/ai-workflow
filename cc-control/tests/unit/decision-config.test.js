@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import decisionConfig from '../../src/lib/decision-config.cjs';
-import { loadRunConfig } from '../../src/lib/run-config.js';
+import decisionConfig from '../../server/features/decision/config.cjs';
+import { loadRunConfig } from '../../server/run/config.js';
 
 const { isDecisionEnabled } = decisionConfig;
 
@@ -51,12 +51,9 @@ describe('isDecisionEnabled(projectRoot) — server 侧判定', () => {
     expect(isDecisionEnabled(tmpProject('{ not valid json'))).toBe(false);
   });
 
-  it('与 CLI loadRunConfig 同默认（防漂移）：缺省与显式 true 判定一致', () => {
-    const missing = tmpProject(JSON.stringify({ run: {} }));
-    expect(isDecisionEnabled(missing)).toBe(loadRunConfig(missing).decision.enabled);
-
+  it('单源：run 配额加载器不再返回 decision 段（漂移在结构上不可能）', () => {
     const on = tmpProject(JSON.stringify({ run: { decision: { enabled: true } } }));
-    expect(isDecisionEnabled(on)).toBe(loadRunConfig(on).decision.enabled);
     expect(isDecisionEnabled(on)).toBe(true);
+    expect(loadRunConfig(on).decision).toBeUndefined(); // 开关只有这一个读者
   });
 });

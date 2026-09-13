@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createStaticHost } from '../../src/server/static.cjs';
+import { createStaticHost } from '../../server/web/static.cjs';
 
 // T1-119：`defaultAliases()`（把 /diagnostics 等无扩展名路径映射到 legacy html）已随旧观测页退役删除。
 // 本文件改用**中性的夹具名**，并把别名表显式传给 host —— 静态托管是通用原语，

@@ -8,16 +8,16 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
-import { loadState, saveState, markTaskActive, findNextTask, setWorkflowMode } from '../../src/lib/state.js';
+import { loadState, saveState, markTaskActive, findNextTask, setWorkflowMode } from '../../server/shared/state.js';
 
 const require = createRequire(import.meta.url);
-const { createRunHost } = require('../../src/server/run-host.cjs');
-const { DecisionStore } = require('../../src/server/decision-store.cjs');
+const { createRunHost } = require('../../server/run/host.cjs');
+const { DecisionStore } = require('../../server/features/decision/store.cjs');
 
 // T1-075 冒烟：同机两独立项目并发 run —— 各自 .awf/settings/workdir：不互杀、hook 路由正确、
 // 隔离成立、registry 列两 run（A：两个独立 projectRoot 的 host 并发推进；B：两个真实 server 进程）。
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-twoproj-'));

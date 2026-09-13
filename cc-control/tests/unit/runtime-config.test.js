@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const rt = require('../../src/lib/runtime-config.cjs');
+const rt = require('../../server/shared/runtime-config.cjs');
 
 // T1-096：运行期常量单源（plugin/config.json 默认 + CC_* env 覆盖，strict 校验）直接单测。
 // env 显式注入，避免依赖 process.env / 真实端口占用。

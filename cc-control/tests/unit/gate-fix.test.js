@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { handleGateCompletion } from '../../src/server/gate-fix.js';
-import { findNextTask, MAX_RECHECK } from '../../src/lib/state.js';
+import { handleGateCompletion } from '../../server/features/gate/fix.js';
+import { findNextTask } from '../../server/shared/state.js';
+import { MAX_RECHECK } from '../../server/features/gate/closure.js';
 
-// handleGateCompletion 用真实 loadState/saveState/spawnGateFixTask（state.js 纯文件 I/O），
-// 覆盖「读盘 → 判定 → 派生/回退 → 落盘」全链路。
+// handleGateCompletion 用真实 loadState/saveState + spawnGateFixTask（纯文件 I/O），
+// 覆盖「读盘 → 判定 → 派生/回退 → 落盘」全链路；派生原语现居 features/gate/closure.js。
 
 describe('gate-fix.js — handleGateCompletion（门禁闭环钩子）', () => {
   let tmpDir;

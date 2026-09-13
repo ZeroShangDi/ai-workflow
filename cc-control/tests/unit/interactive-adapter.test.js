@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { launchInteractiveClaude, projectSettingsPath } from '../../src/adapters/interactive.cjs';
+import { launchInteractiveClaude, projectSettingsPath } from '../../server/adapters/cc/interactive.cjs';
 
 describe('interactive adapter（claude 字面只在 adapter）', () => {
   it('projectSettingsPath 指向 .claude/settings.json', () => {

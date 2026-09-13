@@ -1,262 +1,105 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import fs from 'node:fs';
 import os from 'node:os';
-import { mockExecSync, mockExec } from '../helpers/mock-child-process.js';
+import path from 'node:path';
 
-// ── mocks ──
+import { initCommand, checkPrerequisites } from '../../cli/commands/init.cjs';
+import { WORKSPACE_DIRS, TEMPLATE_FILES } from '../../server/shared/workspace.cjs';
 
-// 版本号确认（promptVersion）在 src/cli/init.js 暂时禁用，version.js 的 mock 已移除。
-// 重新启用版本处理时，需补回 vi.mock 及对应用例。
+/**
+ * initCommand — `awf init` 的命令层接线（前置检查 → 本地注册插件 → 建工作区骨架）
+ *
+ * 随旧树退役重写。旧版靠 `vi.mock` 拦 `project-paths` / `node:child_process` —— 那套机制对新树
+ * 不成立（新 CLI 是 CJS，vitest 不拦 require，见 .awf/issues/014）。这里改成**真跑**：
+ * 在临时目录里真建工作区、真写 settings，断言真落盘的东西。
+ *
+ * 「.awf/ 建成什么样」的细节归 server/shared/workspace.cjs，由 tests/unit/server-workspace.test.js
+ * 深测；本文件只覆盖命令层：前置门禁、三步顺序、幂等与 --force 的输出语义。
+ *
+ * 已删除的旧用例：CLAUDE.md 注入 4 场景 —— 该机制随 `CLAUDE.md.template` 弃用一并移除
+ * （模板 0 字节，且内容会引导运行期误走已停用的旧决策入口；workspace.cjs:14 载明「未搬」）。
+ */
 
-const FAKE_ROOT = '/tmp/awf-test-cc-control';
+let TMP;
 
-vi.mock('../../src/lib/paths.js', () => ({
-  getPaths: vi.fn(() => ({
-    projectRoot: FAKE_ROOT,
-    claudePlugins: `${FAKE_ROOT}/fake-claude-plugins`,
-    ccSettings: `${FAKE_ROOT}/.claude/settings.json`,
-  })),
-}));
+beforeEach(() => {
+  TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-init-'));
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.spyOn(process, 'cwd').mockReturnValue(TMP);
+});
 
-import { initCommand } from '../../src/cli/init.js';
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  fs.rmSync(TMP, { recursive: true, force: true });
+});
 
-// ── template helpers ──
-
-async function setupTemplates() {
-  const tmplDir = path.join(FAKE_ROOT, 'src', 'templates');
-  await fs.mkdir(tmplDir, { recursive: true });
-  // .awf 骨架模板（精简：README + config，无 TEMPLATE.md）
-  await fs.writeFile(path.join(tmplDir, 'awf-README.md'), '# AI Workflow\n');
-  await fs.writeFile(path.join(tmplDir, 'awf-config.json'), JSON.stringify({ run: { agents: { max: 1 } } }, null, 2));
-  await fs.writeFile(path.join(tmplDir, 'architecture.md'), '# Architecture Map\n');
-
-  const claudeMdTmpl = path.join(FAKE_ROOT, 'src', 'templates', 'CLAUDE.md.template');
-  await fs.mkdir(path.dirname(claudeMdTmpl), { recursive: true });
-  await fs.writeFile(claudeMdTmpl, [
-    '<!-- awf-rules start -->',
-    '',
-    '## awf 模式',
-    '',
-    '读取 `state.json` 的 `mode` 字段确定当前模式：',
-    '',
-    '<!-- awf-rules end -->',
-    '',
-  ].join('\n'));
-
-  const stateTmplDir = path.join(FAKE_ROOT, 'plugin', 'core', 'mcp', 'awf-state');
-  await fs.mkdir(stateTmplDir, { recursive: true });
-  await fs.writeFile(
-    path.join(stateTmplDir, 'state.template.json'),
-    JSON.stringify({ mode: 'idle', version: '{{VERSION}}', lastUpdated: '{{TIMESTAMP}}' }, null, 2),
-  );
-
-  // 本地注册插件：plugin/settings.json（安装清单，init 注入到项目 .claude/settings.json）
-  const profileSettings = path.join(FAKE_ROOT, 'plugin', 'settings.json');
-  await fs.mkdir(path.dirname(profileSettings), { recursive: true });
-  await fs.writeFile(profileSettings, JSON.stringify({
-    plugins: ['ai-workflow-core@ai-workflow-dev', 'ai-workflow-code@ai-workflow-dev'],
-    enabledPlugins: {
-      'ai-workflow-core@ai-workflow-dev': true,
-      'ai-workflow-code@ai-workflow-dev': true,
-    },
-    extraKnownMarketplaces: {
-      'ai-workflow-dev': { source: { source: 'directory', path: '<pkg>/plugin' } },
-    },
-  }, null, 2));
-}
-
-function withDeps() {
-  mockExecSync.mockImplementation((cmd) => {
-    if (cmd.includes('command -v tmux')) return Buffer.from('/usr/bin/tmux');
-    if (cmd.includes('command -v claude')) return Buffer.from('/usr/bin/claude');
-    return Buffer.from('');
+describe('checkPrerequisites', () => {
+  it('返回三项检查（tmux / claude / node），每项带 name/ok/hint', () => {
+    const deps = checkPrerequisites();
+    expect(deps.map((d) => d.name)).toEqual(['tmux', 'claude', 'node']);
+    for (const d of deps) {
+      expect(typeof d.ok).toBe('boolean');
+      expect(typeof d.hint).toBe('string');
+      expect(d.hint.length).toBeGreaterThan(0); // 不过时要能告诉人怎么装
+    }
   });
-  mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
-}
 
-function withoutClaude() {
-  mockExecSync.mockImplementation((cmd) => {
-    if (cmd.includes('command -v claude')) throw new Error('not found');
-    if (cmd.includes('command -v tmux')) return Buffer.from('/usr/bin/tmux');
-    return Buffer.from('');
+  it('本机三项齐备（真机用例的前置条件，缺了这里先红）', () => {
+    expect(checkPrerequisites().every((d) => d.ok)).toBe(true);
   });
-  mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
-}
-
-function withoutTmux() {
-  mockExecSync.mockImplementation((cmd) => {
-    if (cmd.includes('command -v tmux')) throw new Error('not found');
-    if (cmd.includes('command -v claude')) return Buffer.from('/usr/bin/claude');
-    return Buffer.from('');
-  });
-  mockExec.mockImplementation((_c, _o, cb) => cb(null, '', ''));
-}
-
-// ── tests ──
+});
 
 describe('initCommand', () => {
-  let tmpDir;
+  it('首次 init：建 .awf/ 骨架 + 播模板 + 播种 state + 本地注册插件', async () => {
+    await initCommand();
 
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-init-'));
-    vi.spyOn(process, 'cwd').mockReturnValue(tmpDir);
-    vi.spyOn(process, 'exit').mockImplementation(() => {});
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    mockExecSync.mockReset();
-    mockExec.mockReset();
-    await setupTemplates();
+    // 骨架目录
+    for (const dir of WORKSPACE_DIRS) {
+      expect(fs.existsSync(path.join(TMP, '.awf', dir))).toBe(true);
+    }
+    // 模板（README / config / context/architecture.md）
+    for (const { target } of TEMPLATE_FILES) {
+      expect(fs.existsSync(path.join(TMP, '.awf', target))).toBe(true);
+    }
+    // state 播种 + 本地插件注册（项目级 .mcp.json 同步注册）
+    expect(fs.existsSync(path.join(TMP, '.awf', 'state.json'))).toBe(true);
+    expect(fs.existsSync(path.join(TMP, '.claude', 'settings.json'))).toBe(true);
+    expect(fs.existsSync(path.join(TMP, '.mcp.json'))).toBe(true);
   });
 
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    await fs.rm(FAKE_ROOT, { recursive: true, force: true }).catch(() => {});
+  it('重复 init：幂等，既有文件内容一个字节不动', async () => {
+    await initCommand();
+    const readme = fs.readFileSync(path.join(TMP, '.awf', 'README.md'), 'utf8');
+    const settings = fs.readFileSync(path.join(TMP, '.claude', 'settings.json'), 'utf8');
+
+    await initCommand();
+
+    expect(fs.readFileSync(path.join(TMP, '.awf', 'README.md'), 'utf8')).toBe(readme);
+    expect(fs.readFileSync(path.join(TMP, '.claude', 'settings.json'), 'utf8')).toBe(settings);
   });
 
-  it('TC1: 首次 init 完整流程 — .awf/ + 本地注册 settings.json + CLAUDE.md', async () => {
-    withDeps();
-    await initCommand({ force: false });
-
-    const awf = path.join(tmpDir, '.awf');
-    expect((await fs.stat(awf)).isDirectory()).toBe(true);
-
-    // 版本处理禁用：VERSION 保留占位符；TIMESTAMP 已替换为 ISO
-    const raw = await fs.readFile(path.join(awf, 'state.json'), 'utf-8');
-    expect(raw).toContain('{{VERSION}}');
-    expect(raw).not.toContain('{{TIMESTAMP}}');
-    expect(raw).toMatch(/"lastUpdated": "20\d\d-\d\d-\d\dT/);
-    expect(await fs.readFile(path.join(awf, 'context', 'architecture.md'), 'utf-8')).toContain('Architecture Map');
-    expect((await fs.stat(path.join(awf, 'dynamic-planning', 'proposals'))).isDirectory()).toBe(true);
-
-    // 本地注册插件：plugin/settings.json 注入到项目 .claude/settings.json（无 exec 安装）
-    const settingsRaw = await fs.readFile(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8');
-    const settings = JSON.parse(settingsRaw);
-    expect(settings.enabledPlugins['ai-workflow-core@ai-workflow-dev']).toBe(true);
-    expect(settings.enabledPlugins['ai-workflow-code@ai-workflow-dev']).toBe(true);
-    expect(settings.extraKnownMarketplaces['ai-workflow-dev'].source.path).toBe(`${FAKE_ROOT}/plugin`);
-    const instCalls = mockExec.mock.calls.filter(([c]) => c && c.includes('claude plugin install'));
-    expect(instCalls).toHaveLength(0);
-
-    // 完成提示输出
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('✔ 初始化完成'));
-
-    const md = await fs.readFile(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-    expect(md).toContain('<!-- awf-rules start -->');
-  });
-
-  it('TC2: 重复 init — .awf/ 已存在，文件不变', async () => {
-    withDeps();
-    await initCommand({ force: false });
-    const before = (await fs.stat(path.join(tmpDir, '.awf', 'state.json'))).mtimeMs;
-
-    await initCommand({ force: false });
-    const after = (await fs.stat(path.join(tmpDir, '.awf', 'state.json'))).mtimeMs;
-
-    expect(after).toBe(before);
-  });
-
-  it('TC3: --force 补全缺失文件，已有文件不动', async () => {
-    withDeps();
-    await initCommand({ force: false });
-
-    const bugs = path.join(tmpDir, '.awf', 'bugs');
-    await fs.rm(bugs, { recursive: true });
-    const state1 = await fs.readFile(path.join(tmpDir, '.awf', 'state.json'), 'utf-8');
+  it('--force：补回缺失文件，但**不覆盖**用户改过的既有文件', async () => {
+    await initCommand();
+    // 用户改过 README、并删掉 config
+    fs.writeFileSync(path.join(TMP, '.awf', 'README.md'), '用户自己的说明\n');
+    fs.rmSync(path.join(TMP, '.awf', 'config.json'));
 
     await initCommand({ force: true });
 
-    expect((await fs.stat(bugs)).isDirectory()).toBe(true);
-    const state2 = await fs.readFile(path.join(tmpDir, '.awf', 'state.json'), 'utf-8');
-    expect(state2).toBe(state1);
+    expect(fs.readFileSync(path.join(TMP, '.awf', 'README.md'), 'utf8')).toBe('用户自己的说明\n');
+    expect(fs.existsSync(path.join(TMP, '.awf', 'config.json'))).toBe(true);
   });
 
-  it('TC4: tmux 未安装 — warn 不阻断', async () => {
-    withoutTmux();
-    await initCommand({ force: false });
-    expect(process.exit).not.toHaveBeenCalledWith(1);
-    // warn 提示输出
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('未安装 — brew install tmux'));
-    // 后续步骤继续执行（.awf 仍被创建）
-    expect((await fs.stat(path.join(tmpDir, '.awf'))).isDirectory()).toBe(true);
-  });
+  it('前置依赖缺失 → 阻断且不建骨架（不在半缺依赖的项目里动手）', async () => {
+    vi.stubEnv('PATH', ''); // command -v 全部落空
+    const code = [];
+    vi.spyOn(process, 'exit').mockImplementation((c) => { code.push(c); throw new Error('exit'); });
 
-  it('TC5: claude 未安装 — error 阻断', async () => {
-    withoutClaude();
-    await initCommand({ force: false });
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
+    await expect(initCommand()).rejects.toThrow('exit');
 
-  describe('CLAUDE.md — 4 场景', () => {
-    it('TC6: 不存在 → 创建', async () => {
-      withDeps();
-      await initCommand({ force: false });
-      const md = await fs.readFile(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-      expect(md).toContain('<!-- awf-rules start -->');
-      expect(md).toContain('awf 模式');
-    });
-
-    it('TC7: 存在但无 awf 标记 → 追加注入', async () => {
-      withDeps();
-      await fs.writeFile(path.join(tmpDir, 'CLAUDE.md'), '# My Project\n');
-      await initCommand({ force: false });
-
-      const md = await fs.readFile(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-      expect(md).toContain('# My Project');
-      expect(md).toContain('<!-- awf-rules start -->');
-      expect(md.indexOf('# My Project')).toBeLessThan(md.indexOf('<!-- awf-rules start -->'));
-    });
-
-    it('TC8: 已有 awf 标记 → 跳过', async () => {
-      withDeps();
-      const orig = '<!-- awf-rules start -->\nbar\n<!-- awf-rules end -->\n';
-      await fs.writeFile(path.join(tmpDir, 'CLAUDE.md'), orig);
-      await initCommand({ force: false });
-
-      const md = await fs.readFile(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
-      expect(md).toBe(orig);
-    });
-
-    it('TC9: 模板文件缺失 → warn 跳过', async () => {
-      withDeps();
-      await fs.rm(path.join(FAKE_ROOT, 'src', 'templates', 'CLAUDE.md.template'), { force: true });
-      await initCommand({ force: false });
-
-      const exists = await fs.stat(path.join(tmpDir, 'CLAUDE.md')).catch(() => null);
-      expect(exists).toBeNull();
-      expect(process.exit).not.toHaveBeenCalledWith(1);
-    });
-  });
-
-  it('TC10: 模板缺失 → fallback 空 .awf/', async () => {
-    withDeps();
-    await fs.rm(path.join(FAKE_ROOT, 'src', 'templates', 'awf-README.md'), { force: true });
-    await initCommand({ force: false });
-
-    const awf = path.join(tmpDir, '.awf');
-    expect((await fs.stat(awf)).isDirectory()).toBe(true);
-    const hasState = await fs.stat(path.join(awf, 'state.json')).catch(() => null);
-    expect(hasState).toBeNull();
-  });
-
-  it('TC11: 插件模板缺失 → 本地注册 warn 不阻断', async () => {
-    withDeps();
-    await fs.rm(path.join(FAKE_ROOT, 'plugin', 'settings.json'), { force: true });
-    await initCommand({ force: false });
-    expect((await fs.stat(path.join(tmpDir, '.awf'))).isDirectory()).toBe(true);
-    expect(process.exit).not.toHaveBeenCalledWith(1);
-  });
-
-  // 已删除 TC12/TC13：init 不再读取 .plugins.json（本地注入 settings.json；全局安装改读 plugin/plugin-code/settings.json 的 plugins 字段，见 cli-aux.test.js）
-  // 已删除 TC15/TC16：init 不再处理符号链接安装（symlink 清理迁至全局安装 installAllPlugins）
-
-  it('TC14: 版本处理禁用 → state.json 保留 {{VERSION}} 占位符', async () => {
-    withDeps();
-    await initCommand({ force: false });
-
-    const raw = await fs.readFile(path.join(tmpDir, '.awf', 'state.json'), 'utf-8');
-    expect(raw).toContain('{{VERSION}}');
+    expect(code).toEqual([1]);
+    expect(fs.existsSync(path.join(TMP, '.awf'))).toBe(false);
   });
 });

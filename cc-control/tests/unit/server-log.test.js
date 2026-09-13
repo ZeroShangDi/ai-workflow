@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openServerLog, serverLogPath } from '../../src/lib/server-log.js';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+// 随旧树退役迁入 cli/lib/（原 src/lib/server-log.js）—— 新 CLI 初版把这段内联后**丢了轮转**，
+// 迁回时一并补回，见 docs/discuss/legacy-tree-retirement.md §5.2
+const { openServerLog, serverLogPath } = require('../../cli/lib/server-log.cjs');
 
 /**
  * server 输出落盘（T1-112）。

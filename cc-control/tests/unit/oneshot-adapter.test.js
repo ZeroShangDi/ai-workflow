@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { claudePArgs, spawnClaudeP, runOneShot } from '../../src/adapters/oneshot.cjs';
+import { claudePArgs, spawnClaudeP, runOneShot } from '../../server/adapters/cc/oneshot.cjs';
 
 /** 构造返回可驱动 close/error 的假 spawn */
 function fakeSpawnOf({ code, stdout = '', stderr = '', error = null, argsRef = {} }) {

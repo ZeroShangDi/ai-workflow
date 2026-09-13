@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { isIdleDue, idleDefaultMs, IDLE_MS_DEFAULT } = require('../../src/lib/server-idle.cjs');
+const { isIdleDue, idleDefaultMs, IDLE_MS_DEFAULT } = require('../../server/runtime/idle.cjs');
 
 const ENV = 'CC_SERVER_IDLE_MS';
 

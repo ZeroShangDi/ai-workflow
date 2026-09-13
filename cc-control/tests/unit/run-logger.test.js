@@ -5,7 +5,7 @@ import os from 'node:os';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { RunLogger } = require('../../src/server/run-logger.cjs');
+const { RunLogger } = require('../../server/observability/run-logger.cjs');
 
 describe('RunLogger', () => {
   let tmpDir;

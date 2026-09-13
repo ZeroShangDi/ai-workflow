@@ -41,7 +41,7 @@ process.env.CC_DECISION_FALLBACK_MS = '60';    // 有 decision 的 fallback（�
 global.__CC_TMUX__ = m.tmux;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 
 let server;      // server.cjs 导出的状态机函数 + start/stop
 let api;         // HTTP 请求助手
@@ -84,12 +84,17 @@ describe('decision 状态机', () => {
 
   it('TC6: setReady 唤醒所有 waiters', async () => {
     server.setBusy();
-    const ps = [server.waitReady(10000), server.waitReady(10000), server.waitReady(10000)];
-    expect(server._getState().waiters).toHaveLength(3);
+    // 新树 _getState() 不再暴露真实等待者（waiters 恒为 []），断言只能落在可观测行为上：
+    // busy 中三个 waitReady 一律挂起，setReady 后一次性全部唤醒。
+    let resolved = 0;
+    const ps = [server.waitReady(10000), server.waitReady(10000), server.waitReady(10000)]
+      .map((p) => p.then((v) => { resolved += 1; return v; }));
+    expect(resolved).toBe(0); // 唤醒前：三个都还在等
+    expect(server._getState().state).toBe('busy');
 
     server.setReady();
     expect(await Promise.all(ps)).toEqual([true, true, true]);
-    expect(server._getState().waiters).toHaveLength(0);
+    expect(resolved).toBe(3); // 三个等待者全部被唤醒
     expect(server._getState().state).toBe('ready');
   });
 
@@ -164,7 +169,9 @@ describe('/hook 路由', () => {
       },
     });
     expect(res.status).toBe(200);
+    // 新契约：捕获即分配 decision_id（并落 decision_requested 生命周期记录）
     expect(server._getState().decisionPending).toEqual({
+      decisionId: expect.any(String),
       type: 'choice',
       multiSelect: false,
       question: '选择方案',

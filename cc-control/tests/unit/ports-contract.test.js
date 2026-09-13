@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   PORT_CONTRACT, PORT_NAMES, NON_PORT_TOOLS, assertPortContract, createCcAdapters,
-} from '../../src/adapters/ports.cjs';
-import { createMockAdapters } from '../../src/adapters/mock.cjs';
+} from '../../server/adapters/ports.cjs';
+import { createMockAdapters } from '../../server/adapters/mock.cjs';
 
 /**
  * ports 契约（T1-116 补全）。
@@ -90,7 +90,7 @@ describe('非端口工具（裁决落档）', () => {
     const shapes = NON_PORT_TOOLS.find((t) => t.name === 'cc-shapes');
     expect(shapes).toBeTruthy();
     expect(shapes.reason).toBeTruthy();
-    expect(shapes.file).toBe('src/adapters/cc-shapes.cjs');
+    expect(shapes.file).toBe('adapters/cc/shapes.cjs');
   });
 
   it('非端口工具不出现在 7 端口名册里', () => {

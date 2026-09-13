@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { setWorkflowMode } from '../../src/lib/state.js';
+import { setWorkflowMode } from '../../server/shared/state.js';
 
 describe('setWorkflowMode', () => {
   let root;

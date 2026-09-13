@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { blockDecision, denyPermission } from '../../src/adapters/cc-shapes.cjs';
+import { blockDecision, denyPermission } from '../../server/adapters/cc/shapes.cjs';
 
 describe('cc-shapes — cc 回写形状（block/permissionDecision/AskUserQuestion）', () => {
   it('blockDecision：ccOutput.decision=block + reason（Stop hook block 契约字段，必须叫 reason）', () => {

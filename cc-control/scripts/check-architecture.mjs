@@ -7,8 +7,8 @@
  * 最后清理任务把骨架当死代码删掉。**机器能拦住的，就不该只写在提醒里。**
  * 依据：`docs/discuss/planned-architecture-landing.md` §三（护栏三条不变量）。
  *
- * 三条不变量：
- *   1. zero-ref        `src/` 下的代码文件在生产侧（src/ scripts/ plugin/ web/src）零引用
+ * 三条不变量（旧树退役后改指本树，见 docs/discuss/legacy-tree-retirement.md）：
+ *   1. zero-ref        `cli/` + `server/` 下的代码文件在生产侧（cli/ server/ scripts/ plugin/ web/src）零引用
  *   2. dep-direction   跨层导入越出 `ALLOWED` 声明方向
  *   3. structure       可配置结构断言（文件行数上限 / 目录不得出现某类文件），后续任务直接追加
  *
@@ -28,27 +28,68 @@ import path from 'node:path';
 // ── 分层与允许方向 ──────────────────────────────────────────────────────────
 
 const LAYER_RULES = [
-  [/^src\/adapters\//, 'adapters'],
-  [/^src\/server\//, 'server'],
-  [/^src\/cli\//, 'cli'],
-  [/^src\/lib\//, 'lib'],
-  [/^src\/templates\//, 'templates'],
-  [/^src\/awf\.js$/, 'entry'],
+  [/^cli\//, 'cli'],
+  [/^server\/web\//, 'server-web'],
+  [/^server\/features\//, 'server-features'],
+  [/^server\/run\//, 'server-run'],
+  [/^server\/runtime\//, 'server-runtime'],
+  [/^server\/shared\//, 'server-shared'],
+  [/^server\/observability\//, 'server-observability'],
+  [/^server\/adapters\//, 'server-adapters'],
+  [/^server\/mock\//, 'server-mock'],
+  [/^server\/server\.cjs$/, 'server-entry'],
+  [/^server\/config\.cjs$/, 'server-constants'],
   [/^plugin\/core\/mcp\//, 'plugin-mcp'],
-  [/^web\//, 'web'],
+  [/^web\/src\//, 'web-ui'],
   [/^scripts\//, 'scripts'],
 ];
 
 /** 声明允许的依赖方向。凡未列出的「同层以外」导入即为越界。
  *  依据：docs/discuss/architecture-notes.md「已定勿翻」+ W3-001..008 模块描述 + 纪律 R-cc。 */
 export const ALLOWED = new Set([
-  'entry → cli',
-  'cli → lib',
-  'cli → adapters',
-  'server → lib',
-  'server → adapters',
-  'scripts → lib',
-  'scripts → server',
+  // 入口（装配根）
+  'server-entry → server-runtime',
+  'server-entry → server-web',
+  'server-entry → server-observability',
+  // 面
+  'server-web → server-runtime',
+  'server-web → server-shared',
+  'server-web → server-adapters',
+  'server-web → server-observability',
+  'server-web → server-constants',
+  // 编排
+  'server-run → server-shared',
+  'server-run → server-adapters',
+  'server-run → server-constants',
+  // 能力
+  'server-features → server-shared',
+  'server-features → server-adapters',
+  'server-features → server-observability',
+  'server-features → server-constants',
+  // 骨架（可向下拿编排/能力/适配/观测/共享）
+  'server-runtime → server-run',
+  'server-runtime → server-features',
+  'server-runtime → server-adapters',
+  'server-runtime → server-observability',
+  'server-runtime → server-shared',
+  'server-runtime → server-constants',
+  // 内层只向内
+  'server-adapters → server-shared',
+  'server-adapters → server-constants',
+  'server-observability → server-shared',
+  'server-observability → server-adapters',
+  'server-observability → server-constants',
+  'server-shared → server-constants',
+  // CLI（薄客户端：只用适配器/共享原语，不碰骨架内部）
+  'cli → server-shared',
+  'cli → server-adapters',
+  'cli → server-features',
+  'cli → server-constants',
+  // 构建脚本
+  'scripts → server-shared',
+  // 插件 MCP 的计算路径回取（issue 015 记的插件边界：仍直取 server 的共享原语与适配器）
+  'plugin-mcp → server-shared',
+  'plugin-mcp → server-adapters',
 ]);
 
 // ── 显式白名单：零生产引用但**合理**的文件 ──────────────────────────────────
@@ -58,9 +99,10 @@ export const ALLOWED = new Set([
 // 只在测试侧使用的夹具。凡不能归入这四类，就该接线或删除（见 issue 002）。
 
 export const ENTRY_ALLOWLIST = [
-  { file: 'src/awf.js', reason: 'CLI 入口：package.json bin / `awf` 命令直接执行，没有 import 方' },
-  { file: 'src/server/server.cjs', reason: '常驻 server 进程：由 cli/run.js ensureServer 与 awf server start 以 spawn 拉起，不经 import' },
-  { file: 'src/adapters/mock.cjs', reason: '测试夹具：只被 tests/ 引入，生产路径不应引用它' },
+  { file: 'cli/awf.cjs', reason: 'CLI 入口：package.json bin / `awf` 命令直接执行，没有 import 方' },
+  { file: 'server/server.cjs', reason: '常驻 server 进程：由 cli/lib/session.cjs ensureServer 与 awf server start 以 spawn 拉起，不经 import' },
+  { file: 'server/adapters/mock.cjs', reason: '测试夹具：只被 tests/ 引入（server/mock 的替身），生产路径不应引用它' },
+  { file: 'server/mock/index.cjs', reason: '测试脚手架：自述「不参与生产装配、不进 ports 名册」，只被 tests/ 引入；被替换的是 server 的出口（tmux/日志/state 落盘）' },
 ];
 
 /**
@@ -81,49 +123,15 @@ function isEsmShell(rel, exists) {
 // 表清空 = 这两条做完，`--strict` 通过。后续再有暂缓项，同样必须写明责任 task id。
 
 export const EXEMPTIONS = {
-  // ── 零生产引用（剥离注释后首次暴露；`03` 修复的连带面，见 .awf/issues/003）──
+  // 空表 = 结构债已清零，`--strict` 通过。
   //
-  // 口径来自 `.awf/decisions/runs/0.2.0-2026-09-10T14-21-09.jsonl` 的 Decision Result：
-  // 「保留模块 + 进 EXEMPTIONS」而非删除 —— 删除判据（T1-115：生产侧零引用 **且** 能力已在
-  // live 路径别处实现）对它不成立：交互式版本选择器在别处**没有**实现，两处调用点是人的**有意**
-  // 关闭（"版本处理暂时禁用"）。
-  'src/lib/version.js': {
-    reason: '交互式版本选择器已实现但接线被有意关闭：init.js:5 与 plan.js:2 的 import/调用点均注释为'
-      + '「版本处理暂时禁用」——根因是交互式 prompt 会挂住以 `stdio: pipe` 执行的自动化入口'
-      + '（回归 harness 的 `awf init`、init.test.js）。能力**不在**别处：版本号改由 package.json /'
-      + ' state.json 承载 ≠ 这个选择器被取代，故按「保留 + 登记」处置，不删除模块。'
-      + '本豁免**不会自动失效**：撤销时机 = 产品决定给出非交互入口（如 --version）或正式废弃该功能；'
-      + '下一次必然复核它的地方是发布门禁 T4-001 的文档核对（docs/features/version-prompt.md 的「当前状态」段）',
-    responsible: 'T4-001',
-  },
-  // ── 依赖方向越界（既存结构债，见 .awf/reports/architecture-discipline-audit.md F3/F4/F6）
-  // 本表不写它们，「在当前树通过」就做不到：门禁第一天全红、npm run build 当场坏。
-  // 约束是「不得为了变绿放宽规则」——所以不扩 ALLOWED，而是如实记债 + 指责任任务。
+  // 旧表的 5 条（`src/lib/version.js` 零引用 + `cli→server` / `adapters→server` /
+  // `plugin-mcp→lib` / `plugin-mcp→adapters` 四条方向越界）**全部以旧树文件或旧层名为 key**：
+  // 旧树退役后那些文件与层名都不存在，规则自然失效。其中 `plugin-mcp → server/*` 两条的实体
+  // （插件 MCP 用计算路径回取共享原语/适配器）仍在，但已按「插件边界」在 `ALLOWED` 里正式声明，
+  // 不再是「待清的结构债」。
   //
-  // 已清（留个记号，别再往回走）：
-  //   - `src/adapters/ports.cjs` 零生产引用 → T1-117 让 cli/server 改走端口契约后消失
-  //   - `lib → adapters`（F2b, run-diagnosis 直连 oneshot）→ T1-117 改成「端口由装配根注入」后消失
-  'cli → server': {
-    reason: 'F4：run.js 直接 import server/run-settings.cjs，同时绕过 client 边界与 cc 端口边界。'
-      + '清它要把 run-settings（cc 格式产物）挪进 adapters 或经客户端取用——属 cc 收口的结构改动',
-    responsible: 'T1-113',
-  },
-  'adapters → server': {
-    reason: 'F3：ports.cjs 反向 require server/host.cjs、hook-adapter.cjs —— 端口契约层依赖控制平面实现。'
-      + '清它要把 host/hook 的实现从 server/ 挪进 adapters/（W3-004「cc 一切收口到 adapters」的未尽事项）',
-    responsible: 'T1-113',
-  },
-  'plugin-mcp → lib': {
-    reason: 'F6：awf-state 以计算路径 try/catch 回取 src/lib/store-core.cjs（纯插件副本无 src/ 时的降级路径）。'
-      + '按薄代理纪律它该只经 HTTP 到 server，不应直取 src。'
-      + '清它先要给「纯插件副本怎么办」一个结论——属插件边界裁决',
-    responsible: 'T1-113',
-  },
-  'plugin-mcp → adapters': {
-    reason: 'F6：awf-oneshot 同形回取 src/adapters/oneshot.cjs；与上一条同属插件边界裁决'
-      + '（纯插件副本无 src/ 时的降级路径要不要保留）',
-    responsible: 'T1-113',
-  },
+  // 后续再有暂缓项，仍须逐条写 reason + responsible（责任 task id），并保证该责任任务在任务图上可达。
 };
 
 // ── 可配置结构断言：后续任务往这里追加 ──────────────────────────────────────
@@ -133,21 +141,15 @@ export const EXEMPTIONS = {
 //
 export const STRUCTURE_RULES = [
   {
-    id: 'server-single-file-size',
-    kind: 'maxLines',
-    file: 'src/server/server.cjs',
-    max: 1600,
-    reason: 'server.cjs 是待拆的单体（W3-003 目标：拆为 bootstrap/api/events/config/host，A 轴由 T1-113 承接）；'
-      + '上限只拦住它在拆分前继续膨胀',
-  },
-  {
     id: 'server-no-static-assets',
     kind: 'forbidFiles',
-    dir: 'src/server',
+    dir: 'server',
     extensions: ['.html', '.css'],
-    reason: '静态资源（页面/主题）只由 web/ 构建产物承载（src/server/public，T1-118 接的构建链路）；'
-      + 'src/server/ 只放服务端代码 —— 这条拦住「又往 src/server 里塞页面」的回退（T1-119）',
+    reason: '静态资源（页面/主题）只由 web/ 构建产物承载（落 server/web/public，已入 SKIP_PATHS）；'
+      + 'server/ 只放服务端代码 —— 这条拦住「又往 server 里塞页面」的回退',
   },
+  // 旧树那条 `server-single-file-size`（maxLines 1600，看住 1599 行的单体）随旧树退役删除：
+  // 新树的装配根 server/server.cjs 只有百余行，债本身没了，再留上限就是空转的假守卫。
 ];
 
 // ── 豁免表责任任务的可达性（T3-009-F2 / 门禁 N-6）────────────────────────────
@@ -232,10 +234,10 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', 'sandbox', 'coverage'
  * 落进 src/ 只是为了 server 静态托管。把它算作「零生产引用模块」是误报 ——
  * 而且哈希名每构建一次就变，不可能进白名单。
  */
-const SKIP_PATHS = new Set(['src/server/public', 'src/server/public/assets']);
+const SKIP_PATHS = new Set(['server/web/public', 'server/web/public/assets']);
 
 /** 生产侧引用者目录：这些地方的 import 才算「被生产引用」；tests/ 不算 */
-const PROD_DIRS = ['src', 'scripts', 'plugin', 'web/src'];
+const PROD_DIRS = ['cli', 'server', 'scripts', 'plugin', 'web/src'];
 
 const REL_IMPORT = /(?:require\(\s*|from\s+|import\(\s*)["'](\.[^"']+)["']/g;
 // 首个参数是 __dirname 的 join 调用（本仓库写作 path.join；放宽到任意 <obj>.join，避免别名写法漏扫）
@@ -333,7 +335,10 @@ const layerOf = (rel) => LAYER_RULES.find(([re]) => re.test(rel))?.[1] ?? null;
  */
 export function runCheck({ root = process.cwd(), allowlist = ENTRY_ALLOWLIST, exemptions = EXEMPTIONS, structureRules = STRUCTURE_RULES, strict = false } = {}) {
   const exists = (rel) => fs.existsSync(path.join(root, rel));
-  const srcFiles = collect(path.join(root, 'src'), SRC_CODE, [], root).map((f) => path.relative(root, f));
+  // 不变量①的被检对象：本树的代码根（旧树时代是 src/）
+  const srcFiles = ['cli', 'server']
+    .flatMap((d) => collect(path.join(root, d), SRC_CODE, [], root))
+    .map((f) => path.relative(root, f));
   const prodFiles = PROD_DIRS.flatMap((d) => collect(path.join(root, d), CODE, [], root));
 
   // 全部被 import 到的目标（绝对路径）
@@ -365,7 +370,7 @@ export function runCheck({ root = process.cwd(), allowlist = ENTRY_ALLOWLIST, ex
       check: 'zero-ref',
       key: rel,
       path: rel,
-      detail: '生产侧（src/ scripts/ plugin/ web/src）零引用；只有测试 import 不算被采用',
+      detail: '生产侧（cli/ server/ scripts/ plugin/ web/src）零引用；只有测试 import 不算被采用',
     });
   }
 
@@ -398,6 +403,7 @@ export function runCheck({ root = process.cwd(), allowlist = ENTRY_ALLOWLIST, ex
       const dir = path.join(root, rule.dir);
       if (!fs.existsSync(dir)) continue;
       for (const name of fs.readdirSync(dir)) {
+        if (SKIP_PATHS.has(`${rule.dir}/${name}`)) continue; // 构建产物（如 server/web/public）不算「往这里塞页面」
         if (!rule.extensions.some((ext) => name.endsWith(ext))) continue;
         findings.push({
           check: 'structure',

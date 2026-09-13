@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { createSessionChannel, MAX_SETTLE_ROUNDS, SETTLE_MAX_TOTAL_ROUNDS, SETTLE_MIN_TURN_BYTES } =
-  require('../../src/server/task-channel.cjs');
+  require('../../server/run/channel.cjs');
 
 // 收尾协商的判据（2026-09-10 真 run 现场）：不是「问了几轮」，而是「CC 是否还在产出」。
 // T1-098 那次它一直在跑 harness 产出，却被固定轮数判死 → 标 blocked。
@@ -65,24 +65,27 @@ describe('task-channel.settleTask — 按「有无产出」判定，不按轮数
     expect(c.sends.filter((s) => s.startsWith('SETTLE'))).toHaveLength(4);
   });
 
-  it('CC 毫无产出 → 连续 MAX_SETTLE_ROUNDS 轮后标 blocked（wrapup + 3 轮追问）', async () => {
+  // 轮次口径（2026-09-13 收口对齐）：noWorkRounds 把**首轮 wrapup 也算作一轮无产出**，
+  // 故连续 MAX_SETTLE_ROUNDS 轮（wrapup + MAX_SETTLE_ROUNDS-1 轮追问）后判 blocked。
+  // 旧树测试按「wrapup + 3 轮追问」断言，是另一套口径（CLAUDE.md 的措辞也已同步更正）。
+  it('CC 毫无产出 → 连续 MAX_SETTLE_ROUNDS 轮无产出后标 blocked', async () => {
     const c = makeChannel({ statusSeq: ['pending'], bytesPerSend: 0 });
     expect(await c.settleTask('T1')).toBe('blocked');
     expect(c.blocked).toBe(true);
     expect(c.sends[0]).toBe('WRAPUP T1');
-    expect(c.sends.filter((s) => s.startsWith('SETTLE'))).toHaveLength(MAX_SETTLE_ROUNDS);
+    expect(c.sends.filter((s) => s.startsWith('SETTLE'))).toHaveLength(MAX_SETTLE_ROUNDS - 1);
   });
 
   it('产出增量低于阈值（不构成推进）也计数', async () => {
     const c = makeChannel({ statusSeq: ['pending'], bytesPerSend: SETTLE_MIN_TURN_BYTES - 1 });
     expect(await c.settleTask('T1')).toBe('blocked');
-    expect(c.sends).toHaveLength(MAX_SETTLE_ROUNDS + 1);
+    expect(c.sends).toHaveLength(MAX_SETTLE_ROUNDS);
   });
 
   it('不可测产出（无 transcript）→ 退化为按轮数判定', async () => {
     const c = makeChannel({ statusSeq: ['pending'], bytesPerSend: null });
     expect(await c.settleTask('T1')).toBe('blocked');
-    expect(c.sends).toHaveLength(MAX_SETTLE_ROUNDS + 1);
+    expect(c.sends).toHaveLength(MAX_SETTLE_ROUNDS);
   });
 
   it('保险丝：一直产出但永不结算 → 到 SETTLE_MAX_TOTAL_ROUNDS 后 blocked（不死循环）', async () => {

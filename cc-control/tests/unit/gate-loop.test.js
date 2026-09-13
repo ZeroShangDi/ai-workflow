@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildFixTarget, verdictSummary } from '../../src/lib/gate-loop.cjs';
+import { buildFixTarget, verdictSummary } from '../../server/features/gate/loop.cjs';
 
 // 门禁闭环规则（W1-034）：verdict → 修复目标文案纯规则。
 

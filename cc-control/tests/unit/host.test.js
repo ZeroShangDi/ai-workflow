@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { createHost } from '../../src/server/host.cjs';
+import { createHost } from '../../server/adapters/cc/host.cjs';
 
 function stubExec(outputs = {}) {
   const calls = [];

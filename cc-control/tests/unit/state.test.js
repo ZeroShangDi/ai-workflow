@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { loadState, saveState, stateFingerprint, replaceStateIfUnchanged, markTaskActive, requeueTaskIfActive, findNextTask, peekReadyTasks, getCurrentPhase, isMilestoneDone, selectReadyBatch, spawnGateFixTask, MAX_RECHECK } from '../../src/lib/state.js';
+import { loadState, saveState, stateFingerprint, replaceStateIfUnchanged, markTaskActive, requeueTaskIfActive, findNextTask, peekReadyTasks, getCurrentPhase, isMilestoneDone, selectReadyBatch } from '../../server/shared/state.js';
+// 门禁闭环的派生原语已从 state.js 下沉 features/gate/closure.js（state.js 只留通用原语）
+import { spawnGateFixTask, MAX_RECHECK } from '../../server/features/gate/closure.js';
 
 describe('state.js — CLI', () => {
   let tmpDir;

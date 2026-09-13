@@ -97,18 +97,17 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     const spacedProject = path.join(TMP, 'my project', 'cc-control');
     fs.mkdirSync(path.join(spacedProject, 'scripts'), { recursive: true });
     fs.mkdirSync(path.join(spacedProject, 'plugin'), { recursive: true });
-    fs.mkdirSync(path.join(spacedProject, 'src', 'lib'), { recursive: true });
+    fs.mkdirSync(path.join(spacedProject, 'server', 'shared'), { recursive: true });
     fs.copyFileSync(RENDER, path.join(spacedProject, 'scripts', 'render-config.mjs'));
     fs.copyFileSync(PLUGIN_CONFIG, path.join(spacedProject, 'plugin', 'config.json'));
-    fs.copyFileSync(
-      path.join(ROOT, 'src', 'lib', 'plugin-config.js'),
-      path.join(spacedProject, 'src', 'lib', 'plugin-config.js'),
-    );
-    // plugin-config.js 经 config-loader 读配置 → 需一并拷贝共享加载器
-    fs.copyFileSync(
-      path.join(ROOT, 'src', 'lib', 'config-loader.cjs'),
-      path.join(spacedProject, 'src', 'lib', 'config-loader.cjs'),
-    );
+    // 渲染面（原 src/lib/plugin-config.js）现居 server/shared/plugin-render.cjs，
+    // 它依赖同目录的 config-loader（读配置）与 plugin-assets（定位包根/插件目录）—— 一并拷贝。
+    for (const f of ['plugin-render.cjs', 'config-loader.cjs', 'plugin-assets.cjs']) {
+      fs.copyFileSync(
+        path.join(ROOT, 'server', 'shared', f),
+        path.join(spacedProject, 'server', 'shared', f),
+      );
+    }
 
     const work = path.join(TMP, 'w-spaced-root');
     const res = spawnSync(NODE, [path.join(spacedProject, 'scripts', 'render-config.mjs'), '--workdir', work], { encoding: 'utf8' });

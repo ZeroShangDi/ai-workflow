@@ -6,14 +6,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
-import { loadState, saveState, markTaskActive, findNextTask, setWorkflowMode } from '../../src/lib/state.js';
-import { handleGateCompletion } from '../../src/server/gate-fix.js';
-import { runScheduler } from '../../src/server/run-scheduler.js';
-import { createRunClient } from '../../src/cli/run-client.js';
+import { loadState, saveState, markTaskActive, findNextTask, setWorkflowMode } from '../../server/shared/state.js';
+import { handleGateCompletion } from '../../server/features/gate/fix.js';
+import { runScheduler } from '../../server/run/scheduler.js';
+import { createClient } from '../../cli/lib/client.cjs';
 import { openWsClient } from '../helpers/ws-client.js';
 
 const require = createRequire(import.meta.url);
-const runDriver = require('../../src/server/run-driver.cjs');
+const runDriver = require('../../server/run/driver.cjs');
 
 // server.cjs 常驻 run host 端点（T1-105）：以 __CC_RUN_HOST_DEPS__ 注入真实 state/run-driver/
 // gate-fix + fake per-task executor（模型通道由 T1-058 接线），走真实 HTTP 提交→驱动→轮询闭环。
@@ -63,7 +63,7 @@ global.__CC_RUN_HOST_DEPS__ = {
   batch: null,
 };
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 
 let server;
 let api;
@@ -217,9 +217,11 @@ describe('run events WebSocket 推送（T1-091 轮询→事件订阅）', () => 
 });
 
 describe('cli run-client 经 server（新结构 client→afterSeq 事件路由→store 读，T1-095）', () => {
-  it('真实 createRunClient（非 mock）提交→poll 事件到 done→快照→getState 读 store', async () => {
+  it('真实 client（非 mock）提交→poll 事件到 done→快照→经 /awf/state 读 store', async () => {
     const port = Number(new URL(baseUrl).port);
-    const client = createRunClient({ port, project: runProject });
+    // 随旧树退役改名：createRunClient → createClient；getState() 便捷方法取消（CLI 不再直读 state），
+    // 改为显式打 GET /awf/state（同一条单写者收口的读路径）
+    const client = createClient({ port, project: runProject });
 
     const sub = await client.submitRun({ runId: 'cli1' });
     expect(sub.ok).toBe(true);
@@ -230,7 +232,8 @@ describe('cli run-client 经 server（新结构 client→afterSeq 事件路由�
     const types = [];
     for (let i = 0; i < 200 && !sawStopped; i++) {
       const ev = await client.pollRunEvents({ runId: 'cli1', afterSeq: after });
-      for (const e of ev.events || []) { types.push(e.type); after = e.afterSeq ?? after; if (e.type === 'run.stopped') sawStopped = true; }
+      for (const e of ev.events || []) { types.push(e.type); if (e.type === 'run.stopped') sawStopped = true; }
+      after = ev.afterSeq ?? after; // 游标在响应上（不是每条事件上）
       await sleep(5);
     }
     expect(sawStopped).toBe(true);
@@ -241,8 +244,8 @@ describe('cli run-client 经 server（新结构 client→afterSeq 事件路由�
     expect(snap.run.status).toBe('done');
     expect(snap.run.counts).toMatchObject({ total: 2, done: 2 });
 
-    // store 路径读：CLI 运行态读经 server GET /awf/state（T1-062 单写者收口，不再直读 lib/state.js）
-    const st = await client.getState();
+    // store 路径读：运行态读经 server GET /awf/state（T1-062 单写者收口，不再直读 state 文件）
+    const st = await client.request('GET', '/awf/state');
     expect(st.tasks.map((t) => t.status)).toEqual(['done', 'done']);
   });
 });

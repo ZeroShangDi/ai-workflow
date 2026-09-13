@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import store from '../../src/lib/store.cjs';
+import store from '../../server/shared/store.cjs';
 
 const {
   createWriteQueue,

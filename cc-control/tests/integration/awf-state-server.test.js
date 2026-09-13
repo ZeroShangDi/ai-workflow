@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 // 带 CC_PORT/AWF_PROJECT_ROOT）；读 GET /awf/state、写 POST /run/state/apply（server 单写者），
 // MCP 不再直写文件/自持锁。本测试：真 server + MCP stdio 子进程端到端。
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const MCP_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-state/server.cjs', import.meta.url));
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-mcp-server-'));

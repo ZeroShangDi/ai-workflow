@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SID_PATTERN, SID_MAX_LEN, validateRunId, normalizeStamp, deriveRunId, generateRunId } from '../../src/lib/run-id.cjs';
+import { SID_PATTERN, SID_MAX_LEN, validateRunId, normalizeStamp, deriveRunId, generateRunId } from '../../server/shared/run-id.cjs';
 
 // run-id（W1-009 / T1-009）：生成/校验/派生规则。
 // 派生形状与现行 runStamp 对齐（.awf/logs/<version>-<compactISO>），供 runStamp→sid 归一无痛迁移。

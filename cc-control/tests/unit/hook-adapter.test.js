@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { translateHook, createHookAdapter } from '../../src/server/hook-adapter.cjs';
+import { translateHook, createHookAdapter } from '../../server/adapters/cc/hook.cjs';
 
 // hook→领域事件翻译接缝（W1-031/046）：/hook 收口为 adapter.hook + 事件上抛（cc 细节最小承接 → 完整字段透传）。
 

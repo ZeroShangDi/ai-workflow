@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readRunMetrics, resetRunMeta, updateRunMeta } from '../../src/lib/run-metrics.js';
+import { readRunMetrics, resetRunMeta, updateRunMeta } from '../../server/observability/metrics.cjs';
 
 let tmpRoot;
 let homeDir;

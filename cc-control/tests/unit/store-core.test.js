@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { withFileLock, atomicWriteFileSync, writeJsonAtomicSync, readJsonSync, updateStateSync, DEFAULT_LOCK_TIMEOUT_MS } from '../../src/lib/store-core.js';
+import { withFileLock, atomicWriteFileSync, writeJsonAtomicSync, readJsonSync, updateStateSync, DEFAULT_LOCK_TIMEOUT_MS } from '../../server/shared/store-core.cjs';
 
 // store-core（W1-010/011 / T1-015）：单写序列化 + 原子写。
 // - withFileLock：锁文件互斥（openSync 'wx'），持锁期间二次获取超时抛错；父目录自建

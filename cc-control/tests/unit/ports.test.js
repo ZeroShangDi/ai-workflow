@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PORT_NAMES, createCcAdapters } from '../../src/adapters/ports.cjs';
+import { PORT_NAMES, createCcAdapters } from '../../server/adapters/ports.cjs';
 
 function stubExec() {
   const fn = (cmd, args) => {

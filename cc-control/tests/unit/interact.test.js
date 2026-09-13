@@ -10,7 +10,7 @@ import {
   handoffPath,
   readHandoff,
   writeHandoff,
-} from '../../src/server/interact.cjs';
+} from '../../server/web/interact.cjs';
 
 const tmpDirs = [];
 function tmpProject() {

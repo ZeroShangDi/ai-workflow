@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 // context-ready）+ oneshot（awf-oneshot /oneshot）在同一个真 server 上贯通；并核对注册/渲染
 // 单测保持绿（render-config.test 等由全量套件承担，本文件聚焦链路）。
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const require = createRequire(import.meta.url);
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-mcp-chain-'));

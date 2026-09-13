@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import loader from '../../src/lib/config-loader.cjs';
+import loader from '../../server/shared/config-loader.cjs';
 
 const { ConfigError, deepMerge, readJsonFile, loadConfig } = loader;
 

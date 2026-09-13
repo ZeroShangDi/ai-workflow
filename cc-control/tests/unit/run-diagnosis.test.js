@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import diagnosis from '../../src/lib/run-diagnosis.cjs';
+import diagnosis from '../../server/features/monitor/diagnosis.cjs';
 
 describe('run-diagnosis', () => {
   it('构造诊断 prompt 时只附带运行指标与任务状态', () => {

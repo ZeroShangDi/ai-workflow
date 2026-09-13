@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
-import { projectSid, projectSessionName, SID_PATTERN, buildRunContext } from '../../src/lib/run-context.cjs';
+import { projectSid, projectSessionName, SID_PATTERN, buildRunContext } from '../../server/shared/run-context.cjs';
 
 // projectSid / projectSessionName（W 单 server 多项目）：确定性项目 run 标签。
 // 要求：同一 root 跨调用/跨进程一致、不同 root 相异、SID_PATTERN 合法、纯标签不落盘不派生 runDir。

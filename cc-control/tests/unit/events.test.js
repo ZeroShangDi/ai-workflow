@@ -7,7 +7,7 @@ import {
   persistSinkFor,
   createEventBus,
   wirePersist,
-} from '../../src/lib/events.cjs';
+} from '../../server/shared/events.cjs';
 
 // events 总线 + 首批领域事件类型（W1-028）：run/task/agent/hook 映射锚点 + persist 落盘锚点。
 

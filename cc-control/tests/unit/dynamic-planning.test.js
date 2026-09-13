@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import dynamicPlanning from '../../src/server/dynamic-planning/index.cjs';
-import { DecisionStore } from '../../src/server/decision-store.cjs';
+import dynamicPlanning from '../../server/features/replanning/index.cjs';
+import { DecisionStore } from '../../server/features/decision/store.cjs';
 
 const {
   MODES,

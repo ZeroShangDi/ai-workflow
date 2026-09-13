@@ -7,7 +7,7 @@ import {
   createDecisionSeq,
   classifyStop,
   classifyAskQuestion,
-} from '../../src/server/decision-gate.cjs';
+} from '../../server/features/decision/gate.cjs';
 
 // 决策闸门规则归位（W1-032）：标记/分类/记录构造纯逻辑。
 

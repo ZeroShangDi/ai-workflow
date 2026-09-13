@@ -3,12 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { loadRunConfig } from '../../src/lib/run-config.js';
+import { loadRunConfig } from '../../server/run/config.js';
 
-// run-config 决策开关语义（W1-009 / M2）：
-// - run.decision.enabled 缺省 false（不配置 = 关 = 旧上抛逻辑）
-// - 仅接受布尔；显式 true 生效；非法值回落 false
-// - 与 run.agents 配额并存，互不影响
+// run 运行时配置：**只读 run.agents**（编排配额，本模块的变化轴）。
+//
+// 曾经它还顺带返回 run.decision.enabled —— 那是 decision 能力的开关，与「怎么配并发」无关；
+// 既无人消费，又让配额加载器背上别人的变化轴。现归 features/decision 自判
+// （isDecisionEnabled，见 tests/unit/decision-config.test.js），本模块不再有该字段。
 
 const tmpDirs = [];
 
@@ -24,37 +25,32 @@ afterAll(() => {
   for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true });
 });
 
-describe('run.decision.enabled — 加载 / 默认合并', () => {
-  it('缺省：config.json 缺失 → decision.enabled=false（agents 亦回落默认）', () => {
+describe('run.agents — 配额加载 / 默认合并', () => {
+  it('缺省：config.json 缺失 → 四级配额全 1（单任务串行，零行为变化）', () => {
     const cfg = loadRunConfig(tmpProject());
-    expect(cfg.decision.enabled).toBe(false);
-    expect(cfg.agents.max).toBe(1);
+    expect(cfg.agents).toEqual({ max: 1, maxModules: 1, maxPerModule: 1, maxPerFeature: 1 });
   });
 
-  it('缺省：存在 config 但无 run.decision → enabled=false', () => {
-    const cfg = loadRunConfig(tmpProject(JSON.stringify({ run: { agents: { max: 2 } } })));
-    expect(cfg.decision.enabled).toBe(false);
-    expect(cfg.agents.max).toBe(2); // 并行配额不受影响
+  it('显式配置 → 逐键生效，未配的键回落 1', () => {
+    const cfg = loadRunConfig(tmpProject(JSON.stringify({ run: { agents: { max: 4, maxModules: 2 } } })));
+    expect(cfg.agents).toEqual({ max: 4, maxModules: 2, maxPerModule: 1, maxPerFeature: 1 });
   });
 
-  it('显式 true → enabled=true', () => {
-    const cfg = loadRunConfig(tmpProject(JSON.stringify({ run: { decision: { enabled: true } } })));
-    expect(cfg.decision.enabled).toBe(true);
+  it('非法值（字符串 / 0 / 负数 / 非整数）→ 该键回落 1，不污染调度器配额', () => {
+    const cfg = loadRunConfig(tmpProject(JSON.stringify({
+      run: { agents: { max: '4', maxModules: 0, maxPerModule: -2, maxPerFeature: 1.5 } },
+    })));
+    expect(cfg.agents).toEqual({ max: 1, maxModules: 1, maxPerModule: 1, maxPerFeature: 1 });
   });
 
-  it('显式 false → enabled=false', () => {
-    const cfg = loadRunConfig(tmpProject(JSON.stringify({ run: { decision: { enabled: false } } })));
-    expect(cfg.decision.enabled).toBe(false);
-  });
-
-  it('非法值（字符串/数字）→ 回落 false（仅接受布尔）', () => {
-    expect(loadRunConfig(tmpProject(JSON.stringify({ run: { decision: { enabled: 'true' } } }))).decision.enabled).toBe(false);
-    expect(loadRunConfig(tmpProject(JSON.stringify({ run: { decision: { enabled: 1 } } }))).decision.enabled).toBe(false);
-  });
-
-  it('非法 JSON → 全部回落默认（decision 关）', () => {
+  it('非法 JSON → 全部回落默认', () => {
     const cfg = loadRunConfig(tmpProject('{ not valid json'));
-    expect(cfg.decision.enabled).toBe(false);
-    expect(cfg.agents.max).toBe(1);
+    expect(cfg.agents).toEqual({ max: 1, maxModules: 1, maxPerModule: 1, maxPerFeature: 1 });
+  });
+
+  it('不再返回 decision 段：决策开关归 features/decision 单源，配额加载器不背它的变化轴', () => {
+    const cfg = loadRunConfig(tmpProject(JSON.stringify({ run: { decision: { enabled: true } } })));
+    expect(cfg.decision).toBeUndefined();
+    expect(Object.keys(cfg)).toEqual(['agents']);
   });
 });

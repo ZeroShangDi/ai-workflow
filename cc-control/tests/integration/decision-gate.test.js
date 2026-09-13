@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { findNextTask } from '../../src/lib/state.js';
+import { findNextTask } from '../../server/shared/state.js';
 
 // ── mocks：注入到 server.cjs（原生 require 的 CJS 依赖无法用 vi.mock 拦截）──
 const m = {
@@ -60,7 +60,7 @@ global.__CC_TMUX__ = m.tmux;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 global.__CC_RUN_DIAGNOSIS__ = { buildDiagnosisPrompt: () => '', diagnoseWithClaude: m.diagnose = vi.fn(), readDiagnosis: () => null, writeDiagnosis: () => {} };
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const RUNS_DIR = path.join(PROJ, '.awf', 'decisions', 'runs');
 const RUN_FILE = path.join(RUNS_DIR, `${RUN_STAMP}.jsonl`);
 
@@ -531,12 +531,18 @@ describe('gate off 回归基线（旧路径）', () => {
     expect(post.body.ccOutput).toBeUndefined();
     expect(server._getState().decisionPending).toMatchObject({ answer: 'A', answered: true });
 
-    // Stop → 清 decisionPending + ready，无 decisionGate/无落盘
+    // Stop → 清 decisionPending + ready，无 decisionGate 介入
     await stopPayload({ last_assistant_message: '按选择完成', stop_hook_active: false });
     const st = server._getState();
     expect(st.decisionPending).toBeNull();
     expect(st.state).toBe('ready');
     expect(st.decisionGate).toBeNull();
-    expect(readDecisionLines()).toHaveLength(0);
+    // 新契约：捕获即落 decision_requested（生命周期留痕，与闸门开关无关）；
+    // gate off 不产生正式决策记录（无 decision_completed，Review 侧不受影响）。
+    const lines = readDecisionLines();
+    expect(lines.filter((l) => l.event === 'decision_completed')).toHaveLength(0);
+    expect(lines.filter((l) => l.event === 'decision_requested')).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ event: 'decision_requested', source: 'AskUserQuestion', status: 'awaiting_human' });
+    expect(lines[0].request.question).toBe('选 A 还是 B？');
   });
 });

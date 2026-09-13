@@ -58,7 +58,7 @@ process.env.CC_READY_TIMEOUT_MS = '500';
 process.env.CC_ENTER_DELAY_MS = '0';
 process.env.CC_BATCH_IDLE_TIMEOUT_MS = '8000';
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let server;

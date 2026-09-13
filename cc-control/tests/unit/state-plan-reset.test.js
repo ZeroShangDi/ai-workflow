@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { archiveOldStateForPlan, loadState } from '../../src/lib/state.js';
+import { archiveOldStateForPlan, loadState } from '../../server/shared/state.js';
 
 // T1-104：plan 启动守卫——残留旧 state 归档 + 重置空模板；run 模式不触发；空 state 不重复归档。
 

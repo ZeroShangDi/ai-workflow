@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { STAGE_CHAINS, classifyComplexity, decideChain, nextStage, assertStage, gateCompletionHook } from '../../src/server/run-driver.cjs';
+import { STAGE_CHAINS, classifyComplexity, decideChain, nextStage, assertStage, gateCompletionHook } from '../../server/run/driver.cjs';
 
 // 单 agent 阶段链驱动（W1-035 纯规则层）：阶段序/复杂度/链推进。
 

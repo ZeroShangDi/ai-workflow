@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
  * 另锁读类端点保留 boot 兜底（CLI 的 server 发现 / 看板探活依赖它），以及 /shutdown 的豁免。
  */
 
-const SERVER_PATH = fileURLToPath(new URL('../../src/server/server.cjs', import.meta.url));
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-write-p-'));
 const BOOT = path.join(TMP, 'boot');
 const OTHER = path.join(TMP, 'other');

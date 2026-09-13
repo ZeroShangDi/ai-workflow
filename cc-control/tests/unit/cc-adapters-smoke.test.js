@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { createCcAdapters, PORT_NAMES } from '../../src/adapters/ports.cjs';
-import { createMockAdapters } from '../../src/adapters/mock.cjs';
-import { createEventBus } from '../../src/lib/events.cjs';
-import { createProbe } from '../../src/adapters/probe.cjs';
-import tooling from '../../src/adapters/tooling.cjs';
+import { createCcAdapters, PORT_NAMES } from '../../server/adapters/ports.cjs';
+import { createMockAdapters } from '../../server/adapters/mock.cjs';
+import { createEventBus } from '../../server/shared/events.cjs';
+import { createProbe } from '../../server/adapters/cc/probe.cjs';
+import tooling from '../../server/adapters/cc/tooling.cjs';
 
 // T1-055 cc 冒烟：mock adapter 全绿 + 每端口真实 cc 实现各走一遍（host/hook/oneshot/install/probe/plan 交互）。
 
@@ -65,7 +65,7 @@ describe('cc 真实 adapter 各走一遍', () => {
   });
 
   it('oneshot：注入 spawn 一次调用返回 ok/text', async () => {
-    const { spawnClaudeP, runOneShot } = await import('../../src/adapters/oneshot.cjs');
+    const { spawnClaudeP, runOneShot } = await import('../../server/adapters/cc/oneshot.cjs');
     const ok = await runOneShot({ prompt: 'x', spawn: stubSpawnOnce({ stdout: 'hi' }) });
     expect(ok).toEqual({ ok: true, text: 'hi' });
   });
@@ -84,9 +84,9 @@ describe('cc 真实 adapter 各走一遍', () => {
   });
 
   it('plan 交互（launchDialog 存在；spawn 注入模拟一次退出）', async () => {
-    const { launchInteractiveClaude } = await import('../../src/adapters/interactive.cjs');
+    const { launchInteractiveClaude } = await import('../../server/adapters/cc/interactive.cjs');
     // 不真启 claude：仅确认端口暴露 launchDialog（真实交互留 plan/自托管冒烟）
-    const { createCcAdapters: createWith } = await import('../../src/adapters/ports.cjs');
+    const { createCcAdapters: createWith } = await import('../../server/adapters/ports.cjs');
     expect(typeof createWith({}).interactive.launchDialog).toBe('function');
     expect(typeof launchInteractiveClaude).toBe('function');
   });

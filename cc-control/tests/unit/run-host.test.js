@@ -6,13 +6,13 @@ import { createRequire } from 'node:module';
 
 import {
   loadState, saveState, markTaskActive, findNextTask, setWorkflowMode,
-} from '../../src/lib/state.js';
-import { handleGateCompletion } from '../../src/server/gate-fix.js';
-import { runScheduler } from '../../src/server/run-scheduler.js';
-import runDriver from '../../src/server/run-driver.cjs';
+} from '../../server/shared/state.js';
+import { handleGateCompletion } from '../../server/features/gate/fix.js';
+import { runScheduler } from '../../server/run/scheduler.js';
+import runDriver from '../../server/run/driver.cjs';
 
 const require = createRequire(import.meta.url);
-const { createRunHost } = require('../../src/server/run-host.cjs');
+const { createRunHost } = require('../../server/run/host.cjs');
 
 // run-host 编排核心（T1-105）：真实 state/run-driver/gateCompletionHook/runScheduler 注入，
 // per-task 模型通道用 fake executor 替代（真实通道待 T1-058 组装）。tmp .awf/state.json 作真源。

@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { installProjectMcp } from '../../src/lib/profile.js';
-import { projectMcpJson } from '../../src/lib/plugin-config.js';
+import { installProjectMcp } from '../../server/adapters/cc/profile.cjs';
+import { projectMcpJson } from '../../server/shared/plugin-render.cjs';
 
 // installProjectMcp 的项目级 .mcp.json 路径形态：
 // - 自托管（projectRoot == repoRoot）→ 相对路径（与仓库提交版一致，可移植、git 干净）
@@ -49,7 +49,9 @@ describe('installProjectMcp — 写入形态', () => {
         path.join(tmp, '.mcp.json'),
         JSON.stringify({ mcpServers: { 'user-tool': { type: 'stdio', command: 'node', args: ['server.js'] } } }, null, 2) + '\n',
       );
-      const r = installProjectMcp(tmp, REPO, 8787);
+      // 签名随旧树退役收紧为 (projectRoot, port)：包根由 shared/plugin-assets 单源推导，
+      // 不再由调用方传（旧版 (projectRoot, repoRoot, port) 是「布局多份知情者」的残留）
+      const r = installProjectMcp(tmp, 8787);
       expect(r.written).toBe(true);
       expect(r.servers).toEqual(['awf-state', 'awf-session', 'awf-oneshot']);
       const mcp = JSON.parse(fs.readFileSync(path.join(tmp, '.mcp.json'), 'utf8'));

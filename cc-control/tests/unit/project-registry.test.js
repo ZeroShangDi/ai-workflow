@@ -2,10 +2,19 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createProjectContext, createProjectRegistry } from '../../src/server/project-context.cjs';
 
-// project-context：单 server 多项目的每项目容器 + 注册表（纯打包/寻址，构造无副作用）。
-// 覆盖：boot 缺省、懒建/记忆化、归一化、每项目独立 mutable 槽、磁盘锚点隔离、会话名唯一。
+// 随旧树退役拆成两处（原 src/server/project-context.cjs 一个文件）：
+//   每项目容器 = server/runtime/project.cjs；注册表 = server/runtime/registry.cjs
+import { createProjectContext } from '../../server/runtime/project.cjs';
+import { createProjectRegistry } from '../../server/runtime/registry.cjs';
+import { createProjectRuntime } from '../../server/runtime/index.cjs';
+
+// 单 server 多项目的每项目容器 + 注册表（纯打包/寻址，构造无副作用）。
+// 覆盖：boot 缺省、懒建/记忆化、归一化、每项目独立运行态、磁盘锚点隔离、会话名唯一。
+//
+// 与旧版的口径差异（新树分层）：ctx 只装身份/路径/出口，**运行态在 session 上**
+// —— 故旧的 `ctx.state / ctx.decisionPending` 断言改为 `rt.session.*`；
+// per-sid 内存槽由 `ctx.runSlotFor(sid)` 改为 `rt.sessionFor(sid)`。
 
 let ROOT_A;
 let ROOT_B;
@@ -24,47 +33,51 @@ afterAll(() => {
   fs.rmSync(path.dirname(ROOT_A), { recursive: true, force: true });
 });
 
+/** boot 的每项目容器 */
+const bootCtx = (reg) => reg.runtimeFor(reg.bootRoot).ctx;
+/** 某项目的会话态（运行态的新家） */
+const sessOf = (reg, root) => reg.runtimeFor(root).session;
+
 describe('createProjectRegistry — 注册表', () => {
   it('缺省 root → boot 上下文，最先注册', () => {
     const reg = createProjectRegistry({ env: {}, bootRoot: ROOT_A });
-    const boot = reg.ctxFor();
-    expect(boot.projectRoot).toBe(ROOT_A);
+    expect(bootCtx(reg).projectRoot).toBe(ROOT_A);
     expect(reg.size).toBe(1);
   });
 
-  it('ctxFor 懒建 + 记忆化：同 root 同实例', () => {
+  it('runtimeFor 懒建 + 记忆化：同 root 同实例', () => {
     const reg = createProjectRegistry({ env: {}, bootRoot: ROOT_A });
-    expect(reg.ctxFor(ROOT_B)).toBe(reg.ctxFor(ROOT_B));
+    expect(reg.runtimeFor(ROOT_B)).toBe(reg.runtimeFor(ROOT_B));
     expect(reg.size).toBe(2);
   });
 
   it('归一化：路径等价形式命中同一实例', () => {
     const reg = createProjectRegistry({ env: {}, bootRoot: ROOT_A });
-    expect(reg.ctxFor(path.join(ROOT_B, '..', 'projB'))).toBe(reg.ctxFor(ROOT_B));
+    expect(reg.runtimeFor(path.join(ROOT_B, '..', 'projB'))).toBe(reg.runtimeFor(ROOT_B));
   });
 
-  it('resolveCtx：无 p → boot；p / bodyProjectRoot 兜底到对应项目', () => {
+  it('resolveRuntime：无 p → boot；p / bodyProjectRoot 兜底到对应项目', () => {
     const reg = createProjectRegistry({ env: {}, bootRoot: ROOT_A });
-    reg.ctxFor(ROOT_B);
-    expect(reg.resolveCtx({}).projectRoot).toBe(ROOT_A);
-    expect(reg.resolveCtx({ p: ROOT_B }).projectRoot).toBe(ROOT_B);
-    expect(reg.resolveCtx({ bodyProjectRoot: ROOT_B }).projectRoot).toBe(ROOT_B);
+    reg.runtimeFor(ROOT_B);
+    expect(reg.resolveRuntime({}).ctx.projectRoot).toBe(ROOT_A);
+    expect(reg.resolveRuntime({ p: ROOT_B }).ctx.projectRoot).toBe(ROOT_B);
+    expect(reg.resolveRuntime({ bodyProjectRoot: ROOT_B }).ctx.projectRoot).toBe(ROOT_B);
   });
 
   it('list 枚举已注册项目', () => {
     const reg = createProjectRegistry({ env: {}, bootRoot: ROOT_A });
-    reg.ctxFor(ROOT_B);
+    reg.runtimeFor(ROOT_B);
     const roots = reg.list().map((x) => x.projectRoot).sort();
     expect(roots).toEqual([ROOT_A, ROOT_B].sort());
   });
 
-  it('reset 复位全部上下文 mutable 槽（含 run host 引用清空）', () => {
+  it('reset 复位全部运行态（会话回 ready、待答决策清空）', () => {
     const reg = createProjectRegistry({ env: {}, bootRoot: ROOT_A });
-    reg.ctxFor(ROOT_A).state = 'busy';
-    reg.ctxFor(ROOT_A).decisionPending = { question: 'x' };
+    sessOf(reg, ROOT_A).setBusy();
+    sessOf(reg, ROOT_A).setDecision({ question: 'x' });
     reg.reset();
-    expect(reg.ctxFor(ROOT_A).state).toBe('ready');
-    expect(reg.ctxFor(ROOT_A).decisionPending).toBeNull();
+    expect(sessOf(reg, ROOT_A).state).toBe('ready');
+    expect(sessOf(reg, ROOT_A).decisionPending).toBeNull();
   });
 });
 
@@ -91,21 +104,20 @@ describe('createProjectContext — 每项目独立', () => {
     expect(JSON.parse(fs.readFileSync(path.join(ROOT_B, '.awf', 'state.json'), 'utf8')).marker).toBe('B');
   });
 
-  it('mutable 槽相互独立（不共享单槽）', () => {
-    const a = createProjectContext({ projectRoot: ROOT_A, env: {} });
-    const b = createProjectContext({ projectRoot: ROOT_B, env: {} });
-    a.state = 'busy';
-    a.decisionPending = { question: 'only-a' };
-    expect(b.state).toBe('ready');
-    expect(b.decisionPending).toBeNull();
+  it('每项目运行态相互独立（不共享单槽）', () => {
+    const rtA = createProjectRuntime({ projectRoot: ROOT_A, env: {} });
+    const rtB = createProjectRuntime({ projectRoot: ROOT_B, env: {} });
+    rtA.session.setBusy();
+    rtA.session.setDecision({ question: 'only-a' });
+    expect(rtB.session.state).toBe('ready');
+    expect(rtB.session.decisionPending).toBeNull();
   });
 
   it('per-sid 内存槽独立；runStateFile 根锚本项目', () => {
-    const a = createProjectContext({ projectRoot: ROOT_A, env: {} });
-    a.runSlotFor('ra').setReady();
-    a.runSlotFor('ra').setBusy();
-    expect(a.runSlotFor('rb').state).not.toBe('busy'); // 不同 sid 不串
-    expect(a.runStateFile('ra')).toBe(path.join(ROOT_A, '.awf', 'runs', 'ra', 'state.json'));
-    expect(a.runStateFile()).toBe(path.join(ROOT_A, '.awf', 'state.json'));
+    const rt = createProjectRuntime({ projectRoot: ROOT_A, env: {} });
+    rt.sessionFor('ra').setBusy();
+    expect(rt.sessionFor('rb').state).not.toBe('busy'); // 不同 sid 不串
+    expect(rt.ctx.runStateFile('ra')).toBe(path.join(ROOT_A, '.awf', 'runs', 'ra', 'state.json'));
+    expect(rt.ctx.runStateFile()).toBe(path.join(ROOT_A, '.awf', 'state.json'));
   });
 });

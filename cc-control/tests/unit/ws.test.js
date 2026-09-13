@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const ws = require('../../src/server/ws.cjs');
+const ws = require('../../server/web/ws.cjs');
 
 // T1-091：极简 RFC6455 服务端助手（握手 accept / 文本帧编码 / 上行帧解析）纯函数单测。
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateRunSettings } from '../../src/server/run-settings.cjs';
+import { generateRunSettings } from '../../server/adapters/cc/settings.cjs';
 
 // run 专用 settings 生成归 cc（W1-044）：statusLine 等 cc 格式（T1-065 移 crossSessionInbound）。
 

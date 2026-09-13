@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { waitSessionStarted } from '../../src/cli/run.js';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { waitSessionStarted } = require('../../cli/lib/session.cjs');
 
 // 会话就绪等待（2026-09-10 dual-b 现场）：派发前必须确认 SessionStart 已到达，
-// 否则任务文本可能被打进尚未消除的文件夹信任弹窗而丢弃。
+// 否则任务文本可能被打进尚未消除的文件夹信任弹窗而丢弃 —— 留下一个从没收到过输入的会话。
+// 随旧树退役从 src/cli/run.js 迁入 cli/lib/session.cjs（见 docs/discuss/legacy-tree-retirement.md §5.1），
+// 契约同时收紧：status 端口直接返回**序号数字**，不再返回 /status 的整个对象。
 
 const ctx = { runSessionName: 'cc-test' };
 
@@ -10,8 +15,8 @@ describe('waitSessionStarted — 等 SessionStart 到达才放行派发', () => 
   it('sessionSeq 增长 → 放行，且不补 Enter', async () => {
     const nudges = [];
     let calls = 0;
-    const ok = await waitSessionStarted(ctx, '/p', 2, {
-      status: async () => ({ sessionSeq: (calls++ === 0 ? 2 : 3) }),
+    const ok = await waitSessionStarted(ctx, 2, {
+      status: async () => (calls++ === 0 ? 2 : 3),
       nudge: () => nudges.push(1),
       sleepFn: async () => {},
       timeoutMs: 1000,
@@ -21,8 +26,8 @@ describe('waitSessionStarted — 等 SessionStart 到达才放行派发', () => 
   });
 
   it('始终未收到 SessionStart → 超时返回 false（告警放行，不硬失败）', async () => {
-    const ok = await waitSessionStarted(ctx, '/p', 5, {
-      status: async () => ({ sessionSeq: 5 }),
+    const ok = await waitSessionStarted(ctx, 5, {
+      status: async () => 5,
       nudge: () => {},
       sleepFn: async () => new Promise((r) => setTimeout(r, 1)),
       timeoutMs: 50,
@@ -32,8 +37,8 @@ describe('waitSessionStarted — 等 SessionStart 到达才放行派发', () => 
 
   it('等待期间周期性补 Enter（兜住 claude 起得慢时仍挂着的信任弹窗）', async () => {
     const nudges = [];
-    await waitSessionStarted(ctx, '/p', 0, {
-      status: async () => ({ sessionSeq: 0 }),
+    await waitSessionStarted(ctx, 0, {
+      status: async () => 0,
       nudge: () => nudges.push(Date.now()),
       sleepFn: async () => new Promise((r) => setTimeout(r, 1)),
       timeoutMs: 60,
@@ -43,7 +48,7 @@ describe('waitSessionStarted — 等 SessionStart 到达才放行派发', () => 
   });
 
   it('拿不到 status（服务不可达）不抛，按未就绪处理', async () => {
-    const ok = await waitSessionStarted(ctx, '/p', 0, {
+    const ok = await waitSessionStarted(ctx, 0, {
       status: async () => null,
       nudge: () => {},
       sleepFn: async () => {},

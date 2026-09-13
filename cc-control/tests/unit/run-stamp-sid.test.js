@@ -5,8 +5,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { resolveRunStamp } = require('../../src/lib/run-id.cjs');
-const { DecisionStore } = require('../../src/server/decision-store.cjs');
+const { resolveRunStamp } = require('../../server/shared/run-id.cjs');
+const { DecisionStore } = require('../../server/features/decision/store.cjs');
 
 // T1-072：runStamp→sid 归一 + 决策 per-run 目录隔离（decision 不串 run）。
 

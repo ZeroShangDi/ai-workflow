@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { DecisionStore, isoStamp } from '../../src/server/decision-store.cjs';
+import { DecisionStore, isoStamp } from '../../server/features/decision/store.cjs';
 
 const tmpDirs = [];
 
