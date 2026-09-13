@@ -2,28 +2,28 @@
 
 > 对应 WBS：v0.2.0 控制平面收敛（T1-063 常驻 / T1-064 空闲回收 / T1-067 单写者 / T1-071 sid 槽 / T1-076 决策归属 /
 > T1-093 web 产物托管 / T1-105 常驻 run host / T1-110 写类必带 ?p / T1-112 server 日志 / T1-119 退役 legacy 观测页）
-> 源码：`src/server/server.cjs`
-> 配套：`src/server/project-context.cjs`、`src/server/run-slot.cjs`、`src/server/static.cjs`、`src/server/ws.cjs`、
-> `src/server/interact.cjs`、`src/server/decision-gate.cjs`、`src/lib/server-idle.cjs`、`src/lib/server-log.js`、`src/lib/run-context.cjs`
+> 源码：`server/server.cjs`
+> 配套：`server/runtime/project.cjs / registry.cjs`、`server/runtime/session.cjs`、`server/web/static.cjs`、`server/web/ws.cjs`、
+> `server/web/interact.cjs`、`server/features/decision/gate.cjs`、`server/runtime/idle.cjs`、`cli/lib/server-log.cjs`、`server/shared/run-context.cjs`
 
 ## 功能描述
 
 HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端口，按 `projectRoot` 主键同时服务多个项目。
 它把 tmux 里的 Claude Code 会话与外部调用方（CLI / hook 网关 / MCP / 前端）解耦，承担六类职责：
 
-1. **tmux 桥接** — 接收 `/send`、`/cmd`、`/intervene` 等写请求，经 `src/server/tmux.cjs` 把文本/命令注入会话。
+1. **tmux 桥接** — 接收 `/send`、`/cmd`、`/intervene` 等写请求，经 `server/adapters/cc/host.cjs` 把文本/命令注入会话。
 2. **hook 驱动状态机** — Claude Code Hooks 回调 `/hook`，驱动 `ready`/`busy` 与决策挂起（子 agent 不翻转主闩锁）。
 3. **子 agent 观测与落账** — `SubagentStart`/`Stop` 登记观测；`SubagentStop` 解析 `last_assistant_message` 的 `RESULT` 写 state.json。
 4. **决策门阀接线** — `Stop`/`PreToolUse(AskUserQuestion)` 统一走决策闸门：触发决策模式 → 落盘 Decision Result → 回灌 resume。
-5. **常驻 run host** — 每项目一份 run host（`src/server/run-host.cjs`），持有编排调度权；server 只做提交/事件/落账的表面。
-6. **静态托管** — 前端页面一律由 web/ 构建产物（`src/server/public`）承载，缺产物明确告警。
+5. **常驻 run host** — 每项目一份 run host（`server/run/host.cjs`），持有编排调度权；server 只做提交/事件/落账的表面。
+6. **静态托管** — 前端页面一律由 web/ 构建产物（`server/public`）承载，缺产物明确告警。
 
 ### 进程模型
 
-- **常驻单实例多项目**：CLI 侧「存在即复用」（`src/cli/server.js:17`：`getStatus` 探活成功即复用，他项目占用也复用）；server 进程按 `projectRoot` 懒建 `ProjectCtx`，请求带 `?p=<归一化 projectRoot>` 路由（`src/server/project-context.cjs` 的 `createProjectRegistry`）。
+- **常驻单实例多项目**：CLI 侧「存在即复用」（`cli/commands/server.cjs:17`：`getStatus` 探活成功即复用，他项目占用也复用）；server 进程按 `projectRoot` 懒建 `ProjectCtx`，请求带 `?p=<归一化 projectRoot>` 路由（`server/runtime/project.cjs / registry.cjs` 的 `createProjectRegistry`）。
 - **boot 上下文**：不带 `?p` 的请求落到 boot 上下文，其 `projectRoot` 由 `env.CC_PROJECT || cwd` 决定（`server.cjs:42`）。boot 兜底**只对读类请求成立**（见「写类端点缺 `?p` 拒绝」）。
 - **磁盘锚点**：一律落在 `<projectRoot>/.awf/`（无 sid 分片）。`?sid=` 只作 run 标签（tmux 会话名 + hook 路由 + `GET /awf/state?sid=` 软边界），不切分磁盘。
-- **tmux 会话名**：`cc-<projectSid>`，`projectSid` 由归一化 projectRoot 的 SHA-1 前 12 位派生（`src/lib/run-context.cjs` `projectSid`），跨进程/重启稳定，多项目间唯一不互杀。
+- **tmux 会话名**：`cc-<projectSid>`，`projectSid` 由归一化 projectRoot 的 SHA-1 前 12 位派生（`server/shared/run-context.cjs` `projectSid`），跨进程/重启稳定，多项目间唯一不互杀。
 
 ```
 ┌────────────┐  HTTP    ┌───────────────────────────────┐  tmux  ┌──────────────┐
@@ -99,7 +99,7 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 
 ### 3. hook 驱动状态机
 
-`handleSidHook`（`server.cjs:359`）：带 `?sid=` 的 hook 路由到该项目内独立 `runSlot`（`src/server/run-slot.cjs`），只做 ready/busy/decision 隔离，**不做决策闸门**（gate 关时仍捕获 `AskUserQuestion`）。
+`handleSidHook`（`server.cjs:359`）：带 `?sid=` 的 hook 路由到该项目内独立 `runSlot`（`server/runtime/session.cjs`），只做 ready/busy/decision 隔离，**不做决策闸门**（gate 关时仍捕获 `AskUserQuestion`）。
 
 无 `sid` 时按 `event` 分发表：
 
@@ -117,7 +117,7 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 
 ### 4. 决策门阀接线（v0.2.0，单 agent）
 
-决策闸门规则层在 `src/server/decision-gate.cjs`（纯分类），副作用编排在 `server.cjs`。开关来自项目自身 config（`pcx.decisionEnabled()` → `isDecisionEnabled(root)`，缺省关）。
+决策闸门规则层在 `server/features/decision/gate.cjs`（纯分类），副作用编排在 `server.cjs`。开关来自项目自身 config（`pcx.decisionEnabled()` → `isDecisionEnabled(root)`，缺省关）。
 
 **Stop 闸门**（`handleStop`，`server.cjs:456`；`classifyStop`）：
 
@@ -158,29 +158,29 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 
 **`resetRunLogs`**（`server.cjs:106`）：每次 run 启动（`start()` / main 启动）清空 `subagent-failed.jsonl` / `subagent-needs-input.jsonl`，避免跨 run 残留触发伪补发；`subagent-events.jsonl` 纯观测保留。
 
-`RESULT` 解析原语在 `src/lib/extract.cjs`（`RESULT_RE` / `RESULT_STATUSES = ['done','blocked','failed','fail']`）；协议与 `plugin/core/agents/awf-worker.md` 对齐。
+`RESULT` 解析原语在 `server/adapters/cc/extract.cjs`（`RESULT_RE` / `RESULT_STATUSES = ['done','blocked','failed','fail']`）；协议与 `plugin/core/agents/awf-worker.md` 对齐。
 
 ### 6. 静态托管（web/ 构建产物）
 
 - 页面路径集合 `PAGE_PATHS`（`server.cjs:807`）统一处理：读 `webIndexHtml()` = `fs.readFileSync(<webPublicRoot>/index.html)`。
 - **前端工程本身**（工程结构 / 四视图职责 / `?p` 取数 / 事件驱动 / 构建链）见 `web.md`。
 
-- `webPublicRoot()` = `process.env.CC_WEB_PUBLIC || src/server/public`（`server.cjs:795`）。
+- `webPublicRoot()` = `process.env.CC_WEB_PUBLIC || server/public`（`server.cjs:795`）。
 - **产物缺失 → 503 + 告警**：`console.warn('[web] 前端产物缺失：…请运行 npm run build')`，响应体含 `expected` 路径（`server.cjs:889-895`）——不给空白页、不静默 404。
-- GET 兜底：`webHostInstance()` = `createStaticHost({ root, aliases:{ '/':'index.html' }, spa:'index.html' })`（`src/server/static.cjs`）；命中即响应，无扩展名前端路由 SPA 回退 `index.html`。
+- GET 兜底：`webHostInstance()` = `createStaticHost({ root, aliases:{ '/':'index.html' }, spa:'index.html' })`（`server/web/static.cjs`）；命中即响应，无扩展名前端路由 SPA 回退 `index.html`。
 - 旧静态页 `dashboard.html` / `decisions.html` / `diagnostics.html` / `theme.css` / `common.js` / `ui.html` 已删除（T1-119）；`/ui` 现为 404。
 
 ### 7. 空闲回收与 server 日志
 
 **空闲回收**（`server.cjs:1477-1490`，仅 `require.main === module`）：
 
-- 阈值 `idleDefaultMs()`：默认 30min，`CC_SERVER_IDLE_MS` 覆盖，`<=0` 禁用（`src/lib/server-idle.cjs`）。
+- 阈值 `idleDefaultMs()`：默认 30min，`CC_SERVER_IDLE_MS` 覆盖，`<=0` 禁用（`server/runtime/idle.cjs`）。
 - 检查间隔 `CC_SERVER_IDLE_CHECK_MS`（默认 60000）。
 - 触发条件：`anyHostActive()` 为假（**全部项目无 queued/running run**）且 `isIdleDue({ now, lastActivityAt, idleMs })` → `stop()` → `process.exit(0)`。
 
 **server 日志**：`server.cjs` 自身只写 `console.log/error`（启动行 `[server] listening … project=… pid=…`；`notice()` 落 run 日志 + console）。stdout/stderr 由**启动方**接到 `.awf/logs/server.log`：
 
-- `src/cli/run.js:213` 与 `src/cli/server.js:25` 用 `openServerLog(serverLogPath(logsDir))`（`src/lib/server-log.js`）取 fd，spawn server 时 `stdio: ['ignore', fd, fd]`。
+- `cli/commands/run.cjs:213` 与 `cli/commands/server.cjs:25` 用 `openServerLog(serverLogPath(logsDir))`（`cli/lib/server-log.cjs`）取 fd，spawn server 时 `stdio: ['ignore', fd, fd]`。
 - 单文件上限 5MB（`CC_SERVER_LOG_MAX_MB`，`<=0` 不轮转）；超限时单代轮转为 `server.log.1`。
 
 ## 核心常量 / 配置
@@ -191,7 +191,7 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 | `ENTER_DELAY_MS` | 200（`CC_ENTER_DELAY_MS`） | `sendText` 后等再 `sendEnter` |
 | `LOCAL_CMD_FALLBACK_MS` | 1500（`CC_LOCAL_CMD_MS`） | `/cmd`、`/stop`、`/respond`（无 decision）兜底回 ready |
 | `DECISION_FALLBACK_MS` | 300000（`CC_DECISION_FALLBACK_MS`） | `/respond`（有 decision）兜底回 ready |
-| `WEB_PUBLIC_DEFAULT` | `src/server/public`（`CC_WEB_PUBLIC`） | 前端产物根目录 |
+| `WEB_PUBLIC_DEFAULT` | `server/public`（`CC_WEB_PUBLIC`） | 前端产物根目录 |
 | `PAGE_PATHS` | `/,/dashboard(.html),/diagnostics(.html),/decisions(.html)` | 统一走 web 产物承载 |
 | `PROJECT_AGNOSTIC_WRITES` | `{ /shutdown }` | 唯一可不带 `?p` 的写类端点 |
 | `IDLE_MS_DEFAULT` | 30min（`CC_SERVER_IDLE_MS`，0=禁用） | 空闲回收阈值 |
@@ -203,26 +203,26 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `writeNeedsProject(method, pathname)` | 写类请求是否必须显式带 `?p` | `src/server/server.cjs:859` |
-| `resolveCtxForUrl(url)` | 解析请求的项目上下文（缺省 boot） | `src/server/server.cjs:837` |
-| `isMainSession(pcx, body)` | 是否影响主 ready/busy 的会话（隔离子 agent） | `src/server/server.cjs:262` |
-| `setReady/setBusy/waitReady` | ready/busy 状态机 + 等待队列 | `src/server/server.cjs:290,297,301` |
-| `setDecision/clearDecision` | 决策挂起置位/清除（开闸时推 host 事件） | `src/server/server.cjs:273,286` |
-| `handleStop(pcx, body)` | Stop 统一决策闸门（三分支） | `src/server/server.cjs:456` |
-| `handleAskUserQuestion(pcx, body)` | AskUserQuestion 决策化（捕获/deny） | `src/server/server.cjs:427` |
-| `persistDecision(pcx, result, source)` | 决策落盘 + 置 decisionResume | `src/server/server.cjs:397` |
-| `handleSidHook(pcx, sid, event, body, res)` | 带 sid 的 hook 路由到独立 run 槽 | `src/server/server.cjs:359` |
-| `settleSubagent(pcx, body)` | 子 agent RESULT 落账写 state | `src/server/server.cjs:113` |
-| `logSubagentEvent/Failure/NeedsInput` | 子 agent 观测/失败/决策日志 | `src/server/server.cjs:66,75,89` |
-| `resetRunLogs(pcx)` | run 启动清空驱动 CLI 的日志 | `src/server/server.cjs:106` |
-| `bootstrapRunHost(pcx)` | 装配本项目 run host（惰性单例） | `src/server/server.cjs:622` |
-| `anyHostActive()` | 任一项目有 run 在驱动（空闲回收/关机判据） | `src/server/server.cjs:684` |
-| `defaultSingleExecutor(pcx)` | 单 agent 执行器：发 prompt → 等自我结算 | `src/server/server.cjs:503` |
-| `sessionChannel(pcx)` | 会话通道（上下文压缩/收尾协商） | `src/server/server.cjs:568` |
-| `batchTransportFor(pcx, stateApi)` | 多 agent 传输层端口接线 | `src/server/server.cjs:731` |
-| `notice(pcx, kind, level, msg)` | 运维通知：run 日志 + console | `src/server/server.cjs:821` |
-| `webPublicRoot/webIndexHtml/webHostInstance` | web 产物根/首页/静态宿主 | `src/server/server.cjs:795,798,811` |
-| `start/stop` | 监听/优雅关闭（含 stop 全部 run host） | `src/server/server.cjs:1417,1431` |
+| `writeNeedsProject(method, pathname)` | 写类请求是否必须显式带 `?p` | `server/server.cjs:859` |
+| `resolveCtxForUrl(url)` | 解析请求的项目上下文（缺省 boot） | `server/server.cjs:837` |
+| `isMainSession(pcx, body)` | 是否影响主 ready/busy 的会话（隔离子 agent） | `server/server.cjs:262` |
+| `setReady/setBusy/waitReady` | ready/busy 状态机 + 等待队列 | `server/server.cjs:290,297,301` |
+| `setDecision/clearDecision` | 决策挂起置位/清除（开闸时推 host 事件） | `server/server.cjs:273,286` |
+| `handleStop(pcx, body)` | Stop 统一决策闸门（三分支） | `server/server.cjs:456` |
+| `handleAskUserQuestion(pcx, body)` | AskUserQuestion 决策化（捕获/deny） | `server/server.cjs:427` |
+| `persistDecision(pcx, result, source)` | 决策落盘 + 置 decisionResume | `server/server.cjs:397` |
+| `handleSidHook(pcx, sid, event, body, res)` | 带 sid 的 hook 路由到独立 run 槽 | `server/server.cjs:359` |
+| `settleSubagent(pcx, body)` | 子 agent RESULT 落账写 state | `server/server.cjs:113` |
+| `logSubagentEvent/Failure/NeedsInput` | 子 agent 观测/失败/决策日志 | `server/server.cjs:66,75,89` |
+| `resetRunLogs(pcx)` | run 启动清空驱动 CLI 的日志 | `server/server.cjs:106` |
+| `bootstrapRunHost(pcx)` | 装配本项目 run host（惰性单例） | `server/server.cjs:622` |
+| `anyHostActive()` | 任一项目有 run 在驱动（空闲回收/关机判据） | `server/server.cjs:684` |
+| `defaultSingleExecutor(pcx)` | 单 agent 执行器：发 prompt → 等自我结算 | `server/server.cjs:503` |
+| `sessionChannel(pcx)` | 会话通道（上下文压缩/收尾协商） | `server/server.cjs:568` |
+| `batchTransportFor(pcx, stateApi)` | 多 agent 传输层端口接线 | `server/server.cjs:731` |
+| `notice(pcx, kind, level, msg)` | 运维通知：run 日志 + console | `server/server.cjs:821` |
+| `webPublicRoot/webIndexHtml/webHostInstance` | web 产物根/首页/静态宿主 | `server/server.cjs:795,798,811` |
+| `start/stop` | 监听/优雅关闭（含 stop 全部 run host） | `server/server.cjs:1417,1431` |
 
 ## 接口 / 依赖
 
@@ -230,23 +230,23 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 |------|------|
 | `node:http` | HTTP server 创建 + `upgrade` 处理 |
 | `node:fs` / `node:path` | 读 state/产物；子 agent 日志、state.lock 写 |
-| `src/server/tmux.cjs` | `hasSession/sendText/sendEnter/sendCtrlC/capture`（每项目一实例） |
-| `src/server/project-context.cjs` | 单 server 多项目：ProjectCtx 容器 + 注册表（`?p` 寻址） |
-| `src/server/run-slot.cjs` | per-sid 内存状态机（ready/busy/decision 隔离；`contextReady` 死字段已摘除，见 issue 004-2） |
-| `src/server/static.cjs` | 静态托管原语（web 产物 SPA 回退） |
-| `src/server/ws.cjs` | 极简 WebSocket 助手（`/run/events` 实时推送） |
-| `src/server/interact.cjs` | 决策请求校验 / handoff 读写（`validateDecisionRequest`） |
-| `src/server/decision-gate.cjs` | 决策闸门规则层（分类/兜底/记录构造） |
-| `src/server/decision-store.cjs` | 决策记录追加式存储（幂等 + override） |
-| `src/server/decision.cjs` | `<AWF_DECISION_RESULT>` 解析与轻量校验 |
-| `src/server/decision-instruction.cjs` | 读 `plugin/decision/decision/mode-instruction.md` |
-| `src/server/run-logger.cjs` | transcript 采集 / `logPrompt`/`logChoice`/`logDecision`/`logNotice` |
-| `src/server/run-host.cjs` | 常驻 run host（driveSingle / driveBatch + 事件环 + 收尾） |
-| `src/adapters/ports.cjs` | `ccShapes`（blockDecision / denyPermission）、`oneshot` 端口 |
-| `src/lib/extract.cjs` | RESULT / NEEDS_INPUT / transcript 提取原语 |
-| `src/lib/server-idle.cjs` | 空闲回收纯判定 |
-| `src/lib/server-log.js` | server 输出落盘（启动方使用） |
-| `src/lib/run-context.cjs` | sid→路径/会话名/端口装配（单源） |
+| `server/adapters/cc/host.cjs` | `hasSession/sendText/sendEnter/sendCtrlC/capture`（每项目一实例） |
+| `server/runtime/project.cjs / registry.cjs` | 单 server 多项目：ProjectCtx 容器 + 注册表（`?p` 寻址） |
+| `server/runtime/session.cjs` | per-sid 内存状态机（ready/busy/decision 隔离；`contextReady` 死字段已摘除，见 issue 004-2） |
+| `server/web/static.cjs` | 静态托管原语（web 产物 SPA 回退） |
+| `server/web/ws.cjs` | 极简 WebSocket 助手（`/run/events` 实时推送） |
+| `server/web/interact.cjs` | 决策请求校验 / handoff 读写（`validateDecisionRequest`） |
+| `server/features/decision/gate.cjs` | 决策闸门规则层（分类/兜底/记录构造） |
+| `server/features/decision/store.cjs` | 决策记录追加式存储（幂等 + override） |
+| `server/features/decision/core.cjs` | `<AWF_DECISION_RESULT>` 解析与轻量校验 |
+| `server/features/decision/instruction.cjs` | 读 `plugin/decision/decision/mode-instruction.md` |
+| `server/observability/run-logger.cjs` | transcript 采集 / `logPrompt`/`logChoice`/`logDecision`/`logNotice` |
+| `server/run/host.cjs` | 常驻 run host（driveSingle / driveBatch + 事件环 + 收尾） |
+| `server/adapters/ports.cjs` | `ccShapes`（blockDecision / denyPermission）、`oneshot` 端口 |
+| `server/adapters/cc/extract.cjs` | RESULT / NEEDS_INPUT / transcript 提取原语 |
+| `server/runtime/idle.cjs` | 空闲回收纯判定 |
+| `cli/lib/server-log.cjs` | server 输出落盘（启动方使用） |
+| `server/shared/run-context.cjs` | sid→路径/会话名/端口装配（单源） |
 
 ## 验收标准
 
@@ -255,6 +255,6 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 - [ ] hook 驱动 `ready`/`busy`；子 agent 事件不翻转主闩锁（`UserPromptSubmit`/`Stop` 仅主会话生效）。
 - [ ] `SubagentStop` 解析 `RESULT` 落账（status/exec/commits）；`NEEDS_INPUT` 只记不落账；已 done 任务良性拒绝。
 - [ ] 决策闸门：gate 开时 Stop 三分支（complete/deciding/resolve）生效，`<AWF_DECISION_RESULT>` 落盘并回灌 decisionResume；gate 关时 `AskUserQuestion` 维持捕获。
-- [ ] 前端页面由 `src/server/public` 承载；产物缺失 → 503 + 告警（提示 `npm run build`），不回退 legacy 页面。
+- [ ] 前端页面由 `server/public` 承载；产物缺失 → 503 + 告警（提示 `npm run build`），不回退 legacy 页面。
 - [ ] 空闲回收：全部项目无 run 驱动且空闲超时 → 自动 `stop()` 退出；`/shutdown` 优雅关闭。
 - [ ] server 输出（含启动行、`notice` 运维行）落 `.awf/logs/server.log`，超限单代轮转。

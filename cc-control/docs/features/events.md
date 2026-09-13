@@ -1,7 +1,7 @@
 # 事件总线（events） — 功能文档
 
 > 对应 WBS：W1-028（首批领域事件类型 + 进程内总线）；接缝引用 W3-003/004、W1-031/046
-> 源码：`src/lib/events.cjs`
+> 源码：`server/shared/events.cjs`
 
 ## 功能描述
 
@@ -13,11 +13,11 @@
 2. **归一化与校验 `createEvent`** — 补齐 `at`/`runId`，缺必需载荷键即抛错。
 3. **进程内总线 `createEventBus` / `wirePersist`** — `on(type|'*', fn)` 订阅、`emit(event)` 依注册顺序同步分发、单 handler 异常被吞。
 
-> 现状（以代码为准）：本模块是**已定义、尚未接入生产热路径**的接缝。生产 `/hook`（`src/server/server.cjs`）目前直接按事件名分流，未调用 hook-adapter；`createRunHost`（`src/server/run-host.cjs`）接受可选 `bus`，但 `src/server/server.cjs` 装配时**未传入** `bus`。`createEventBus`/`wirePersist` 当前仅被单测消费。
+> 现状（以代码为准）：本模块是**已定义、尚未接入生产热路径**的接缝。生产 `/hook`（`server/server.cjs`）目前直接按事件名分流，未调用 hook-adapter；`createRunHost`（`server/run/host.cjs`）接受可选 `bus`，但 `server/server.cjs` 装配时**未传入** `bus`。`createEventBus`/`wirePersist` 当前仅被单测消费。
 
 ## 事件信封形状
 
-`createEvent(type, payload = {}, runId)` 返回（`src/lib/events.cjs:54`）：
+`createEvent(type, payload = {}, runId)` 返回（`server/shared/events.cjs:54`）：
 
 ```js
 { type, at: <ISO 时间戳>, runId: runId ?? null, payload }
@@ -46,7 +46,7 @@
 | `metrics.snapshot` | `run.metrics` | `metrics.snapshot` | （无） |
 | `decision.record` | `decision.gate` | `decision.record` | `decisionId` |
 
-来源：`EVENT_DEFS`（`src/lib/events.cjs:15-31`）；`EVENT_TYPES = Object.keys(EVENT_DEFS)`（`:45`）。
+来源：`EVENT_DEFS`（`server/shared/events.cjs:15-31`）；`EVENT_TYPES = Object.keys(EVENT_DEFS)`（`:45`）。
 
 ## hook → 事件映射（`HOOK_EVENT_MAP`）
 
@@ -60,23 +60,23 @@
 | `PreToolUse` | `null`（不产出，由决策/权限判断决定） |
 | `PostToolUse` | `null` |
 
-来源：`src/lib/events.cjs:34-42`。消费方：`translateHook` / `createHookAdapter`（`src/server/hook-adapter.cjs:59-90`），它把 hook payload 译为事件数组并逐条 `emit`；`FIELD_ANCHORS` 为各 hook 提供最小载荷映射（`hook-adapter.cjs:22-28`）。
+来源：`server/shared/events.cjs:34-42`。消费方：`translateHook` / `createHookAdapter`（`server/adapters/cc/hook.cjs:59-90`），它把 hook payload 译为事件数组并逐条 `emit`；`FIELD_ANCHORS` 为各 hook 提供最小载荷映射（`hook-adapter.cjs:22-28`）。
 
 ## 谁发 / 谁收
 
 | 角色 | 实体 | 依据 |
 |------|------|------|
-| 事件定义消费（翻译） | `src/server/hook-adapter.cjs`（`translateHook`/`createHookAdapter`，require `HOOK_EVENT_MAP`、`createEvent`） | `hook-adapter.cjs:19` |
-| 端口暴露 | `src/adapters/ports.cjs` 导出 `hook: createHookAdapter`；`createCcAdapters({ bus })` 用 `bus.emit` 作为 emit | `ports.cjs:154-158,183` |
+| 事件定义消费（翻译） | `server/adapters/cc/hook.cjs`（`translateHook`/`createHookAdapter`，require `HOOK_EVENT_MAP`、`createEvent`） | `hook-adapter.cjs:19` |
+| 端口暴露 | `server/adapters/ports.cjs` 导出 `hook: createHookAdapter`；`createCcAdapters({ bus })` 用 `bus.emit` 作为 emit | `ports.cjs:154-158,183` |
 | 宿主侧发射 | `createRunHost` 的 `emit(type, runId, payload)`：写入事件环 + 调 `bus?.emit({type,at,runId,payload})`（若注入）+ 通知 subscribers | `run-host.cjs:143-159` |
-| 生产装配 | `src/server/server.cjs` 调 `createRunHost` 时**未传 bus** | `server.cjs:662-671` |
+| 生产装配 | `server/server.cjs` 调 `createRunHost` 时**未传 bus** | `server.cjs:662-671` |
 
 > `run-host.cjs` 自身的 `HOST_EVENT_TYPES`（`run.submitted`/`run.started`/`run.phase`/`run.stopped`/`run.error`/`task.started`/`task.done`/`task.blocked`/`gate.fix`，`run-host.cjs:46-56`）与 `EVENT_DEFS` **部分重叠但不相等**：`run.submitted`/`run.error`/`gate.fix` 只在宿主侧，`agent.*`/`usage.snapshot`/`metrics.snapshot`/`decision.record` 只在 `EVENT_DEFS`。
 
 ## 与 WS / 前端推送的关系
 
-- `src/server/ws.cjs` 是零依赖的 RFC6455 服务端助手（握手 `upgrade`、`encodeTextFrame`、客户端帧解析），只负责「服务端 → 客户端」文本帧推送（`ws.cjs:1-10`）。
-- `src/server/server.cjs` 在 `upgrade` 上仅接受 `/run/events` 路径；握手成功后经 **`pcx.runHost.subscribe(...)`** 订阅宿主事件，用 `encodeTextFrame(JSON.stringify(event))` 推送（`server.cjs:1395-1415`）。
+- `server/web/ws.cjs` 是零依赖的 RFC6455 服务端助手（握手 `upgrade`、`encodeTextFrame`、客户端帧解析），只负责「服务端 → 客户端」文本帧推送（`ws.cjs:1-10`）。
+- `server/server.cjs` 在 `upgrade` 上仅接受 `/run/events` 路径；握手成功后经 **`pcx.runHost.subscribe(...)`** 订阅宿主事件，用 `encodeTextFrame(JSON.stringify(event))` 推送（`server.cjs:1395-1415`）。
 - 因此 **WS 推送的数据源是 run-host 的事件环 / subscriber 集合，不是 `events.cjs` 总线**。run-host 事件形状是 `{ seq, runId, type, at, payload }`（`run-host.cjs:145`，比事件信封多一个单调递增 `seq`），支持按 `afterSeq` 轮询补拉（`GET /run/events` → `runHost.pollEvents`，`server.cjs:1287-1297`）。事件环上限 `EVENT_RING_CAP = 10000`（`run-host.cjs:40`）。
 
 ## 核心常量 / 配置
@@ -92,22 +92,22 @@
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `createEvent(type, payload, runId)` | 归一化 + 校验必需载荷键，返回 `{type,at,runId,payload}` | `src/lib/events.cjs:48-55` |
-| `persistSinkFor(type)` | 返回事件的 persist sink 类型，无则 `null` | `src/lib/events.cjs:58-61` |
-| `createEventBus()` | 返回 `{ on, emit, types }`；`on` 返回取消订阅函数 | `src/lib/events.cjs:67-96` |
-| `wirePersist(bus, sinks, { dispatch })` | 订阅 `'*'`，按 persist 锚点把事件派发给 `dispatch`；无锚点忽略 | `src/lib/events.cjs:99-106` |
-| `translateHook(payload)` | hook payload → 领域事件数组（消费方实现） | `src/server/hook-adapter.cjs:59-73` |
-| `createHookAdapter({ emit })` | `.hook(payload,{runId})` 翻译并逐条 emit，返回事件数 | `src/server/hook-adapter.cjs:79-90` |
+| `createEvent(type, payload, runId)` | 归一化 + 校验必需载荷键，返回 `{type,at,runId,payload}` | `server/shared/events.cjs:48-55` |
+| `persistSinkFor(type)` | 返回事件的 persist sink 类型，无则 `null` | `server/shared/events.cjs:58-61` |
+| `createEventBus()` | 返回 `{ on, emit, types }`；`on` 返回取消订阅函数 | `server/shared/events.cjs:67-96` |
+| `wirePersist(bus, sinks, { dispatch })` | 订阅 `'*'`，按 persist 锚点把事件派发给 `dispatch`；无锚点忽略 | `server/shared/events.cjs:99-106` |
+| `translateHook(payload)` | hook payload → 领域事件数组（消费方实现） | `server/adapters/cc/hook.cjs:59-73` |
+| `createHookAdapter({ emit })` | `.hook(payload,{runId})` 翻译并逐条 emit，返回事件数 | `server/adapters/cc/hook.cjs:79-90` |
 
 ## 接口 / 依赖
 
 | 模块 | 用途 |
 |------|------|
-| `src/lib/events.cjs` | 事件类型目录 + 总线 + persist 锚点（本功能） |
-| `src/server/hook-adapter.cjs` | hook → 领域事件翻译接缝（唯一生产代码消费方） |
-| `src/adapters/ports.cjs` | 经端口契约暴露 `createHookAdapter` / `createCcAdapters` |
-| `src/server/run-host.cjs` | 宿主事件发射，可选把事件转发给注入的 `bus` |
-| `src/server/ws.cjs` | 事件流 WS 推送通道（消费宿主事件，非总线） |
+| `server/shared/events.cjs` | 事件类型目录 + 总线 + persist 锚点（本功能） |
+| `server/adapters/cc/hook.cjs` | hook → 领域事件翻译接缝（唯一生产代码消费方） |
+| `server/adapters/ports.cjs` | 经端口契约暴露 `createHookAdapter` / `createCcAdapters` |
+| `server/run/host.cjs` | 宿主事件发射，可选把事件转发给注入的 `bus` |
+| `server/web/ws.cjs` | 事件流 WS 推送通道（消费宿主事件，非总线） |
 
 ## 验收标准
 

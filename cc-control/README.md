@@ -29,15 +29,18 @@ awf attach               # 实时观看 AI 工作
 ## 架构
 
 ```
-┌─ CLI (bin/awf.js) ─────────────────────────────────┐
-│  读取 state.json → 启动 Session Server + tmux       │
-│  → 逐任务逐阶段发送 prompt → 轮询 ready/busy        │
+┌─ CLI (cli/awf.cjs) ────────────────────────────────┐
+│  读取 state.json → 起环境（Session Server + tmux）   │
+│  → 提交 run（POST /run/submit）→ 订阅事件/状态展示   │
+│  编排（选任务/阶段/派发/落账）不在这里 —— 在宿主      │
 └─────────────────────────────────────────────────────┘
          │ HTTP                          │ spawn
          ▼                              ▼
-┌─ Session Server ──────────┐  ┌─ OneShot ───────────┐
-│  /send /cmd /hook /status │  │  claude -p (prompt) │
-│  ready/busy 状态机        │  └─────────────────────┘
+┌─ Session Server (server/) ─┐  ┌─ OneShot ───────────┐
+│  /hook /send /cmd /status  │  │  claude -p (prompt) │
+│  /run/submit /run/status   │  └─────────────────────┘
+│  ready/busy 状态机         │
+│  + run 宿主（server/run/）  │
 └───────────────────────────┘
          │ tmux send-keys
          ▼
@@ -51,15 +54,13 @@ awf attach               # 实时观看 AI 工作
 
 | 目录 | 说明 |
 |------|------|
-| `bin/` | CLI 入口 |
-| `commands/` | 14 个 slash commands |
-| `skills/` | 10 个 skills（编码/设计/质量标准） |
-| `prompts/run/` | 阶段 prompt 模板 |
-| `tools/` | 3 个 MCP Server（state / session / oneshot） |
-| `src/` | 内部实现（CLI + Server） |
-| `scripts/` | 开发脚本 |
-| `tests/` | 测试 + 评测 |
-| `docs/` | 架构文档 |
+| `cli/` | CLI（7 命令：init / plan / run / plugin / server / open / attach） |
+| `server/` | Session Server + run 宿主（web 面 / run 编排 / features 能力 / runtime 骨架 / shared 原语 / adapters cc 接入） |
+| `plugin/` | 插件市场（三插件：core / decision / plugin-code — 命令 + 技能 + MCP + hooks） |
+| `scripts/` | 开发脚本（bootstrap / render-config / lint / build / eval） |
+| `tests/` | unit / integration / e2e（全真用例集）/ regression / fixtures |
+| `web/` | 看板前端（React + Vite，构建产物落 `server/web/public`） |
+| `docs/` | features（功能文档/测试用例）+ discuss + reuse + CHANGELOG |
 
 ## 开发
 

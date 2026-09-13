@@ -1,12 +1,12 @@
 # CLI 辅助命令（plugin / server / open / attach）— 功能文档
 
 > 对应 WBS：
-> 源码：`src/cli/plugin.js`、`src/cli/server.js`、`src/cli/open.js`、`src/cli/attach.js`（命令注册见 `src/awf.js`）
-> 相关：`src/lib/version.js`（`promptVersion`，当前禁用）
+> 源码：`cli/commands/plugin.cjs`、`cli/commands/server.cjs`、`cli/commands/open.cjs`、`cli/commands/attach.cjs`（命令注册见 `cli/awf.cjs`）
+> 相关：`（已删除：能力停用，见 .awf/issues/017）`（`promptVersion`，当前禁用）
 
 ## 功能描述
 
-`src/awf.js` 注册 7 个命令：`init` / `plan` / `run`（主命令）与 `plugin` / `server` / `open` / `attach`（辅助命令）。本文件覆盖四个辅助命令，另附已禁用返回的 `promptVersion` 辅助面。
+`cli/awf.cjs` 注册 7 个命令：`init` / `plan` / `run`（主命令）与 `plugin` / `server` / `open` / `attach`（辅助命令）。本文件覆盖四个辅助命令，另附已禁用返回的 `promptVersion` 辅助面。
 
 | 命令 | 说明 |
 |------|------|
@@ -38,7 +38,7 @@
 | 其它 | error + `exit(1)` |
 
 - 已安装判据：`~/.claude/plugins/installed_plugins.json` 中该 spec 存在 `scope === 'user'` 的条目（**仅用户级**算已装，项目级不算）。
-- 安装/卸载经 `tooling.*`（`src/adapters/ports.cjs` 端口契约），`claude plugin ...` 字面不出 CLI。
+- 安装/卸载经 `tooling.*`（`server/adapters/ports.cjs` 端口契约），`claude plugin ...` 字面不出 CLI。
 
 ---
 
@@ -81,7 +81,7 @@
 
 ## 附：version-prompt（已禁用返回）
 
-`src/lib/version.js` 的 `promptVersion(cwd)` 交互式选择/递增版本号，仍在单测覆盖内，但 `awf init` 与 `awf plan` 均已注释停用（`version = undefined`）——故 init 不改写 `{{VERSION}}`，plan 不写 state.version。详见 `docs/features/version-prompt.md`。
+`（已删除：能力停用，见 .awf/issues/017）` 的 `promptVersion(cwd)` 交互式选择/递增版本号，仍在单测覆盖内，但 `awf init` 与 `awf plan` 均已注释停用（`version = undefined`）——故 init 不改写 `{{VERSION}}`，plan 不写 state.version。详见 `docs/features/version-prompt.md`。
 
 ## 核心常量 / 配置
 
@@ -89,7 +89,7 @@
 |------|-----|------|
 | 默认 scope | `local` | `awf plugin` 缺省范围 |
 | server 默认端口 | `8787` | `plugin/config.json` `port`，经 `run-context` 装配 |
-| `SERVER_PORT` | `runtimeConfig.getServerPort()` | `src/lib/session/client.js` 导出，open 用 |
+| `SERVER_PORT` | `runtimeConfig.getServerPort()` | `cli/lib/client.cjs` 导出，open 用 |
 | session 基础名 | `cc` | `config.json` `runtime.session`，可由 `CC_SESSION` 覆盖 |
 | tmux 尺寸 | `-x 200 -y 50` | bootstrap 创建（server start 间接调用） |
 
@@ -97,26 +97,26 @@
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `pluginCommand(action, options)` | 按 scope 分发本地/全局 | `src/cli/plugin.js` |
-| `localPlugin(action)` | 本地 install/uninstall（`installProfile`/`installProjectMcp`/`uninstallProfile`） | `src/cli/plugin.js` |
-| `globalPlugin(action)` | 全局 install/uninstall（`claude plugin install/uninstall`） | `src/cli/plugin.js` |
-| `installAllPlugins` / `uninstallAllPlugins` / `loadPluginsFromProfile` | 全局安装 helpers | `src/cli/plugin.js` |
-| `serverCommand(action)` | start / stop / status / 未知 | `src/cli/server.js` |
-| `checkServer(port)` / `requestShutdown(port)` | 探测服务 / POST `/shutdown` | `src/cli/server.js` |
-| `openCommand(target)` / `openBrowser(target)` | 打开页面 / 跨平台开浏览器 | `src/cli/open.js` |
-| `attachCommand()` | tmux 接入 | `src/cli/attach.js` |
-| `installProfile` / `uninstallProfile` / `installProjectMcp` | 本地注册实现 | `src/lib/profile.js` |
+| `pluginCommand(action, options)` | 按 scope 分发本地/全局 | `cli/commands/plugin.cjs` |
+| `localPlugin(action)` | 本地 install/uninstall（`installProfile`/`installProjectMcp`/`uninstallProfile`） | `cli/commands/plugin.cjs` |
+| `globalPlugin(action)` | 全局 install/uninstall（`claude plugin install/uninstall`） | `cli/commands/plugin.cjs` |
+| `installAllPlugins` / `uninstallAllPlugins` / `loadPluginsFromProfile` | 全局安装 helpers | `cli/commands/plugin.cjs` |
+| `serverCommand(action)` | start / stop / status / 未知 | `cli/commands/server.cjs` |
+| `checkServer(port)` / `requestShutdown(port)` | 探测服务 / POST `/shutdown` | `cli/commands/server.cjs` |
+| `openCommand(target)` / `openBrowser(target)` | 打开页面 / 跨平台开浏览器 | `cli/commands/open.cjs` |
+| `attachCommand()` | tmux 接入 | `cli/commands/attach.cjs` |
+| `installProfile` / `uninstallProfile` / `installProjectMcp` | 本地注册实现 | `server/adapters/cc/profile.cjs` |
 
 ## 接口 / 依赖
 
 | 模块 | 用途 |
 |------|------|
-| `src/lib/profile.js` | 本地注册（settings 注入 + 项目 MCP） |
-| `src/adapters/ports.cjs` (`tooling`) | 全局安装/市场运维（`buildInstall`/`buildUninstall`/`buildMarketplaceAdd`） |
-| `src/lib/run-context.cjs` | session / 端口 / 路径单源装配；`projectSid` |
-| `src/lib/session/client.js` (`getStatus`, `SERVER_PORT`) | server 探测、open 端口 |
-| `src/lib/server-log.js` | server 启动日志落盘 |
-| `src/lib/ui/log.js` | `logger` 输出 |
+| `server/adapters/cc/profile.cjs` | 本地注册（settings 注入 + 项目 MCP） |
+| `server/adapters/ports.cjs` (`tooling`) | 全局安装/市场运维（`buildInstall`/`buildUninstall`/`buildMarketplaceAdd`） |
+| `server/shared/run-context.cjs` | session / 端口 / 路径单源装配；`projectSid` |
+| `cli/lib/client.cjs` (`getStatus`, `SERVER_PORT`) | server 探测、open 端口 |
+| `cli/lib/server-log.cjs` | server 启动日志落盘 |
+| `（已删除：TTY 表现层，见 .awf/issues/017）` | `logger` 输出 |
 
 ## 验收标准
 

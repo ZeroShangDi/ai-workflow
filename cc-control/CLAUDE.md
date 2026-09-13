@@ -37,14 +37,25 @@ cc-control/
       commands/            #     slash commands（w-plan* 规划 + w-dev/debug/review/test/doc/commit/ui-*）
       skills/              #     skills（awf-plan-* + code-*）
 
-  src/                     # 应用代码
-    awf.js                 #   CLI 入口（Commander，7 个命令）
-    cli/                   #   CLI 命令实现（init, plan, run, plugin...）
-    server/                #   HTTP Session Server（CLI 基础设施，spawn 式，不进插件）
-    templates/             #   init 模板
+  cli/                     # 新 CLI（Commander，7 命令：init/plan/run/plugin/server/open/attach）
+    awf.cjs                #   入口（package.json bin）— 只编排：起环境/提交 run/订阅展示/决策中继
+    commands/              #   各命令实现（init, plan, run, plugin, server, open, attach）
+    lib/                   #   context（上下文装配）/ client（HTTP）/ session（起环境）/ decision（决策路由）/ env / server-log
+
+  server/                  # HTTP Session Server + run 宿主（CLI 基础设施，spawn 式，不进插件）
+    server.cjs             #   装配根：项目注册表 + HTTP 面 + 生命周期（唯一入口）
+    web/                   #   对外面（api 按域拆 + 静态托管 + ws）
+    run/                   #   编排（host 宿主 / scheduler 调度 / driver 阶段链 / transport 派发 / channel 收尾协商）
+    features/              #   独立功能：context 压缩 / decision 决策 / replanning 动态规划 / gate 门禁闭环 / pause 闩锁 / monitor 介入
+    runtime/               #   运行时骨架（project / registry / session / executor / channel / lifecycle / idle）
+    shared/                #   共享原语（state / store / run-context / project-paths / prompts / plugin-assets / plugin-render / events / task-graph …）
+    observability/         #   观测（run-logger / metrics）
+    adapters/              #   cc 接入（ports 契约 + cc/*：shapes/extract/host/hook/settings/profile/tooling/oneshot/probe/interactive）
+    mock/                  #   测试脚手架（tmux/日志/state 替身；不进生产装配）
+    templates/             #   awf init 的工作区模板（README/config/architecture）
 
   scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
-  tests/                   # unit / integration / eval / fixtures
+  tests/                   # unit / integration / e2e / regression / fixtures
                            #   e2e = 全真端到端用例集（tests/e2e/README.md；与 regression 的关系见 docs/discuss/real-run-suite-merge.md）
   sandbox/                 # 测试沙箱（gitignored）
   docs/                    # features（功能文档/测试用例）+ discuss + reuse + evals + CHANGELOG
@@ -66,7 +77,7 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
   → 确保常驻 HTTP Session Server（单实例多项目：存在即复用，请求带 ?p 路由到各自项目上下文）
   → 创建 tmux session（名 cc-<projectSid>，按项目唯一；bootstrap.sh 只启动 claude）
   → CLI 经 run-client 提交 run（POST /run/submit），此后只订阅/中继，不再持有编排
-  → 宿主驱动（src/server/run-host.cjs）：
+  → 宿主驱动（server/run/host.cjs）：
       max=1（默认）→ driveSingle：逐任务按 run-driver.decideChain 标注阶段链并派发
         simple:  DEV → COMMIT
         medium:  DEV → TEST → COMMIT
@@ -84,7 +95,7 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
 阶段驱动关键设计：
 - **单 agent（driveSingle）**：宿主 executor 把任务 prompt 发往 tmux，等任务在 state 自我结算；
   超时判据是「无变化窗口」——CC 仍 busy 就不计时，仅 idle 且持续无变化才进收尾协商
-  （task-channel.cjs：wrapup → 最多 3 轮追问 → 标 blocked 跳过）；任务前按需上下文压缩
+  （server/run/channel.cjs：wrapup → 连续 3 轮无产出 → 标 blocked 跳过；首轮 wrapup 计入无产出轮次）；任务前按需上下文压缩
 - **多 agent（driveBatch）**：调度权在宿主，经 batch-transport 注入 `subagent-dispatch` 派发 prompt，主会话派生后台子 Agent 并行执行；子 Agent 禁写 state、只输出 RESULT/NEEDS_INPUT
 - **门禁闭环**：门禁任务（kind=review/test）输出结构化 verdict（`exec.verdict`，见 awf-worker.md）；宿主检测「blocked + verdict 非 pass」→ 自动派生修复任务（kind=dev）+ 门禁回退 pending 待复审，直至 pass 或达轮次上限（MAX_RECHECK=3），单/多 agent 双路径均生效
 - **Session Server** 通过 Claude Code Hooks（`SessionStart`/`Stop` → ready，`UserPromptSubmit` → busy）感知状态；`SubagentStart/Stop` 感知子 Agent 生命周期，`PreToolUse(AskUserQuestion)` 感知决策请求
@@ -94,8 +105,8 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
 ## 架构原则
 
 - **插件改动，CLI 零感知** — 提示词由插件声明（`plugin/plugin-code/prompts.json`），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件模板里）。插件改名/改命令，CLI 无需改动。
-- **插件耦合收敛** — cli 与插件的必要耦合集中在 `src/lib/plugin-bridge.js`（插件边界唯一模块），cli 只负责调用/中央调度。
-- **宿主拥有调度权** — 多 agent 下由常驻宿主（`src/server/run-scheduler.js` 就绪池 + 配额 + plannedFiles 冲突，run-host.driveBatch 驱动）决定派发，子 Agent 无调度权：禁写 state、只回吐 `RESULT`/`NEEDS_INPUT`。落账原子化走 `awf_task_complete`（一次提交 status+result+files+commits，避免中间态）；需用户决策时子 Agent 以 `NEEDS_INPUT` 上抛，宿主/CLI 检测到决策挂起则暂停补位，等主 Agent AskUserQuestion 解决后恢复。
+- **插件耦合收敛** — cli 与插件的必要耦合集中在 `server/shared/prompts.js`（读插件 prompts.json 填充提示词），cli 只负责调用/中央调度。
+- **宿主拥有调度权** — 多 agent 下由常驻宿主（`server/run/scheduler.js` 就绪池 + 配额 + plannedFiles 冲突，`server/run/host.cjs` 的 driveBatch 驱动）决定派发，子 Agent 无调度权：禁写 state、只回吐 `RESULT`/`NEEDS_INPUT`。落账原子化走 `awf_task_complete`（一次提交 status+result+files+commits，避免中间态）；需用户决策时子 Agent 以 `NEEDS_INPUT` 上抛，宿主/CLI 检测到决策挂起则暂停补位，等主 Agent AskUserQuestion 解决后恢复。
 
 ## Development workflow state machine
 
@@ -276,24 +287,24 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 
 | 文件 | 角色 |
 |------|------|
-| `src/awf.js` | CLI 入口，命令路由（7 命令：init/plan/run/plugin/server/open/attach） |
-| `src/cli/run.js` | `awf run` 薄入口 — 起环境 + 提交 run（--multi-agent → mode:batch）+ 订阅展示 + 决策中继；不持有编排 |
-| `src/server/run-host.cjs` | 常驻 run 宿主 — driveSingle（单 agent 顺序驱动）/ driveBatch（多 agent 走 run-scheduler）+ 事件环 + 收尾 backupState |
-| `src/server/run-scheduler.js` | 滑动窗口调度器（纯逻辑）— 就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（commit）+ 补位循环；doc 目标文件不冲突时可并行 |
-| `src/server/batch-transport.cjs` | 多 agent 传输层 — dispatch（注入 subagent-dispatch 派发 prompt + 标 active）+ waitAnyDone（轮询结算/落账失败补发/NEEDS_INPUT 挂起/无变化超时） |
-| `src/server/task-channel.cjs` | 单 agent 会话内协商 — 任务前上下文压缩检查 + 收尾协商（wrapup → 3 轮追问 → 标 blocked） |
-| `src/cli/init.js` | `awf init` — 前置检查 + 本地注册插件 + 工作区初始化 |
-| `src/cli/plugin.js` | 插件管理 — 本地注入 / 全局 claude plugin install |
-| `src/lib/profile.js` | 本地注册实现（settings.json 注入/清理）+ installProjectMcp |
-| `src/lib/state.js` | state.json 读写 + 就绪池/scope/文件冲突（peekReadyTasks/buildScopeIndex/filesConflict/EXCLUSIVE_KINDS） |
-| `src/lib/run-context.cjs` | run 装配器 — sid→路径/会话名（cc-<projectSid>）/workdir/settings 单源（server/client/MCP 共用） |
-| `src/lib/paths.js` | 路径解析 |
-| `src/lib/plugin-bridge.js` | 插件边界唯一模块 — 读插件 prompts.json 填充提示词（taskWrapup/taskSettle/contextCheck/subagentDispatch/subagentResend），cli 零感知 |
-| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + subagent-dispatch/resend），runtime 指令由插件声明 |
+| `cli/awf.cjs` | CLI 入口，命令路由（7 命令：init/plan/run/plugin/server/open/attach） |
+| `cli/commands/run.cjs` | `awf run` 薄入口 — 起环境 + 提交 run（--multi-agent → mode:batch）+ 订阅展示 + 决策中继；不持有编排 |
+| `server/run/host.cjs` | 常驻 run 宿主 — driveSingle（单 agent 顺序驱动）/ driveBatch（多 agent 走 run-scheduler）+ 事件环 + 收尾 backupState |
+| `server/run/scheduler.js` | 滑动窗口调度器（纯逻辑）— 就绪池 + 配额（max/maxModules/maxPerModule/maxPerFeature）+ plannedFiles 冲突 + 独占（commit）+ 补位循环；doc 目标文件不冲突时可并行 |
+| `server/run/transport.cjs` | 多 agent 传输层 — dispatch（注入 subagent-dispatch 派发 prompt + 标 active + **派发生效确认**）+ waitAnyDone（轮询结算/落账失败补发/NEEDS_INPUT 挂起/无变化超时） |
+| `server/run/channel.cjs` | 单 agent 收尾协商 — 连续 MAX_SETTLE_ROUNDS 轮无产出 → 标 blocked（首轮 wrapup 计入无产出轮次；上下文压缩已拆到 features/context） |
+| `cli/commands/init.cjs` | `awf init` — 前置检查 + 本地注册插件 + 工作区初始化 |
+| `cli/commands/plugin.cjs` | 插件管理 — 本地注入 / 全局 claude plugin install |
+| `server/adapters/cc/profile.cjs` | 本地注册实现（settings.json 注入/清理）+ installProjectMcp |
+| `server/shared/state.js` | state.json 读写 + 就绪池/scope/文件冲突（peekReadyTasks/buildScopeIndex/filesConflict/EXCLUSIVE_KINDS） |
+| `server/shared/run-context.cjs` | run 装配器 — sid→路径/会话名（cc-<projectSid>）/workdir/settings 单源（server/client/MCP 共用） |
+| `server/shared/project-paths.cjs` | .awf 布局单源（路径解析） |
+| `server/shared/prompts.js` | 插件提示词边界 — 读插件 prompts.json 填充提示词（taskWrapup/taskSettle/contextCheck/subagentDispatch/subagentRedispatch/subagentResend），调用方零感知 |
+| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + subagent-dispatch/**redispatch**/resend），runtime 指令由插件声明 |
 | `plugin/core/agents/awf-worker.md` | 子 Agent 身份化定义 — 滑动窗口执行单元：禁写 state、禁提问、RESULT/NEEDS_INPUT 最后一行输出协议 |
-| `src/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ run.decision.enabled（缺省关）+ docs 配置 |
-| `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额 + run.decision.enabled 决策开关（缺省关），awf run 读取（init 从模板生成） |
-| `src/server/server.cjs` | HTTP Session Server（/send, /cmd, /hook, /status）— CLI 基础设施 |
+| `server/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ run.decision 策略（manual/ai/auto，缺省 auto）+ docs 配置 |
+| `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额 + run.decision.mode 决策策略（manual/ai/auto，缺省 auto），awf run 读取（init 从模板生成） |
+| `server/server.cjs` | HTTP Session Server 装配根（/send, /cmd, /hook, /status, /run/*）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
 | `scripts/render-config.mjs` | 按 config.json marketplace.plugins 遍历生成各插件 plugin.json + marketplace + 引擎插件 mcp/hooks（单源），+ 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
 | `plugin/config.json` | ★ 唯一配置源（engineDir / port / marketplace / mcpServers / hooks） |

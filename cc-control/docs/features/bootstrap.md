@@ -2,7 +2,7 @@
 
 > 对应 WBS：
 > 源码：`scripts/bootstrap.sh`
-> 相关：`src/cli/server.js`（`server start` 在 session 不存在时调用）、`scripts/render-config.mjs`
+> 相关：`cli/commands/server.cjs`（`server start` 在 session 不存在时调用）、`scripts/render-config.mjs`
 
 ## 功能描述
 
@@ -58,7 +58,7 @@ bootstrap.sh
 
 ## 函数清单
 
-`bootstrap.sh` 为纯 bash 脚本，无导出函数；逻辑见上「执行流程」。被 `src/cli/server.js` 的 `serverCommand('start')` 以 `bash "<bootstrapScript>"` 调用（`tmux has-session` 失败时）。
+`bootstrap.sh` 为纯 bash 脚本，无导出函数；逻辑见上「执行流程」。被 `cli/commands/server.cjs` 的 `serverCommand('start')` 以 `bash "<bootstrapScript>"` 调用（`tmux has-session` 失败时）。
 
 ## 接口 / 依赖
 

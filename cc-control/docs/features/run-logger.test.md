@@ -1,7 +1,7 @@
 # Run Logger 模块 — 测试用例
 
 > 对应功能文档：`docs/features/run-logger.md`
-> 源码：`src/server/run-logger.cjs`
+> 源码：`server/observability/run-logger.cjs`
 > 测试文件：`tests/unit/run-logger.test.js`
 
 ## 测试场景总览

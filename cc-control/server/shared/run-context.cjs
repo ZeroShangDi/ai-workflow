@@ -25,7 +25,7 @@ const { getSessionName, getServerPort } = require('./runtime-config.cjs');
 const { SID_PATTERN, validateRunId } = require('./run-id.cjs');
 const projectPaths = require('./project-paths.cjs'); // .awf 布局单源（本文件的路径表全部取自它）
 
-/** cc-control 包根：server/core/run-context.cjs → 上溯两级（core → server → 包根），不受 cwd 影响 */
+/** cc-control 包根：server/shared/run-context.cjs → 上溯两级（shared → server → 包根），不受 cwd 影响 */
 const INFRA_ROOT = path.resolve(__dirname, '..', '..');
 
 /**

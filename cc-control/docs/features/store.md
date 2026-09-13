@@ -1,7 +1,7 @@
 # Store 持久化层 — 功能文档
 
 > 对应 WBS：W1-010/011（store-core 持久化核心，T1-015）、W1-017（store 骨架 + 每 run 布局分流，T1-025）
-> 源码：`src/lib/store-core.cjs` + `src/lib/store-core.js`（ESM 壳）+ `src/lib/store.cjs`
+> 源码：`server/shared/store-core.cjs` + `server/shared/store-core.cjs`（ESM 壳）+ `server/shared/store.cjs`
 
 ## 功能描述
 
@@ -9,11 +9,11 @@ v0.2.0 把「持久化」收敛为两层，消除 CLI / server / MCP 各自重�
 
 | 层 | 文件 | 职责 |
 |-----|------|------|
-| **store-core** | `src/lib/store-core.cjs`（CJS 核心）+ `src/lib/store-core.js`（ESM 壳） | 跨进程单写序列化（锁文件）+ 原子写 + JSON 读 + `updateStateSync` 组合原语。全部同步 API |
-| **store** | `src/lib/store.cjs` | 在 store-core 之上按**数据族**分型的读写 API + 进程内串行化队列 + 按 run-context 装配（`createRunStores`） |
+| **store-core** | `server/shared/store-core.cjs`（CJS 核心）+ `server/shared/store-core.cjs`（ESM 壳） | 跨进程单写序列化（锁文件）+ 原子写 + JSON 读 + `updateStateSync` 组合原语。全部同步 API |
+| **store** | `server/shared/store.cjs` | 在 store-core 之上按**数据族**分型的读写 API + 进程内串行化队列 + 按 run-context 装配（`createRunStores`） |
 
 **边界**：
-- store / store-core **不绑业务字段**。task create/update/status/result/commit/complete 等业务语义由上层（`src/lib/state.js` / `awf-state` MCP / server）用 `updateStateSync` / `updateSync` 组合。
+- store / store-core **不绑业务字段**。task create/update/status/result/commit/complete 等业务语义由上层（`server/shared/state.js` / `awf-state` MCP / server）用 `updateStateSync` / `updateSync` 组合。
 - **无中央 schema 模块**：state 的字段与枚举校验分散在各使用点（`awf-state` MCP 的工具 schema、`state.js` 的常量），store 层只负责读写与并发，不做结构校验。
 - `store.cjs` 是**骨架**：不搬移 run-logger / decision-store 的业务逻辑，仅提供原语；各持久化族按自己的目录/命名调用它。
 
@@ -75,7 +75,7 @@ v0.2.0 把「持久化」收敛为两层，消除 CLI / server / MCP 各自重�
 
 ## 函数清单
 
-### `src/lib/store-core.cjs`
+### `server/shared/store-core.cjs`
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
@@ -85,7 +85,7 @@ v0.2.0 把「持久化」收敛为两层，消除 CLI / server / MCP 各自重�
 | `readJsonSync(filePath)` | 读 JSON；缺失/非法 → null | L79 |
 | `updateStateSync({statePath, lockPath, mutator, timeoutMs})` | 锁内读→改→补 `lastUpdated`→原子写；`false` 不写盘 | L94 |
 
-### `src/lib/store.cjs`
+### `server/shared/store.cjs`
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
@@ -107,13 +107,13 @@ v0.2.0 把「持久化」收敛为两层，消除 CLI / server / MCP 各自重�
 
 | 数据族 | 消费方 | 用法 |
 |--------|--------|------|
-| state | `src/lib/state.js` | 直接 require `store-core`（`withFileLock` / `readJsonSync` / `writeJsonAtomicSync`）|
-| state（装配） | `src/server/project-context.cjs:48` | `createRunStores(storeCtx).state`；server `GET /awf/state` 用 `pcx.stores.state.readSync()` |
-| state（per-sid） | `src/server/project-context.cjs:75` | `writeRunStateSid`：`storeCore.withFileLock(runStateLockFile) + writeJsonAtomicSync`（`?sid=` 显式路径） |
-| run-logger | `src/server/run-logger.cjs:40` | `createAppendFileStore({filePath: main.log})`，`appendRawSync` 写 header |
-| decision-store | `src/server/decision-store.cjs:91,96` | `createAppendFileStore({filePath, json:true})` 追加/读 jsonl |
-| run-meta | `src/lib/run-metrics.cjs:28` | `createJsonFileStore({filePath: run-meta.json})`（原子写，无跨进程锁——单写者 server） |
-| handoff 文本 | `src/server/interact.cjs:65` | `storeCore.atomicWriteFileSync(...)` |
+| state | `server/shared/state.js` | 直接 require `store-core`（`withFileLock` / `readJsonSync` / `writeJsonAtomicSync`）|
+| state（装配） | `server/runtime/project.cjs / registry.cjs:48` | `createRunStores(storeCtx).state`；server `GET /awf/state` 用 `pcx.stores.state.readSync()` |
+| state（per-sid） | `server/runtime/project.cjs / registry.cjs:75` | `writeRunStateSid`：`storeCore.withFileLock(runStateLockFile) + writeJsonAtomicSync`（`?sid=` 显式路径） |
+| run-logger | `server/observability/run-logger.cjs:40` | `createAppendFileStore({filePath: main.log})`，`appendRawSync` 写 header |
+| decision-store | `server/features/decision/store.cjs:91,96` | `createAppendFileStore({filePath, json:true})` 追加/读 jsonl |
+| run-meta | `server/observability/metrics.cjs:28` | `createJsonFileStore({filePath: run-meta.json})`（原子写，无跨进程锁——单写者 server） |
+| handoff 文本 | `server/web/interact.cjs:65` | `storeCore.atomicWriteFileSync(...)` |
 
 ## 验收标准
 

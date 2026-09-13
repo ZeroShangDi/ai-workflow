@@ -182,4 +182,4 @@ plugin/
 - **本地注入**：读 `plugin/settings.json`（含 core + decision + plugin-code）注入到项目 `.claude/settings.json`
 - **全局安装**：`awf plugin install --scope global` 按 `settings.json.plugins` 声明的 `ai-workflow-core@ai-workflow-dev` / `ai-workflow-decision@ai-workflow-dev` / `ai-workflow-code@ai-workflow-dev` 执行 `claude plugin install`
 
-> 架构原则：插件改动，CLI 零感知。CLI 只通过 `src/lib/plugin-bridge.js` 读插件 `prompts.json` 填充提示词，不写死任何插件命令字符串。
+> 架构原则：插件改动，CLI 零感知。CLI 只通过 `server/shared/prompts.js` 读插件 `prompts.json` 填充提示词，不写死任何插件命令字符串。

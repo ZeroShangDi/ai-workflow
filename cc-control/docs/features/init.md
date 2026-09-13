@@ -1,7 +1,7 @@
 # awf init — 功能文档
 
 > 对应 WBS：
-> 源码：`src/cli/init.js`（`initCommand`）；插件注册复用 `src/cli/plugin.js` + `src/lib/profile.js`
+> 源码：`cli/commands/init.cjs`（`initCommand`）；插件注册复用 `cli/commands/plugin.cjs` + `server/adapters/cc/profile.cjs`
 
 ## 功能描述
 
@@ -34,8 +34,8 @@ initCommand(options)
 
 | 文件 | 写入函数 | 内容 |
 |------|----------|------|
-| `<cwd>/.claude/settings.json` | `installProfile`（`src/lib/profile.js`） | 把 `plugin/settings.json` 深合并进去：`plugins` / `enabledPlugins` / `extraKnownMarketplaces`；`<pkg>` 占位替换为包根绝对路径 |
-| `<cwd>/.mcp.json` | `installProjectMcp`（`src/lib/profile.js`） | 由 `plugin/config.json` 渲染的 `awf-state` / `awf-session` / `awf-oneshot` 三个 server；每个 server 带 `env.AWF_PROJECT_ROOT = projectRoot` |
+| `<cwd>/.claude/settings.json` | `installProfile`（`server/adapters/cc/profile.cjs`） | 把 `plugin/settings.json` 深合并进去：`plugins` / `enabledPlugins` / `extraKnownMarketplaces`；`<pkg>` 占位替换为包根绝对路径 |
+| `<cwd>/.mcp.json` | `installProjectMcp`（`server/adapters/cc/profile.cjs`） | 由 `plugin/config.json` 渲染的 `awf-state` / `awf-session` / `awf-oneshot` 三个 server；每个 server 带 `env.AWF_PROJECT_ROOT = projectRoot` |
 
 - **合并语义**：`installProfile` 数组去重追加、对象递归合并，**不覆盖**用户已有的其它键（如 `figma@claude-plugins-official` 等第三方项原样保留）。
 - **路径形态**：自托管（目标项目 == cc-control 包根）→ `.mcp.json` 用相对路径 `plugin/core/...`（可移植、git 干净）；跨项目 → 绝对路径。
@@ -43,15 +43,15 @@ initCommand(options)
 
 ### 步骤 3：`.awf/` 精简骨架
 
-`initWorkspace` 先 `mkdir` 运行时目录，再对缺失文件从 `src/templates/` 复制（不覆盖用户已改过的）：
+`initWorkspace` 先 `mkdir` 运行时目录，再对缺失文件从 `server/templates/` 复制（不覆盖用户已改过的）：
 
 ```
 .awf/
-├── README.md              # ← src/templates/awf-README.md（缺失时）
-├── config.json            # ← src/templates/awf-config.json（缺失时）
+├── README.md              # ← server/templates/awf-README.md（缺失时）
+├── config.json            # ← server/templates/awf-config.jsonon（缺失时）
 ├── state.json             # ← plugin/core/mcp/awf-state/state.template.json（缺失时；替换 {{TIMESTAMP}}）
 ├── context/
-│   └── architecture.md    # ← src/templates/architecture.md（缺失时）
+│   └── architecture.md    # ← server/templates/architecture.md（缺失时）
 ├── bugs/                  # 运行时缺陷记录
 ├── issues/                # Issue 跟踪
 ├── decisions/             # AI 运行期决策记录
@@ -63,7 +63,7 @@ initCommand(options)
     ├── lint/  ├── test/  ├── review/  ├── perf/  └── summary/
 ```
 
-> 目录清单取自 `init.js` 的 `dirs` 数组（与 `src/templates/awf-README.md` 的目录说明一致）。
+> 目录清单取自 `init.js` 的 `dirs` 数组（与 `server/templates/awf-README.md` 的目录说明一致）。
 > 真机回归只校验 8 个顶层目录存在：`bugs / issues / decisions / dynamic-planning / context / logs / reports / versions`。
 
 ### `--force` 与幂等语义
@@ -78,7 +78,7 @@ initCommand(options)
 
 ### 步骤 4：CLAUDE.md 注入（已弃用）
 
-`initClaudeMd` 读 `src/templates/CLAUDE.md.template`：
+`initClaudeMd` 读 `server/templates/CLAUDE.md.template`：
 
 - 模板缺失 → warn 「模板文件不存在，跳过注入」；
 - **模板内容为空 → skip「awf 规则模板已弃用（内容为空），跳过注入」**（当前模板为 0 字节，即新项目不再被写入 awf 规则段）；
@@ -95,7 +95,7 @@ initCommand(options)
 | state 模板路径 | `plugin/core/mcp/awf-state/state.template.json` | 经 `stateTemplatePath()`（`plugin-bridge.js`）解析 |
 | 默认 scope | `local` | `pluginCommand` 缺省 scope |
 
-`.awf/config.json` 模板（`src/templates/awf-config.json`）字段：
+`.awf/config.json` 模板（`server/templates/awf-config.jsonon`）字段：
 
 | 字段 | 默认 | 说明 |
 |------|------|------|
@@ -112,30 +112,30 @@ initCommand(options)
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `initCommand(options)` | 主入口：前置检查 → 注册插件 → 工作区 → CLAUDE.md | `src/cli/init.js` |
-| `checkPrerequisites()` | 检查 tmux（warn）/ claude（error），返回结果数组 | `src/cli/init.js` |
-| `initWorkspace(paths, force, version)` | 创建/补全 `.awf/`，内部闭包 `ensureSkeleton` | `src/cli/init.js` |
-| `copyStateTemplate(awfDir)` | 目标不存在时从 `state.template.json` 复制 | `src/cli/init.js` |
-| `replaceTimestamp(filePath)` | 替换 `{{TIMESTAMP}}` | `src/cli/init.js` |
-| `replaceVersion` / `replaceInDir` | 递归替换 `{{VERSION}}`（version 为 undefined 时整体跳过） | `src/cli/init.js` |
-| `initClaudeMd(projectRoot, cwd)` | 条件性注入 awf 规则到 CLAUDE.md | `src/cli/init.js` |
-| `pluginCommand(action, {scope})` | 按 scope 分发：local（默认）/ global | `src/cli/plugin.js` |
-| `installProfile(projectRoot, pkgRoot)` | 本地注册：合并 `plugin/settings.json` → 项目 `.claude/settings.json` | `src/lib/profile.js` |
-| `installProjectMcp(projectRoot, repoRoot, port?)` | 渲染并合并 awf-* server → 项目 `.mcp.json` | `src/lib/profile.js` |
-| `projectMcpJson(repoRoot, port, projectRoot)` | 按自托管/跨项目选择路径形态，渲染 mcpServers | `src/lib/plugin-config.js` |
+| `initCommand(options)` | 主入口：前置检查 → 注册插件 → 工作区 → CLAUDE.md | `cli/commands/init.cjs` |
+| `checkPrerequisites()` | 检查 tmux（warn）/ claude（error），返回结果数组 | `cli/commands/init.cjs` |
+| `initWorkspace(paths, force, version)` | 创建/补全 `.awf/`，内部闭包 `ensureSkeleton` | `cli/commands/init.cjs` |
+| `copyStateTemplate(awfDir)` | 目标不存在时从 `state.template.json` 复制 | `cli/commands/init.cjs` |
+| `replaceTimestamp(filePath)` | 替换 `{{TIMESTAMP}}` | `cli/commands/init.cjs` |
+| `replaceVersion` / `replaceInDir` | 递归替换 `{{VERSION}}`（version 为 undefined 时整体跳过） | `cli/commands/init.cjs` |
+| `initClaudeMd(projectRoot, cwd)` | 条件性注入 awf 规则到 CLAUDE.md | `cli/commands/init.cjs` |
+| `pluginCommand(action, {scope})` | 按 scope 分发：local（默认）/ global | `cli/commands/plugin.cjs` |
+| `installProfile(projectRoot, pkgRoot)` | 本地注册：合并 `plugin/settings.json` → 项目 `.claude/settings.json` | `server/adapters/cc/profile.cjs` |
+| `installProjectMcp(projectRoot, repoRoot, port?)` | 渲染并合并 awf-* server → 项目 `.mcp.json` | `server/adapters/cc/profile.cjs` |
+| `projectMcpJson(repoRoot, port, projectRoot)` | 按自托管/跨项目选择路径形态，渲染 mcpServers | `server/shared/plugin-render.cjs` |
 
 ## 接口 / 依赖
 
 | 模块 | 用途 |
 |------|------|
 | `node:child_process` (`execSync`) | 前置检查 `command -v tmux` |
-| `src/adapters/ports.cjs` (`tooling`) | `tooling.claudeAvailable` 检查 claude（不直连 adapter 文件） |
-| `src/cli/plugin.js` (`pluginCommand`) | 触发本地注册 |
-| `src/lib/profile.js` | 本地注册实现（settings 注入 + 项目 MCP 注册） |
-| `src/lib/plugin-bridge.js` (`stateTemplatePath`) | state 模板路径解析（插件边界唯一模块） |
-| `src/lib/paths.js` (`getPaths`) | 解析 `projectRoot` 等 |
-| `src/templates/*` | 骨架模板（README / config / architecture / CLAUDE.md.template） |
-| `src/lib/ui/log.js` | `logSection` / `logStep` 分节分步输出 |
+| `server/adapters/ports.cjs` (`tooling`) | `tooling.claudeAvailable` 检查 claude（不直连 adapter 文件） |
+| `cli/commands/plugin.cjs` (`pluginCommand`) | 触发本地注册 |
+| `server/adapters/cc/profile.cjs` | 本地注册实现（settings 注入 + 项目 MCP 注册） |
+| `server/shared/prompts.js` (`stateTemplatePath`) | state 模板路径解析（插件边界唯一模块） |
+| `server/shared/project-paths.cjs` (`getPaths`) | 解析 `projectRoot` 等 |
+| `server/templates/*` | 骨架模板（README / config / architecture / CLAUDE.md.template） |
+| `（已删除：TTY 表现层，见 .awf/issues/017）` | `logSection` / `logStep` 分节分步输出 |
 
 ## 验收标准
 

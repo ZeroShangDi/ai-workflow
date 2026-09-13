@@ -1,8 +1,8 @@
 # tmux 会话 & awf-session 观测 — 功能文档
 
 > 对应 WBS：W3-004（adapters/cc 工具适配收口）/ W3-006（多 run sid 贯穿）
-> 源码：`src/server/tmux.cjs` + `src/server/host.cjs` + `scripts/bootstrap.sh` + `plugin/core/mcp/awf-session/server.cjs`
-> 装配：`src/lib/run-context.cjs`（会话名/路径单源）
+> 源码：`server/adapters/cc/host.cjs` + `server/adapters/cc/host.cjs` + `scripts/bootstrap.sh` + `plugin/core/mcp/awf-session/server.cjs`
+> 装配：`server/shared/run-context.cjs`（会话名/路径单源）
 
 ## 功能描述
 
@@ -16,7 +16,7 @@ CLI/server ──tmux 原语(send-keys/capture-pane)──→ tmux 会话(内跑
 
 ### 会话命名：`cc-<projectSid>`
 
-会话名由 `run-context.cjs` 单源装配（`src/lib/run-context.cjs`）：
+会话名由 `run-context.cjs` 单源装配（`server/shared/run-context.cjs`）：
 
 | 字段 | 值 | 位置 |
 |------|-----|------|
@@ -26,7 +26,7 @@ CLI/server ──tmux 原语(send-keys/capture-pane)──→ tmux 会话(内跑
 | `projectSessionName(projectRoot)` | `${session}-${projectSid(root)}` | `run-context.cjs:143-145` |
 
 即实跑会话名形如 **`cc-p<12位hex>`**。`awf run` 用 `projectSid(projectRoot)` 作 sid 传入
-（`src/cli/run.js:51`），保证同一项目跨 CLI/server/重启产生同一会话名，`--resume`/`--attach` 可重发现。
+（`cli/commands/run.cjs:51`），保证同一项目跨 CLI/server/重启产生同一会话名，`--resume`/`--attach` 可重发现。
 
 ### 会话启动：live 走 `scripts/bootstrap.sh`（未收口）
 
@@ -34,7 +34,7 @@ CLI/server ──tmux 原语(send-keys/capture-pane)──→ tmux 会话(内跑
 `not-landed`，责任任务 T1-113）：
 
 ```
-src/cli/run.js ensureSession()               （src/cli/run.js:233-268）
+cli/commands/run.cjs ensureSession()               （cli/commands/run.cjs:233-268）
   → 可选复用：tmux display-message -p -t <session> "#{pane_current_path}" 比对 workDir（:236-248）
   → 否则 kill 旧会话 → execSync(`bash "${bootstrapScript}"`, { cwd: workDir, env: {...} })（:250-265）
        env 注入：CC_WORKDIR / CC_SESSION / CC_PROJECT / CC_AWF_STATE_SERVER=1 / CC_PORT
@@ -75,11 +75,11 @@ bootstrap 的本进程 env。并发多 run / 机器上残留别项目会话时�
 
 | 层 | 文件 | 方式 | 用途 |
 |-----|------|------|------|
-| Server 侧（单会话） | `src/server/tmux.cjs` | `execFileSync('tmux', …)` | server/project-context 向 tmux 发指令（`createTmux(sessionName)`，默认实例名来自 `buildRunContext().runSessionName`，`tmux.cjs:54`） |
-| host 端口（参数化） | `src/server/host.cjs` | `execFileSync('tmux', …)` | `createHost({ sessionName, execFileSync })`，同名原语、会话名参数化；经 `ports.cjs` 作 `host` 端口暴露 |
+| Server 侧（单会话） | `server/adapters/cc/host.cjs` | `execFileSync('tmux', …)` | server/project-context 向 tmux 发指令（`createTmux(sessionName)`，默认实例名来自 `buildRunContext().runSessionName`，`tmux.cjs:54`） |
+| host 端口（参数化） | `server/adapters/cc/host.cjs` | `execFileSync('tmux', …)` | `createHost({ sessionName, execFileSync })`，同名原语、会话名参数化；经 `ports.cjs` 作 `host` 端口暴露 |
 | MCP 侧 | `plugin/core/mcp/awf-session/server.cjs` | HTTP 到 server + 降级本地 `execSync('tmux', …)` | 会话内 claude 观测自身会话 |
 
-> **未收口**：`tmux.cjs` / `host.cjs` 里的 `execFileSync('tmux', …)` 字面仍在 `src/server/`
+> **未收口**：`tmux.cjs` / `host.cjs` 里的 `execFileSync('tmux', …)` 字面仍在 `server/`
 > （审计 F3/F5），尚未迁入 adapters；`host` 端口虽在名册，其实现仍在 server。
 
 ### 发送与抓取
@@ -151,12 +151,12 @@ Server 端强制校验 **mode=pause**（`server.cjs` `/intervene` 走 `requirePa
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `createTmux(sessionName)` | 构建 tmux 原语集合（`SESSION`/hasSession/sendText/sendEnter/sendCtrlC/capture） | `src/server/tmux.cjs:14` |
-| `createHost({ sessionName, execFileSync })` | 参数化 tmux 原语（host 端口工厂） | `src/server/host.cjs:18` |
-| `buildRunContext({ sid, projectRoot, env })` | 装配会话名/路径/端口 | `src/lib/run-context.cjs:42` |
-| `projectSid(projectRoot)` | 确定性项目 sid | `src/lib/run-context.cjs:131` |
-| `ensureSession(bootstrapScript, workDir, sessionName, reuseExisting)` | 起/复用 tmux 会话（调 bootstrap.sh） | `src/cli/run.js:233` |
-| `waitSessionStarted(ctx, workDir, seqBefore, deps)` | 等 SessionStart 就绪（补 Enter 兜信任弹窗） | `src/cli/run.js:171` |
+| `createTmux(sessionName)` | 构建 tmux 原语集合（`SESSION`/hasSession/sendText/sendEnter/sendCtrlC/capture） | `server/adapters/cc/host.cjs:14` |
+| `createHost({ sessionName, execFileSync })` | 参数化 tmux 原语（host 端口工厂） | `server/adapters/cc/host.cjs:18` |
+| `buildRunContext({ sid, projectRoot, env })` | 装配会话名/路径/端口 | `server/shared/run-context.cjs:42` |
+| `projectSid(projectRoot)` | 确定性项目 sid | `server/shared/run-context.cjs:131` |
+| `ensureSession(bootstrapScript, workDir, sessionName, reuseExisting)` | 起/复用 tmux 会话（调 bootstrap.sh） | `cli/commands/run.cjs:233` |
+| `waitSessionStarted(ctx, workDir, seqBefore, deps)` | 等 SessionStart 就绪（补 Enter 兜信任弹窗） | `cli/commands/run.cjs:171` |
 | `capturePane()` | 经 server snapshot，失败降级本地 tmux | `plugin/core/mcp/awf-session/server.cjs:78` |
 | `sessionQuery()` | 拼 `?sid=&p=` | `plugin/core/mcp/awf-session/server.cjs:23` |
 
@@ -164,10 +164,10 @@ Server 端强制校验 **mode=pause**（`server.cjs` `/intervene` 走 `requirePa
 
 | 模块 | 用途 |
 |------|------|
-| `src/lib/run-context.cjs` | 会话名/端口/路径单源 |
-| `src/lib/runtime-config.cjs` | `getSessionName` / `getServerPort`（config + CC_* env） |
-| `src/server/tmux.cjs` | 单会话 tmux 原语（server/project-context 消费） |
-| `src/server/host.cjs` | 参数化 tmux 原语（host 端口实现，仍在 server） |
+| `server/shared/run-context.cjs` | 会话名/端口/路径单源 |
+| `server/shared/runtime-config.cjs` | `getSessionName` / `getServerPort`（config + CC_* env） |
+| `server/adapters/cc/host.cjs` | 单会话 tmux 原语（server/project-context 消费） |
+| `server/adapters/cc/host.cjs` | 参数化 tmux 原语（host 端口实现，仍在 server） |
 | `scripts/bootstrap.sh` | 会话 live 启动（shell，未适配器化） |
 | `plugin/core/.mcp.json` | 注册 awf-session MCP（env `AWF_BASE`） |
 | `node:http` | MCP→server |

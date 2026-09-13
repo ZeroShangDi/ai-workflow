@@ -212,7 +212,7 @@ description: >
 - **读者 / 用途**：运行后复盘的人；run 过程可追溯
 - **位置**：`.awf/decisions/`（独立目录，区别于 `docs/discuss/` 的人为架构决策）
 - **定位**：`awf run` 运行过程中的辅助决策记录，供人**运行后复盘**查看，不并入 issues 跟踪
-- **落点 / 命名**：见 `.awf/README.md` 的 `decisions/` 章节 —— `.awf/decisions/runs/<runStamp>.jsonl`（**一次 run 一个文件、追加式**，由 `src/server/decision-store.cjs` 写；不按「一决策一文件」拆分，故无 frontmatter）
+- **落点 / 命名**：见 `.awf/README.md` 的 `decisions/` 章节 —— `.awf/decisions/runs/<runStamp>.jsonl`（**一次 run 一个文件、追加式**，由 `server/features/decision/store.cjs` 写；不按「一决策一文件」拆分，故无 frontmatter）
 - **创建时机**：AI 在运行期做出辅助决策时即记
 - **更新时机**：append-only
 

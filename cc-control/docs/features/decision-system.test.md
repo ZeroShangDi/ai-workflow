@@ -1,7 +1,7 @@
 # 决策闸门 v0.2.0（ai-workflow-decision）— 测试用例文档
 
 > 对应功能文档：docs/features/decision-system.md
-> 源码：`src/server/server.cjs` / `src/server/decision*.cjs` / `src/cli/run.js` / `src/lib/{run-config,decision-config}.js/.cjs` / `plugin/core/hooks/gateway.cjs` / `plugin/decision/`
+> 源码：`server/server.cjs` / `server/decision*.cjs` / `cli/commands/run.cjs` / `server/shared/{run-config,decision-config}.js/.cjs` / `plugin/core/hooks/gateway.cjs` / `plugin/decision/`
 > 测试文件：`tests/integration/decision-gate.test.js` / `tests/integration/awf-state-server.test.js` / `tests/unit/{run-config,decision-config,decision,decision-instruction,decision-store,dynamic-planning,gateway,run-resume,run-logger}.test.js` / `sandbox/decision-smoke/smoke.cjs`
 > 用例编号与验收标准（T1-028 功能文档「验收标准」7 条）可追溯
 >

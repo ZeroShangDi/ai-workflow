@@ -1,7 +1,7 @@
 # 运行指标（run-metrics） — 功能文档
 
 > 对应 WBS：（源码未标注）。消费端 Diagnostics 视图见 T1-089
-> 源码：`src/lib/run-metrics.cjs`（CJS 实现）；`src/lib/run-metrics.js`（ESM 壳）
+> 源码：`server/observability/metrics.cjs`（CJS 实现）；`server/observability/metrics.cjs`（ESM 壳）
 
 ## 功能描述
 
@@ -11,7 +11,7 @@
 2. **指标聚合** — 读 `state.json` + `.awf/context/usage.json` + run-meta + transcript（主会话 + 各子 agent 的 `.jsonl`），聚合成 token 用量、产出速度、上下文占用、覆盖范围等。
 3. **transcript 定位** — `mainTranscriptPath` 给出主会话 transcript 的绝对路径（收尾协商的「本轮有无产出」探测也用它）。
 
-`src/lib/run-metrics.js` 仅是 ESM 壳：`createRequire` 加载 `.cjs` 并具名重导出 `readRunMetrics/readRunMeta/resetRunMeta/updateRunMeta`（`run-metrics.js:6-11`）。
+`server/observability/metrics.cjs` 仅是 ESM 壳：`createRequire` 加载 `.cjs` 并具名重导出 `readRunMetrics/readRunMeta/resetRunMeta/updateRunMeta`（`run-metrics.js:6-11`）。
 
 ## run-meta.json 的字段与生命周期
 
@@ -33,7 +33,7 @@
 
 ### 子 agent 条目（在 server 更新时补齐）
 
-`subagents[key]` 由 `src/server/server.cjs` 的 `SubagentStart`/`SubagentStop` hook 写入，字段：
+`subagents[key]` 由 `server/server.cjs` 的 `SubagentStart`/`SubagentStop` hook 写入，字段：
 
 | 字段 | 说明 |
 |------|------|
@@ -124,7 +124,7 @@
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `readRunMeta(projectRoot)` | 读 run-meta（空文件返回 `{}`） | `src/lib/run-metrics.cjs:49-51` |
+| `readRunMeta(projectRoot)` | 读 run-meta（空文件返回 `{}`） | `server/observability/metrics.cjs:49-51` |
 | `updateRunMeta(projectRoot, updater)` | 读旧 → updater → 写回，返回新值 | `:31-36` |
 | `resetRunMeta(projectRoot)` | 重置为初始形状 | `:38-47` |
 | `readRunMetrics(projectRoot, runtime)` | 聚合指标（主入口） | `:182-305` |
@@ -138,10 +138,10 @@
 
 | 模块 | 用途 |
 |------|------|
-| `src/lib/store.cjs` | `createJsonFileStore`（run-meta 原子读写） |
-| `src/lib/run-metrics.cjs` → `src/lib/run-metrics.js` | ESM 壳供 CLI/前端侧具名导入 |
-| `src/server/server.cjs` | `/awf/metrics` 端点、run-meta 写入、`getMetricsSnapshot` |
-| `src/lib/run-diagnosis.cjs` | 诊断消费 metrics 快照（`buildDiagnosisPrompt`） |
+| `server/shared/store.cjs` | `createJsonFileStore`（run-meta 原子读写） |
+| `server/observability/metrics.cjs` → `server/observability/metrics.cjs` | ESM 壳供 CLI/前端侧具名导入 |
+| `server/server.cjs` | `/awf/metrics` 端点、run-meta 写入、`getMetricsSnapshot` |
+| `server/features/monitor/diagnosis.cjs` | 诊断消费 metrics 快照（`buildDiagnosisPrompt`） |
 | `web/src/views/Diagnostics.jsx` / `dashboard-model.js` | 前端消费 |
 
 ## 验收标准

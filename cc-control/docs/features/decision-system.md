@@ -1,7 +1,7 @@
 # 决策闸门 v0.2.0（ai-workflow-decision）— 功能文档
 
 > 对应 WBS：W4-001 AWF 决策闸门 v0.2.0（单 agent）｜功能拆分见 [讨论稿](../discuss/decision-system-design.md)
-> 源码：`src/server/server.cjs` / `src/server/decision*.cjs` / `src/cli/run.js` / `src/lib/run-config.js` / `src/lib/decision-config.cjs` / `plugin/core/hooks/gateway.cjs` / `plugin/decision/`
+> 源码：`server/server.cjs` / `server/decision*.cjs` / `cli/commands/run.cjs` / `server/run/config.js` / `server/features/decision/config.cjs` / `plugin/core/hooks/gateway.cjs` / `plugin/decision/`
 > 配置源：`plugin/config.json`（marketplace.plugins / mcpServers / hooks）+ `.awf/config.json`（`run.decision.enabled`）
 > 测试：`tests/integration/decision-gate.test.js` / `tests/unit/{run-config,decision-config,decision,decision-instruction,decision-store,gateway,run-resume,run-logger}.test.js` / `sandbox/decision-smoke/smoke.cjs`
 
@@ -102,8 +102,8 @@ AskUserQuestion 在同一 deciding 事务内重复调用 → 拒绝并提示「�
 |---|---|---|
 | `run.decision.enabled` | `false` | 决策闸门开关。`true` = 决策闸门激活（AskUserQuestion 不再 autoSelect → deny 转 DC；文字标记 → block 转 DC）；缺省/非法值回落 `false` = 旧上抛逻辑（AskUserQuestion → decisionPending → autoSelect/问人、子 agent NEEDS_INPUT → 主 agent 问人、await_choice/await_input 交互） |
 
-- **单源防漂移**：判定实现收敛在 `src/lib/decision-config.cjs`（CJS，server/CLI 共用）：`DECISION_DEFAULT_ENABLED=false`、`decisionEnabledFrom(raw)`（仅接受布尔）、`isDecisionEnabled(projectRoot)`（读 `<root>/.awf/config.json`）。CLI `run-config.js` 的 `loadRunConfig` 委托它（decision 段 = `{ enabled: isDecisionEnabled(root) }`），无自带 DEFAULT/normalize。
-- init 模板 `src/templates/awf-config.json` 含 `run.decision.enabled=false`，`awf init` 复制为 `.awf/config.json`；说明见 `docs/features/init.md`「awf-config.json」段。
+- **单源防漂移**：判定实现收敛在 `server/features/decision/config.cjs`（CJS，server/CLI 共用）：`DECISION_DEFAULT_ENABLED=false`、`decisionEnabledFrom(raw)`（仅接受布尔）、`isDecisionEnabled(projectRoot)`（读 `<root>/.awf/config.json`）。CLI `run-config.js` 的 `loadRunConfig` 委托它（decision 段 = `{ enabled: isDecisionEnabled(root) }`），无自带 DEFAULT/normalize。
+- init 模板 `server/templates/awf-config.jsonon` 含 `run.decision.enabled=false`，`awf init` 复制为 `.awf/config.json`；说明见 `docs/features/init.md`「awf-config.json」段。
 
 ## 核心常量 / 配置
 
@@ -138,7 +138,7 @@ AskUserQuestion 在同一 deciding 事务内重复调用 → 拒绝并提示「�
 | `confidence` | enum | — | `high \| medium \| low`（低置信**仍须有** answer） |
 | `fallback` | boolean（default false） | — | `true` = DW 兜底结果 |
 
-- 轻量校验（`src/server/decision.cjs`，不引 ajv）：`REQUIRED_FIELDS = ['answer','type','finality','real_question','decisive_factors','reconsider_when']`、`ARRAY_FIELDS = ['decisive_factors','reconsider_when']`；字符串字段非空、数组字段必须是数组（可空数组视为已提供）。
+- 轻量校验（`server/features/decision/core.cjs`，不引 ajv）：`REQUIRED_FIELDS = ['answer','type','finality','real_question','decisive_factors','reconsider_when']`、`ARRAY_FIELDS = ['decisive_factors','reconsider_when']`；字符串字段非空、数组字段必须是数组（可空数组视为已提供）。
 - `type` 只描述结果语义、不决定工作流；`finality` 表达是否仍依赖未决前提。
 
 ## 数据记录（DecisionStore）
@@ -178,19 +178,19 @@ decision/mode-instruction.md    # 决策模式短指令（5 硬约束），serve
 
 | 函数 | 说明 | 位置 |
 |---|---|---|
-| `isDecisionEnabled(projectRoot)` / `decisionEnabledFrom(raw)` | 决策闸门开启判定（单源，布尔语义） | `src/lib/decision-config.cjs` |
-| `loadRunConfig(projectRoot)` | 读 `.awf/config.json` run.* 段；decision 段委托 decision-config | `src/lib/run-config.js` |
-| `handleStop(body)` | Stop 统一闸门三分支（普通/②触发 block/③deciding 收尾） | `src/server/server.cjs` |
-| `handleAskUserQuestion(body)` | AskUserQuestion PreToolUse：gate 关捕获 / 非 deciding deny / deciding 禁再问 | `src/server/server.cjs` |
-| `persistDecision(result, source)` | 捕获落盘 + 置 decisionResume + run 日志 | `src/server/server.cjs` |
-| `deferredFallbackResult()` / `nextDecisionId()` | 兜底 Result 模板 / `D-…` id 生成 | `src/server/server.cjs` |
-| `appendDecisionReviewTask(...)` | override → 追加纠偏任务（state 写锁 + 幂等） | `src/server/server.cjs` |
-| `parseDecisionResult(lastMessage)` / `validateDecisionResult(data)` | 抓 `<AWF_DECISION_RESULT>` JSON + 轻量必填校验 | `src/server/decision.cjs` |
-| `DecisionStore`（runStamp/append/appendEvent/eventsFor/override/listRuns/listAll） | 追加式 jsonl 决策存储及 requested→completed 生命周期 | `src/server/decision-store.cjs` |
-| `createDynamicPlanningDecisionPort` | 动态规划 proposal 与正式人工 decision 的适配边界 | `src/server/dynamic-planning/decision-port.cjs` |
-| `decisionPluginDir/decisionInstructionPath/readDecisionInstruction` | 按 marketplace 定位 decision 插件并读决策模式指令 | `src/server/decision-instruction.cjs` |
-| `RunLogger.logDecision(...)` | 决策事件入 run 日志（时间与 store created_at 对齐） | `src/server/run-logger.cjs` |
-| `drainDecisionResume(projectRoot)` | gate on 捕获后单 agent 续跑（注入 answer 继续原任务） | `src/cli/run.js` |
+| `isDecisionEnabled(projectRoot)` / `decisionEnabledFrom(raw)` | 决策闸门开启判定（单源，布尔语义） | `server/features/decision/config.cjs` |
+| `loadRunConfig(projectRoot)` | 读 `.awf/config.json` run.* 段；decision 段委托 decision-config | `server/run/config.js` |
+| `handleStop(body)` | Stop 统一闸门三分支（普通/②触发 block/③deciding 收尾） | `server/server.cjs` |
+| `handleAskUserQuestion(body)` | AskUserQuestion PreToolUse：gate 关捕获 / 非 deciding deny / deciding 禁再问 | `server/server.cjs` |
+| `persistDecision(result, source)` | 捕获落盘 + 置 decisionResume + run 日志 | `server/server.cjs` |
+| `deferredFallbackResult()` / `nextDecisionId()` | 兜底 Result 模板 / `D-…` id 生成 | `server/server.cjs` |
+| `appendDecisionReviewTask(...)` | override → 追加纠偏任务（state 写锁 + 幂等） | `server/server.cjs` |
+| `parseDecisionResult(lastMessage)` / `validateDecisionResult(data)` | 抓 `<AWF_DECISION_RESULT>` JSON + 轻量必填校验 | `server/features/decision/core.cjs` |
+| `DecisionStore`（runStamp/append/appendEvent/eventsFor/override/listRuns/listAll） | 追加式 jsonl 决策存储及 requested→completed 生命周期 | `server/features/decision/store.cjs` |
+| `createDynamicPlanningDecisionPort` | 动态规划 proposal 与正式人工 decision 的适配边界 | `server/features/replanning/decision-port.cjs` |
+| `decisionPluginDir/decisionInstructionPath/readDecisionInstruction` | 按 marketplace 定位 decision 插件并读决策模式指令 | `server/features/decision/instruction.cjs` |
+| `RunLogger.logDecision(...)` | 决策事件入 run 日志（时间与 store created_at 对齐） | `server/observability/run-logger.cjs` |
+| `drainDecisionResume(projectRoot)` | gate on 捕获后单 agent 续跑（注入 answer 继续原任务） | `cli/commands/run.cjs` |
 | `gateway.cjs main()` | hook 网关：转发 + 透传 ccOutput 到 stdout | `plugin/core/hooks/gateway.cjs` |
 
 ## 接口 / 依赖
@@ -202,7 +202,7 @@ decision/mode-instruction.md    # 决策模式短指令（5 硬约束），serve
 | `decision-instruction.cjs` | server 读 `plugin/<decision>/decision/mode-instruction.md`（改指令不动 server） |
 | `DecisionStore` / run-logger | 决策记录落盘 + run 日志对齐 |
 | `.awf/config.json` `run.decision.enabled` | 开关（单源 decision-config.cjs） |
-| `findNextTask`（`src/lib/state.js`） | runLoop 下一轮拾取纠偏任务 |
+| `findNextTask`（`server/shared/state.js`） | runLoop 下一轮拾取纠偏任务 |
 | decision 插件资产（DC skill / PROTOCOL / schema / mode-instruction） | 决策模式方法论与协议权威 |
 
 ## 边界（Boundary）

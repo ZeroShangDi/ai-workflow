@@ -1,18 +1,18 @@
 # State 管理 — 功能文档
 
 > 对应 WBS：W1-010/011（state 持久化核心收敛，T1-015）；state.js 经 store-core 落盘
-> 源码：`src/lib/state.js` + `plugin/core/mcp/awf-state/server.cjs`
+> 源码：`server/shared/state.js` + `plugin/core/mcp/awf-state/server.cjs`
 
 ## 功能描述
 
-State 管理是 `.awf/state.json` 的唯一事实源（任务图 / WBS / plan 元数据 / 里程碑 / 运行模式 / 阶段）。分两层，但**持久化实现已收敛到单一核心** `src/lib/store-core.cjs`（单写锁 + 原子写）：
+State 管理是 `.awf/state.json` 的唯一事实源（任务图 / WBS / plan 元数据 / 里程碑 / 运行模式 / 阶段）。分两层，但**持久化实现已收敛到单一核心** `server/shared/store-core.cjs`（单写锁 + 原子写）：
 
 | 层 | 文件 | 运行环境 | 用途 |
 |-----|------|---------|------|
-| CLI 侧 | `src/lib/state.js` | Node ESM | `awf plan` / `awf run` 内部读写，含就绪池/调度辅助/门禁闭环 |
+| CLI 侧 | `server/shared/state.js` | Node ESM | `awf plan` / `awf run` 内部读写，含就绪池/调度辅助/门禁闭环 |
 | MCP 侧 | `plugin/core/mcp/awf-state/server.cjs` | 独立子进程 (stdio JSON-RPC) | AI 经 20 个 MCP tools 操作 state；动态规划工具只作 server 薄入口 |
 
-另有第三消费方：`src/server/server.cjs`（HTTP Session Server）经 `store` / `store-core` 读写同一份 state（`GET /awf/state`、`/run/state/apply`），三端共用同一 `.awf/state.lock`，跨实现互斥。
+另有第三消费方：`server/server.cjs`（HTTP Session Server）经 `store` / `store-core` 读写同一份 state（`GET /awf/state`、`/run/state/apply`），三端共用同一 `.awf/state.lock`，跨实现互斥。
 
 state 字段模型见 [核心数据模型](#核心数据模型)；store 层本身见 `docs/features/store.md`。
 
@@ -25,7 +25,7 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 - **MCP**：`tools/call` 分发 → `readState` → mutate → `writeState`，全程在 `withStateLock` 内（`server.cjs:42`）。
 - **MCP server 单写者模式**：`CC_AWF_STATE_SERVER=1` 时，MCP 不再直写文件，改为 `GET /awf/state` 读、`POST /run/state/apply` 写；写请求携带读取时的 `lastUpdated` 和 state SHA-256 指纹，server 在 state 锁内比较并写入，陈旧快照返回冲突。缺省关 → 离线/plan/单测沿用锁内直写文件。
 - **任务图写保护**：底层 `prerequisiteFor` 原语可将创建、插入目标之前和依赖重连一次完成；deps 更新校验缺失引用与环，active 任务不能新增未完成依赖，有依赖者的任务不能删除。运行期不直接暴露这些组合步骤，统一由动态规划能力调用。
-- **动态任务规划能力**：run/pause 阶段的结构变更统一走 `awf_dynamic_plan`，核心位于 `src/server/dynamic-planning/`；MCP 不计算位置或副作用。基础 task CRUD 仅保留给 plan/idle。
+- **动态任务规划能力**：run/pause 阶段的结构变更统一走 `awf_dynamic_plan`，核心位于 `server/dynamic-planning/`；MCP 不计算位置或副作用。基础 task CRUD 仅保留给 plan/idle。
 - **server**：`pcx.stores.state.readSync()` / `storeCore.readJsonSync(runStateFile(sid))`；写经 `store`（见 store.md）。
 
 ### 读路径
@@ -53,7 +53,7 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 
 ## 函数清单
 
-### CLI 侧 `src/lib/state.js`
+### CLI 侧 `server/shared/state.js`
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
@@ -86,7 +86,7 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 
 ## 接口 / 依赖
 
-### CLI 侧 `src/lib/state.js`
+### CLI 侧 `server/shared/state.js`
 
 | 模块 | 用途 |
 |------|------|
@@ -98,7 +98,7 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 
 | 模块 | 用途 |
 |------|------|
-| `../../../src/lib/store-core.cjs`（动态 require，失败降级） | `readJsonSync` / `writeJsonAtomicSync` / `withFileLock` |
+| `../../../server/shared/store-core.cjs`（动态 require，失败降级） | `readJsonSync` / `writeJsonAtomicSync` / `withFileLock` |
 | `node:fs` / `node:path` | 回退实现的读/写/锁；STATE_PATH / LOCK_PATH 拼接 |
 | `node:http` | server 单写者模式（`GET /awf/state`、`POST /run/state/apply`） |
 

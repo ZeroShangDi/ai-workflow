@@ -1,23 +1,23 @@
 # awf version-prompt — 需求文档
 
-> 源码文件：`src/lib/version.js`
+> 源码文件：`（已删除：能力停用，见 .awf/issues/017）`
 > 测试文件：`tests/unit/version-prompt.test.js`
 
 ## 当前状态（2026-09-11 核实）
 
 **该功能在生产路径上处于「已实现但未接线」状态，不生效。**
 
-`src/cli/init.js:5` 与 `src/cli/plan.js:2` 的 import 与调用点**均被注释掉**，注释写明「版本处理暂时禁用」：
+`cli/commands/init.cjs:5` 与 `cli/commands/plan.cjs:2` 的 import 与调用点**均被注释掉**，注释写明「版本处理暂时禁用」：
 
 ```js
-// src/cli/init.js
+// cli/commands/init.cjs
 // import { promptVersion } from '../lib/version.js'; // 版本处理暂时禁用
 
-// src/cli/plan.js
+// cli/commands/plan.cjs
 // import { setupVersion } from '../lib/version.js'; // 版本处理暂时禁用
 ```
 
-因此：`src/lib/version.js` 的**生产侧引用数为 0**，当前唯一消费方是 `tests/unit/version-prompt.test.js`。
+因此：`（已删除：能力停用，见 .awf/issues/017）` 的**生产侧引用数为 0**，当前唯一消费方是 `tests/unit/version-prompt.test.js`。
 `awf init` / `awf plan` 启动**不会**弹出此选择器，版本号改由 `package.json` / `.awf/state.json` 直接承载。
 
 > 该状态已由结构门禁 `scripts/check-architecture.mjs` 的不变量①「零生产引用」覆盖。
@@ -105,8 +105,8 @@ package.json version
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `setupVersion(cwd)` | 调 `promptVersion` 拿版本号，写回 `.awf/state.json` 的 `version` 并返回 | `src/lib/version.js:15` |
-| `promptVersion(cwd)` | 交互式选择版本号并返回字符串（不写盘） | `src/lib/version.js:25` |
+| `setupVersion(cwd)` | 调 `promptVersion` 拿版本号，写回 `.awf/state.json` 的 `version` 并返回 | `（已删除：能力停用，见 .awf/issues/017）:15` |
+| `promptVersion(cwd)` | 交互式选择版本号并返回字符串（不写盘） | `（已删除：能力停用，见 .awf/issues/017）:25` |
 
 ---
 

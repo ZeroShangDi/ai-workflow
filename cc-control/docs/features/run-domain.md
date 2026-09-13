@@ -1,7 +1,7 @@
 # run 域（server 侧编排宿主） — 功能文档
 
 > 对应 WBS：W3-003（server 控制平面分层 + **run 域迁入**）；相关任务：T1-105（宿主基座）/ T1-062（门禁归位）/ T1-071（per-run 槽）/ T1-091（事件订阅）/ T1-108（pause 闩锁）/ T1-111（闩锁放行）
-> 源码：`src/server/run-host.cjs`、`run-driver.cjs`、`run-scheduler.js`、`batch-transport.cjs`、`task-channel.cjs`、`gate-fix.js`、`run-slot.cjs`、`project-context.cjs`；`src/lib/state.js`、`src/lib/pause.js`、`src/lib/gate-loop.cjs`
+> 源码：`server/run/host.cjs`、`run-driver.cjs`、`run-scheduler.js`、`batch-transport.cjs`、`task-channel.cjs`、`gate-fix.js`、`run-slot.cjs`、`project-context.cjs`；`server/shared/state.js`、`server/features/pause/index.js`、`server/features/gate/loop.cjs`
 
 > 范围声明：本文只讲 **server 侧的 run 域**（CLI 提交 run 之前的启动/装配流程见 `docs/features/run.md`）。run 域的输入是「一个已由 CLI 提交的 run」，输出是「state.json 中任务被结算 + 一串 run/task 事件」。
 
@@ -9,7 +9,7 @@
 
 v0.2.0 把 run 编排（任务选择、阶段推进、多 agent 调度、门禁闭环、收尾归档）从 CLI 进程搬进了常驻 Session Server。承接这份职责的模块集合即 **run 域**：
 
-- **宿主拥有调度权**：进程内宿主 `createRunHost()`（`src/server/run-host.cjs:102`）是唯一调度者。CLI 只做「提交 run → 订阅事件/轮询状态 → 应答 → 收尾」，不再持有编排循环（`src/server/run-host.cjs:5-7`）。
+- **宿主拥有调度权**：进程内宿主 `createRunHost()`（`server/run/host.cjs:102`）是唯一调度者。CLI 只做「提交 run → 订阅事件/轮询状态 → 应答 → 收尾」，不再持有编排循环（`server/run/host.cjs:5-7`）。
 - **单槽常驻**：一个宿主同一时刻只驱动一个 run（`activeRunId` 单写者，`run-host.cjs:127`；重复/并发 submit 返回 409，`run-host.cjs:403-409`）。一个 Session Server 进程内每项目一份宿主（per `ProjectCtx` 的 `runHost` 装配位，`project-context.cjs:124`），多项目互不串（`two-project-smoke.test.js`）。
 - **子 Agent 无调度权**：多 agent 下由宿主派发；执行单元 `awf-worker` 禁写 state、禁提问，只回吐最后一行 `RESULT` / `NEEDS_INPUT`（`plugin/core/agents/awf-worker.md:12-14`）。落账由主机侧（`SubagentStop` hook → `settleSubagent`，`server.cjs:113`）原子完成。
 - **门禁闭环收敛到同一锚点**：无论单 agent 还是多 agent，`blocked + verdict 非 pass` 都经 `run-driver.gateCompletionHook` → `gate-fix.handleGateCompletion` 派生修复任务（`run-host.cjs:213-221`）。
@@ -145,7 +145,7 @@ while (true):
 
 ### 6. pause 闩锁在各路径的落点
 
-`waitWhilePaused`（`src/lib/pause.js:57`）比较 `state.mode === 'pause'`（`isWorkflowPaused:31`）；`PAUSE_POLL_MS=1000`。三条出口由返回值 `releasedBy` 区分：`null`（没暂停）、`'resumed'`（mode 恢复）、`'settled'`（等待期间 `isSettled()` 变真——目标任务已被别处结算，不必再等）。
+`waitWhilePaused`（`server/features/pause/index.js:57`）比较 `state.mode === 'pause'`（`isWorkflowPaused:31`）；`PAUSE_POLL_MS=1000`。三条出口由返回值 `releasedBy` 区分：`null`（没暂停）、`'resumed'`（mode 恢复）、`'settled'`（等待期间 `isSettled()` 变真——目标任务已被别处结算，不必再等）。
 
 | 路径 | 位置 | 是否带 `isSettled` | 行为 |
 |------|------|--------------------|------|
@@ -172,7 +172,7 @@ while (true):
 - `publish(type, payload, {runId})`：让宿主外代码（如决策闸门）也把事件推入环 + 订阅（`:466`）；`decision.required` 即经此推送（`server.cjs:267-283`）。
 - HTTP 端点：`POST /run/submit`（202/409/503）、`GET /run/status`、`GET /run/events`、`WS /run/events`、`POST /run/state/{mode,task/active,gate,backup,apply}`（`server.cjs:1269-1362`）。
 
-事件类型目录见 `HOST_EVENT_TYPES`（`run-host.cjs:46-56`）：`run.submitted/started/phase/stopped/error`、`task.started/done/blocked`、`gate.fix`；与 `src/lib/events.cjs` 的 `EVENT_DEFS` 重叠（`gate.fix`、`run.error`、`run.submitted` 为该环新增）。`emit` 会同时投递到可选 `bus`、`onEvent`、订阅者与 `logger`，单个回调异常被吞不影响宿主（`:152-159`）。
+事件类型目录见 `HOST_EVENT_TYPES`（`run-host.cjs:46-56`）：`run.submitted/started/phase/stopped/error`、`task.started/done/blocked`、`gate.fix`；与 `server/shared/events.cjs` 的 `EVENT_DEFS` 重叠（`gate.fix`、`run.error`、`run.submitted` 为该环新增）。`emit` 会同时投递到可选 `bus`、`onEvent`、订阅者与 `logger`，单个回调异常被吞不影响宿主（`:152-159`）。
 
 ## 核心常量 / 配置
 
@@ -246,15 +246,15 @@ while (true):
 
 | 模块 | 用途 | 位置 |
 |------|------|------|
-| `src/lib/state.js` | state 读写原语、就绪池/作用域/文件冲突、门禁派生、backupState | state.js |
-| `src/lib/pause.js` | pause 闩锁（三条等待路径共用） | pause.js |
-| `src/lib/gate-loop.cjs` | verdict → 修复目标纯规则 | gate-loop.cjs |
-| `src/lib/plugin-bridge.js` | 提示词模板填充（taskWrapup/taskSettle/contextCheck/subagentDispatch/subagentResend/gateFixPrompt） | plugin-bridge.js |
-| `src/lib/run-config.js` | 读 `.awf/config.json` 的 `run.*`（四级配额 + decision 开关） | run-config.js:36 |
-| `src/lib/events.cjs` | 进程内事件总线 + 事件类型目录（宿主事件定义的重叠锚点） | events.cjs |
-| `src/server/server.cjs` | 装配方 + HTTP/WS 端点；落账 hook 写 `subagent-*.jsonl` | server.cjs |
-| `src/server/project-context.cjs` | 每项目 `ProjectCtx`（含 `runHost` 装配位、`subagent*Path`） | project-context.cjs |
-| `src/server/run-slot.cjs` | per-sid 内存槽（ready/busy/decision 隔离） | run-slot.cjs |
+| `server/shared/state.js` | state 读写原语、就绪池/作用域/文件冲突、门禁派生、backupState | state.js |
+| `server/features/pause/index.js` | pause 闩锁（三条等待路径共用） | pause.js |
+| `server/features/gate/loop.cjs` | verdict → 修复目标纯规则 | gate-loop.cjs |
+| `server/shared/prompts.js` | 提示词模板填充（taskWrapup/taskSettle/contextCheck/subagentDispatch/subagentResend/gateFixPrompt） | plugin-bridge.js |
+| `server/run/config.js` | 读 `.awf/config.json` 的 `run.*`（四级配额 + decision 开关） | run-config.js:36 |
+| `server/shared/events.cjs` | 进程内事件总线 + 事件类型目录（宿主事件定义的重叠锚点） | events.cjs |
+| `server/server.cjs` | 装配方 + HTTP/WS 端点；落账 hook 写 `subagent-*.jsonl` | server.cjs |
+| `server/runtime/project.cjs / registry.cjs` | 每项目 `ProjectCtx`（含 `runHost` 装配位、`subagent*Path`） | project-context.cjs |
+| `server/runtime/session.cjs` | per-sid 内存槽（ready/busy/decision 隔离） | run-slot.cjs |
 | `plugin/core/agents/awf-worker.md` | 子 Agent 身份/输出协议（RESULT / NEEDS_INPUT / verdict） | awf-worker.md |
 | `plugin/plugin-code/prompts.json` | 派发/收尾/门禁提示词模板的声明源 | prompts.json |
 
@@ -265,7 +265,7 @@ while (true):
 - [ ] 超时判据为无变化窗口：CC busy 期间不计时，仅 CC idle 且持续无变化到 `READY_TIMEOUT_MS` 才进收尾协商（`server.cjs:539-554`）。
 - [ ] 收尾协商按「有无产出」判定：CC 一直在产出不判死；连续 `MAX_SETTLE_ROUNDS(3)` 轮无产出才标 blocked；等人工决策期间不计轮（`tests/unit/task-channel-settle.test.js`）。
 - [ ] 多 agent：`cfg.agents.max>1` → 宿主 batch 模式，经 `subagentDispatch` 派发并等到全部落账，收尾复位 mode（`tests/integration/batch-host.test.js`）。
-- [ ] 调度约束生效：`commit` 独占（不与任何任务并行）、缺 `plannedFiles` 非 review 任务保守串行、四级配额为硬上限、plannedFiles 冲突不复用并行批（`src/server/run-scheduler.js:86-106`）。
+- [ ] 调度约束生效：`commit` 独占（不与任何任务并行）、缺 `plannedFiles` 非 review 任务保守串行、四级配额为硬上限、plannedFiles 冲突不复用并行批（`server/run/scheduler.js:86-106`）。
 - [ ] 门禁闭环：review/test `blocked + verdict 非 pass` → 派生 `<id>-F<n>`（kind=dev, 保守串行）+ 门禁回退 `pending` + `recheck++`；达 `MAX_RECHECK(3)` 保持 blocked（`gate-fix.js:30`、`state.js:251-299`、`tests/unit/run-host.test.js:176`）。
 - [ ] pause 闩锁在四条路径均生效（单 agent 派发 / 会话通道 / 多 agent 派发 / 多 agent 完成感知），且「目标任务已结算即放行」不挂死（`tests/unit/pause.test.js`、`tests/unit/task-channel-settle.test.js:142`）。
 - [ ] 收尾：驱动结束 `backupState` 归档版本；仅当宿主本轮改过 mode 时复位 `idle`（`run-host.cjs:352-365`）。

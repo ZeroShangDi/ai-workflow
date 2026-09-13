@@ -1,7 +1,7 @@
 # awf plan — 测试用例
 
 > 对应功能文档：docs/features/plan.md
-> 源码：`src/cli/plan.js`（+ `src/lib/plugin-bridge.js`、`src/adapters/interactive.cjs`）
+> 源码：`cli/commands/plan.cjs`（+ `server/shared/prompts.js`、`server/adapters/cc/interactive.cjs`）
 > 测试文件：`tests/unit/plan.test.js`
 
 ## 测试场景总览
@@ -106,8 +106,8 @@
 
 | 依赖 | Mock 方式 | 说明 |
 |------|-----------|------|
-| `src/lib/ui/log.js` | `vi.mock` | `logger` 记录调用，供断言 |
-| `src/lib/plugin-bridge.js` | `vi.mock` | `planEntry` 返回固定三种 prompt 文本（真实模板逻辑见 `plugin-bridge.test.js`） |
-| `src/adapters/ports.cjs` | `vi.mock` | `interactive.launchDialog` → `mockLaunch`；接缝抬到端口契约层，谁都不直连 adapter 文件 |
+| `（已删除：TTY 表现层，见 .awf/issues/017）` | `vi.mock` | `logger` 记录调用，供断言 |
+| `server/shared/prompts.js` | `vi.mock` | `planEntry` 返回固定三种 prompt 文本（真实模板逻辑见 `plugin-bridge.test.js`） |
+| `server/adapters/ports.cjs` | `vi.mock` | `interactive.launchDialog` → `mockLaunch`；接缝抬到端口契约层，谁都不直连 adapter 文件 |
 
-> 说明：`launchDialog` 的真实实现（spawn `claude`、`--settings`/`--dangerously-skip-permissions`、code 判定）在 `src/adapters/interactive.cjs`，其契约由端口测试覆盖。TC1–TC11 只验证 plan 侧的编排与 prompt 分支。
+> 说明：`launchDialog` 的真实实现（spawn `claude`、`--settings`/`--dangerously-skip-permissions`、code 判定）在 `server/adapters/cc/interactive.cjs`，其契约由端口测试覆盖。TC1–TC11 只验证 plan 侧的编排与 prompt 分支。

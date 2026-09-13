@@ -1,7 +1,7 @@
 # State 管理 — 测试用例
 
 > 对应功能文档：`docs/features/state.md`
-> 源码：`src/lib/state.js` + `plugin/core/mcp/awf-state/server.cjs`
+> 源码：`server/shared/state.js` + `plugin/core/mcp/awf-state/server.cjs`
 > 测试文件：`tests/unit/state.test.js`、`tests/unit/state-mode.test.js`、`tests/unit/state-plan-reset.test.js`、`tests/unit/backup.test.js`、`tests/integration/awf-state.test.js`（MCP 协议全链路）；相关：`tests/unit/gate-fix.test.js`、`tests/unit/scheduler.test.js`（门禁闭环）
 
 ## 测试场景总览

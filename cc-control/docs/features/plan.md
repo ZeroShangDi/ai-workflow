@@ -1,7 +1,7 @@
 # awf plan — 功能文档
 
 > 对应 WBS：
-> 源码：`src/cli/plan.js`（入口 `planCommand`）→ `src/lib/plugin-bridge.js`（`planEntry`）→ `src/adapters/interactive.cjs`（`launchInteractiveClaude`）
+> 源码：`cli/commands/plan.cjs`（入口 `planCommand`）→ `server/shared/prompts.js`（`planEntry`）→ `server/adapters/cc/interactive.cjs`（`launchInteractiveClaude`）
 
 ## 功能描述
 
@@ -42,7 +42,7 @@ planCommand(description, options)
 ### 步骤 3：入口提示词与进程启动
 
 - 提示词由 `plugin-bridge.planEntry` 从 `plugin/plugin-code/prompts.json` 读取并填充 `{desc}` 占位符（**CLI 零感知插件命令字符串**）。
-- 进程启动由 `src/adapters/interactive.cjs` 的 `launchInteractiveClaude` 完成（`claude` 字面只在该 adapter）。
+- 进程启动由 `server/adapters/cc/interactive.cjs` 的 `launchInteractiveClaude` 完成（`claude` 字面只在该 adapter）。
 
 ## 核心常量 / 配置
 
@@ -66,21 +66,21 @@ planCommand(description, options)
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `planCommand(description, options)` | 主入口：归档判定 → 拼 prompt → 启会话 | `src/cli/plan.js` |
-| `spawnClaude(cwd, prompt)` | plan 内部 helper：日志 + `interactive.launchDialog` + 成功日志 | `src/cli/plan.js` |
-| `planEntry(description, resume)` | 按场景选 key 并填充占位符，返回入口提示词 | `src/lib/plugin-bridge.js` |
-| `resolvePrompt(key, vars)` | 读 `prompts.json`，替换 `{var}` 占位符 | `src/lib/plugin-bridge.js` |
-| `launchInteractiveClaude(opts)` | spawn `claude`（`stdio:'inherit'`）；`code∈{0,null}` resolve，否则 reject | `src/adapters/interactive.cjs` |
-| `archiveOldStateForPlan(projectRoot)` | 归档残留 state 并重置为 plan 模板 | `src/lib/state.js` |
+| `planCommand(description, options)` | 主入口：归档判定 → 拼 prompt → 启会话 | `cli/commands/plan.cjs` |
+| `spawnClaude(cwd, prompt)` | plan 内部 helper：日志 + `interactive.launchDialog` + 成功日志 | `cli/commands/plan.cjs` |
+| `planEntry(description, resume)` | 按场景选 key 并填充占位符，返回入口提示词 | `server/shared/prompts.js` |
+| `resolvePrompt(key, vars)` | 读 `prompts.json`，替换 `{var}` 占位符 | `server/shared/prompts.js` |
+| `launchInteractiveClaude(opts)` | spawn `claude`（`stdio:'inherit'`）；`code∈{0,null}` resolve，否则 reject | `server/adapters/cc/interactive.cjs` |
+| `archiveOldStateForPlan(projectRoot)` | 归档残留 state 并重置为 plan 模板 | `server/shared/state.js` |
 
 ## 接口 / 依赖
 
 | 模块 | 用途 |
 |------|------|
-| `src/lib/plugin-bridge.js` (`planEntry`) | 插件边界唯一模块：入口提示词由插件声明，CLI 只读模板填空 |
-| `src/adapters/ports.cjs` (`interactive`) | 端口契约取用（不直连 adapter 文件）；`launchDialog` 包装 `launchInteractiveClaude` |
-| `src/lib/state.js` (`archiveOldStateForPlan`) | 非 resume 时的旧 state 归档与重置 |
-| `src/lib/ui/log.js` (`logger`) | info / success 输出 |
+| `server/shared/prompts.js` (`planEntry`) | 插件边界唯一模块：入口提示词由插件声明，CLI 只读模板填空 |
+| `server/adapters/ports.cjs` (`interactive`) | 端口契约取用（不直连 adapter 文件）；`launchDialog` 包装 `launchInteractiveClaude` |
+| `server/shared/state.js` (`archiveOldStateForPlan`) | 非 resume 时的旧 state 归档与重置 |
+| `（已删除：TTY 表现层，见 .awf/issues/017）` (`logger`) | info / success 输出 |
 | `plugin/plugin-code/prompts.json` | `plan-start` / `plan-resume` / `plan-default` 模板（插件侧声明） |
 
 ## 验收标准

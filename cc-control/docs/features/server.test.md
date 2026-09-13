@@ -1,7 +1,7 @@
 # 常驻 Session Server — 测试用例
 
 > 对应功能文档：`docs/features/server.md`
-> 源码：`src/server/server.cjs`（+ `project-context.cjs` / `run-slot.cjs` / `static.cjs` / `ws.cjs` / `interact.cjs` / `decision-gate.cjs`）
+> 源码：`server/server.cjs`（+ `project-context.cjs` / `run-slot.cjs` / `static.cjs` / `ws.cjs` / `interact.cjs` / `decision-gate.cjs`）
 > 测试文件：
 > - `tests/integration/server.test.js`（路由 / 状态机 / hook / 落账 / 静态托管）
 > - `tests/integration/server-lifecycle.test.js`（单写者 / 常驻回收 / sid 槽与分片）

@@ -1,15 +1,15 @@
 # 单次会话调用（oneshot） — 功能文档
 
 > 对应 WBS：W3-004（adapters/cc 工具适配收口）
-> 源码：`src/adapters/oneshot.cjs`（cc oneshot 端口）+ `plugin/core/mcp/awf-oneshot/server.cjs`（插件 MCP 面）
-> 相关：`src/server/server.cjs`（`/oneshot` 端点，装配根）+ `tests/unit/oneshot-adapter.test.js` / `tests/integration/awf-oneshot.test.js` / `tests/integration/awf-oneshot-server.test.js`
+> 源码：`server/adapters/cc/oneshot.cjs`（cc oneshot 端口）+ `plugin/core/mcp/awf-oneshot/server.cjs`（插件 MCP 面）
+> 相关：`server/server.cjs`（`/oneshot` 端点，装配根）+ `tests/unit/oneshot-adapter.test.js` / `tests/integration/awf-oneshot.test.js` / `tests/integration/awf-oneshot-server.test.js`
 
 ## 功能描述
 
 oneshot = 通过 `claude -p` 执行一次性、无状态 LLM 调用，返回 stdout。它有两个面，二者关系是
 「端口（实现）」与「插件 MCP（工具入口）」：
 
-1. **cc oneshot 端口**（`src/adapters/oneshot.cjs`）—— 把 `claude -p` 的 spawn 收口到 adapter，
+1. **cc oneshot 端口**（`server/adapters/cc/oneshot.cjs`）—— 把 `claude -p` 的 spawn 收口到 adapter，
    外部源码零 `claude` 字面（纪律 R-cc）。经 `ports.cjs` 这道门对外（见 `docs/features/adapters.md`）。
 2. **插件 MCP `awf-oneshot`**（`plugin/core/mcp/awf-oneshot/server.cjs`）—— 暴露 `awf_oneshot`
    tool 给 tmux 会话里的 Claude Code。它**优先经 server 的 `/oneshot` 端点**（server 内部用 oneshot
@@ -24,7 +24,7 @@ oneshot = 通过 `claude -p` 执行一次性、无状态 LLM 调用，返回 std
 | 档 | 触发条件 | 行为 | 位置 |
 |----|----------|------|------|
 | 1. 经 server | `AWF_BASE` 已设置（装配时注入 `http://127.0.0.1:<port>`） | `POST /oneshot?p=<project>`，server 用 oneshot 端口 spawn | `server.cjs:43-47,133` |
-| 2. 经本地 adapter | 无 `AWF_BASE`，且 `require(src/adapters/oneshot.cjs)` 成功 | 调 `oneshotAdapter.spawnClaudeP(...)` 本地 spawn | `server.cjs:90-97` |
+| 2. 经本地 adapter | 无 `AWF_BASE`，且 `require(server/adapters/cc/oneshot.cjs)` 成功 | 调 `oneshotAdapter.spawnClaudeP(...)` 本地 spawn | `server.cjs:90-97` |
 | 3. 本地最小实现 | 无 `AWF_BASE`，且**纯插件副本无包 `src/`**（require 抛错 → adapter=null） | `legacySpawnClaude` 直接 `_spawn('claude', ['-p', prompt])` | `server.cjs:11-16,72-88` |
 
 > **降级路径的由来**：`server.cjs:13` 用 `path.join(__dirname, '..','..','..','..','src','adapters','oneshot.cjs')`
@@ -35,7 +35,7 @@ oneshot = 通过 `claude -p` 执行一次性、无状态 LLM 调用，返回 std
 
 ## 执行流程
 
-### 端口（`src/adapters/oneshot.cjs`）
+### 端口（`server/adapters/cc/oneshot.cjs`）
 
 ```
 claudePArgs(prompt, { args }) → ['-p', ...args, prompt]
@@ -53,7 +53,7 @@ runOneShot(opts) = spawnClaudeP 的便捷包装
 ### 插件 MCP（`plugin/core/mcp/awf-oneshot/server.cjs`）
 
 ```
-MCP 启动 → require src/adapters/oneshot.cjs（成功则 oneshotAdapter 非空；失败置 null）
+MCP 启动 → require server/adapters/cc/oneshot.cjs（成功则 oneshotAdapter 非空；失败置 null）
 stdin 逐行 JSON-RPC → handleMessage
   initialize  → protocolVersion '2024-11-05', serverInfo.name 'awf-oneshot-mcp'
   tools/list  → 1 个 tool：awf_oneshot
@@ -75,9 +75,9 @@ stdin 逐行 JSON-RPC → handleMessage
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `claudePArgs(prompt, { args })` | 构造 claude -p 参数（可附加 `--safe-mode` 等） | `src/adapters/oneshot.cjs:15` |
-| `spawnClaudeP(opts)` | spawn `claude -p`，返回 `{ ok, stdout, stderr, code, error? }` | `src/adapters/oneshot.cjs:24` |
-| `runOneShot(opts)` | 包装为 `{ ok, text }` / `{ ok:false, error }` | `src/adapters/oneshot.cjs:45` |
+| `claudePArgs(prompt, { args })` | 构造 claude -p 参数（可附加 `--safe-mode` 等） | `server/adapters/cc/oneshot.cjs:15` |
+| `spawnClaudeP(opts)` | spawn `claude -p`，返回 `{ ok, stdout, stderr, code, error? }` | `server/adapters/cc/oneshot.cjs:24` |
+| `runOneShot(opts)` | 包装为 `{ ok, text }` / `{ ok:false, error }` | `server/adapters/cc/oneshot.cjs:45` |
 | `serverOneShot(prompt, cwd)` | 经 server `/oneshot?p=` 调用（档 1） | `plugin/core/mcp/awf-oneshot/server.cjs:43` |
 | `spawnClaude(prompt, cwd)` | 档 2/3 分派：adapter 有则用，否则 legacy | `plugin/core/mcp/awf-oneshot/server.cjs:90` |
 | `legacySpawnClaude(prompt, cwd)` | 纯插件副本的最小 spawn 实现（档 3） | `plugin/core/mcp/awf-oneshot/server.cjs:72` |
@@ -89,10 +89,10 @@ stdin 逐行 JSON-RPC → handleMessage
 |------|------|
 | `node:child_process.spawn` | 端口 spawn `claude -p`（可注入） |
 | `node:http` | MCP 经 server `/oneshot`（档 1） |
-| `path.join(__dirname,…)` require | MCP 回取 `src/adapters/oneshot.cjs`（档 2，纯插件副本降级） |
-| `src/server/server.cjs` `/oneshot` | server 端点（`server.cjs:1365`），内部用 oneshot 端口（`server.cjs:22,28`；测试注入 `global.__CC_ONESHOT__`） |
-| `src/lib/run-diagnosis.cjs` | 诊断用 oneshot（端口**由调用方注入**，lib 不反向依赖 adapters） |
-| `src/adapters/ports.cjs` | oneshot 端口对外之门（`PORT_IMPLS.oneshot` README 见 adapters.md） |
+| `path.join(__dirname,…)` require | MCP 回取 `server/adapters/cc/oneshot.cjs`（档 2，纯插件副本降级） |
+| `server/server.cjs` `/oneshot` | server 端点（`server.cjs:1365`），内部用 oneshot 端口（`server.cjs:22,28`；测试注入 `global.__CC_ONESHOT__`） |
+| `server/features/monitor/diagnosis.cjs` | 诊断用 oneshot（端口**由调用方注入**，lib 不反向依赖 adapters） |
+| `server/adapters/ports.cjs` | oneshot 端口对外之门（`PORT_IMPLS.oneshot` README 见 adapters.md） |
 
 ## 验收标准
 

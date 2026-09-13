@@ -1,7 +1,7 @@
 # 单次会话调用（oneshot） — 测试用例
 
 > 对应功能文档：`docs/features/oneshot.md`
-> 源码：`src/adapters/oneshot.cjs` + `plugin/core/mcp/awf-oneshot/server.cjs`
+> 源码：`server/adapters/cc/oneshot.cjs` + `plugin/core/mcp/awf-oneshot/server.cjs`
 > 测试文件：`tests/unit/oneshot-adapter.test.js`（端口）、`tests/integration/awf-oneshot.test.js`（MCP 本地 spawn）、`tests/integration/awf-oneshot-server.test.js`（MCP→server）、`tests/unit/cc-adapters-smoke.test.js` / `tests/unit/ports-contract.test.js`（端口契约）
 
 ## 测试场景总览

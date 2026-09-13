@@ -1,7 +1,7 @@
 # CLI 辅助命令 — 测试用例
 
 > 对应功能文档：docs/features/cli-aux.md
-> 源码：`src/cli/plugin.js`、`src/cli/server.js`、`src/cli/open.js`、`src/cli/attach.js`
+> 源码：`cli/commands/plugin.cjs`、`cli/commands/server.cjs`、`cli/commands/open.cjs`、`cli/commands/attach.cjs`
 > 测试文件：`tests/unit/cli-aux.test.js`
 
 ## 测试场景总览
@@ -193,11 +193,11 @@
 
 | 依赖 | Mock 方式 | 说明 |
 |------|-----------|------|
-| `src/lib/ui/log.js` | `vi.mock` | `logger` / `logStep` 记录调用 |
+| `（已删除：TTY 表现层，见 .awf/issues/017）` | `vi.mock` | `logger` / `logStep` 记录调用 |
 | `node:child_process` (execSync/exec/spawn) | `vi.mock`（helper） | 控制 tmux / claude plugin / 浏览器 spawn |
-| `src/lib/paths.js` | `vi.mock` | 固定 `projectRoot` / `tmuxServer` / `bootstrapScript` |
-| `src/lib/run-context.cjs` | `vi.mock` | 固定 session / port / serverScriptPath / bootstrapScriptPath（装配器取代旧 getPaths 注入点） |
-| `src/lib/server-log.js` | `vi.mock` | 避免真实落盘 |
+| `server/shared/project-paths.cjs` | `vi.mock` | 固定 `projectRoot` / `tmuxServer` / `bootstrapScript` |
+| `server/shared/run-context.cjs` | `vi.mock` | 固定 session / port / serverScriptPath / bootstrapScriptPath（装配器取代旧 getPaths 注入点） |
+| `cli/lib/server-log.cjs` | `vi.mock` | 避免真实落盘 |
 | `node:http` | `vi.mock` | 控制 `/status` 探测（200 / ECONNREFUSED / timeout） |
 | `global.fetch` | `vi.stubGlobal` | 控制 stop 的 `/shutdown` 响应，避免打到真实 8787 |
 

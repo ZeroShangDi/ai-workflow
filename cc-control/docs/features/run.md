@@ -1,25 +1,25 @@
 # awf run — 功能文档
 
 > 对应 WBS：T1-058（CLI 薄化）/ T1-059（--resume/--attach 重连）/ T1-061（state 写收敛到 server）/ T1-105（server 常驻 run host）
-> 源码：src/cli/run.js（`runCommand`）、src/cli/run-client.js、src/lib/session/client.js
+> 源码：cli/commands/run.cjs（`runCommand`）、cli/lib/client.cjs、cli/lib/client.cjs
 
 ## 功能描述
 
 `awf run` 是自治开发工作流的**薄入口**：它只做四件事 —— **起环境**（常驻 Session Server + tmux 会话 + 项目级 MCP + run settings）、**提交 run**、**订阅并展示宿主事件/状态**、**把决策与人机应答在 CLI 与宿主/会话之间中继**，最后收尾复位 mode。
 
-**薄化前后对比**：薄化前 CLI 是「司机」，自己挑任务、推阶段链、跑多 agent 滑动窗口（`src/cli/run-batch.js` 等，已删除）；薄化后**编排全部搬进常驻 server 的 run 域**（`src/server/run-host.cjs` 等，见 `docs/features/run-domain.md`），CLI 不再持有任何调度权。
+**薄化前后对比**：薄化前 CLI 是「司机」，自己挑任务、推阶段链、跑多 agent 滑动窗口（`server/run/transport.cjs（原 cli/run-batch.js 已删）` 等，已删除）；薄化后**编排全部搬进常驻 server 的 run 域**（`server/run/host.cjs` 等，见 `docs/features/run-domain.md`），CLI 不再持有任何调度权。
 
 关键边界（均有代码依据）：
 
 - **run.js 不再挑选任务、不推进阶段链、不做多 agent 调度**（见文件头注释 L16-42）。
 - **多 agent 与单 agent 一律经 server run host 驱动**：`--multi-agent` 或 `cfg.agents.max>1` 由宿主 `driveBatch → runScheduler` 调度，CLI 只把 `mode:'batch'` 提交上去（`run.js:104-119`）。
-- **提示词由插件声明，CLI 零感知**：插件改名/改命令，CLI 无需改动（`src/lib/plugin-bridge.js` 文件头注释；提示词模板见 `plugin/plugin-code/prompts.json`）。
+- **提示词由插件声明，CLI 零感知**：插件改名/改命令，CLI 无需改动（`server/shared/prompts.js` 文件头注释；提示词模板见 `plugin/plugin-code/prompts.json`）。
 - **写收口 server 单写者**：mode run/idle 复位走 `client.setRunMode`（`POST /run/state/mode`），本文件不直写 state（`run.js:602-619`）。读路径只经 `loadState` 只读校验 + `client` 快照（`run.js:56-58`）。
 
 ## 执行流程
 
 ```
-runCommand(task, options)                                  src/cli/run.js:47
+runCommand(task, options)                                  cli/commands/run.cjs:47
   ├─ 1. buildRunContext（会话名/socket/端口/路径单源）        run.js:51
   ├─ 2. connectionMode = attach | resume | fresh            run.js:54
   ├─ 3. loadState 只读校验（无 → exit 1）                    run.js:58-62
@@ -27,7 +27,7 @@ runCommand(task, options)                                  src/cli/run.js:47
   ├─ 5. 注册 SIGINT/SIGTERM 清理（doCleanup：只关 tmux）      run.js:72-83
   ├─ 6. startSession                                        run.js:92
   │     ├─ installProjectMcp → 项目级 .mcp.json 幂等合并（MCP 可用必要条件）
-  │     ├─ ensureServer      → 复用健康 server 或 spawn node src/server/server.cjs
+  │     ├─ ensureServer      → 复用健康 server 或 spawn node server/server.cjs
   │     ├─ writeRunSettings  → 写 .awf/run-settings.json（statusLine）
   │     ├─ ensureSession     → reuseExisting 时复用与 workDir 匹配的会话，否则 bootstrap.sh 重建
   │     └─ created && waitSessionStarted → 等 SessionStart 到达（含补 Enter 兜信任弹窗）
@@ -81,13 +81,13 @@ runCommand(task, options)                                  src/cli/run.js:47
 
 ## pause / 恢复相关行为
 
-- **pause 闩锁**：`waitWhilePaused(projectRoot)`（`src/lib/pause.js`）在 `mode=pause` 期间不返回；三条出口 `releasedBy`：`null`（本就没暂停）/`'resumed'`（mode 恢复）/`'settled'`（目标任务已结算）。等待超 `PAUSE_ALERT_MS`（默认 30s，`CC_PAUSE_ALERT_MS` 可覆盖）打一次告警。
+- **pause 闩锁**：`waitWhilePaused(projectRoot)`（`server/features/pause/index.js`）在 `mode=pause` 期间不返回；三条出口 `releasedBy`：`null`（本就没暂停）/`'resumed'`（mode 恢复）/`'settled'`（目标任务已结算）。等待超 `PAUSE_ALERT_MS`（默认 30s，`CC_PAUSE_ALERT_MS` 可覆盖）打一次告警。
 - **`--resume` 对暂停闩锁保持原语义**：`preservePause = options?.resume && state.mode === 'pause'`（`run.js:68`）—— w-monitor 用 `--resume` 重启异常退出的 CLI 时**必须保留 pause**，等监控验证 CLI 已重新驻留后再显式恢复为 run；此时 `needSetRun=false`，不切 run（`run.js:69,110`）。
 - **宿主自身只看 mode**：pause 的派发闩锁实际在 server 侧（`run-host`/`batch-transport`），CLI 侧只负责在暂停期间不消费事件/不应答。
 
 ## `--resume` / `--attach` / `-R, --run-id` 语义
 
-选项声明见 `src/awf.js:31-38`；语义实现见 `run.js:54, 288-372`。
+选项声明见 `cli/awf.cjs:31-38`；语义实现见 `run.js:54, 288-372`。
 
 | 选项 | 语义 |
 |------|------|
@@ -102,7 +102,7 @@ runCommand(task, options)                                  src/cli/run.js:47
 
 - **`--attach` 与 `--resume` 复用现有 server/tmux 现场**：`reuseExisting = connectionMode !== 'fresh'`（`run.js:96`）。
 - 会话复用判定：`tmux display-message` 取 pane 路径，**空输出显式判为「不存在」**（否则 `path.resolve('')` 静默取 cwd 令判断恒真，T1-108 真机回归暴露），路径与 workDir 一致才算复用（`run.js:233-249`）。
-- `awf attach`（无连字符，`src/cli/attach.js`）是另一命令：`tmux attach` 进会话观看/操作实时对话（Ctrl-B D 脱离），与 `awf run --attach` 不同。
+- `awf attach`（无连字符，`cli/commands/attach.cjs`）是另一命令：`tmux attach` 进会话观看/操作实时对话（Ctrl-B D 脱离），与 `awf run --attach` 不同。
 
 ## 退出码与异常退出保留现场
 
@@ -121,15 +121,15 @@ runCommand(task, options)                                  src/cli/run.js:47
 
 | 常量 | 值 | 说明 | 来源 |
 |------|-----|------|------|
-| `SERVER_PORT` | plugin/config.json `port`（缺省 8787，`CC_PORT` 覆盖） | Session Server 端口（单源 runtime-config） | `src/lib/session/client.js:9`、`src/lib/runtime-config.cjs` |
+| `SERVER_PORT` | plugin/config.json `port`（缺省 8787，`CC_PORT` 覆盖） | Session Server 端口（单源 runtime-config） | `cli/lib/client.cjs:9`、`server/shared/runtime-config.cjs` |
 | `READY_TIMEOUT` | 1800000ms（30min） | `waitForReady` 最大等待 | `client.js:11` |
 | `POLL_INTERVAL` | 2000ms | ready 轮询间隔 | `client.js:13` |
 | `DEFAULT_TIMEOUT_MS` | 5000ms | AskUserQuestion 自动选择等待 | `client.js:145` |
 | `CC_SESSION_READY_TIMEOUT_MS` | 60000ms（env 覆盖） | `waitSessionStarted` 等 SessionStart 超时（超时不硬失败） | `run.js:176` |
 | session nudge 间隔 `nudgeMs` | 5000ms | 等待就绪期间周期补 Enter（兜信任弹窗） | `run.js:177` |
 | 事件环轮询间隔（`sleep(200)`） | 200ms | `observeRun` 每轮间隔 | `run.js:432` |
-| tmux 会话名 | `${session}-${projectSid}`（`projectSid`=`p`+12hex） | 单 server 多项目会话名唯一化 | `src/lib/run-context.cjs` `projectSid`/`projectSessionName` |
-| `PAUSE_ALERT_MS` | 30000ms（`CC_PAUSE_ALERT_MS` 覆盖） | pause 闩锁告警阈值 | `src/lib/pause.js:7` |
+| tmux 会话名 | `${session}-${projectSid}`（`projectSid`=`p`+12hex） | 单 server 多项目会话名唯一化 | `server/shared/run-context.cjs` `projectSid`/`projectSessionName` |
+| `PAUSE_ALERT_MS` | 30000ms（`CC_PAUSE_ALERT_MS` 覆盖） | pause 闩锁告警阈值 | `server/features/pause/index.js:7` |
 
 > 注：`awf run` **没有** `--port` 选项；端口经 `plugin/config.json` 的 `port` + `CC_PORT` env 控制（`runtime-config.cjs`）。回归 harness 的 `--port <n>`（`tests/regression/fullflow-regression.mjs`）是**该脚本**的选项，用于隔离端口起 server/插件副本，与 `awf run` 无关。
 
@@ -158,16 +158,16 @@ runCommand(task, options)                                  src/cli/run.js:47
 
 | 模块 | 用途 |
 |------|------|
-| `src/cli/run-client.js`（`createRunClient`） | CLI↔Server 调用面：`submitRun`/`runSnapshot`/`pollRunEvents`/`setRunMode`（含 `?p` 项目路由） |
-| `src/lib/session/client.js` | HTTP 原语与就绪等待：`httpPost`/`httpPostJson`/`getStatus`/`autoSelect`/`waitForReady`/`SERVER_PORT`/`projectQuery` |
-| `src/lib/run-context.cjs`（`buildRunContext`/`projectSid`） | run 上下文装配：会话名、端口、路径、settings 引用单源 |
-| `src/lib/profile.js`（`installProjectMcp`） | 项目级 `.mcp.json` 幂等合并（MCP 工具可用必要条件） |
-| `src/lib/pause.js`（`waitWhilePaused`） | pause 闩锁（暂停期间挂起、恢复/settled 放行） |
-| `src/lib/state.js`（`loadState`） | 只读校验 state 存在与 mode（不写） |
-| `src/cli/run-client.js` + 上述 client | 提交/订阅/应答；mode 写经 `setRunMode`（`POST /run/state/mode`） |
-| `src/server/run-host.cjs` 等 server run 域 | 实际编排（任务选择/阶段链/门禁/多 agent 调度）；CLI 不持有 |
-| `src/lib/ui/run-follow.js`（`createRunFollow`） | TTY 跟随展示（任务行原地重绘 + 进度行） |
-| `src/lib/ui/log.js`（`logSection`/`logStep`）| 结构化输出 |
+| `cli/lib/client.cjs`（`createRunClient`） | CLI↔Server 调用面：`submitRun`/`runSnapshot`/`pollRunEvents`/`setRunMode`（含 `?p` 项目路由） |
+| `cli/lib/client.cjs` | HTTP 原语与就绪等待：`httpPost`/`httpPostJson`/`getStatus`/`autoSelect`/`waitForReady`/`SERVER_PORT`/`projectQuery` |
+| `server/shared/run-context.cjs`（`buildRunContext`/`projectSid`） | run 上下文装配：会话名、端口、路径、settings 引用单源 |
+| `server/adapters/cc/profile.cjs`（`installProjectMcp`） | 项目级 `.mcp.json` 幂等合并（MCP 工具可用必要条件） |
+| `server/features/pause/index.js`（`waitWhilePaused`） | pause 闩锁（暂停期间挂起、恢复/settled 放行） |
+| `server/shared/state.js`（`loadState`） | 只读校验 state 存在与 mode（不写） |
+| `cli/lib/client.cjs` + 上述 client | 提交/订阅/应答；mode 写经 `setRunMode`（`POST /run/state/mode`） |
+| `server/run/host.cjs` 等 server run 域 | 实际编排（任务选择/阶段链/门禁/多 agent 调度）；CLI 不持有 |
+| `（已删除：TTY 表现层，见 .awf/issues/017）`（`createRunFollow`） | TTY 跟随展示（任务行原地重绘 + 进度行） |
+| `（已删除：TTY 表现层，见 .awf/issues/017）`（`logSection`/`logStep`）| 结构化输出 |
 | `node:child_process`（`spawn`/`execSync`） | tmux 会话管理（display-message/kill-session/attach）、bootstrap、补 Enter |
 | `node:readline` | 交互式决策输入（choice/text） |
 | `plugin/plugin-code/prompts.json` | 运行期提示词模板（经 `plugin-bridge.js` 读取；CLI 零感知） |

@@ -1,7 +1,7 @@
 # CC Hooks 模块 — 测试用例
 
 > 对应功能文档：`docs/features/hooks.md`
-> 源码：`plugin/config.json`（hooks 段，`__PORT__`）+ `plugin/core/hooks/hooks.json`（渲染产物）+ `plugin/core/hooks/gateway.cjs` + `src/server/server.cjs`（`/hook`）+ `src/server/hook-adapter.cjs`
+> 源码：`plugin/config.json`（hooks 段，`__PORT__`）+ `plugin/core/hooks/hooks.json`（渲染产物）+ `plugin/core/hooks/gateway.cjs` + `server/server.cjs`（`/hook`）+ `server/adapters/cc/hook.cjs`
 > 测试文件：`tests/unit/hooks.test.js` / `tests/unit/gateway.test.js` / `tests/unit/hook-adapter.test.js` / `tests/integration/decision.test.js`
 
 ---

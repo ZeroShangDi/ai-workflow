@@ -1,7 +1,7 @@
 # awf init — 测试用例
 
 > 对应功能文档：docs/features/init.md
-> 源码：`src/cli/init.js`（+ `src/cli/plugin.js`、`src/lib/profile.js`）
+> 源码：`cli/commands/init.cjs`（+ `cli/commands/plugin.cjs`、`server/adapters/cc/profile.cjs`）
 > 测试文件：`tests/unit/init.test.js`、`tests/regression/fullflow-regression.mjs`（`caseInit` 真机断言）
 
 ## 测试场景总览
@@ -116,7 +116,7 @@
 
 ### TC9: CLAUDE.md 模板缺失 → warn 跳过
 
-**前置条件**：删除 `src/templates/CLAUDE.md.template`
+**前置条件**：删除 `server/templates/CLAUDE.md.template`
 
 **断言**：不创建 `CLAUDE.md`；不调用 `process.exit(1)`
 
@@ -126,7 +126,7 @@
 
 ### TC10: README 模板缺失 → 骨架中断
 
-**前置条件**：删除 `src/templates/awf-README.md`
+**前置条件**：删除 `server/templates/awf-README.md`
 
 **执行**：`initCommand({ force: false })`
 
@@ -155,7 +155,7 @@
 
 ### 真机回归 caseInit
 
-**执行**：`node src/awf.js init`（沙箱项目，隔离 env）→ 读 `.claude/settings.json` / `.mcp.json` / `.awf/config.json` → 再跑一次 init
+**执行**：`node cli/awf.cjs init`（沙箱项目，隔离 env）→ 读 `.claude/settings.json` / `.mcp.json` / `.awf/config.json` → 再跑一次 init
 
 **断言**：见「真机回归」14 条清单（含幂等与 marketplace 形态）。
 
@@ -166,7 +166,7 @@
 | `node:child_process.execSync` | `vi.mock`（`tests/helpers/mock-child-process.js`） | 控制 `command -v tmux/claude` |
 | `node:child_process.exec` | `vi.mock` | 断言本地注入**不**触发 `claude plugin install` |
 | `node:fs/promises` | 真实 fs + 临时目录 | 文件 I/O 在 `mkdtemp` 目录中真实执行 |
-| `src/lib/paths.js` | `vi.mock` | `projectRoot` 指向 `FAKE_ROOT`（模板与 plugin/settings.json 夹具所在） |
-| `src/lib/version.js` | 未 mock | 版本处理已禁用 |
+| `server/shared/project-paths.cjs` | `vi.mock` | `projectRoot` 指向 `FAKE_ROOT`（模板与 plugin/settings.json 夹具所在） |
+| `（已删除：能力停用，见 .awf/issues/017）` | 未 mock | 版本处理已禁用 |
 
-**夹具（FAKE_ROOT）**：`setupTemplates()` 预置 `src/templates/`（README/config/architecture/非空 CLAUDE.md.template）、`plugin/core/mcp/awf-state/state.template.json`、`plugin/settings.json`。
+**夹具（FAKE_ROOT）**：`setupTemplates()` 预置 `server/templates/`（README/config/architecture/非空 CLAUDE.md.template）、`plugin/core/mcp/awf-state/state.template.json`、`plugin/settings.json`。

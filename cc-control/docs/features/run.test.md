@@ -1,7 +1,7 @@
 # awf run — 测试用例
 
 > 对应功能文档：docs/features/run.md
-> 源码：src/cli/run.js（`runCommand`/`driveSingle`/`observeRun`/`waitSessionStarted`/`handleDecision`/`drainDecisionResume`）
+> 源码：cli/commands/run.cjs（`runCommand`/`driveSingle`/`observeRun`/`waitSessionStarted`/`handleDecision`/`drainDecisionResume`）
 > 测试文件：
 > - `tests/unit/run.test.js`（CLI 薄化控制流，主套件）
 > - `tests/unit/session-ready-wait.test.js`
@@ -188,15 +188,15 @@
 
 | 依赖 | Mock 方式 | 说明 |
 |------|-----------|------|
-| `src/lib/state.js`（`loadState`） | `vi.mock` | 预制 state（mode/currentState） |
-| `src/lib/run-config.js` | `vi.mock` | 固定 `{agents:{max:1}}` |
-| `src/lib/pause.js`（`waitWhilePaused`） | `vi.mock` | 默认立即放行（闩锁语义由 pause.test.js 覆盖） |
-| `src/lib/profile.js`（`installProjectMcp`） | `vi.mock` | 返回 `{written:false,servers:[]}` |
-| `src/lib/server-log.js` | `vi.mock` | 固定 fd/path |
-| `src/lib/run-context.cjs`（`buildRunContext`/`projectSid`） | `vi.mock` | 固定路径/会话名/端口 |
-| `src/server/run-settings.cjs`（`generateRunSettings`） | `vi.mock` | 返回 `{statusLine:{}}` |
-| `src/cli/run-client.js`（`createRunClient`） | `vi.mock` | 返回可控 `submitRun/pollRunEvents/runSnapshot/setRunMode` |
-| `src/lib/session/client.js` | `vi.mock` | `httpPost/httpPostJson/autoSelect/waitForReady/getStatus/SERVER_PORT/projectQuery` |
+| `server/shared/state.js`（`loadState`） | `vi.mock` | 预制 state（mode/currentState） |
+| `server/run/config.js` | `vi.mock` | 固定 `{agents:{max:1}}` |
+| `server/features/pause/index.js`（`waitWhilePaused`） | `vi.mock` | 默认立即放行（闩锁语义由 pause.test.js 覆盖） |
+| `server/adapters/cc/profile.cjs`（`installProjectMcp`） | `vi.mock` | 返回 `{written:false,servers:[]}` |
+| `cli/lib/server-log.cjs` | `vi.mock` | 固定 fd/path |
+| `server/shared/run-context.cjs`（`buildRunContext`/`projectSid`） | `vi.mock` | 固定路径/会话名/端口 |
+| `server/adapters/cc/settings.cjs`（`generateRunSettings`） | `vi.mock` | 返回 `{statusLine:{}}` |
+| `cli/lib/client.cjs`（`createRunClient`） | `vi.mock` | 返回可控 `submitRun/pollRunEvents/runSnapshot/setRunMode` |
+| `cli/lib/client.cjs` | `vi.mock` | `httpPost/httpPostJson/autoSelect/waitForReady/getStatus/SERVER_PORT/projectQuery` |
 | `node:fs/promises` | `vi.mock` | `mkdir/writeFile`（run-settings 写入） |
 | `node:child_process` | `vi.mock` | `spawn`/`execSync`（server/tmux/bootstrap） |
 | `node:readline` | `vi.mock`（run.test.js 决策用例） | 模拟选择/输入，避免阻塞 |

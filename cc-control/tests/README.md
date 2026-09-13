@@ -42,7 +42,7 @@ tests/
 ## 两个入口的公共约定
 
 - **`--awf <path>`**：指定 awf CLI 入口。缺省 `cli/awf.cjs`（新树）。
-- **server 入口与 CLI 同源推导**：`cli/awf.cjs` → 隔壁 `server/server.cjs`；`src/awf.js` → `src/server/server.cjs`。
+- **server 入口与 CLI 同源推导**：`cli/awf.cjs` → 隔壁 `server/server.cjs`；`cli/awf.cjs` → `server/server.cjs`。
   机制类 case 有一半**绕过 CLI 直连 server**，只换 CLI 不换 server 会跑出「新 CLI + 旧 server」的混搭，
   结果不可信 —— 所以这条推导是必须的（`--server <path>` 可显式覆盖）。
 - **不给选择就不跑**：真机套件误跑要烧 token，`test:real` 不给 `--fast`/`--case` 时报用法退出。

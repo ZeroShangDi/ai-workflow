@@ -1,7 +1,7 @@
 # tmux 会话 & awf-session 观测 — 测试用例
 
 > 对应功能文档：`docs/features/tmux-session.md`
-> 源码：`src/server/tmux.cjs` + `src/server/host.cjs` + `src/lib/run-context.cjs` + `src/cli/run.js` + `scripts/bootstrap.sh` + `plugin/core/mcp/awf-session/server.cjs`
+> 源码：`server/adapters/cc/host.cjs` + `server/adapters/cc/host.cjs` + `server/shared/run-context.cjs` + `cli/commands/run.cjs` + `scripts/bootstrap.sh` + `plugin/core/mcp/awf-session/server.cjs`
 > 测试文件：`tests/unit/tmux.test.js`、`tests/unit/host.test.js`、`tests/unit/run-context-project-sid.test.js`、`tests/unit/session-ready-wait.test.js`、`tests/integration/bootstrap.test.js`、`tests/integration/awf-session.test.js`
 
 ## 测试场景总览

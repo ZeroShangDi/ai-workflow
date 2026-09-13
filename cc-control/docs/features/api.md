@@ -1,9 +1,9 @@
 # Session Server HTTP API — 参考
 
 > 对应 WBS：W3-003（server 控制平面分层 + 编排迁入；本页是其对外 HTTP 面）
-> 源码：`src/server/server.cjs`（路由分发唯一依据）
-> 配套模块：`src/server/project-context.cjs`（`?p` 路由）、`src/server/static.cjs`（静态托管）、`src/server/ws.cjs`（WebSocket）、`src/server/run-host.cjs`（`/run/*` 响应形状）
-> 客户端实现：`src/lib/session/client.js`、`src/cli/run-client.js`；hook 网关：`plugin/core/hooks/gateway.cjs`
+> 源码：`server/server.cjs`（路由分发唯一依据）
+> 配套模块：`server/runtime/project.cjs / registry.cjs`（`?p` 路由）、`server/web/static.cjs`（静态托管）、`server/web/ws.cjs`（WebSocket）、`server/run/host.cjs`（`/run/*` 响应形状）
+> 客户端实现：`cli/lib/client.cjs`、`cli/lib/client.cjs`；hook 网关：`plugin/core/hooks/gateway.cjs`
 > 测试交叉验证：`tests/integration/server.test.js`、`tests/integration/write-requires-project.test.js`
 
 常驻 HTTP Session Server 是 CLI / tmux 会话内 Claude Code 的 hooks / 插件 MCP / 前端 web 三方的共同后端。v0.2.0 起支持**单实例多项目**：请求用 `?p=<projectRoot>` 指定项目上下文。
@@ -39,9 +39,9 @@ root = p || bodyProjectRoot || projectRoot || boot
 每个 ProjectCtx 持有独立的 `.awf/state.json` / 日志 / tmux 会话（`cc-<projectSid>`）/ ready-busy 内存槽 / run host。跨项目完全隔离。
 
 ```js
-// src/lib/session/client.js — 客户端拼 ?p
+// cli/lib/client.cjs — 客户端拼 ?p
 projectQuery(project) => project ? `?p=${encodeURIComponent(project)}` : ''
-// src/cli/run-client.js — 已有 query 时用 & 追加
+// cli/lib/client.cjs — 已有 query 时用 & 追加
 addP(p) => enc == null ? p : (p.includes('?') ? `${p}&p=${enc}` : `${p}?p=${enc}`)
 ```
 
@@ -188,7 +188,7 @@ server 为常驻进程（由 CLI 惰性拉起、多项目复用）。`process` �
 - 产物缺失 → `503`（见 §4），并 `console.warn` 提示 `npm run build`。
 
 ```json
-{ "ok": false, "error": "前端产物缺失：请运行 npm run build（构建 web/ → src/server/public）", "expected": "<webRoot>/index.html" }
+{ "ok": false, "error": "前端产物缺失：请运行 npm run build（构建 web/ → server/public）", "expected": "<webRoot>/index.html" }
 ```
 
 > 注：`/ui` 等未列入 `PAGE_PATHS` 的路径不在此处理，落到 §4 静态托管判定。
@@ -467,7 +467,7 @@ hook 网关（`gateway.cjs`）把 stdin 的 hook JSON 原样 POST 到此端点�
 
 `GET` 请求若未命中任何显式 API 路由，进入静态托管（`static.cjs` 的 `createStaticHost`）。
 
-**根目录**：`CC_WEB_PUBLIC` env（可覆盖，测试用）|| 默认 `src/server/public`（`npm run build` 构建 `web/` 而来）。
+**根目录**：`CC_WEB_PUBLIC` env（可覆盖，测试用）|| 默认 `server/public`（`npm run build` 构建 `web/` 而来）。
 > 前端工程本身（结构 / 四视图 / 取数 / 构建触发点）见 `web.md`；本节是**服务端**侧的托管规则。
 
 **解析规则**（`resolve(urlPath)`）：
@@ -485,7 +485,7 @@ hook 网关（`gateway.cjs`）把 stdin 的 hook JSON 原样 POST 到此端点�
 - `PAGE_PATHS` 页面路径 → `503 {ok:false, error:"前端产物缺失：请运行 npm run build…", expected}` + `console.warn`。
 - 其它未知 GET（如 `/nope-404`）→ `404 {ok:false, error:"not found"}`（**不回退、不空白页**）。
 
-> 历史：legacy 观测页（dashboard/decisions/diagnostics.html/ui.html）与 `theme.css`/`common.js` 已随 T1-119 退役，前端只剩 `src/server/public` 一个来源。`static.cjs` 顶部的文档注释仍描述「临时承载 legacy html、迁移后退役」，属**遗留陈述**，与其 `aliases` 只含 `'/'` 的现状不符。
+> 历史：legacy 观测页（dashboard/decisions/diagnostics.html/ui.html）与 `theme.css`/`common.js` 已随 T1-119 退役，前端只剩 `server/public` 一个来源。`static.cjs` 顶部的文档注释仍描述「临时承载 legacy html、迁移后退役」，属**遗留陈述**，与其 `aliases` 只含 `'/'` 的现状不符。
 
 ---
 

@@ -1,6 +1,6 @@
 # CC Hooks 模块 — 功能文档
 
-> 源码：`plugin/core/hooks/hooks.json`（渲染产物）+ `plugin/config.json`（hooks 段，唯一源）+ `plugin/core/hooks/gateway.cjs`（转发网关）+ `scripts/render-config.mjs`（渲染器）+ `src/server/server.cjs`（`/hook` 路由）+ `src/server/hook-adapter.cjs`（hook→领域事件接缝）
+> 源码：`plugin/core/hooks/hooks.json`（渲染产物）+ `plugin/config.json`（hooks 段，唯一源）+ `plugin/core/hooks/gateway.cjs`（转发网关）+ `scripts/render-config.mjs`（渲染器）+ `server/server.cjs`（`/hook` 路由）+ `server/adapters/cc/hook.cjs`（hook→领域事件接缝）
 > 测试：`tests/unit/hooks.test.js` / `tests/unit/gateway.test.js` / `tests/unit/hook-adapter.test.js` / `tests/integration/decision.test.js`（`/hook` 路由）
 
 ---
@@ -46,7 +46,7 @@ plugin/config.json
 ```
 
 - `render-config.mjs`：`renderHooksFile(hooks, port)` 用 `JSON.stringify(...).replaceAll('__PORT__', String(port))` 生成 hooks.json。
-- **只渲染进引擎插件目录**（`config.engineDir`，缺省 `core`）：`resolvePluginAssets`（`src/lib/plugin-config.js`）让引擎插件在自身无声明时回落顶层 `config.hooks`；其余插件不给引擎运行时资产。此举避免双插件各自注册 Stop 造成竞态。
+- **只渲染进引擎插件目录**（`config.engineDir`，缺省 `core`）：`resolvePluginAssets`（`server/shared/plugin-render.cjs`）让引擎插件在自身无声明时回落顶层 `config.hooks`；其余插件不给引擎运行时资产。此举避免双插件各自注册 Stop 造成竞态。
 - 端口来源优先级：`config.json` 的 `port`（渲染默认）；`gateway.cjs` 运行期用 `argv[2]`，`CC_PORT` 仅兜底（测试/手工调用）。gateway.cjs 不再内嵌 8787 默认值。
 
 ### 3. gateway 转发协议（`plugin/core/hooks/gateway.cjs`）
@@ -65,7 +65,7 @@ stdin(CC hook JSON payload)
 - 超时 `TIMEOUT_MS = 2500ms`；网络/解析异常一律静默 `exit 0`（hook 不误报、不阻断）。
 - 需要读 server 回包（`ccOutput`）的场景才真正依赖 stdout：`Stop`（决策 block）、`PreToolUse`（决策 deny）。
 
-### 4. `/hook` 路由（`src/server/server.cjs`）
+### 4. `/hook` 路由（`server/server.cjs`）
 
 ```
 POST /hook
@@ -111,9 +111,9 @@ POST /hook
 - **ready/busy 唯一来源**：`setReady` / `setBusy`（`server.cjs`）。就绪等待方 `waitReady(timeout)` 由 `setReady` 唤醒全部 waiters。
 - 本地 slash 命令（`/clear` 等）不产生 `Stop` hook，故 `sendLocalCmd` 用 `LOCAL_CMD_FALLBACK_MS` 兜底回 ready。
 
-### 6. `hook → 领域事件` 接缝（`src/server/hook-adapter.cjs`）
+### 6. `hook → 领域事件` 接缝（`server/adapters/cc/hook.cjs`）
 
-`translateHook(payload)` 把 claude hook payload 译为领域事件（供事件总线消费），映射锚点在 `src/lib/events.cjs` 的 `HOOK_EVENT_MAP`：
+`translateHook(payload)` 把 claude hook payload 译为领域事件（供事件总线消费），映射锚点在 `server/shared/events.cjs` 的 `HOOK_EVENT_MAP`：
 
 | hook_event_name | 领域事件 | payload 锚点 |
 |---|---|---|
@@ -125,7 +125,7 @@ POST /hook
 | `PreToolUse` / `PostToolUse` / 未知 | —（不产出） | — |
 
 - 适配器由 `createHookAdapter({ emit })` 提供 `.hook(payload, { runId })`；cc 细节字段（`CC_FIELDS`，如 `session_id`/`agent_id`/`stop_hook_active`/`tool_name`/`tool_input`/`last_assistant_message`）经 `pickCc` 收口进事件 `payload.cc`。
-- **现状说明**：该接缝已在 `src/adapters/ports.cjs` 的 `hook` 端口装配，但 `server.cjs` 的 `/hook` 仍按事件直接分流（未改走事件总线）；完整提取（agent id、子 Agent RESULT 等）归 W1-046。本模块保持最小可扩展。
+- **现状说明**：该接缝已在 `server/adapters/ports.cjs` 的 `hook` 端口装配，但 `server.cjs` 的 `/hook` 仍按事件直接分流（未改走事件总线）；完整提取（agent id、子 Agent RESULT 等）归 W1-046。本模块保持最小可扩展。
 
 ---
 
@@ -153,15 +153,15 @@ POST /hook
 | `main()` | gateway：读 stdin → POST `/hook` → 透传 `ccOutput` 到 stdout | `plugin/core/hooks/gateway.cjs` |
 | `readStdin()` / `postToServer(event, body)` | stdin 收集 / 带 `sid`+`p` 的 POST 封装 | `plugin/core/hooks/gateway.cjs` |
 | `renderHooksFile(hooks, port)` / `renderHooksObject` | `__PORT__` → 端口字面量 | `scripts/render-config.mjs` |
-| `resolvePluginAssets(plugin, …)` | 引擎插件回落顶层 hooks/mcpServers；仅引擎落运行时资产 | `src/lib/plugin-config.js` |
-| `/hook` 路由（无 sid 主路径） | 按 event 分流（状态/子 Agent/决策） | `src/server/server.cjs` |
-| `handleSidHook(pcx, sid, event, body, res)` | 带 sid 的 hook → 独立 run 槽 | `src/server/server.cjs` |
-| `setReady(pcx)` / `setBusy(pcx)` / `waitReady(pcx, t)` | ready/busy 闩锁 + 唤醒 waiters | `src/server/server.cjs` |
-| `isMainSession(pcx, body)` | 主会话隔离判定 | `src/server/server.cjs` |
-| `parseSubagentResult` / `parseSubagentNeedsInput` | 解析子 Agent `RESULT` / `NEEDS_INPUT` | `src/lib/extract.cjs`（经 `server.cjs` 包装） |
-| `settleSubagent(pcx, body)` | 子 Agent RESULT 落账（state 写锁 + 字段合并） | `src/server/server.cjs` |
-| `logSubagentEvent/NeedsInput/Failure` | 子 Agent 事件/决策/失败日志追加 | `src/server/server.cjs` |
-| `translateHook(payload)` / `createHookAdapter` | hook payload → 领域事件（接缝，见 §6） | `src/server/hook-adapter.cjs` |
+| `resolvePluginAssets(plugin, …)` | 引擎插件回落顶层 hooks/mcpServers；仅引擎落运行时资产 | `server/shared/plugin-render.cjs` |
+| `/hook` 路由（无 sid 主路径） | 按 event 分流（状态/子 Agent/决策） | `server/server.cjs` |
+| `handleSidHook(pcx, sid, event, body, res)` | 带 sid 的 hook → 独立 run 槽 | `server/server.cjs` |
+| `setReady(pcx)` / `setBusy(pcx)` / `waitReady(pcx, t)` | ready/busy 闩锁 + 唤醒 waiters | `server/server.cjs` |
+| `isMainSession(pcx, body)` | 主会话隔离判定 | `server/server.cjs` |
+| `parseSubagentResult` / `parseSubagentNeedsInput` | 解析子 Agent `RESULT` / `NEEDS_INPUT` | `server/adapters/cc/extract.cjs`（经 `server.cjs` 包装） |
+| `settleSubagent(pcx, body)` | 子 Agent RESULT 落账（state 写锁 + 字段合并） | `server/server.cjs` |
+| `logSubagentEvent/NeedsInput/Failure` | 子 Agent 事件/决策/失败日志追加 | `server/server.cjs` |
+| `translateHook(payload)` / `createHookAdapter` | hook payload → 领域事件（接缝，见 §6） | `server/adapters/cc/hook.cjs` |
 
 ---
 
@@ -174,7 +174,7 @@ POST /hook
 | `plugin/config.json` | ★ 唯一配置源（`port` / `hooks` 段，含 `__PORT__` 占位） |
 | `scripts/render-config.mjs` | 渲染 `plugin/core/hooks/hooks.json`（`__PORT__` → 字面量端口，仅引擎插件） |
 | Session Server (`server.cjs`) | 接收 `/hook`，驱动状态机 + 子 Agent 落账 + 决策闸门 |
-| `src/server/decision-gate.cjs` / `src/server/decision.cjs` | 决策闸门规则与 Result 解析（见 `docs/features/decision-system.md`） |
+| `server/features/decision/gate.cjs` / `server/features/decision/core.cjs` | 决策闸门规则与 Result 解析（见 `docs/features/decision-system.md`） |
 | `.claude/settings.json` | 插件 / hooks / MCP 注册加载（`awf init` 本地注入 / 全局 `claude plugin install`） |
 
 ---

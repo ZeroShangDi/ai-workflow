@@ -1,11 +1,11 @@
 # Run Logger 模块 — 功能文档
 
 > 对应 WBS：（源码未标注；T1-111 编排运维提示行 / T1-112 server 输出落盘为相邻项）
-> 源码：`src/server/run-logger.cjs`
+> 源码：`server/observability/run-logger.cjs`
 
 ## 功能描述
 
-`RunLogger` 是 `awf run` 的运行日志记录器，随项目上下文构造（`src/server/project-context.cjs:47`，经 `createProjectRegistry` 注入）。每次初始化创建 `.awf/logs/{version}-{ts}/` 目录，保存：
+`RunLogger` 是 `awf run` 的运行日志记录器，随项目上下文构造（`server/runtime/project.cjs / registry.cjs:47`，经 `createProjectRegistry` 注入）。每次初始化创建 `.awf/logs/{version}-{ts}/` 目录，保存：
 
 - **主对话日志** `main.log` — 提示词 / 回答 / 选项 / 编排运维提示 / 决策关键事件行；
 - **子 Agent 转录** `agents/{taskId}--{agentId}.log` — 由子 Agent 的 `.jsonl` transcript 渲染为人读文本。
@@ -72,7 +72,7 @@ project: {projectRoot}
 
 ## 日志写入
 
-所有文本写入最终都经 `_append` → `this._main.appendRawSync(content)`（`:213-219`）。`_main` 是 `store.createAppendFileStore(...)`（`:40`），其 `appendRawSync` 内部执行 `fs.appendFileSync` 并确保目录存在（`src/lib/store.cjs:136-139`）。异常被 catch → `console.error`，不向上抛。
+所有文本写入最终都经 `_append` → `this._main.appendRawSync(content)`（`:213-219`）。`_main` 是 `store.createAppendFileStore(...)`（`:40`），其 `appendRawSync` 内部执行 `fs.appendFileSync` 并确保目录存在（`server/shared/store.cjs:136-139`）。异常被 catch → `console.error`，不向上抛。
 
 | 方法 | 格式 | 位置 |
 |------|------|------|
@@ -108,7 +108,7 @@ captureFromTranscript()
 ### 子 Agent `captureSubagentTranscript(body, taskId, agentId)`（`:152-171`）
 
 - 源文件：`body.agent_transcript_path`；不存在则跳过。
-- 渲染：`_renderTranscript(source)` → `extract.renderTranscriptText(...)`（`src/lib/extract.cjs:80-89`），逐行 JSONL 解析为 `[time] role\n...` 人读文本。
+- 渲染：`_renderTranscript(source)` → `extract.renderTranscriptText(...)`（`server/adapters/cc/extract.cjs:80-89`），逐行 JSONL 解析为 `[time] role\n...` 人读文本。
 - 落盘：经 `storeCore.atomicWriteFileSync` **一次性原子写**（同名重试会覆盖而非追加，保持原语义）；头部 5 行含 `=== AWF Subagent Log ===` / `task` / `agent` / `captured` / 空行。
 
 ## 与 `.awf/logs/server.log` 的区别
@@ -119,9 +119,9 @@ captureFromTranscript()
 | 内容 | 提示词/回答/决策行/子 agent 转录（人读） | server 自身 console 输出（启动行、错误、诊断日志等） |
 | 位置 | `.awf/logs/{version}-{ts}/main.log` | `.awf/logs/server.log`（相邻，不入 run 子目录） |
 | 轮转 | 每个 run 一个新目录（无覆盖） | 单代轮转：超上限时旧文件改名为 `server.log.1`，新文件从空开始 |
-| 源码 | `src/server/run-logger.cjs` | `src/lib/server-log.js`（`openServerLog`/`serverLogPath`，`:23-50`） |
+| 源码 | `server/observability/run-logger.cjs` | `cli/lib/server-log.cjs`（`openServerLog`/`serverLogPath`，`:23-50`） |
 
-`server.log` 单文件上限 `SERVER_LOG_MAX_MB`，默认 5MB，可用 `CC_SERVER_LOG_MAX_MB` 覆盖（`<=0` 不轮转）（`server-log.js:17-20`）；由 `src/cli/run.js:211-214` 与 `src/cli/server.js:24-25` 在 spawn server 时打开。
+`server.log` 单文件上限 `SERVER_LOG_MAX_MB`，默认 5MB，可用 `CC_SERVER_LOG_MAX_MB` 覆盖（`<=0` 不轮转）（`server-log.js:17-20`）；由 `cli/commands/run.cjs:211-214` 与 `cli/commands/server.cjs:24-25` 在 spawn server 时打开。
 
 ## 核心常量 / 配置
 
@@ -136,7 +136,7 @@ captureFromTranscript()
 
 | 函数 | 说明 | 位置 |
 |------|------|------|
-| `constructor(projectRoot)` | 初始化目录、写头；空 root → enabled=false | `src/server/run-logger.cjs:12-24` |
+| `constructor(projectRoot)` | 初始化目录、写头；空 root → enabled=false | `server/observability/run-logger.cjs:12-24` |
 | `_init()` | 建目录、建 AppendFileStore、写头 | `:28-50` |
 | `_readVersion()` | 从 state.json 读 version | `:52-61` |
 | `enabled` / `path` / `dir` | getter：是否启用 / main.log 路径 / run 目录 | `:65-75` |
@@ -155,11 +155,11 @@ captureFromTranscript()
 
 | 模块 | 用途 |
 |------|------|
-| `src/lib/store.cjs` | `createAppendFileStore`（main.log 追加流） |
-| `src/lib/store-core.cjs` | `atomicWriteFileSync`（子 agent 转录原子写） |
-| `src/lib/extract.cjs` | `renderTranscriptText`（JSONL → 人读文本） |
-| `src/server/project-context.cjs` | 构造 RunLogger 并挂到 pcx.logger |
-| `src/lib/server-log.js` | server 自身输出落盘（与 run 日志区分的另一条链路） |
+| `server/shared/store.cjs` | `createAppendFileStore`（main.log 追加流） |
+| `server/shared/store-core.cjs` | `atomicWriteFileSync`（子 agent 转录原子写） |
+| `server/adapters/cc/extract.cjs` | `renderTranscriptText`（JSONL → 人读文本） |
+| `server/runtime/project.cjs / registry.cjs` | 构造 RunLogger 并挂到 pcx.logger |
+| `cli/lib/server-log.cjs` | server 自身输出落盘（与 run 日志区分的另一条链路） |
 | `node:fs` / `node:path` / `node:os` | 文件读写 / 路径拼接 / `homedir()` |
 
 ## 验收标准

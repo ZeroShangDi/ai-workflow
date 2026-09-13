@@ -1,6 +1,6 @@
 # 自动决策模块（会话决策中继 + 多 agent 上抛）— 功能文档
 
-> 源码文件：`src/lib/session/client.js`（autoSelect / waitForReady）+ `src/cli/run.js`（handleDecision / observeRun 中继）+ `src/server/server.cjs`（`/choice` `/ask` `/respond` `/status` 路由 + `decisionPending` 槽 + needs-input 日志）+ `src/server/batch-transport.cjs`（多 agent 决策挂起/上抛探测，宿主侧） + `src/server/interact.cjs`（决策对象构造/校验）
+> 源码文件：`cli/lib/client.cjs`（autoSelect / waitForReady）+ `cli/commands/run.cjs`（handleDecision / observeRun 中继）+ `server/server.cjs`（`/choice` `/ask` `/respond` `/status` 路由 + `decisionPending` 槽 + needs-input 日志）+ `server/run/transport.cjs`（多 agent 决策挂起/上抛探测，宿主侧） + `server/web/interact.cjs`（决策对象构造/校验）
 > 关联：**AI 自决（决策门阀）**见 `docs/features/decision-system.md`；本文件覆盖「人工上抛 / 自动选择」的会话内决策中继链路与多 agent `NEEDS_INPUT` 上抛。
 
 ---
@@ -14,7 +14,7 @@
 | **A. 人工上抛 / 自动选择**（本文件） | 上抛到 CLI/页面，由人拍板（或 CLI `autoSelect` 兜底） | 本文件 |
 | **B. AI 自决（决策门阀 / DC）** | AI 基于上下文自决，产出 Decision Result | `docs/features/decision-system.md` |
 
-- 开关 `run.decision.enabled`（缺省 **false**，`src/lib/decision-config.cjs`）：**false = 走本文件链路**（`AskUserQuestion` → `decisionPending` → CLI `handleDecision`/`autoSelect`）；**true = 走决策门阀**（`AskUserQuestion` 被 deny 并转 DC，见 decision-system）。
+- 开关 `run.decision.enabled`（缺省 **false**，`server/features/decision/config.cjs`）：**false = 走本文件链路**（`AskUserQuestion` → `decisionPending` → CLI `handleDecision`/`autoSelect`）；**true = 走决策门阀**（`AskUserQuestion` 被 deny 并转 DC，见 decision-system）。
 - **旧入口停用（资产层，2026-09-10）**：`awf_await_choice` / `awf_await_input` 的方案文档 `plugin/core/skills/awf-run-decision/SKILL.md` 已标停用，`awf init` 不再注入相关 `CLAUDE.md` 模板，提示词改输出 `<AWF_DECISION_REQUIRED>`。**代码现状**：MCP 工具、`/choice` `/ask` `/respond` 端点与 CLI 中继仍在（T1-106 互斥化 pending/暂缓），只是当前提示词资产不再驱动它。
 - **多 agent `NEEDS_INPUT` 上抛（§5）仍在使用**：子 Agent 是后台执行单元，禁止交互工具，遇真需用户决策时以 `NEEDS_INPUT` 上抛，由主 Agent 原生 `AskUserQuestion` 透传 —— 该路径独立于开关，不属旧入口停用范围。
 
@@ -54,7 +54,7 @@ AI (Claude Code)                  Session Server               CLI (awf run)
 
 ---
 
-## 1. autoSelect（src/lib/session/client.js）
+## 1. autoSelect（cli/lib/client.cjs）
 
 ### 功能描述
 
@@ -221,7 +221,7 @@ CLI 轮询此端点，发现 `decisionPending` 非空时调用 `handleDecision`�
 
 多 agent 滑动窗口（`run.agents.max > 1`）下，子 Agent（awf-worker）是后台执行单元，**禁止调用任何交互工具**（AskUserQuestion / awf_await_choice / awf_await_input）。遇真正需用户决策时，用 `NEEDS_INPUT` 输出协议上抛，由主 Agent 原生 AskUserQuestion 透传给用户，用户回答后恢复子 Agent。
 
-> **宿主侧实现（v0.2.0）**：调度权在宿主（`src/server/run-host.cjs` `driveBatch`），派发/等待/挂起由 `src/server/batch-transport.cjs` 的 `dispatch` + `waitAnyDone(running)` 承担；`NEEDS_INPUT` 挂起探测在 `batch-transport.checkNeedsInput`（不再有 `src/cli/run-batch.js`）。
+> **宿主侧实现（v0.2.0）**：调度权在宿主（`server/run/host.cjs` `driveBatch`），派发/等待/挂起由 `server/run/transport.cjs` 的 `dispatch` + `waitAnyDone(running)` 承担；`NEEDS_INPUT` 挂起探测在 `batch-transport.checkNeedsInput`（不再有 `server/run/transport.cjs（原 cli/run-batch.js 已删）`）。
 
 ### 5.1 子 Agent 侧 — NEEDS_INPUT 输出协议
 
@@ -259,7 +259,7 @@ NEEDS_INPUT: {"taskId": "<任务ID>", "question": "<问题>", "options": ["<选�
 
 ### 5.3 宿主侧 — checkNeedsInput 挂起 + 暂停补位
 
-`src/server/batch-transport.cjs` `waitAnyDone(running)`（宿主 `run-host.driveBatch` 调用）：
+`server/run/transport.cjs` `waitAnyDone(running)`（宿主 `run-host.driveBatch` 调用）：
 
 - 维护 `lastNeedsTs`（已处理记录游标，`maxTsFromLog(needsPath)` 初始化）+ `pendingNeeds`（Set）。
 - `checkNeedsInput()`：读 `needsPath`（`.awf/logs/subagent-needs-input.jsonl`），跳过 `ts <= lastNeedsTs` 的旧记录；新记录有 taskId → `pendingNeeds.add(taskId)`。
@@ -314,7 +314,7 @@ NEEDS_INPUT: {"taskId": "<任务ID>", "question": "<问题>", "options": ["<选�
 
 ## 6. 依赖
 
-### src/lib/session/client.js（autoSelect / waitForReady）
+### cli/lib/client.cjs（autoSelect / waitForReady）
 
 | 模块 | 用途 |
 |------|------|
@@ -326,6 +326,6 @@ NEEDS_INPUT: {"taskId": "<任务ID>", "question": "<问题>", "options": ["<选�
 |------|------|
 | `tmux.cjs` | submit 时 sendText + sendEnter |
 | `run-logger.cjs` | logChoice 记录决策 |
-| `src/server/interact.cjs` | `/choice` `/ask` 决策对象构造 + 校验（`validateDecisionRequest`） |
-| `src/server/batch-transport.cjs` | 多 agent `NEEDS_INPUT` 挂起探测 + 暂停补位（宿主侧） |
+| `server/web/interact.cjs` | `/choice` `/ask` 决策对象构造 + 校验（`validateDecisionRequest`） |
+| `server/run/transport.cjs` | 多 agent `NEEDS_INPUT` 挂起探测 + 暂停补位（宿主侧） |
 | `node:http` | HTTP server |

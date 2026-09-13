@@ -2,8 +2,8 @@
 
 > 对应 WBS：W3-008（前端工程 web/，T1-085…094）；构建接入 T1-118；legacy 观测页退役 T1-119
 > 源码：`web/`（Vite + React 18 独立工程，`web/src/` 12 文件 / 887 行）
-> 服务端边界：`src/server/server.cjs`（`PAGE_PATHS` 页面路径 + 静态托管）、`src/server/static.cjs`（SPA 回退）
-> 构建：`scripts/build-web.mjs`（`npm run build` / `npm run build:web` / `prepack`）→ `src/server/public`
+> 服务端边界：`server/server.cjs`（`PAGE_PATHS` 页面路径 + 静态托管）、`server/web/static.cjs`（SPA 回退）
+> 构建：`scripts/build-web.mjs`（`npm run build` / `npm run build:web` / `prepack`）→ `server/public`
 > 交叉引用：对外 HTTP 面逐条形状见 `api.md`（§3.1 页面路径 / §4 静态托管 / §5 WS）；server 侧职责与生命周期见 `server.md` §6。**本文不复述这两处**，只讲前端自己怎么组织、怎么取数、怎么被构建出来。
 > 测试：`tests/unit/web-*.test.js`（模型层 6 文件）+ 真机 case `web`（`tests/regression/fullflow-regression.mjs`）
 
@@ -130,7 +130,7 @@ server payload ──► views/*-model.js（纯函数） ──► 展示模型 
 | Decisions | 10s | **仅 `decision.` 前缀**（`decision.required` / `decision.record`） | 其他事件不触发重建列表 |
 | Diagnostics | `running` 时 2s，否则 10s | 全量 | 诊断过程**无对应事件**，2s 轮询是主通道 |
 
-- WS 数据源是 **run-host 的事件环 / subscriber 集合**，不是 `src/lib/events.cjs` 的事件总线——两者的形状关系与不等之处见 `events.md`。
+- WS 数据源是 **run-host 的事件环 / subscriber 集合**，不是 `server/shared/events.cjs` 的事件总线——两者的形状关系与不等之处见 `events.md`。
 - 连接只有「服务端 → 客户端」单向文本帧；前端不做上行（所有写操作走 HTTP POST）。
 - 断线**不做显式重连**：`ws.onclose` 没有重建逻辑，靠心跳继续刷新（见「观察项」）。
 
@@ -138,15 +138,15 @@ server payload ──► views/*-model.js（纯函数） ──► 展示模型 
 
 ```
 web/src/*            web/index.html
-    └── vite build（vite.config.js: build.outDir = '../src/server/public'）
+    └── vite build（vite.config.js: build.outDir = '../server/public'）
             │
             ├── 触发点①：npm run build      → scripts/build.sh 第三步调 scripts/build-web.mjs
             ├── 触发点②：npm run build:web  → 直接调 scripts/build-web.mjs
             └── 触发点③：npm run prepack    → build-web.mjs --required（发布路径，忽略跳过开关）
             ▼
-    src/server/public/（构建物，**不入库**，见 .gitignore）
+    server/public/（构建物，**不入库**，见 .gitignore）
             │
-            └── server 静态托管：webPublicRoot() = CC_WEB_PUBLIC || src/server/public
+            └── server 静态托管：webPublicRoot() = CC_WEB_PUBLIC || server/public
                      ├── PAGE_PATHS 页面路径（/、/dashboard(.html)、/diagnostics(.html)、/decisions(.html)）→ 一律返回同一份 index.html
                      ├── 产物缺失 → 503 + console.warn（提示 npm run build），不空白页、不静默 404
                      └── 其他 GET → static.cjs SPA 回退 index.html（前端路由，如 /wbs-tree）
@@ -168,11 +168,11 @@ web/src/*            web/index.html
 | `PROXY_PREFIXES` | 15 个前缀 | `vite.config.js:12` | dev 代理路径（`/run` `/awf` `/api` `/status` `/send` `/cmd` `/respond` `/choice` `/ask` `/stop` `/intervene` `/context-ready` `/diagnostics` `/decisions.html` `/ui`） |
 | `WS_PREFIXES` | `/run` `/awf` `/api` | `vite.config.js:14` | 需 WS 升级的代理前缀 |
 | `VIEWS` | `dashboard` / `decisions` / `diagnostics` / `wbs-tree` | `App.jsx:13` | 视图目录（key + 中文标签） |
-| `build.outDir` | `../src/server/public` | `vite.config.js:19` | 产物落点（相对 `web/`） |
+| `build.outDir` | `../server/public` | `vite.config.js:19` | 产物落点（相对 `web/`） |
 | 项目列表轮询 | 5000 ms | `App.jsx:63` | `GET /status`（无 `p`） |
 | 壳 run 列表轮询 | 3000 ms | `App.jsx:75` | `GET /run/status`（带当前项目） |
 | 视图心跳 | 10000 ms（Diagnostics 诊断中 2000 ms） | 各视图 | 事件推送的兜底 |
-| `CC_WEB_PUBLIC`（env） | `src/server/public` | `server.cjs` | 产物根覆盖（测试用） |
+| `CC_WEB_PUBLIC`（env） | `server/public` | `server.cjs` | 产物根覆盖（测试用） |
 
 ## 函数清单
 
@@ -200,7 +200,7 @@ web/src/*            web/index.html
 
 | 被谁消费 | 方式 |
 |------|------|
-| `src/server/server.cjs` | `PAGE_PATHS` 返回产物 index.html；静态托管 assets；缺产物 503 |
+| `server/server.cjs` | `PAGE_PATHS` 返回产物 index.html；静态托管 assets；缺产物 503 |
 | `scripts/build-web.mjs` | 构建触发 + 产物存在性断言 |
 | `npm run build`（`scripts/build.sh`） | 构建链第三步 |
 | `npm run prepack` | 发布路径强制构建 |
@@ -226,5 +226,5 @@ web/src/*            web/index.html
 - [ ] 作用域落到请求上：带 `project` 的 client 所有请求附 `p=`；`sid` 附 `sid=`；**取全量项目列表的请求必须不带 `p`**。
 - [ ] 事件驱动：四视图均订阅 `/run/events`，推送即刷新；轮询仅作兜底（Diagnostics 诊断中 2s 为无事件场景的主通道）。
 - [ ] 模型层纯函数化：五个 `*-model.js` 无 React / 无 fetch / 无副作用，可单测（见 `web.test.md`）。
-- [ ] 构建链：`npm run build` / `build:web` / `prepack` 三条触发路径都能产出 `src/server/public/index.html`；缺依赖报错退出（显式 `AWF_SKIP_WEB=1` 才跳过，`--required` 忽略该开关）。
+- [ ] 构建链：`npm run build` / `build:web` / `prepack` 三条触发路径都能产出 `server/public/index.html`；缺依赖报错退出（显式 `AWF_SKIP_WEB=1` 才跳过，`--required` 忽略该开关）。
 - [ ] 产物缺失时 server 返回 503 + `npm run build` 提示（不回退 legacy 页、不空白页）；产物正常时页面路径与 `/assets/*` 均 200。
