@@ -20,9 +20,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { pkgRoot: defaultPkgRoot, pluginConfigPath, pluginAssetPath } = require('../../shared/plugin-assets.cjs');
-
-const CORE_PLUGIN = 'ai-workflow-core';
+const { pkgRoot: defaultPkgRoot } = require('../../shared/plugin-assets.cjs');
+const { readPluginConfig, renderMcpServers } = require('../../shared/plugin-render.cjs');
 
 /** 判纯对象（非数组、非 null） */
 function isPlainObject(v) {
@@ -133,27 +132,22 @@ function uninstallProfile(projectRoot, { pkgRoot = defaultPkgRoot() } = {}) {
 /**
  * 项目级 MCP 注册：把 `plugin/config.json` 声明的 mcpServers 以**绝对路径**合并进项目 `.mcp.json`。
  * 只覆盖 awf-* 条目（保证路径当前），项目里其它 server 保留。
+ *
+ * 形状单源：args/env 的渲染归 `shared/plugin-render.cjs` 的 renderMcpServers（absolute 形态）；
+ * 本函数只额外钉住「每条 server 都知道自己在哪个项目」—— 那是单 server 多项目 `?p` 路由的依据。
  * @returns {{ written: boolean, path: string|null, servers: string[], error?: string }}
  */
 function installProjectMcp(projectRoot, port) {
   let cfg;
   try {
-    cfg = JSON.parse(fs.readFileSync(pluginConfigPath(), 'utf8'));
+    cfg = readPluginConfig();
   } catch {
     return { written: false, path: null, servers: [], error: 'plugin/config.json 缺失，跳过项目 MCP 注册' };
   }
-  const coreDir = pluginAssetPath(CORE_PLUGIN); // args 相对引擎插件根
+  const rendered = renderMcpServers(cfg.mcpServers || {}, { absolute: true, port });
   const servers = {};
-  for (const [name, srv] of Object.entries(cfg.mcpServers || {})) {
-    const env = {};
-    for (const [k, v] of Object.entries(srv.env || {})) env[k] = String(v).replaceAll('{PORT}', String(port));
-    env.AWF_PROJECT_ROOT = projectRoot; // 单 server 多项目：MCP 请求据此带 ?p 路由到本项目
-    servers[name] = {
-      type: srv.type || 'stdio',
-      command: srv.command || 'node',
-      args: (srv.args || []).map((a) => path.resolve(coreDir, a)),
-      env,
-    };
+  for (const [name, srv] of Object.entries(rendered)) {
+    servers[name] = { ...srv, env: { ...(srv.env || {}), AWF_PROJECT_ROOT: projectRoot } };
   }
   const mcpPath = path.join(projectRoot, '.mcp.json');
   const existing = readJson(mcpPath);

@@ -21,7 +21,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readPluginConfig, renderMcpServers, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings } from '../src/lib/plugin-config.js';
+import { createRequire } from 'node:module';
+
+// 渲染面（原旧树 src/lib/plugin-config.js）已迁入 server/shared/plugin-render.cjs。
+// 它是 CJS —— 这里用 createRequire 取，不走 ESM 具名导入：后者的可用性取决于 Node 对 CJS 的
+// 静态导出分析，一旦导出写成展开/动态形态就会在真机上直接挂（v0.2.0 复盘 K6 的原始现场）。
+const require = createRequire(import.meta.url);
+const {
+  readPluginConfig, renderMcpServers, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings,
+} = require('../server/shared/plugin-render.cjs');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');

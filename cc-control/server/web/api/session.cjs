@@ -74,6 +74,8 @@ async function handle(req, res, url, rt, deps) {
     if (!v.ok) { send(res, 400, { ok: false, error: v.error }); return true; }
     session.setDecision(v.decision);
     console.log(`[choice] ${v.decision.question}`);
+    // 挂起即推（前端订阅刷新依据）：旧树在此推 decision.required，重构漏搬
+    rt.publishEvent('decision.required', { question: v.decision.question, options: v.decision.options });
     send(res, 200, { ok: true, decisionPending: session.decisionPending });
     return true;
   }
@@ -83,6 +85,7 @@ async function handle(req, res, url, rt, deps) {
     if (!v.ok) { send(res, 400, { ok: false, error: v.error }); return true; }
     session.setDecision(v.decision);
     console.log(`[ask] ${v.decision.question}`);
+    rt.publishEvent('decision.required', { question: v.decision.question, options: v.decision.options });
     send(res, 200, { ok: true, decisionPending: session.decisionPending });
     return true;
   }

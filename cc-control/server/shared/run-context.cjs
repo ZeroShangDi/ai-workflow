@@ -111,7 +111,8 @@ function buildRunContext({ sid = null, projectRoot, env = process.env } = {}) {
     pluginSettingsPath: path.join(INFRA_ROOT, 'plugin', 'settings.json'),
     /** 插件唯一配置源（plugin/config.json） */
     infraConfigPath: path.join(INFRA_ROOT, 'plugin', 'config.json'),
-    serverScriptPath: path.join(INFRA_ROOT, 'src', 'server', 'server.cjs'),
+    /** 常驻 server 入口 —— CLI spawn 它（`cli/lib/session.cjs` 的 ensureServer），单源在此 */
+    serverScriptPath: path.join(INFRA_ROOT, 'server', 'server.cjs'),
     bootstrapScriptPath: path.join(INFRA_ROOT, 'scripts', 'bootstrap.sh'),
     /** cc-control 开发用 .claude/settings.json */
     repoDevSettingsPath: path.join(INFRA_ROOT, '.claude', 'settings.json'),

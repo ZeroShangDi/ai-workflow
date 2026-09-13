@@ -51,24 +51,37 @@ async function globalPlugin(action, ctx) {
 
   if (action === 'install') {
     const mp = path.join(ctx.infraRoot, 'plugin');
-    await execAsync(tooling.buildMarketplaceAdd(mp)); // 幂等
-    for (const spec of specs) {
-      console.log(`安装 ${spec} …`);
-      await tooling.install(spec, { execAsync });
-    }
-    console.log(`已全局安装 ${specs.length} 个插件`);
+    await execAsync(tooling.buildMarketplaceAdd(mp)); // 幂等；marketplace 是前置，失败即中止
+    await runPerSpec('安装', specs, (spec) => tooling.install(spec, { execAsync }));
     return;
   }
   if (action === 'uninstall') {
-    for (const spec of specs) {
-      console.log(`卸载 ${spec} …`);
-      await tooling.uninstall(spec, { execAsync });
-    }
-    console.log(`已全局卸载 ${specs.length} 个插件`);
+    await runPerSpec('卸载', specs, (spec) => tooling.uninstall(spec, { execAsync }));
     return;
   }
   console.error(`未知操作：${action}（可用 install | uninstall）`);
   process.exit(2);
+}
+
+/**
+ * 逐 spec 执行并**报错不阻断**：单个插件失败只记一行，其余照装/照卸。
+ *
+ * 旧 CLI 的行为是「失败不阻断」，新 CLI 初版改成直接 await —— 一个插件失败就中断整批，
+ * 且已成功的部分没有汇总。这里把两条都补回：逐个 try/catch + 末尾给出成功/失败计数
+ * （计数是「不静默」的那一半：部分失败必须看得见）。
+ */
+async function runPerSpec(verb, specs, run) {
+  const failed = [];
+  for (const spec of specs) {
+    try {
+      await run(spec);
+      console.log(`${verb} ${spec} … 完成`);
+    } catch (err) {
+      failed.push(spec);
+      console.error(`${verb}失败 ${spec}：${err.message}`);
+    }
+  }
+  console.log(`已全局${verb} ${specs.length - failed.length}/${specs.length} 个插件${failed.length ? `（失败：${failed.join('、')}）` : ''}`);
 }
 
 async function pluginCommand(action, options = {}) {
@@ -77,4 +90,4 @@ async function pluginCommand(action, options = {}) {
   return localPlugin(action, projectRoot);
 }
 
-module.exports = { pluginCommand, localPlugin, globalPlugin, execAsync };
+module.exports = { pluginCommand, localPlugin, globalPlugin, runPerSpec, execAsync };

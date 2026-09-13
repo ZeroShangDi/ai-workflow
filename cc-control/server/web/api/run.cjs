@@ -62,7 +62,9 @@ async function handle(req, res, url, rt, deps) {
       send(res, 400, { ok: false, error: 'body must be {prompt: non-empty string}' });
       return true;
     }
-    const r = await oneshotPort
+    // oneshot 端口可由入口注入（测试用 global.__CC_ONESHOT__，见 .awf/issues/015）；缺省用真实 adapter
+    const port = deps?.oneshot || oneshotPort;
+    const r = await port
       .runOneShot({ prompt: body.prompt, cwd: typeof body.cwd === 'string' ? body.cwd : undefined, timeoutMs: 300000 })
       .catch((e) => ({ ok: false, error: e.message })); // 失败也回 200 + {ok:false}，让调用方按体判
     send(res, 200, r);

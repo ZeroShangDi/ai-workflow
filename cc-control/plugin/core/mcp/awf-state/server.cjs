@@ -13,19 +13,19 @@ const STATE_PATH = path.join(PROJECT_ROOT, '.awf', 'state.json');
 const LOCK_PATH = path.join(PROJECT_ROOT, '.awf', 'state.lock');
 
 // ---- file helpers ----
-// 持久化优先走 store-core（src/lib，单写序列化 + 原子写，与 CLI/server 同一实现）。
+// 持久化优先走 store-core（server/shared，单写序列化 + 原子写，与 CLI/server 同一实现）。
 // 该 server 的可用路径总是包根之上的副本（自托管/跨项目 .mcp.json 绝对路径），
-// 故 require 相对包根可达；仅当运行在无 src/ 的纯插件副本（connect-only、不暴露工具）
+// 故 require 相对包根可达；仅当运行在无 server/ 的纯插件副本（connect-only、不暴露工具）
 // 时才回退到本地同语义最小实现——真实工具面永远走 store-core。
 let storeCore = null;
 let taskGraph = null;
 try {
-  storeCore = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'lib', 'store-core.cjs'));
+  storeCore = require(path.join(__dirname, '..', '..', '..', '..', 'server', 'shared', 'store-core.cjs'));
 } catch {
   storeCore = null;
 }
 try {
-  taskGraph = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'lib', 'task-graph.cjs'));
+  taskGraph = require(path.join(__dirname, '..', '..', '..', '..', 'server', 'shared', 'task-graph.cjs'));
 } catch {
   taskGraph = null;
 }

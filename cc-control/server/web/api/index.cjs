@@ -46,7 +46,7 @@ const run = require('./run.cjs');
  * @param {object} deps.registry         项目注册表（resolveRuntime / list / all / bootRoot）
  * @param {Function} deps.stopServer     优雅关闭（/shutdown 用）
  */
-function createApi({ registry, stopServer }) {
+function createApi({ registry, stopServer, oneshot }) {
   // ── 静态托管 ──
   // web 构建产物目录（默认 server/public，可经 CC_WEB_PUBLIC 覆盖）。webIndexHtml() 每次实时读盘，
   // 故产物更新无需重启；缺产物时前端页面路由会明确告警并回 503，而不是给白屏。
@@ -66,7 +66,7 @@ function createApi({ registry, stopServer }) {
   }
 
   // 注入给各域：只含「与请求无关」的进程级依赖（各域按需取用，如 session 取 registry 列项目）
-  const deps = { registry, stopServer };
+  const deps = { registry, stopServer, oneshot }; // oneshot：入口可注入（测试用 global.__CC_ONESHOT__）
 
   /** 顶层 handler：解析 URL + 触发活动刷新，再进 handleInner */
   async function handle(req, res) {

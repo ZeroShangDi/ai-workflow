@@ -9,13 +9,13 @@ const _spawn = global.__CC_SPAWN__ || require('child_process').spawn;
 const path = require('node:path');
 // claude -p 优先收口到 oneshot adapter（R-cc 的方向：工具面走 adapter）。
 // 如实说明（issue 004-4，审计 F6）：**本 MCP 里仍有 `claude` 字面** —— 下面 require 失败时
-// （纯插件副本无包 src/）回退到 `legacySpawnClaude`，它就是 `_spawn('claude', ['-p', …])`（:73）。
+// （纯插件副本无包 server/）回退到 `legacySpawnClaude`，它就是 `_spawn('claude', ['-p', …])`（:73）。
 // 即「字面不在本 MCP」只在包内路径上成立，回退路径上不成立 —— 两条注释曾互相打架，此处统一为实况。
 let oneshotAdapter = null;
 try {
-  oneshotAdapter = require(path.join(__dirname, '..', '..', '..', '..', 'src', 'adapters', 'oneshot.cjs'));
+  oneshotAdapter = require(path.join(__dirname, '..', '..', '..', '..', 'server', 'adapters', 'cc', 'oneshot.cjs'));
 } catch {
-  oneshotAdapter = null; // 纯插件副本（无包 src）→ 回退本地最小实现
+  oneshotAdapter = null; // 纯插件副本（无包 server/）→ 回退本地最小实现
 }
 
 // T1-080：awf-oneshot 经 server /oneshot——env AWF_BASE 提供时走 server（server 经 oneshot

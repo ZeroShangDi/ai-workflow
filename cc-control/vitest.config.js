@@ -9,8 +9,8 @@ export default defineConfig({
     setupFiles: ['./tests/setup-env-scrub.js'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.{js,cjs}', 'plugin/core/**/*.{js,cjs}'],
-      exclude: ['src/awf.js'],
+      include: ['cli/**/*.{js,cjs}', 'server/**/*.{js,cjs}', 'plugin/core/**/*.{js,cjs}'],
+      exclude: ['cli/awf.cjs'],
       reportsDirectory: 'coverage',
     },
   },

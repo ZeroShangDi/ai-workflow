@@ -104,6 +104,15 @@ function createDecisionHandler({
       };
       session.setDecision(pending);
       recordAsked(pending);
+      // 决策「挂起」也推一条：前端/W-Monitor 靠它知道该刷新了。
+      // 旧树由 /choice 端点推同名的 decision.required，重构后只在决策**完成**时推 decision.record，
+      // 挂起信号断了（2026-09-13 收口发现，见 .awf/issues/016）。
+      publishEvent?.('decision.required', {
+        decisionId: pending.decisionId,
+        question: pending.question,
+        options: pending.options,
+        source: 'AskUserQuestion',
+      });
       console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
       return null;
     }
@@ -179,7 +188,9 @@ function createDecisionHandler({
    * 于是「问过什么 / 谁答的 / 答了什么」在 `/awf/decisions` 与前端决策页可一并复盘。
    */
   function recordAsked(pending) {
-    const appended = newDecisionStore().append({
+    // 必须用 appendEvent（按 (decision_id, event) 去重）：append 是按 decision_id **跨事件**去重的，
+    // 那样同一次决策的 requested 一落，answered 就会被静默丢掉（2026-09-13 实测）。
+    const appended = newDecisionStore().appendEvent({
       event: 'decision_requested',
       decision_id: pending.decisionId,
       status: 'awaiting_human',
@@ -204,7 +215,8 @@ function createDecisionHandler({
    */
   function recordAnswered({ decisionId, value, answeredBy = 'human' }) {
     if (!decisionId) return null;
-    return newDecisionStore().append({
+    // 同 recordAsked：生命周期事件要用 appendEvent，否则会被同 decision_id 的 requested 挡掉
+    return newDecisionStore().appendEvent({
       event: 'decision_answered',
       decision_id: decisionId,
       status: 'answered',

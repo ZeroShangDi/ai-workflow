@@ -14,14 +14,25 @@ const { createProjectRegistry } = require('./runtime/registry.cjs');
 const { createApi } = require('./web/api/index.cjs');
 const { createBootstrap } = require('./runtime/lifecycle.cjs');
 
+// ── 测试注入缝（生产环境不设置 → 一律回落真实实现）──
+// 旧 server 曾在此读 global.__CC_TMUX__ / __CC_RUNLOGGER__，重构时漏搬，导致靠它拦 tmux 的
+// 集成用例全部改成真调 tmux（.awf/issues/015）。这里按原语义补回：**只回落到真实默认**，
+// 不改任何生产行为 —— 传 undefined 时由 runtime/project.cjs 自己建真实 host 端口与 RunLogger。
+const injectedTmux = global.__CC_TMUX__ || null;
+const tmuxFactory = injectedTmux ? () => injectedTmux : undefined;
+const RunLogger = global.__CC_RUNLOGGER__?.RunLogger || undefined;
+// oneshot 端口同理：旧 server.cjs 读过它（/oneshot 的无状态调用），重构漏搬；缺省 undefined → api 用真实 adapter
+const injectedOneshot = global.__CC_ONESHOT__ || undefined;
+
 // ── 装配：三块按依赖顺序串起来 ──
-const registry = createProjectRegistry({ env: process.env }); // ① 注册表（构造即预置 boot runtime）
+const registry = createProjectRegistry({ env: process.env, tmuxFactory, RunLogger }); // ① 注册表（构造即预置 boot runtime）
 const BOOT = () => registry.runtimeFor(registry.bootRoot);    // 取 boot 项目 runtime 的简写
 const PORT = BOOT().ctx.port;                                 // ② 端口来自 boot 上下文（runtime-config）
 
 const api = createApi({
   registry,                             // api 靠 registry 把 ?p 解析成对应 runtime
   stopServer: () => bootstrap.stop(),   // ③ 箭头延迟取 bootstrap：构造期 bootstrap 还没赋值，直接引用会 undefined
+  oneshot: injectedOneshot,             // 测试注入缝；undefined → 域内用真实 oneshot adapter
 });
 
 // bootstrap 拿 api 的 handler 与端口，反过来 api 的 /shutdown 又要回调 bootstrap.stop —— 用箭头打破这个构造期循环
