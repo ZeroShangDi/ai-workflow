@@ -1,0 +1,1437 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-09-13",
+  "scope": "root server/ working tree; not src/server",
+  "figma": {
+    "fileKey": "ULzSTHZS6fW3uT08eBUcNe",
+    "nodes": [
+      {
+        "id": "171:2240",
+        "name": "01 · 初始页面 / 完整视图",
+        "texts": [
+          "c",
+          "cc-work",
+          "项目",
+          "+",
+          "◇",
+          "还没有项目",
+          "添加一个本地目录开始创建 Plan",
+          "+  添加项目",
+          "W",
+          "weii",
+          "未选择项目",
+          "初始状态",
+          "c",
+          "从一个项目开始",
+          "添加本地项目目录，cc-work 会在目录内组织 Plan、Run、任务和决策记录。",
+          "+  添加项目目录",
+          "也可以拖入一个文件夹",
+          "READY",
+          "•",
+          "未选择项目",
+          "•",
+          "—",
+          "•",
+          "+0",
+          "−0",
+          "ctx 0%",
+          "•",
+          "0 tok",
+          "•",
+          "cache —",
+          "•",
+          "— tok/s",
+          "•",
+          "TTFT —",
+          "•",
+          "0 agents",
+          "•",
+          "18:31"
+        ]
+      },
+      {
+        "id": "10:2",
+        "name": "02 · Plan 页面 / 草案区 · 视觉待优化",
+        "texts": [
+          "Plan 草案",
+          "等待确认",
+          "4 阶段 · 12 任务",
+          "01",
+          "建立运行骨架",
+          "生命周期、状态与事件协议",
+          "3",
+          "02",
+          "执行与调度",
+          "任务图、并行策略、恢复机制",
+          "4",
+          "03",
+          "可观测性",
+          "CLI 日志、指标和决策追踪",
+          "3",
+          "04",
+          "验证与收尾",
+          "测试、审查与发布门禁",
+          "2",
+          "规划决策",
+          "3",
+          "执行阶段自动进入 Run",
+          "已确认",
+          "动态任务保留来源标记",
+          "已确认",
+          "并行上限设为 4 Agent",
+          "待确认",
+          "确认后会发生什么？",
+          "创建 Run、冻结 Plan 基线，并自动切换到执行对话。",
+          "确认计划并开始执行"
+        ]
+      },
+      {
+        "id": "168:1701",
+        "name": "03 · Run 页面",
+        "texts": [
+          "c",
+          "cc-work",
+          "项目",
+          "+",
+          "cc-control",
+          "+",
+          "运行中心重构",
+          "›",
+          "其他 3 个 Plan",
+          "promptfolio",
+          "+",
+          "个人画像页",
+          "›",
+          "其他 1 个 Plan",
+          "playground",
+          "+",
+          "实验性功能探索",
+          "W",
+          "weii",
+          "cc-control",
+          "/",
+          "运行中心重构",
+          "执行阶段",
+          "Run 对话",
+          "·",
+          "R-026  ·  运行 04:12",
+          "Run 详情",
+          "你",
+          "继续实现日志解析。测试失败时先停下来，保留现场并让我决定是否重试。",
+          "cc-work · 编排",
+          "刚刚",
+          "已拆分为 3 个动态任务，并分配给主会话与 2 个 Agent 并行处理。",
+          "›  编排详情已隐藏  ·  4 个内部事件",
+          "Claude Code · 主会话",
+          "执行中 · 42%",
+          "正在实现日志事件归一化，并将连续的读取、搜索与等待操作聚合为可折叠活动组。",
+          "⌁",
+          "读取 18 个文件  ·  搜索 7 次  ·  3 条诊断命令",
+          "展开  20 个事件  ›",
+          "›_",
+          "npm test -- --runInBand",
+          "输出已折叠  ·  126 行",
+          "✓  通过  12.4s",
+          "4 files changed   +164  −38",
+          "✓  lint   ✓  unit   ○  e2e",
+          "查看变更  ›",
+          "多 Agent",
+          "A1 运行中",
+          "A2 通过",
+          "A3 等待",
+          "查看 3 个会话  ›",
+          "!",
+          "需要决策：测试失败后是否自动重试？",
+          "当前模式：人工决策  ·  Run 已自动暂停",
+          "处理",
+          "阶段结果  ·  日志类型识别已完成",
+          "8 / 10 通过  ·  2 项待确认  ›",
+          "Ⅱ",
+          "暂停 Run",
+          "补充执行要求，或在人工决策模式下输入处理意见…\n输入增加时，对话框会向上生长",
+          "AI 决策",
+          "⌃",
+          "Run #R-026",
+          "执行中",
+          "已运行 18:42",
+          "16 / 180",
+          "9%",
+          "3 个 Agent 正在执行任务",
+          "任务矩阵",
+          "16 格 · 首尾聚合",
+          "16",
+          "150",
+          "完成",
+          "运行中",
+          "等待/阻塞",
+          "失败",
+          "未开始",
+          "动态产出",
+          "16 个已完成 · 3 个执行中 · 后续 150 个任务已收敛",
+          "执行任务 · 3",
+          "多 Agent",
+          "Agent 1",
+          "运行中",
+          "03:48",
+          "T-17 · 统一状态事件",
+          "Plan 产出",
+          "提示词  统一任务状态事件，补齐持久化与恢复后的状态迁移。",
+          "尝试 1 / 3",
+          "打开会话  ›",
+          "Agent 2",
+          "运行中",
+          "02:16",
+          "D-18 · 日志存储模块",
+          "动态产出",
+          "提示词  增加结构化日志存储与查询，并保留 CLI 原始输出。",
+          "尝试 1 / 3",
+          "打开会话  ›",
+          "Agent 3",
+          "运行中",
+          "01:42",
+          "T-19 · 查询 API",
+          "Plan 产出",
+          "提示词  实现任务、Run 与决策记录的统一查询接口。",
+          "尝试 1 / 3",
+          "打开会话  ›",
+          "R-026 running",
+          "•",
+          "cc-control",
+          "•",
+          "codex/workspace-shell",
+          "•",
+          "+428",
+          "−91",
+          "ctx 42%",
+          "•",
+          "45.2k tok",
+          "•",
+          "cache 84%",
+          "•",
+          "71 tok/s",
+          "•",
+          "TTFT 620ms",
+          "•",
+          "3/4 agents",
+          "•",
+          "18:31"
+        ]
+      },
+      {
+        "id": "196:1941",
+        "name": "04 · 任务页面",
+        "texts": [
+          "04 · 任务页面",
+          "页面位置保留 · 尚未确认 UI",
+          "已确定范围：全部任务列表，以及各任务当前状态。\n承接旧面板左侧内容。旧任务稿保留在草稿区，本轮不沿用未确认的详情布局。"
+        ]
+      },
+      {
+        "id": "170:2021",
+        "name": "05 · 决策页面 / 当前确认范围",
+        "texts": [
+          "c",
+          "cc-work",
+          "项目",
+          "+",
+          "cc-control",
+          "+",
+          "运行中心重构",
+          "›",
+          "其他 3 个 Plan",
+          "promptfolio",
+          "+",
+          "个人画像页",
+          "›",
+          "其他 1 个 Plan",
+          "playground",
+          "+",
+          "实验性功能探索",
+          "W",
+          "weii",
+          "cc-control",
+          "/",
+          "运行中心重构",
+          "执行阶段",
+          "决策记录",
+          "规划与执行阶段的可追溯决策 · 8 条",
+          "全部",
+          "待确认",
+          "已采纳",
+          "D-008",
+          "执行阶段",
+          "待确认",
+          "结构化日志采用 append-only 事件存储",
+          "支持可追踪查询和 Run 恢复；新增存储与索引成本。",
+          "Agent 1 · 18:29",
+          "查看详情  ›",
+          "D-007",
+          "规划阶段",
+          "已采纳",
+          "运行阶段允许追加动态任务",
+          "动态任务必须携带来源、创建者和与 Plan 基线的差异。",
+          "You · 10:44",
+          "查看详情  ›",
+          "D-006",
+          "规划阶段",
+          "已采纳",
+          "任务调度采用依赖图而非固定队列",
+          "为多 Agent 并行、暂停与重新规划保留空间。",
+          "cc-work · 10:43",
+          "查看详情  ›",
+          "D-005",
+          "规划阶段",
+          "已采纳",
+          "规划与执行模式由生命周期自动切换",
+          "用户确认 Plan 后创建 Run，界面自动进入执行对话。",
+          "You · 10:40",
+          "查看详情  ›",
+          "D-004",
+          "规划阶段",
+          "已采纳",
+          "CLI 日志保留原始输出并生成结构化事件",
+          "兼顾调试真实性和 UI 检索、筛选能力。",
+          "cc-work · 10:39",
+          "查看详情  ›",
+          "D-003",
+          "规划阶段",
+          "已调整",
+          "Agent 并行上限默认为 4",
+          "由固定 3 调整为自动 1–4，依据依赖图分配。",
+          "cc-work · 10:38",
+          "查看详情  ›",
+          "D-008",
+          "待确认",
+          "结构化日志采用 append-only 事件存储",
+          "由 Agent 1 在执行阶段提出 · 18:29",
+          "背景",
+          "当前 CLI 日志只能顺序查看，动态任务引入后无法稳定关联任务、Agent、文件变更与恢复点。",
+          "决策",
+          "使用 append-only 事件存储保存 Run 日志，同时保留未经处理的 stdout / stderr。结构化索引异步生成。",
+          "备选方案",
+          "A. 仅保存纯文本日志：实现简单但查询能力不足。\nB. 直接写关系表：查询方便但耦合运行模型。",
+          "影响",
+          "+ 支持重放、检索和审计",
+          "+ 可直接关联任务与 Agent",
+          "− 增加存储与索引复杂度",
+          "关联",
+          "D-01 动态任务",
+          "T-04 状态事件",
+          "Run R-026",
+          "提供其他决策",
+          "采纳决策",
+          "R-026 running",
+          "•",
+          "cc-control",
+          "•",
+          "codex/workspace-shell",
+          "•",
+          "+428",
+          "−91",
+          "ctx 42%",
+          "•",
+          "45.2k tok",
+          "•",
+          "cache 84%",
+          "•",
+          "71 tok/s",
+          "•",
+          "TTFT 620ms",
+          "•",
+          "3/4 agents",
+          "•",
+          "18:31"
+        ]
+      },
+      {
+        "id": "196:1945",
+        "name": "06 · 动态任务复审页面",
+        "texts": [
+          "06 · 动态任务复审页面",
+          "页面位置保留 · 尚未确认 UI",
+          "已确定方向：与决策页类似的复审流程。\n具体字段、动作和布局尚未确认；不复制决策页作为最终设计。"
+        ]
+      },
+      {
+        "id": "10:618",
+        "name": "07 · 日志页面 / 范围确认 · 字段待确认",
+        "texts": [
+          "Run 日志",
+          "R-026 · Run 编排事件",
+          "Run",
+          "自动跟随",
+          "清屏",
+          "RUN",
+          "AGENT 1",
+          "AGENT 2",
+          "AGENT 3",
+          "AGENT 4",
+          "18:24:08.142  RUN      initializing run R-026",
+          "18:24:08.168  CONTEXT  project=cc-control branch=codex/workspace-shell",
+          "18:24:08.225  PLAN     loaded 4 phases / 12 baseline tasks",
+          "18:24:08.319  AGENT    pool ready (4/4)",
+          "18:24:09.004  TASK     T-01 → agent-1  [run lifecycle]",
+          "18:24:09.008  TASK     T-04 waiting for T-01",
+          "18:24:09.011  TASK     T-06 waiting for T-04",
+          "18:27:31.022  TASK     T-01 completed  duration=3m22s",
+          "18:27:31.145  SCHED    unlocked T-04, T-06, T-07",
+          "18:27:31.201  TASK     T-04 → agent-1",
+          "18:27:31.205  TASK     T-06 → agent-2",
+          "18:27:31.208  TASK     T-07 → agent-3",
+          "18:29:06.311  DECISION D-008 structured log lookup is required",
+          "18:29:06.348  TASK     +D-01 created by agent-1  [dynamic]",
+          "18:29:06.402  SCHED    dependency graph recalculated",
+          "18:29:06.448  TASK     D-01 → agent-2  priority=high",
+          "18:31:43.770  METRIC   ctx=42% cache=84% output=71tok/s ttft=620ms",
+          "18:31:44.002  RUN      7/12 tasks complete · 3 agents active",
+          "18:31:44.003  ▍",
+          "日志控制",
+          "⌕  搜索输出、任务或文件…",
+          "流",
+          "Run",
+          "全部事件",
+          "1,284",
+          "Agent 1",
+          "运行中",
+          "422",
+          "Agent 2",
+          "运行中",
+          "318",
+          "Agent 3",
+          "运行中",
+          "291",
+          "Agent 4",
+          "等待中",
+          "73",
+          "导出日志",
+          "在终端打开"
+        ]
+      },
+      {
+        "id": "8:2",
+        "name": "08 · 设置页面",
+        "texts": [
+          "‹",
+          "返回首页",
+          "cc-work 设置",
+          "设置",
+          "通用",
+          "模型与 Agent",
+          "执行",
+          "Git 与工作区",
+          "外观",
+          "通知",
+          "高级",
+          "通用",
+          "设置 cc-work 的默认行为。项目级设置可覆盖这里的选项。",
+          "应用",
+          "界面语言",
+          "用于导航、状态和系统提示。",
+          "简体中文",
+          "⌄",
+          "启动时恢复",
+          "重新打开上次使用的项目和 Plan。",
+          "阶段显示",
+          "规划与执行由 Plan 生命周期自动切换，不能手动覆盖。",
+          "自动",
+          "⌄",
+          "执行与 Agent",
+          "开始执行前确认",
+          "确认计划后创建 Run，并自动进入执行模式。",
+          "默认 Agent 模式",
+          "根据任务图和可并行度自动选择单 Agent 或多 Agent。",
+          "自动（1–4）",
+          "⌄",
+          "动态任务",
+          "允许运行时追加任务，并与 Plan 基线任务明确区分。",
+          "状态与用量",
+          "高级状态指标",
+          "显示上下文、Token、缓存命中率、速度和 TTFT。",
+          "额度保护",
+          "接近用量窗口限制时，完成当前屏幕后暂停。",
+          "Run 日志保留",
+          "保留 CLI 原始输出和结构化事件。",
+          "30 天",
+          "⌄",
+          "恢复默认设置",
+          "设置会自动保存"
+        ]
+      }
+    ],
+    "notes": "Texts include inherited opacity-zero shared shells in slot-only views. Visual inclusion was checked from screenshots/history, not inferred from text presence."
+  },
+  "validation": {
+    "tests": {
+      "passed": 55,
+      "suites": [
+        "tests/unit/server-api-routes.test.js",
+        "tests/unit/server-ws.test.js",
+        "tests/unit/server-replanning.test.js",
+        "tests/unit/server-scheduler.test.js",
+        "tests/unit/web-api-client.test.js"
+      ],
+      "initialAttempt": "HTTP/WS blocked by listen EPERM in sandbox; remaining 19 tests passed",
+      "retry": "Approved localhost mock-server tests: 36 passed; no live project server used"
+    },
+    "contractTypes": "Babel TypeScript syntax parse passed; no full tsc check",
+    "productEndpointsImplemented": false,
+    "apiMethods": [
+      "bootstrap",
+      "operation",
+      "projects",
+      "inspectProject",
+      "addProject",
+      "workspace",
+      "plans",
+      "createPlan",
+      "plan",
+      "confirmAndRun",
+      "runs",
+      "run",
+      "conversations",
+      "messages",
+      "sendMessage",
+      "runAction",
+      "metrics",
+      "setDecisionPolicy",
+      "tasks",
+      "task",
+      "decisions",
+      "decision",
+      "decisionAction",
+      "proposals",
+      "proposal",
+      "reviewProposal",
+      "logSources",
+      "logs",
+      "exportLogs",
+      "downloadLogExport",
+      "artifact",
+      "settings",
+      "patchSettings",
+      "resetSettings",
+      "events"
+    ],
+    "localLinks": "passed",
+    "suiteCounts": {
+      "server-api-routes": 32,
+      "server-ws": 4,
+      "server-replanning": 3,
+      "server-scheduler": 3,
+      "web-api-client": 13
+    },
+    "tables": "passed"
+  },
+  "notes": [
+    "No server behavior or Figma content changed by this audit.",
+    "All /api/v1 endpoints are proposed; unresolved product semantics are listed in audit section 8.",
+    "Source hashes captured at audit completion; they include all server JS/CJS files, not a claim that every non-API function was exhaustively verified."
+  ],
+  "capturedAt": "2026-09-13T05:58:34.558Z",
+  "sourceFiles": [
+    {
+      "file": "server/adapters/cc/extract.cjs",
+      "sha256": "122738d94fb3a2c31887cfe2ef80e745a85962a748b35a4602b71d8dbcaf24f8"
+    },
+    {
+      "file": "server/adapters/cc/hook.cjs",
+      "sha256": "c9b48b7e925d14b702874d0489080f2bcfe8c44c1c4fa478e99470e765248de6"
+    },
+    {
+      "file": "server/adapters/cc/host.cjs",
+      "sha256": "4e262b3ac9cf02958758796ee0ca14a31d787de6c8dff4a44d0ebe6b6a17b514"
+    },
+    {
+      "file": "server/adapters/cc/interactive.cjs",
+      "sha256": "3a2c82e2d384a9ea01bc8983d984117182215c700250de7abd70c0b795ed7dd0"
+    },
+    {
+      "file": "server/adapters/cc/oneshot.cjs",
+      "sha256": "e43c225a3d94ee3534ee6059b548cff5e3d5e5f1579441a8754a8a35e9811e6f"
+    },
+    {
+      "file": "server/adapters/cc/probe.cjs",
+      "sha256": "9654846b592bd18e0a180036d88209ca6924860ddab970773b881ac13616b01b"
+    },
+    {
+      "file": "server/adapters/cc/settings.cjs",
+      "sha256": "e2c8c32616be2e6959715507c11622017dc0ce4a4afcffae5f456dde957ed9e3"
+    },
+    {
+      "file": "server/adapters/cc/shapes.cjs",
+      "sha256": "896033515812dd0f3aa3cee7261cff8d3973bf7df6cf53af6975359752e2902c"
+    },
+    {
+      "file": "server/adapters/cc/tooling.cjs",
+      "sha256": "991532f55dfb1526d0c0e2508e24e80bf85b450adcd232eae990e0d9443a274a"
+    },
+    {
+      "file": "server/adapters/mock.cjs",
+      "sha256": "4050919bb587b5a673b33d8f35dcece434418a20c36ed48f9502691ce76157ef"
+    },
+    {
+      "file": "server/adapters/ports.cjs",
+      "sha256": "f7d40ca937f1e148622f3f5c0152a3342bc15607ab28142768292b797fe3f5ed"
+    },
+    {
+      "file": "server/config.cjs",
+      "sha256": "169b08b40bd71963f10ae2af69aac33ca117e0c02ce29147db5836d2fda61a32"
+    },
+    {
+      "file": "server/features/context/compaction.cjs",
+      "sha256": "64f0a6a04d925009eeb7882dce4dbc2c418f121f6f04e62547bbc8bab6ec6ad6"
+    },
+    {
+      "file": "server/features/decision/config.cjs",
+      "sha256": "f1d5eb4349c7f4b81ce068282b8184a28c18b9515195daa82ffaa5093c8fdf13"
+    },
+    {
+      "file": "server/features/decision/core.cjs",
+      "sha256": "d34079fb629f48fad74882f85d6c5367e0cd372fa350084f897a312e6e89b428"
+    },
+    {
+      "file": "server/features/decision/gate.cjs",
+      "sha256": "593a3a45ce19302463827cb33152e8ab3326afbd51f613c9c9b41b784fa1a308"
+    },
+    {
+      "file": "server/features/decision/handler.cjs",
+      "sha256": "abb1ff130827f8b774798fdaf15d1919414411baec34e296b26d8cb49f2be1ee"
+    },
+    {
+      "file": "server/features/decision/instruction.cjs",
+      "sha256": "626af977dd0026d93fcb906f9fb98f5208a1cd984ce22b50e93719d23af1282c"
+    },
+    {
+      "file": "server/features/decision/store.cjs",
+      "sha256": "f4f7acd8dea89d001e781fddb0e4d0d179882152ce429a859a525a2bd19e14ce"
+    },
+    {
+      "file": "server/features/gate/closure.js",
+      "sha256": "be4e78410eab416d5b2e95053d9ed00fff3da2f022f244630f918508b5b22d0a"
+    },
+    {
+      "file": "server/features/gate/fix.js",
+      "sha256": "a976ab20b569ccb6e8650822ee068b5edff9abaa02d80ee5ee2e9fbbc7620b76"
+    },
+    {
+      "file": "server/features/gate/loop.cjs",
+      "sha256": "c57cab4a5e0a15fe10ba35c4c69974b818c944e29221bb9bb9526dfd2ecfe2cd"
+    },
+    {
+      "file": "server/features/index.js",
+      "sha256": "696691a9658b94ff5991996e68b51bb324582f510091e03173d3434cc3dcbc5c"
+    },
+    {
+      "file": "server/features/monitor/diagnosis.cjs",
+      "sha256": "83056ea7330caeecfdcb8637a8f80c530e19812ff956437bcedfdb5cc50a2054"
+    },
+    {
+      "file": "server/features/monitor/index.cjs",
+      "sha256": "0db8cc14e4e3f1eb7da68cfe990b03407cb29ee3e9954f100f847028122bdb70"
+    },
+    {
+      "file": "server/features/pause/index.js",
+      "sha256": "0395a25c9d1c477e6368788889ce33686ac50c4fe6f1b177170c6e32444f51cd"
+    },
+    {
+      "file": "server/features/replanning/config.cjs",
+      "sha256": "5ee9049111e506007e4736fc0dc8fc86aa60d726dadeed0cedae2e316775e481"
+    },
+    {
+      "file": "server/features/replanning/decision-port.cjs",
+      "sha256": "b7b6328be316f0b69514ea8fb085a30670ee3eec24831a69f5b61dca065cf8ce"
+    },
+    {
+      "file": "server/features/replanning/index.cjs",
+      "sha256": "dcbf403af2c035b066154c8bece9a4655c476e62c9eb6f5d00d4602d79e98220"
+    },
+    {
+      "file": "server/features/replanning/planner.cjs",
+      "sha256": "898d13bee6a8ac6e76aedd5b271454ecb1a626845e7708cf9a8fdd3808c81d9d"
+    },
+    {
+      "file": "server/features/replanning/service.cjs",
+      "sha256": "7a067c0219fa774e403d6c4d3180d33c88e470a4f7968fa9fb921be277e73a67"
+    },
+    {
+      "file": "server/features/replanning/store.cjs",
+      "sha256": "629dfc1c3831f6249b07a509712af440f54193cbf2c50e9c86979aa169a0d2e9"
+    },
+    {
+      "file": "server/mock/index.cjs",
+      "sha256": "9b9887065a6b914ec36231d3c7df6f2e5e168bc9259a50441fd0ece68ff18c24"
+    },
+    {
+      "file": "server/observability/index.cjs",
+      "sha256": "f39867a22b874dfd690600f6ece8726ed529030bffd79444852c03c0bf7379d6"
+    },
+    {
+      "file": "server/observability/metrics.cjs",
+      "sha256": "812381f8dbcca4ee20d37914199c1a6d2e33963077392df9e697374258d510e1"
+    },
+    {
+      "file": "server/observability/run-logger.cjs",
+      "sha256": "a8956bc7978a8a9a8c671d4ceffdc9d499d3dc879934da23f0d106256b6bb81d"
+    },
+    {
+      "file": "server/run/channel.cjs",
+      "sha256": "2794a66d7bb2625921c042edd28c5e81b3dbdc7e90889b472322e6be74aba7b5"
+    },
+    {
+      "file": "server/run/config.js",
+      "sha256": "12508b860469b1c12463521e9fa278fdf0c7d362f7199c22594d256d0ef32dda"
+    },
+    {
+      "file": "server/run/driver.cjs",
+      "sha256": "d7b573780a4b7b21c25bcab5031c53d44db05813a3fdde0bc337e9fe00b438db"
+    },
+    {
+      "file": "server/run/host.cjs",
+      "sha256": "c88d77b9e4e526ca6aa94d1b3cf365bc1e7ed7787a232e3fb237d4b66ddfc936"
+    },
+    {
+      "file": "server/run/scheduler.js",
+      "sha256": "3836e4c19ba7ac0f862bfd5ad975438586f0669737e4933ecd45fd471d9b098a"
+    },
+    {
+      "file": "server/run/subagent.cjs",
+      "sha256": "24bf783a8be67689051a583fc9a0ddaf5639a75bf6ea4acdcfdbe74680184e7c"
+    },
+    {
+      "file": "server/run/transport.cjs",
+      "sha256": "fbabec4c55d6db9997507d57fb7a57c2888abd9f62cd44bccb4ffdc0294c372d"
+    },
+    {
+      "file": "server/runtime/channel.cjs",
+      "sha256": "ff7e76d252b7bd2ab5795752c611351ac1ee3b3e2d07ded9f2a944c5ee26ae86"
+    },
+    {
+      "file": "server/runtime/executor.cjs",
+      "sha256": "c68d122204516c932e7d719a20e8ade84663a0f0ae6d507a9aa28e3f299f2bf9"
+    },
+    {
+      "file": "server/runtime/idle.cjs",
+      "sha256": "784d2c7f2004afa584ed038df0fef0481914b7f53088bcde98c1f7ca76695152"
+    },
+    {
+      "file": "server/runtime/index.cjs",
+      "sha256": "d4275bcd3b59d05d73de92b4e13514dc6e10b8a1b661603ede33774ab0409a60"
+    },
+    {
+      "file": "server/runtime/lifecycle.cjs",
+      "sha256": "50a3bfac44aca602a2cf964a35e4d18c70d05ce773526e9c02e17873d70ad35f"
+    },
+    {
+      "file": "server/runtime/project.cjs",
+      "sha256": "583764a97fb3837497bfb9a6549decef3e2385ac310f0d8fe4374a3ceab38fb8"
+    },
+    {
+      "file": "server/runtime/registry.cjs",
+      "sha256": "5dd89aff432d799d9a9c11c61cf3585f737810b4c5580433363c371179d8de56"
+    },
+    {
+      "file": "server/runtime/session.cjs",
+      "sha256": "1c5234186d925b3da3e022fc1ac1c8e28cfb095123a2219115550879133bdfc3"
+    },
+    {
+      "file": "server/server.cjs",
+      "sha256": "d093ea6f21cf9a7b230da7c9ef83c97b15ba5e092bf03d345f529ec396dd12b7"
+    },
+    {
+      "file": "server/shared/config-loader.cjs",
+      "sha256": "4d6b31e98780de724254ddfaa999b65fb85caab309e258f6e5fb4b01cc03d60e"
+    },
+    {
+      "file": "server/shared/events.cjs",
+      "sha256": "ad08c1fef152d00b92f363ea4fd0a26702c223125e06245d0d65736c3ced62ca"
+    },
+    {
+      "file": "server/shared/plugin-assets.cjs",
+      "sha256": "021c9fd702ff5b9c4432acf8442afb71dfeb37e959d8069d9552497d6f53d8bd"
+    },
+    {
+      "file": "server/shared/project-paths.cjs",
+      "sha256": "52f540397535ed4ea515d31048dcb6f8659a35a7498231f45955a38f67b74b0e"
+    },
+    {
+      "file": "server/shared/prompts.js",
+      "sha256": "064b9012e481aabedf9d38c7ed0642b24690f93455ebab966735184e35d22962"
+    },
+    {
+      "file": "server/shared/ready-tasks.cjs",
+      "sha256": "94ae8f4b37d8dc346a0126a08bcd16c0525ef57185d2797f96fe08b44f499b61"
+    },
+    {
+      "file": "server/shared/run-context.cjs",
+      "sha256": "17013e96fa36787f0429e0f7905be459fc0315d22048fcdc627143338dceb084"
+    },
+    {
+      "file": "server/shared/run-id.cjs",
+      "sha256": "822dbd0ec299a378d3c71d1e90b9c0af4474dea626fb463d3bf4d703a007d11b"
+    },
+    {
+      "file": "server/shared/runtime-config.cjs",
+      "sha256": "cd61e611a9860264dc0fcab972163801c79aea54aece866a0743ca9fb2064ed9"
+    },
+    {
+      "file": "server/shared/state.js",
+      "sha256": "e0c7a615ff3c25163f6f4414b567ad2fde66139942b9a07f3702bd8ee9fb0c8f"
+    },
+    {
+      "file": "server/shared/store-core.cjs",
+      "sha256": "cced9e14b7c02e7777bb502cc98c274ac81f8933aaf54696b06bd6bcfa710184"
+    },
+    {
+      "file": "server/shared/store.cjs",
+      "sha256": "53d8ac19171898987d1768a6bae9859ee06b9061f643cda2ad30f9cd5571964b"
+    },
+    {
+      "file": "server/shared/task-graph.cjs",
+      "sha256": "c01b7d8a7b4fcfb0ae6c949442f083d3675a622f1f5222613599074386b8fce5"
+    },
+    {
+      "file": "server/web/api/decisions.cjs",
+      "sha256": "6a0627148098715e548655ff024e42d01796b7659fa0680b3defaa53242210f9"
+    },
+    {
+      "file": "server/web/api/hook.cjs",
+      "sha256": "02ad374b9933e70f0d41754049679e8317eb1e9b1f69a9cc1727cb0d31fbc55a"
+    },
+    {
+      "file": "server/web/api/index.cjs",
+      "sha256": "dfc146a94a365888a4562ab41a4bcc393022f854f0bc25ce85ab43704a05203a"
+    },
+    {
+      "file": "server/web/api/planning.cjs",
+      "sha256": "54b4f9494228fddb61a7965d7afdbc29b8badea022d41dd84f246abefdcc992a"
+    },
+    {
+      "file": "server/web/api/run.cjs",
+      "sha256": "39a3b334dddfb6a4e919989cd7cff484597d8508f565fc3079198e0af2096d1a"
+    },
+    {
+      "file": "server/web/api/session.cjs",
+      "sha256": "7ff415992d27807066f4871bd1e3bfc04780f0be5085ce6bb7f40c27da698518"
+    },
+    {
+      "file": "server/web/api/state.cjs",
+      "sha256": "4a89aa0ff26b7a1bc633b295a67493a99c7ff79a9f02a420ae1abae8239ce87b"
+    },
+    {
+      "file": "server/web/api/util.cjs",
+      "sha256": "6f13a923fc02beea0d999e994ad1e85a315f6c77783fd5a168e940477a220bf8"
+    },
+    {
+      "file": "server/web/interact.cjs",
+      "sha256": "9bd5a749bc22d944b5096fc7214be4fe98f56d5c4e82249f6bc3abb3bab965e4"
+    },
+    {
+      "file": "server/web/static.cjs",
+      "sha256": "628147fb3b574234d1fbea97e93996fea5d1bbff01075cfa142f80936b8820ab"
+    },
+    {
+      "file": "server/web/ws.cjs",
+      "sha256": "b0174d072cfcf9d2eba1864011f1c466d4b2156e64f1b288b64a838097c4b677"
+    }
+  ],
+  "existingEndpoints": [
+    {
+      "method": "GET",
+      "path": "/status"
+    },
+    {
+      "method": "GET",
+      "path": "/probe"
+    },
+    {
+      "method": "GET",
+      "path": "/awf/state"
+    },
+    {
+      "method": "GET",
+      "path": "/awf/metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/awf/diagnostics"
+    },
+    {
+      "method": "POST",
+      "path": "/awf/diagnostics"
+    },
+    {
+      "method": "POST",
+      "path": "/context-ready"
+    },
+    {
+      "method": "GET",
+      "path": "/context-ready"
+    },
+    {
+      "method": "POST",
+      "path": "/run/state/mode"
+    },
+    {
+      "method": "POST",
+      "path": "/run/state/task/active"
+    },
+    {
+      "method": "POST",
+      "path": "/run/state/gate"
+    },
+    {
+      "method": "POST",
+      "path": "/run/state/backup"
+    },
+    {
+      "method": "POST",
+      "path": "/run/state/apply"
+    },
+    {
+      "method": "GET",
+      "path": "/run/status"
+    },
+    {
+      "method": "POST",
+      "path": "/run/submit"
+    },
+    {
+      "method": "GET",
+      "path": "/run/events"
+    },
+    {
+      "method": "WS",
+      "path": "/run/events"
+    },
+    {
+      "method": "POST",
+      "path": "/send"
+    },
+    {
+      "method": "POST",
+      "path": "/cmd"
+    },
+    {
+      "method": "POST",
+      "path": "/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/intervene"
+    },
+    {
+      "method": "POST",
+      "path": "/intervene/interrupt"
+    },
+    {
+      "method": "POST",
+      "path": "/choice"
+    },
+    {
+      "method": "POST",
+      "path": "/ask"
+    },
+    {
+      "method": "POST",
+      "path": "/respond"
+    },
+    {
+      "method": "GET",
+      "path": "/awf/decisions"
+    },
+    {
+      "method": "POST",
+      "path": "/awf/decisions/:id/resolve"
+    },
+    {
+      "method": "POST",
+      "path": "/awf/decisions/:id/override"
+    },
+    {
+      "method": "GET",
+      "path": "/awf/dynamic-planning/proposals"
+    },
+    {
+      "method": "POST",
+      "path": "/run/dynamic-planning/proposals"
+    },
+    {
+      "method": "POST",
+      "path": "/run/dynamic-planning/proposals/:id/approve"
+    },
+    {
+      "method": "POST",
+      "path": "/run/dynamic-planning/proposals/:id/reject"
+    },
+    {
+      "method": "POST",
+      "path": "/oneshot"
+    },
+    {
+      "method": "POST",
+      "path": "/hook"
+    },
+    {
+      "method": "POST",
+      "path": "/shutdown"
+    }
+  ],
+  "proposedEndpoints": [
+    {
+      "id": "A01",
+      "pages": "公共",
+      "method": "GET",
+      "path": "/bootstrap",
+      "request": "无",
+      "response": "Bootstrap",
+      "work": "新增：能力、本机身份、持久项目摘要、上次选择；无项目也可用",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "A02",
+      "pages": "公共",
+      "method": "GET",
+      "path": "/operations/:operationId",
+      "request": "无",
+      "response": "Operation",
+      "work": "新增：异步动作持久结果/部分失败",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "P01",
+      "pages": "1/侧栏",
+      "method": "GET",
+      "path": "/projects",
+      "request": "cursor,limit",
+      "response": "Page<Project>",
+      "work": "新增持久目录；registry只作运行态合并",
+      "implemented": false,
+      "underlyingCapability": "extend_partial",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "P02",
+      "pages": "1/添加",
+      "method": "POST",
+      "path": "/projects/inspect",
+      "request": "`{path}`",
+      "response": "ProjectInspection",
+      "work": "新增只读检测；不得启动runtime/创建.awf",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "P03",
+      "pages": "1/添加",
+      "method": "POST",
+      "path": "/projects",
+      "request": "`{path,name?,initializeIfNeeded}`",
+      "response": "Operation<Project>",
+      "work": "新增注册/可选初始化；同规范路径幂等；保留现有.awf",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "P04",
+      "pages": "公共",
+      "method": "GET",
+      "path": "P/workspace",
+      "request": "`planId?,runId?`",
+      "response": "Workspace",
+      "work": "聚合选择上下文、侧栏摘要、阶段、状态栏；不存在资源不能回退boot",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "L01",
+      "pages": "侧栏/2",
+      "method": "GET",
+      "path": "P/plans",
+      "request": "cursor,limit",
+      "response": "Page<PlanSummary>",
+      "work": "新增Plan索引/历史；不是遍历version冒充多个Plan",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "L02",
+      "pages": "侧栏/2",
+      "method": "POST",
+      "path": "P/plans",
+      "request": "`{title?,prompt}`",
+      "response": "Operation<PlanDetail>",
+      "work": "新增草案生成/持久身份；服务内部可调现有模型通道",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "L03",
+      "pages": "2",
+      "method": "GET",
+      "path": "P/plans/:planId",
+      "request": "无",
+      "response": "PlanDetail",
+      "work": "适配state+补Plan版本/基线/生成状态/规划决策关联",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "L04",
+      "pages": "2",
+      "method": "POST",
+      "path": "P/plans/:planId/confirm-and-run",
+      "request": "`{expectedDraftRevision}`",
+      "response": "Operation<{planId,baselineRevision,runId}>",
+      "work": "新增原子确认/冻结基线/创建Run；重复点击只产生一个Run",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R01",
+      "pages": "3/历史",
+      "method": "GET",
+      "path": "P/runs",
+      "request": "planId?,cursor,limit",
+      "response": "Page<RunSummary>",
+      "work": "host.snapshot仅内存；补持久目录和启动/恢复映射",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R02",
+      "pages": "3",
+      "method": "GET",
+      "path": "R",
+      "request": "无",
+      "response": "RunSummary",
+      "work": "适配host+state+metrics，分开状态、缺失数据和completion",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R03",
+      "pages": "3",
+      "method": "GET",
+      "path": "R/conversations",
+      "request": "cursor,limit",
+      "response": "Page<Conversation>",
+      "work": "新增主/编排/Agent关联，含任务与attempt，不拿UI序号作ID",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R04",
+      "pages": "3",
+      "method": "GET",
+      "path": "R/conversations/:conversationId/messages",
+      "request": "cursor,limit",
+      "response": "Page<Message>",
+      "work": "新增结构化持久消息；工具/命令/文件/测试块可按需加载",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R05",
+      "pages": "3",
+      "method": "POST",
+      "path": "R/conversations/:conversationId/messages",
+      "request": "`{clientMessageId,text}`",
+      "response": "Operation<{messageId}>",
+      "work": "/send只主会话且缺messageId；需精准目标、幂等、busy策略",
+      "implemented": false,
+      "underlyingCapability": "extend_partial",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R06",
+      "pages": "3",
+      "method": "POST",
+      "path": "R/actions",
+      "request": "RunAction",
+      "response": "pause/resume/cancel/interruptResponse 的 Operation",
+      "work": "pause可复用mode闩锁；其余按Run语义补齐，不能把/stop当cancel",
+      "implemented": false,
+      "underlyingCapability": "extend_partial",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R07",
+      "pages": "3",
+      "method": "GET",
+      "path": "R/metrics",
+      "request": "无",
+      "response": "RunMetrics",
+      "work": "当前metrics适配；补run归属、质量、TTFT等能力标记",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "R08",
+      "pages": "3",
+      "method": "PATCH",
+      "path": "R/decision-policy",
+      "request": "`{mode:'manual'|'ai'}`",
+      "response": "DecisionPolicy",
+      "work": "新增安全生效时点；enabled布尔不能直接映射，默认值待确认",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "provisional"
+    },
+    {
+      "id": "T01",
+      "pages": "3/4",
+      "method": "GET",
+      "path": "R/tasks",
+      "request": "status?,origin?,q?,cursor,limit",
+      "response": "TaskPage",
+      "work": "适配state.tasks+holds+deps，补来源/执行分配；返回同版计数",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "T02",
+      "pages": "3/4",
+      "method": "GET",
+      "path": "R/tasks/:taskId",
+      "request": "无",
+      "response": "Task",
+      "work": "提供完整prompt、依赖、当前attempt/conversation关联；不引入编辑动作",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "D01",
+      "pages": "2/5",
+      "method": "GET",
+      "path": "P/decisions",
+      "request": "planId?,runId?,status?,phase?,q?,cursor,limit",
+      "response": "Page<Decision>",
+      "work": "聚合原始生命周期事件；状态/total按决策实体计算",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "D02",
+      "pages": "5",
+      "method": "GET",
+      "path": "P/decisions/:decisionId",
+      "request": "无",
+      "response": "Decision",
+      "work": "新增稳定外部ID映射及上下文、备选/影响/关联",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "D03",
+      "pages": "5",
+      "method": "POST",
+      "path": "P/decisions/:decisionId/actions",
+      "request": "DecisionAction",
+      "response": "Operation<DecisionResolution>",
+      "work": "通用adopt/replace缺失；动态resolve可作特定source适配",
+      "implemented": false,
+      "underlyingCapability": "extend_partial",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "Q01",
+      "pages": "6",
+      "method": "GET",
+      "path": "R/task-proposals",
+      "request": "status?,cursor,limit",
+      "response": "Page<TaskProposal>",
+      "work": "项目proposal查询适配，补Run归属；禁止靠当前Run猜历史",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "Q02",
+      "pages": "6",
+      "method": "GET",
+      "path": "R/task-proposals/:proposalId",
+      "request": "无",
+      "response": "TaskProposal",
+      "work": "现有get适配；增加审阅所需before/after投影，不能暴露整份proposedState",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "Q03",
+      "pages": "6",
+      "method": "POST",
+      "path": "R/task-proposals/:proposalId/reviews",
+      "request": "ProposalReview",
+      "response": "Operation<TaskProposal>",
+      "work": "**新增应用后复审收口**；不是approve/reject的别名，处置待确认",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "provisional"
+    },
+    {
+      "id": "G01",
+      "pages": "7",
+      "method": "GET",
+      "path": "R/log-sources",
+      "request": "无",
+      "response": "LogSource[]",
+      "work": "新增：Run/Agent/attempt源、状态、可用性、记录数",
+      "implemented": false,
+      "underlyingCapability": "extend_partial",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "G02",
+      "pages": "7",
+      "method": "GET",
+      "path": "R/logs",
+      "request": "LogQuery",
+      "response": "Page<LogEntry>",
+      "work": "新增持久分页搜索；Run结构化事件与Agent输出分别取源",
+      "implemented": false,
+      "underlyingCapability": "extend_partial",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "G03",
+      "pages": "7",
+      "method": "POST",
+      "path": "R/log-exports",
+      "request": "`{query,format}`",
+      "response": "Operation<{exportId}>",
+      "work": "新增生成导出；query与当前筛选同义",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "G04",
+      "pages": "7",
+      "method": "GET",
+      "path": "R/log-exports/:exportId",
+      "request": "无",
+      "response": "二进制下载",
+      "work": "新增Content-Disposition；只导出当前授权Run所选范围",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "F01",
+      "pages": "3",
+      "method": "GET",
+      "path": "R/artifacts/:artifactId",
+      "request": "cursor?,limit?",
+      "response": "ArtifactDetail",
+      "work": "新增命令全输出、diff、测试报告等懒加载；可用时才显示入口",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "S01",
+      "pages": "8",
+      "method": "GET",
+      "path": "/settings",
+      "request": "无",
+      "response": "SettingsDocument",
+      "work": "新增全局默认、有效值、可用字段/生效范围",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "S02",
+      "pages": "8",
+      "method": "PATCH",
+      "path": "/settings",
+      "request": "SettingsPatch",
+      "response": "SettingsDocument",
+      "work": "新增字段白名单校验、自动保存、并发冲突；不任意覆盖配置",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "S03",
+      "pages": "8",
+      "method": "POST",
+      "path": "/settings/reset",
+      "request": "`{keys?}`",
+      "response": "SettingsDocument",
+      "work": "重置用户覆盖，不删除项目运行资料",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "S04",
+      "pages": "8",
+      "method": "GET",
+      "path": "P/settings",
+      "request": "无",
+      "response": "SettingsDocument",
+      "work": "项目配置加载器适配，返回 overrides/effective/inheritedFrom",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "S05",
+      "pages": "8",
+      "method": "PATCH",
+      "path": "P/settings",
+      "request": "SettingsPatch",
+      "response": "SettingsDocument",
+      "work": "新增项目覆盖写入；null=恢复继承，未知字段422",
+      "implemented": false,
+      "underlyingCapability": "extend_partial",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "S06",
+      "pages": "8",
+      "method": "POST",
+      "path": "P/settings/reset",
+      "request": "`{keys?}`",
+      "response": "SettingsDocument",
+      "work": "删除项目覆盖，保留全局值；明确affected keys",
+      "implemented": false,
+      "underlyingCapability": "missing",
+      "productSemantics": "proposed_baseline"
+    },
+    {
+      "id": "E01",
+      "pages": "公共/3–7",
+      "method": "GET/WS",
+      "path": "P/events",
+      "request": "epoch?,afterSeq?,runId?,limit?",
+      "response": "EventBatch / UiEvent",
+      "work": "增强持久/epoch、过滤、重放与断线恢复；可先HTTP轮询再加WS",
+      "implemented": false,
+      "underlyingCapability": "adapt_existing",
+      "productSemantics": "proposed_baseline"
+    }
+  ]
+}

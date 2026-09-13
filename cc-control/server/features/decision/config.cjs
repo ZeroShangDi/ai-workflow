@@ -45,4 +45,33 @@ function isDecisionEnabled(projectRoot) {
   return decisionEnabledFrom(raw ?? {});
 }
 
-module.exports = { isDecisionEnabled, decisionEnabledFrom, DECISION_DEFAULT_ENABLED };
+/**
+ * 决策策略三路由（新设计）：一个决策事件出现了，谁来决定？
+ *   - manual —— 推给人（终端 / 前端页面），CLI 不抢答
+ *   - ai     —— 交给决策内核（AskUserQuestion 直接被门阀 deny，引导走 <AWF_DECISION_REQUIRED>）
+ *   - auto   —— 默认选第一项（无人值守 / CI 场景）
+ *
+ * 与 decisionEnabled 的关系：enabled 是**门阀开关**（Stop 那扇门），mode 是**谁来答**。
+ * 缺省 auto 是对「旧 CLI 对 AskUserQuestion 一律 5s 自动选第一项」这一既有行为的保真。
+ * 注：新设计契约（docs/design/cc-work-api-contract.ts）目前只列了 manual | ai 两值，
+ *     第三值 auto 由用户口述补充，待契约同步。
+ */
+const DECISION_MODES = Object.freeze(['manual', 'ai', 'auto']);
+
+/** 从已解析的 raw（.awf/config.json 内容）判定决策策略；非法/缺省 → enabled 为真则 ai，否则 auto */
+function decisionModeFrom(raw) {
+  const mode = raw?.run?.decision?.mode;
+  if (DECISION_MODES.includes(mode)) return mode;
+  return decisionEnabledFrom(raw) ? 'ai' : 'auto';
+}
+
+/** 读 <projectRoot>/.awf/config.json 判定决策策略（缺文件/非法 → 缺省） */
+function decisionMode(projectRoot) {
+  const raw = readJsonFile(configFilePath(projectRoot), { optional: true });
+  return decisionModeFrom(raw ?? {});
+}
+
+module.exports = {
+  isDecisionEnabled, decisionEnabledFrom, decisionMode, decisionModeFrom,
+  DECISION_MODES, DECISION_DEFAULT_ENABLED,
+};

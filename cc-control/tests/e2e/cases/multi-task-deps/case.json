@@ -16,7 +16,7 @@
         "status": "pending",
         "deps": [],
         "acceptance": "src/math.js 具名导出 add；add(1,2)===3",
-        "prompt": "/w-dev\n<task>\n在 src/math.js 实现并具名导出 add(a, b)，返回 a + b。\n</task>\n<constraints>\nESM 模块，src/math.js。\n</constraints>\n<files>\nsrc/math.js（新建）\n</files>\n<acceptance>\nadd(1, 2) === 3；add(0, 0) === 0。\n</acceptance>\n<risks>\n无。\n</risks>"
+        "prompt": "/ai-workflow-code:w-dev\n<task>\n在 src/math.js 实现并具名导出 add(a, b)，返回 a + b。\n</task>\n<constraints>\nESM 模块，src/math.js。\n</constraints>\n<files>\nsrc/math.js（新建）\n</files>\n<acceptance>\nadd(1, 2) === 3；add(0, 0) === 0。\n</acceptance>\n<risks>\n无。\n</risks>"
       },
       {
         "id": "T2",
@@ -25,7 +25,7 @@
         "status": "pending",
         "deps": ["T1"],
         "acceptance": "test/math.test.js 覆盖 add；node --test 通过",
-        "prompt": "/w-dev\n<task>\n为 src/math.js 的 add 编写单元测试。\n</task>\n<context>\nT1 已实现 src/math.js 的 add(a, b)。\n</context>\n<constraints>\nnode 内置 test runner，test/math.test.js。\n</constraints>\n<files>\nsrc/math.js（先读）、test/math.test.js（新建）\n</files>\n<acceptance>\n运行 node --test 全部通过。\n</acceptance>\n<risks>\n无。\n</risks>"
+        "prompt": "/ai-workflow-code:w-dev\n<task>\n为 src/math.js 的 add 编写单元测试。\n</task>\n<context>\nT1 已实现 src/math.js 的 add(a, b)。\n</context>\n<constraints>\nnode 内置 test runner，test/math.test.js。\n</constraints>\n<files>\nsrc/math.js（先读）、test/math.test.js（新建）\n</files>\n<acceptance>\n运行 node --test 全部通过。\n</acceptance>\n<risks>\n无。\n</risks>"
       }
     ],
     "milestones": []

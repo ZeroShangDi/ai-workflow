@@ -55,4 +55,6 @@ export async function handleGateCompletion(projectRoot, id, task) {
   } else if ((gate.exec?.recheck || 0) >= MAX_RECHECK) {
     console.warn(`[gate-fix] 门禁 ${id} 复审已达上限（${MAX_RECHECK}），保持 blocked，需人工介入`);
   }
+  // 返回派发结果（可空），供宿主写进 gate.fix 事件 → CLI/前端能看到派生了哪个修复任务
+  return applied || null;
 }

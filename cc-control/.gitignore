@@ -17,3 +17,6 @@ src/server/public/
 /.awf/*.bak-*
 # 运行态备份（改 state 前的手工快照，不入库）
 .awf/state.json.bak-*
+
+# Current root server web build output
+server/web/public/

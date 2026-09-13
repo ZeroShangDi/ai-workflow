@@ -257,7 +257,12 @@ function createRunHost(opts = {}) {
     const hook = chain.gateCompletionHook(projectRoot, { handleGateCompletion });
     const handled = await hook(id, taskSnapshot);
     if (handled) {
-      emit('gate.fix', run.runId, { taskId: id, kind: taskSnapshot?.kind || null });
+      emit('gate.fix', run.runId, {
+        taskId: id,
+        kind: taskSnapshot?.kind || null,
+        fixId: handled?.fixId || null,
+        recheck: handled?.recheck ?? null,
+      });
     }
     return handled;
   }

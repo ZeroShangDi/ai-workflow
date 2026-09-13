@@ -3,7 +3,8 @@
  * 全真 E2E 评测（eval）— 真实 claude + tmux + 插件，消耗真实 token。
  *
  * 与 tests/ 下确定性测试不同：本脚本不参与 `npm test`（vitest include 只匹配 *.test.js）。
- * 仅在需要时手动运行，例如：npm run eval -- --only hello-sum
+ * 仅在需要时手动运行，例如：npm run test:eval -- --only hello-sum
+ * 换 CLI 实现：`--awf <path>`（缺省本仓库 cli/awf.cjs，即新树）
  *
  * 流程（每个用例）：
  *   1. 前置检查（claude / tmux / node）
@@ -21,11 +22,21 @@ import os from 'node:os';
 import http from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { sessionEnvOf } from '../harness/session-env.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const AWF = path.join(ROOT, 'src', 'awf.js');
-const CASES_DIR = path.join(ROOT, 'tests', 'eval', 'cases');
-const SANDBOX_ROOT = path.join(ROOT, 'sandbox', 'eval');
+// CLI 入口：缺省用**新树** cli/awf.cjs（server/cli/tests 都已是新树，旧树 src/ 待退役）；
+// `--awf <path>` 可钉住别的工作副本 —— 与 fullflow-regression 同一约定。
+const AWF_ARG_IDX = process.argv.indexOf('--awf');
+const AWF = AWF_ARG_IDX !== -1
+  ? path.resolve(process.argv[AWF_ARG_IDX + 1])
+  : path.join(ROOT, 'cli', 'awf.cjs');
+// 会话名与 ctx 同源（不在这里另拼 cc-<sid> —— 那是 run-context 的单一知情范围）
+const requireCjs = createRequire(import.meta.url);
+const runContext = requireCjs('../../server/shared/run-context.cjs');
+
+const CASES_DIR = path.join(ROOT, 'tests', 'e2e', 'cases');
+const SANDBOX_ROOT = path.join(ROOT, 'sandbox', 'e2e');
 
 const RUN_TIMEOUT_MS = Number(process.env.AWF_EVAL_TIMEOUT_MS || 15 * 60 * 1000);
 const TASK_ICONS = new Set(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏', '✓', '⚠']);
@@ -185,6 +196,19 @@ function writeFile(p, content) {
   fs.writeFileSync(p, content);
 }
 
+/** 递归拼一个目录下所有文本文件的内容（dirContain 用；读不了的当二进制跳过） */
+function collectDirText(dir) {
+  let out = '';
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out += collectDirText(full);
+    else {
+      try { out += `${fs.readFileSync(full, 'utf-8')}\n`; } catch { /* 二进制 → 跳过 */ }
+    }
+  }
+  return out;
+}
+
 // ── 评分 ──
 
 function readState(sandbox) {
@@ -251,7 +275,7 @@ async function runHookPhase(hook, phase, ctx, timeoutMs) {
   }
 }
 
-function scoreCase(sandbox, expected, logPath) {
+function scoreCase(sandbox, expected, logPath, observed = {}) {
   const checks = [];
   const fail = (msg) => checks.push({ ok: false, msg });
   const pass = (msg) => checks.push({ ok: true, msg });
@@ -276,7 +300,10 @@ function scoreCase(sandbox, expected, logPath) {
   }
 
   // 多 agent 并行证据：
-  //   logContain — eval.log 必须包含的批次派发标记（证明 CLI 按批次屏障派发，而非逐任务）
+  //   logContain — eval.log 里必须出现的文本。**注意 eval.log 不是原始 stdout**：它只收
+  //     `createTaskEventRecorder` 过滤后的**任务状态行**（`[ts] <icon> [<id>] <标题> · <耗时>`），
+  //     原始输出走 console。所以这里的字符串只能是任务状态行里出现过的（如 `[T1]`、`[R1-F1]`）——
+  //     写 CLI 的其它文案（如旧 `logStep` 的整句）永远匹配不上。
   //   markerSpanMs — 各任务 marker 文件的 mtime 最大跨度上限（证明子任务几乎同时落盘，即真并行）
   if (logPath) {
     let logText = null;
@@ -309,7 +336,83 @@ function scoreCase(sandbox, expected, logPath) {
     }
   }
 
+  // ── 链路存活断言（讨论稿 §三.5：把 regression 的脚本断言扩成声明字段）──
+  // 这些字段让「编排机械对不对」也能用声明式 case 表达，从而把命令式 case 迁进来。
+
+  // modeIdle：run 收尾后 mode 复位（pause / resume 类 case 不设此字段 —— 它们的期望不是 idle）
+  if (expected.modeIdle === true) {
+    if (state.mode === 'idle') pass('mode 已复位 idle');
+    else fail(`mode 未复位：${state.mode}`);
+  }
+
+  // tasksSettled：所有任务都已结算（done 或 blocked），不留 pending/active
+  // （比 tasksDone 宽：门禁被 blocked 也算「结算了」，那是有意义的终态而非卡住）
+  if (expected.tasksSettled === true) {
+    const stuck = (state.tasks || []).filter((t) => t.status === 'pending' || t.status === 'active');
+    if (stuck.length === 0) pass(`全部 ${(state.tasks || []).length} 个任务已结算（done/blocked）`);
+    else fail(`存在未结算任务: ${stuck.map((t) => `${t.id}(${t.status})`).join(', ')}`);
+  }
+
+  // gateVerdict：至少一个门禁任务（review/test）产出 exec.verdict.level —— 门禁闭环的输入
+  if (expected.gateVerdict === true) {
+    const gates = (state.tasks || []).filter((t) => t.kind === 'review' || t.kind === 'test');
+    const withVerdict = gates.filter((t) => !!t.exec?.verdict?.level);
+    if (withVerdict.length > 0) pass(`门禁产出 verdict.level（${withVerdict.map((t) => `${t.id}:${t.exec.verdict.level}`).join(', ')}）`);
+    else fail(`门禁任务未产出 verdict.level（门禁任务 ${gates.length} 个）`);
+  }
+
+  // taskStatus：逐任务断言最终状态（如收尾协商若干轮仍不落账 → blocked，而不是永远 active）
+  for (const [id, want] of Object.entries(expected.taskStatus || {})) {
+    const t = (state.tasks || []).find((x) => x.id === id);
+    if (t?.status === want) pass(`任务 ${id} 最终状态 = ${want}`);
+    else fail(`任务 ${id} 最终状态应为 ${want}，实际 ${t?.status ?? '(任务缺失)'}`);
+  }
+
+  // dirContain：指定目录**及其子目录**下任意文件须含的字符串
+  // （文件名带运行期戳时用，如 .awf/logs/<version>-<ts>/main.log、.awf/decisions/runs/<stamp>.jsonl）
+  for (const dc of expected.dirContain || []) {
+    let text = '';
+    try { text = collectDirText(path.join(sandbox, dc.dir)); } catch { /* 目录不存在 → 空 */ }
+    for (const needle of dc.contains || []) {
+      if (text.includes(needle)) pass(`目录 ${dc.dir} 下有文件含: ${needle}`);
+      else fail(`目录 ${dc.dir} 下无文件含: ${needle}`);
+    }
+  }
+
+  // logStampPerRun：per-run 日志目录 <version>-<ts> 落盘（比「logs/ 目录存在」强 —— 那几乎恒真）
+  if (expected.logStampPerRun === true) {
+    const logsDir = path.join(sandbox, '.awf', 'logs');
+    const version = state.version || '';
+    let hit = false;
+    try {
+      hit = fs.readdirSync(logsDir, { withFileTypes: true })
+        .some((e) => e.isDirectory() && e.name.startsWith(`${version}-`));
+    } catch { /* 目录不存在 → 不命中 */ }
+    if (hit) pass(`per-run 日志目录落盘（.awf/logs/${version}-*）`);
+    else fail(`per-run 日志目录缺失（.awf/logs/${version}-*）`);
+  }
+
+  // sessionEnvPointsAt：run 会话的 CC_PROJECT/CC_WORKDIR 指向本项目
+  // （派生会话 env 若串了别项目，hook 网关会把事件投到别人的槽 —— 真机踩过）
+  // 用**跑的过程中**采到的样本，不是事后读（run 收尾会关会话）
+  if (expected.sessionEnvPointsAt === true) {
+    const env = observed.sessionEnv || {};
+    const real = fs.realpathSync(sandbox);
+    if (env.CC_PROJECT === real && env.CC_WORKDIR === real) pass('run 会话 env 指向本项目（CC_PROJECT / CC_WORKDIR）');
+    else fail(`run 会话 env 未指向本项目（跑的过程中采样）：${JSON.stringify(env)}`);
+  }
+
   return checks;
+}
+
+/** 跑的过程中周期采 run 会话的 env（会话在 run 收尾被关，事后读不到），stop() 取最后一次非空样本 */
+function startSessionEnvSampler(projectRoot, { intervalMs = 1000 } = {}) {
+  let last = {};
+  const timer = setInterval(() => {
+    const env = sessionEnvOf(runContext.projectSessionName(projectRoot));
+    if (env.CC_SESSION) last = env;
+  }, intervalMs);
+  return { stop: () => { clearInterval(timer); return last; } };
 }
 
 async function runVerify(sandbox, verify) {
@@ -448,8 +551,12 @@ async function runCase(c) {
     teeOutput: true,
     onOutput: recordTaskEvent,
   });
+  // 「run 会话 env 指向本项目」必须在**跑的过程中**采样：run 一收尾，CLI 就把会话关掉了，
+  // 事后读 tmux 只会拿到空（这正是该事实只能用 duringRun 钩子/采样表达的原因）。
+  const envSampler = c.expected?.sessionEnvPointsAt ? startSessionEnvSampler(sandbox) : null;
   const duringChecks = hook ? await runHookPhase(hook, 'duringRun', hookCtx, 8 * 60 * 1000) : [];
   const runRes = await runPromise;
+  const observed = { sessionEnv: envSampler ? envSampler.stop() : null };
   const executionEndedAt = Date.now();
   initLog.end();
   log.end();
@@ -459,7 +566,7 @@ async function runCase(c) {
   }
 
   // 4. 评分（声明式断言 + 钩子断言）
-  const checks = scoreCase(sandbox, c.expected || {}, logPath);
+  const checks = scoreCase(sandbox, c.expected || {}, logPath, observed);
   checks.push(...duringChecks);
   checks.push(...(hook ? await runHookPhase(hook, 'afterRun', hookCtx, 60 * 1000) : []));
   const verifyCode = await runVerify(sandbox, c.expected?.verify);
@@ -507,7 +614,7 @@ async function main() {
 
   const cases = selectCases(all);
   if (cases.length === 0) {
-    console.error('没有可运行的用例（tests/eval/cases/ 为空）');
+    console.error('没有可运行的用例（tests/e2e/cases/ 为空）');
     process.exit(1);
   }
 

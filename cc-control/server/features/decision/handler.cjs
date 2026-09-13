@@ -89,7 +89,11 @@ function createDecisionHandler({
 
     if (action.kind === 'capture') {
       const q = action.question || questions[0];
-      session.setDecision({
+      // 捕获即落记录（复盘要求）：不问「谁来答」，先记下「它发生了」——
+      // 走人/AI/自动哪条路由是之后的事，记录必须都在。此前只存内存，决策一旦答完就无迹可查。
+      const decisionId = nextId();
+      const pending = {
+        decisionId,
         // 归一成决策内核认识的形状：多选 → multiSelect，单选 → choice；选项只留 label。
         type: q.multiSelect ? 'multiSelect' : 'choice',
         multiSelect: !!q.multiSelect,
@@ -97,7 +101,9 @@ function createDecisionHandler({
         options: (q.options || []).map((o) => o.label),
         header: q.header || null,
         source: 'AskUserQuestion',
-      });
+      };
+      session.setDecision(pending);
+      recordAsked(pending);
       console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
       return null;
     }
@@ -167,10 +173,53 @@ function createDecisionHandler({
     return null;
   }
 
+  /**
+   * 决策「被问出」落记录（复盘要求）：先记「它发生了」，不关心之后谁来答。
+   * 与 persist 的 decision_completed 同属决策生命周期事件，落在同一个 DecisionStore 里，
+   * 于是「问过什么 / 谁答的 / 答了什么」在 `/awf/decisions` 与前端决策页可一并复盘。
+   */
+  function recordAsked(pending) {
+    const appended = newDecisionStore().append({
+      event: 'decision_requested',
+      decision_id: pending.decisionId,
+      status: 'awaiting_human',
+      source: 'AskUserQuestion',
+      created_at: new Date().toISOString(),
+      subject: { capability: 'decision_gate' },
+      request: {
+        decision_id: pending.decisionId,
+        question: pending.question,
+        options: pending.options,
+        type: pending.type,
+        multi_select: pending.multiSelect,
+      },
+    });
+    if (!appended?.appended) console.log(`[decision] request append skipped for ${pending.decisionId}`);
+    return appended;
+  }
+
+  /**
+   * 决策「被答」落记录：`answeredBy` 标明走了哪条路由，复盘时据此区分人答的、AI 判的、还是自动选的第一项。
+   * @param {{ decisionId: string, value: string, answeredBy?: 'human'|'auto'|'ai' }} input
+   */
+  function recordAnswered({ decisionId, value, answeredBy = 'human' }) {
+    if (!decisionId) return null;
+    return newDecisionStore().append({
+      event: 'decision_answered',
+      decision_id: decisionId,
+      status: 'answered',
+      source: answeredBy,
+      answered_by: answeredBy,
+      created_at: new Date().toISOString(),
+      value,
+    });
+  }
+
   // 纠偏任务写入：由本实例面透出（web 层一律经 rt 取能力，不直连本模块文件）。
   // 注：函数本体仍单独导出 —— 它是「任务图写入」不是「决策流程」，模块外的复用面不变。
   return {
     nextId, fallbackResult, persist, onAskUserQuestion, onStop,
+    recordAnswered,
     appendDecisionReviewTask: (input) => appendDecisionReviewTask(stores, input),
   };
 }

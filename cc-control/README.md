@@ -67,7 +67,7 @@ awf attach               # 实时观看 AI 工作
 npm test          # 单元 + 集成测试
 npm run lint      # 语法检查
 npm run build     # 打包验证
-npm run eval      # AI 质量评测
+npm run test:eval  # AI 质量评测（全真端到端）
 ```
 
 ## 许可证

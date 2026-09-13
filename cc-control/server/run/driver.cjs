@@ -71,8 +71,9 @@ function gateCompletionHook(projectRoot, { handleGateCompletion, kinds = ['revie
   return async (id, task) => {
     if (!task || !kinds.includes(task.kind)) return false;
     if (typeof handleGateCompletion !== 'function') return false;
-    await handleGateCompletion(projectRoot, id, task);
-    return true;
+    // 透出处理结果（{ fixId, recheck } 或 null）；调用方只判真假，但要拿得到派生了哪个修复任务
+    const applied = await handleGateCompletion(projectRoot, id, task);
+    return applied || true;
   };
 }
 

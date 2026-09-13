@@ -1,0 +1,46 @@
+{
+  "id": "gate",
+  "name": "门禁任务（kind=review）产出 verdict",
+  "requirements": "DEV 任务完成后由门禁任务（kind=review）审查并给出结构化 verdict；断言门禁闭环不误派生修复。",
+  "config": { "run": { "agents": { "max": 1, "maxModules": 1, "maxPerModule": 1, "maxPerFeature": 1 } } },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "门禁 verdict 真 run（review 任务落账并带 verdict）" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "创建 src/counter.js",
+        "kind": "dev",
+        "status": "pending",
+        "deps": [],
+        "wbsRef": "W1",
+        "prompt": "执行 /ai-workflow-code:w-dev T1：在项目根创建 src/counter.js，导出一个自增计数器函数 makeCounter()，返回 { inc(), value() }；完成后用 awf_task_complete 把 T1 记录为 done（result 说明产出，files 填 src/counter.js）。",
+        "plannedFiles": ["src/counter.js"],
+        "constraints": ["只创建 src/counter.js"],
+        "acceptance": "src/counter.js 存在且导出 makeCounter"
+      },
+      {
+        "id": "T2",
+        "title": "审查 T1 产出",
+        "kind": "review",
+        "status": "pending",
+        "deps": ["T1"],
+        "wbsRef": "W1",
+        "prompt": "执行 /ai-workflow-code:w-review T2：对 T1 的产出 src/counter.js 做代码审查，按 w-review 门禁口径用 awf_task_complete 落账 T2，并在 verdict 里给出 level（pass/fail）。",
+        "plannedFiles": ["src/counter.js"],
+        "constraints": [],
+        "acceptance": "T2 落账并带 verdict.level"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": ["src/counter.js"],
+    "tasksSettled": true,
+    "gateVerdict": true,
+    "modeIdle": true,
+    "sessionEnvPointsAt": true
+  }
+}

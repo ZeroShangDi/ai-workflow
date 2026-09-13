@@ -5,7 +5,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createBatchTransport } = require('../../src/server/batch-transport.cjs');
+// 指向**新树**：cli/awf.cjs → server/run/*（旧树 src/server/ 待退役，其 batch-transport 已无调用方）
+const { createBatchTransport } = require('../../server/run/transport.cjs');
 
 // 多 agent 传输层（宿主侧）：dispatch 注入 subagentDispatch 提示词 + 标记 active；
 // waitAnyDone 轮询结算 + 落账失败补发 + NEEDS_INPUT 挂起 + 「无变化窗口」超时（非墙钟）。
@@ -26,15 +27,21 @@ afterEach(() => {
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
-/** 造一个传输：默认单任务 T1（pending），send 记录文本，prompts 用固定模板 */
+/** 造一个传输：默认单任务 T1（pending），send 记录文本并在 eventsPath 落一条 SubagentStart
+ *  （现实里健康的派发必然在数秒内产生 SubagentStart —— 派发生效确认靠它判断，见下方 ack 用例），
+ *  prompts 用固定模板 */
 function makeTransport(overrides = {}) {
   const sent = [];
   const active = [];
   const tasks = overrides.tasks || [{ id: 'T1', title: '做 A', status: 'pending' }];
   const t = createBatchTransport({
-    send: async (text) => { sent.push(text); },
+    send: async (text) => {
+      sent.push(text);
+      fs.appendFileSync(eventsPath, `${JSON.stringify({ ts: new Date().toISOString(), event: 'SubagentStart', body: {} })}\n`);
+    },
     prompts: {
       subagentDispatch: async ({ taskId }) => `DISPATCH ${taskId}`,
+      subagentRedispatch: async ({ taskId }) => `REDISPATCH ${taskId}`,
       resend: async ({ agentId, reason }) => `RESEND ${agentId} ${reason}`,
     },
     markActive: (id) => { active.push(id); },
@@ -70,7 +77,7 @@ describe('batch-transport — dispatch', () => {
     const { t, sent } = makeTransport({
       deps: {
         markActive: () => false,
-        prompts: { subagentDispatch: prompt, resend: async () => '' },
+        prompts: { subagentDispatch: prompt, subagentRedispatch: prompt, resend: async () => '' },
       },
     });
     await expect(t.dispatch({ id: 'T1', title: '做 A' })).resolves.toBe(false);
@@ -88,6 +95,71 @@ describe('batch-transport — dispatch', () => {
     });
     await expect(t.dispatch({ id: 'T1', title: '做 A' })).rejects.toThrow('channel down');
     expect(released).toEqual(['T1']);
+  });
+});
+
+// 派发未生效导致的卡死：.awf/bugs/dispatch-without-subagent-hangs-run.md
+// （现场 sandbox/e2e/multi-agent-parallel-2026-09-13T10-56-01：主会话收下派发提示词、回合正常结束，
+// 却回了句「T3 未派发——被 hook 拦截」，而项目里并不存在该 hook。）
+// 旧行为只认 send 是否抛错，于是任务被留在 active、waitAnyDone 干等 15min 后整轮报错 —— 卡死。
+// 现在：send 返回后确认「本回合确实起了子 Agent」，没起就换重派提示词再派一次，仍无则释放占用 + 标 blocked。
+describe('batch-transport — 派发生效确认', () => {
+  /** 时钟桩：每次读前进 1s，配合 no-op sleep 让 ack 窗口迅速到期（不真等） */
+  const tickingClock = () => { let t = 0; return () => (t += 1000); };
+
+  it('主会话收下提示词却没派子 Agent → 回滚占用后换重派提示词再派一次', async () => {
+    const released = [];
+    const { t, sent } = makeTransport({
+      deps: {
+        // 第一次静默（模型只回文字、不调 Agent 工具），第二次正常派生
+        send: async (text) => {
+          sent.push(text);
+          if (sent.length === 2) {
+            fs.appendFileSync(eventsPath, `${JSON.stringify({ ts: new Date().toISOString(), event: 'SubagentStart', body: {} })}\n`);
+          }
+        },
+        releaseActive: (id) => { released.push(id); return true; },
+        now: tickingClock(),
+        dispatchAckMs: 3000,
+        ackPollMs: 1,
+      },
+    });
+    await expect(t.dispatch({ id: 'T1', title: '做 A' })).resolves.toBe(true);
+    expect(sent).toEqual(['DISPATCH T1', 'REDISPATCH T1']);
+    expect(released).toEqual(['T1']); // 只有第一次失败时回滚；重派成功后占用保留
+  });
+
+  it('重派仍无子 Agent → 每次失败回滚占用，终态标 blocked（不再挂死）', async () => {
+    const released = [];
+    const blocked = [];
+    const { t, sent, tasks } = makeTransport({
+      deps: {
+        send: async (text) => { sent.push(text); }, // 全程静默：模型始终不派子 Agent
+        releaseActive: (id) => released.push(id),
+        markBlocked: (id) => blocked.push(id),
+        now: tickingClock(),
+        dispatchAckMs: 3000,
+        ackPollMs: 1,
+      },
+    });
+    await expect(t.dispatch({ id: 'T1', title: '做 A' })).resolves.toBe(false);
+    expect(sent).toEqual(['DISPATCH T1', 'REDISPATCH T1']);
+    expect(released).toEqual(['T1', 'T1']);
+    expect(blocked).toEqual(['T1']);
+  });
+
+  it('等待生效期间任务已被别处结算 → 视为已生效，不重派', async () => {
+    const { t, sent, tasks } = makeTransport({
+      deps: {
+        send: async (text) => { sent.push(text); }, // 无 SubagentStart，但任务已 done
+        readTasks: () => { tasks[0].status = 'done'; return tasks; },
+        now: tickingClock(),
+        dispatchAckMs: 3000,
+        ackPollMs: 1,
+      },
+    });
+    await expect(t.dispatch({ id: 'T1', title: '做 A' })).resolves.toBe(true);
+    expect(sent).toEqual(['DISPATCH T1']);
   });
 });
 

@@ -4,7 +4,8 @@
  *
  * 多 agent 的调度权已归 run-host（driveBatch → runScheduler），但宿主只认传输接口
  * `{ dispatch(task), waitAnyDone(running) }`；本模块把这两个函数接到真实现场：
- *   dispatch(task)   —— 经会话注入 subagentDispatch 提示词（主会话派生后台子 Agent）+ 标记 active
+ * dispatch(task)   —— 经会话注入 subagentDispatch 提示词 + 标记 active + **确认本回合确实起了子 Agent**
+ *                     （未生效 → 换重派提示词再派；连续未生效 → 回滚占用并标 blocked，不让 run 干等）
  *   waitAnyDone(r)   —— 轮询 state 感知完成 + 落账失败补发 + NEEDS_INPUT 决策挂起 + 无变化超时
  *
  * 迁自重构前 cli/run-batch.js（CLI 拥有调度权时代的同一套语义），差异只在「谁在跑」：
@@ -22,6 +23,12 @@ const POLL_MS = 2000;
 const IDLE_TIMEOUT_MS = Number(process.env.CC_BATCH_IDLE_TIMEOUT_MS || 15 * 60 * 1000);
 /** 单个子 Agent 落账补发上限 */
 const RESEND_MAX = 2;
+/** 单任务派发尝试次数上限（首次 + 重派一次）；超限标 blocked，不把 run 挂死 */
+const DISPATCH_MAX = 2;
+/** 派发生效确认窗口（send 返回后等「本回合确实起了子 Agent」）；env 覆盖 */
+const DISPATCH_ACK_MS = Number(process.env.CC_BATCH_DISPATCH_ACK_MS || 15 * 1000);
+/** 生效确认的轮询间隔 */
+const ACK_POLL_MS = 1000;
 
 /** 读取 jsonl 日志内的最大 ts（毫秒）；文件不存在/空 → 0。作为「已处理游标」，避免历史残留重放触发伪补发。 */
 function maxTsFromLog(logPath) {
@@ -37,17 +44,31 @@ function maxTsFromLog(logPath) {
   return max;
 }
 
+/** 子 Agent Start 事件条数（派发生效的唯一直接证据）；文件不存在 → 0。 */
+function countSubagentStarts(eventsPath) {
+  let raw;
+  try { raw = fs.readFileSync(eventsPath, 'utf-8'); } catch { return 0; }
+  let n = 0;
+  for (const line of raw.trim().split('\n').filter(Boolean)) {
+    try {
+      if (JSON.parse(line).event === 'SubagentStart') n += 1;
+    } catch { /* 跳过坏行 */ }
+  }
+  return n;
+}
+
 /**
  * @param {object} ports
  *   - send(text)              注入一条 prompt 到主会话（含 waitReady / pause 闩锁）
- *   - prompts                 { subagentDispatch({taskId,taskTitle,taskPrompt}), resend({agentId,reason}) }
+ *   - prompts                 { subagentDispatch({taskId,taskTitle,taskPrompt}), subagentRedispatch({taskId,taskPrompt}), resend({agentId,reason}) }
  *   - markActive(taskId)      调度标记 active（state 单写者，与 dynamic-planning hold 共用 state.lock）
- *   - releaseActive(taskId)   回滚 active 占用（仅在 send 失败时调用，避免任务卡在 active）
+ *   - releaseActive(taskId)   回滚 active 占用（send 失败 / 派发未生效时调用，避免任务卡在 active）
+ *   - markBlocked(taskId)     连续派发未生效时标 blocked（可选；与收尾协商「多轮无产出 → blocked」同语义）
  *   - readTasks()             读本项目 state.tasks
  *   - isBusy()                主会话是否仍在推进
  *   - decisionPending()       当前决策槽（{answered} 或 null）
  *   - failedPath/needsPath    落账失败 / 决策上抛日志（per-project）
- *   - eventsPath              子 Agent 事件日志（推进探测）
+ *   - eventsPath              子 Agent 事件日志（推进探测 + 派发生效确认）
  *   - waitWhilePaused()       pause 闩锁
  *   - log(level,msg) / sleep / now（测试注入）
  */
@@ -56,6 +77,7 @@ function createBatchTransport({
   prompts,
   markActive,
   releaseActive = () => false,
+  markBlocked = () => false,
   readTasks,
   isBusy = () => false,
   decisionPending = () => null,
@@ -69,11 +91,14 @@ function createBatchTransport({
   pollMs = POLL_MS,
   idleTimeoutMs = IDLE_TIMEOUT_MS,
   resendMax = RESEND_MAX,
+  dispatchMax = DISPATCH_MAX,
+  dispatchAckMs = DISPATCH_ACK_MS,
+  ackPollMs = ACK_POLL_MS,
 } = {}) {
   for (const [name, fn] of Object.entries({ send, markActive, readTasks })) {
     if (typeof fn !== 'function') throw new Error(`batch-transport: 端口 ${name} 必填`);
   }
-  for (const name of ['subagentDispatch', 'resend']) {
+  for (const name of ['subagentDispatch', 'subagentRedispatch', 'resend']) {
     if (typeof prompts?.[name] !== 'function') throw new Error(`batch-transport: prompts.${name} 必填`);
   }
 
@@ -141,41 +166,81 @@ function createBatchTransport({
 
   return {
     /**
-     * 派发一个任务：先原子占用再注入提示词；发送失败则释放占用。
-     * @returns {Promise<boolean>} true=已派发；false=跳过（暂停期间已被别处结算，或被动态规划 hold）
+     * 派发一个任务：先原子占用再注入提示词，**并确认本回合确实起了子 Agent**；发送失败或未生效则回滚占用。
+     *
+     * 为什么要确认「生效」：主会话收下提示词、回合正常结束，却什么子 Agent 都没派生，是真实发生过的
+     * 故障形态（.awf/bugs/dispatch-without-subagent-hangs-run.md：模型凭空回了句「派发被 hook 拦截」，
+     * 而项目里根本没有那个 hook）。只认 send 是否抛错的话，任务会留在 active，waitAnyDone 干等整个
+     * 无变化窗口后整轮报错 —— 表现为 run 卡死。
+     * 生效判据取子 Agent Start 事件（SubagentStart）：本回合起了子 Agent 才是真派发；任务已被别处结算
+     * 也算无需再派。未生效 → 换重派提示词再派一次；连续 dispatchMax 次未生效 → 标 blocked 跳过。
+     *
+     * @returns {Promise<boolean>} true=已派发放出；false=跳过（暂停期间已被别处结算、被动态规划 hold、
+     *   或连续多次派发均未生效已标 blocked）
      * @throws 透传 send 的异常（此时已 releaseActive，调用方/调度器不会误计入 running）
      */
     async dispatch(task) {
-      // pause 闩锁 + 「已被别处结算就不必派」：暂停期间不能让派发路径挂死看不到结算
-      const gate = await waitWhilePaused({
-        label: `dispatch:${task.id}`,
-        isSettled: () => {
+      /** 等「派发生效」：起了子 Agent → 'subagent'；任务被别处结算 → 'settled'；窗口耗尽 → null */
+      async function waitDispatchAck(startsBefore) {
+        const deadline = now() + dispatchAckMs;
+        for (;;) {
+          if (countSubagentStarts(eventsPath) > startsBefore) return 'subagent';
           const t = readTasks().find((x) => x.id === task.id);
-          return !!t && (t.status === 'done' || t.status === 'blocked');
-        },
-      });
-      if (gate?.releasedBy === 'settled') {
-        log('info', `任务 ${task.id} 在暂停期间已结算，跳过派发`);
-        return false;
+          if (!t || t.status === 'done' || t.status === 'blocked') return 'settled';
+          if (now() >= deadline) return null;
+          await sleep(ackPollMs);
+        }
       }
-      // 占用与 dynamic-planning hold 共用 state.lock：审批前 hold 一旦落盘，
-      // 此处必然失败，从而堵住「先发送、后 active」的竞态窗口。
-      if (markActive(task.id) === false) {
-        log('info', `任务 ${task.id} 已非可派状态或被动态规划挂起，跳过派发`);
-        return false;
+
+      for (let attempt = 1; attempt <= dispatchMax; attempt += 1) {
+        // pause 闩锁 + 「已被别处结算就不必派」：暂停期间不能让派发路径挂死看不到结算
+        const gate = await waitWhilePaused({
+          label: `dispatch:${task.id}`,
+          isSettled: () => {
+            const t = readTasks().find((x) => x.id === task.id);
+            return !!t && (t.status === 'done' || t.status === 'blocked');
+          },
+        });
+        if (gate?.releasedBy === 'settled') {
+          log('info', `任务 ${task.id} 在暂停期间已结算，跳过派发`);
+          return false;
+        }
+        // 占用与 dynamic-planning hold 共用 state.lock：审批前 hold 一旦落盘，
+        // 此处必然失败，从而堵住「先发送、后 active」的竞态窗口。重派时上一轮已回滚成 pending，可重新占用。
+        if (markActive(task.id) === false) {
+          log('info', `任务 ${task.id} 已非可派状态或被动态规划挂起，跳过派发`);
+          return false;
+        }
+        const startsBefore = countSubagentStarts(eventsPath);
+        const text = attempt === 1
+          ? await prompts.subagentDispatch({
+            taskId: task.id,
+            taskTitle: task.title || '',
+            taskPrompt: task.prompt || task.title || '',
+          })
+          : await prompts.subagentRedispatch({
+            taskId: task.id,
+            taskPrompt: task.prompt || task.title || '',
+          });
+        try {
+          await send(text);
+        } catch (err) {
+          releaseActive(task.id);
+          throw err;
+        }
+        const ack = await waitDispatchAck(startsBefore);
+        if (ack) return true;
+        log('warn', `任务 ${task.id} 第 ${attempt} 次派发未生效（主会话收下提示词但未派生任何子 Agent），回滚占用${attempt < dispatchMax ? '后重派' : ''}`);
+        if (releaseActive(task.id) === false) {
+          // 回滚不动说明占用已不归本流程（被别处结算/接管）——交回调用方，不越权标 blocked
+          log('warn', `任务 ${task.id} 回滚占用失败，交回调用方处理`);
+          return false;
+        }
       }
-      const text = await prompts.subagentDispatch({
-        taskId: task.id,
-        taskTitle: task.title || '',
-        taskPrompt: task.prompt || task.title || '',
-      });
-      try {
-        await send(text);
-      } catch (err) {
-        releaseActive(task.id);
-        throw err;
-      }
-      return true;
+      // 连续派发都没让主会话动起来：标 blocked 使编排不再干等（与收尾协商「多轮无产出 → blocked」同一语义）
+      log('error', `任务 ${task.id} 连续 ${dispatchMax} 次派发均未生效，标记 blocked 并跳过`);
+      markBlocked(task.id);
+      return false;
     },
 
     /**
@@ -239,4 +304,7 @@ function createBatchTransport({
   };
 }
 
-module.exports = { createBatchTransport, maxTsFromLog, POLL_MS, IDLE_TIMEOUT_MS, RESEND_MAX };
+module.exports = {
+  createBatchTransport, maxTsFromLog, countSubagentStarts,
+  POLL_MS, IDLE_TIMEOUT_MS, RESEND_MAX, DISPATCH_MAX, DISPATCH_ACK_MS, ACK_POLL_MS,
+};

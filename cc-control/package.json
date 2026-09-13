@@ -17,7 +17,7 @@
     "build": "bash scripts/build.sh",
     "build:web": "node scripts/build-web.mjs",
     "prepack": "node scripts/build-web.mjs --required",
-    "eval": "bash scripts/eval.sh",
+    "test:eval": "bash scripts/test-eval.sh",
     "test:coverage": "vitest run --coverage",
     "test:real": "node tests/regression/fullflow-regression.mjs",
     "check:arch": "node scripts/check-architecture.mjs"

@@ -178,11 +178,18 @@ async function handle(req, res, url, rt, deps) {
       const ok = await session.waitReady(READY_TIMEOUT_MS);
       if (!ok) { send(res, 409, { ok: false, error: 'still busy (ready timeout)' }); return true; }
     }
-    const hadDecision = !!session.decisionPending;
-    const question = session.decisionPending ? session.decisionPending.question : null;
+    const pendingDecision = session.decisionPending;
+    const hadDecision = !!pendingDecision;
+    const question = pendingDecision ? pendingDecision.question : null;
     session.setBusy();
     if (hadDecision) ctx.logger.logChoice(question, body.value); // 只在实际应答决策时记 choice 日志
     session.clearDecision();
+    // 决策应答落记录（复盘）：answeredBy 由应答方声明走了哪条路由 —— human（人答）/ auto（默认第一项）/ ai。
+    // 三条路由都经过这里，所以「谁答的」在这一处收口，前端决策页据此区分。
+    if (hadDecision) {
+      const by = ['human', 'auto', 'ai'].includes(body.answeredBy) ? body.answeredBy : 'human';
+      rt.decision.recordAnswered({ decisionId: pendingDecision.decisionId, value: body.value, answeredBy: by });
+    }
     await submitRaw(rt, body.value);
     const fallbackMs = hadDecision ? DECISION_FALLBACK_MS : LOCAL_CMD_FALLBACK_MS; // 应答决策给人更长兜底
     session.clearFallbackTimer();

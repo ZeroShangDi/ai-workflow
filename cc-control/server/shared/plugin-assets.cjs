@@ -80,6 +80,13 @@ function readPluginAsset(name, ...parts) {
   return fs.readFileSync(pluginAssetPath(name, ...parts), 'utf-8');
 }
 
+const CORE_PLUGIN = 'ai-workflow-core';
+
+/** state 模板（插件资产）：awf init 播种 .awf/state.json 用 */
+function stateTemplatePath() {
+  return pluginAssetPath(CORE_PLUGIN, 'mcp', 'awf-state', 'state.template.json');
+}
+
 module.exports = {
   pkgRoot,
   pluginConfigPath,
@@ -87,4 +94,5 @@ module.exports = {
   pluginDir,
   pluginAssetPath,
   readPluginAsset,
+  stateTemplatePath,
 };

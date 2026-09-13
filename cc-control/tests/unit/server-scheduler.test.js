@@ -97,3 +97,107 @@ describe('server · 滑动窗口调度器 shouldStop', () => {
     expect(dispatched).toBe(1);
   });
 });
+
+// ── 负向判据：**不该并行**的真被拦住（讨论稿 §五 的「多 agent 负向验证」）──
+// 只测「派了什么」不够 —— 要证明「该拦的拦住了」。窗口内被派发的任务 = 一轮补位的结果。
+
+describe('server · 滑动窗口的负向判据（该拦住的真拦住）', () => {
+  let root;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-server-sched-neg-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  /** 跑一个滑动窗口，收集这一轮补位派发出去的任务；waitAnyDone 前 rounds 次不返回完成，之后抛 __stop__ 收口 */
+  async function dispatchedInOneWindow(cfg, tasks, rounds = 2) {
+    writeState(root, tasks);
+    const sent = [];
+    let waits = 0;
+    try {
+      await runScheduler({
+        projectRoot: root,
+        cfg,
+        dispatcher: { send: async (t) => { sent.push(t.id); return true; } },
+        waitAnyDone: async () => {
+          if (++waits >= rounds) throw new Error('__stop__');
+          return { done: [], suspended: false };
+        },
+      });
+    } catch (e) {
+      if (e.message !== '__stop__') throw e;
+    }
+    return sent;
+  }
+
+  it('max=1：两个就绪任务也只派一个（配额硬上限）', async () => {
+    const sent = await dispatchedInOneWindow(CFG({ max: 1 }), [
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
+      { id: 'T2', kind: 'dev', plannedFiles: ['b.js'], status: 'pending', deps: [] },
+    ]);
+    expect(sent).toEqual(['T1']);
+  });
+
+  it('max=2 且文件不冲突：两个并行派出（对照，证明确实是配额在拦而不是别的）', async () => {
+    const sent = await dispatchedInOneWindow(CFG({ max: 2 }), [
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
+      { id: 'T2', kind: 'dev', plannedFiles: ['b.js'], status: 'pending', deps: [] },
+    ]);
+    expect(sent).toEqual(['T1', 'T2']);
+  });
+
+  it('plannedFiles 相同 → 不并行（配额够也不派）', async () => {
+    const sent = await dispatchedInOneWindow(CFG({ max: 9 }), [
+      { id: 'T1', kind: 'dev', plannedFiles: ['src/a.js'], status: 'pending', deps: [] },
+      { id: 'T2', kind: 'dev', plannedFiles: ['src/a.js'], status: 'pending', deps: [] },
+    ]);
+    expect(sent).toEqual(['T1']);
+  });
+
+  it('plannedFiles 目录包含 → 也算冲突（src/ 与 src/a.js）', async () => {
+    const sent = await dispatchedInOneWindow(CFG({ max: 9 }), [
+      { id: 'T1', kind: 'dev', plannedFiles: ['src/a.js'], status: 'pending', deps: [] },
+      { id: 'T2', kind: 'dev', plannedFiles: ['src'], status: 'pending', deps: [] },
+    ]);
+    expect(sent).toEqual(['T1']);
+  });
+
+  it('独占任务（commit）运行中 → 不派发任何其他任务', async () => {
+    const sent = await dispatchedInOneWindow(CFG({ max: 9 }), [
+      { id: 'C1', kind: 'commit', plannedFiles: [], status: 'pending', deps: [] },
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
+    ]);
+    expect(sent).toEqual(['C1']);
+  });
+});
+
+describe('server · 缺 plannedFiles 的保守串行（应双向生效）', () => {
+  let root;
+  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-server-sched-nofiles-')); });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  async function window(cfg, tasks, rounds = 2) {
+    writeState(root, tasks);
+    const sent = [];
+    let waits = 0;
+    try {
+      await runScheduler({
+        projectRoot: root,
+        cfg,
+        dispatcher: { send: async (t) => { sent.push(t.id); return true; } },
+        waitAnyDone: async () => { if (++waits >= rounds) throw new Error('__stop__'); return { done: [], suspended: false }; },
+      });
+    } catch (e) { if (e.message !== '__stop__') throw e; }
+    return sent;
+  }
+
+  it('无 plannedFiles 的任务在跑时，别的任务也不得并行进入（无法判定冲突面 → 保守串行）', async () => {
+    const sent = await window(CFG({ max: 9 }), [
+      { id: 'N1', kind: 'dev', plannedFiles: [], status: 'pending', deps: [] },
+      { id: 'T1', kind: 'dev', plannedFiles: ['a.js'], status: 'pending', deps: [] },
+    ]);
+    // 语义：N1 无文件声明 → 冲突面未知 → 不许与任何任务并行。
+    // 实现若只拦「N1 入池」而放行「别人与它并行」，这里会得到 ['N1','T1']。
+    expect(sent).toEqual(['N1']);
+  });
+});

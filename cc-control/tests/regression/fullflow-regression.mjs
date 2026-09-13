@@ -3,12 +3,6 @@
  * 真 run 全流程回归 harness（T1-098）
  *
  * 在独立沙箱项目里跑**真** `awf run`（真 tmux + 真 claude + 真 server），覆盖：
- *   - single   : 单 agent 最小链路（DEV 任务自我落账 → run done）
- *   - gate     : 门禁任务（kind=review）产出 verdict，断言门禁闭环不误派生修复
- *   - multi    : 多 agent（--multi-agent）
- *   - decision : 决策闸门（run.decision.enabled=true）真链路——
- *                `<AWF_DECISION_REQUIRED>` 收尾 → Stop 闸门转决策 → 产出 `<AWF_DECISION_RESULT>`
- *                → 决策落盘 + 续跑注入 → 任务完成（W3-008 L3 遗留项）
  *   - dual     : 同机两独立项目并发 run（W3-006 隔离回归）
  *   - resume   : 重连续接（T1-108）——宿主空闲时 `--attach` 拒绝且不清场；CLI 被 SIGKILL 中断后
  *                `--attach` 挂接仍在飞的 run 续观至完成（不重复提交）
@@ -28,9 +22,14 @@
  *                经 MCP JSON-RPC 提案 → proposal 落盘 + 事件追加 + hold 挡住调度器就绪池 →
  *                人工批准应用（新任务先于目标、依赖重连、hold 释放）→ 无关变化放行而相关变化被拒
  *                （闭包指纹 + 锁内重放）→ 拒绝路径同样释放 hold
- *   - dynamic-planning-run: 同一能力的**运行链路（全真）**（真 tmux + 真 Claude）——T1 执行期间 AI 自己
- *                从 task 图里找出 T3 的缺口并调用 `awf_dynamic_plan` 补前置；hold 只挡目标、并行任务
- *                仍继续；人在 **run 进行中**批准；**同一个 run** 跑完且前置先于目标执行
+ *
+ * 本目录定位（讨论稿 §三 划的线）：**语义类** case（"AI 干得对不对"）用声明式 case.json 放
+ * `tests/e2e/cases/`；**机制类**（进程/端口/隔离/恢复，本文件这些）保留命令式脚本。
+ * 两边共用的原语按需抽到 `tests/harness/`（如 session-env.mjs）。
+ * 去重（讨论稿 §四/§六）：`single` 已并入 e2e/hello-sum；`multi` 由 e2e/multi-agent-parallel 覆盖；
+ * `dynamic-planning-run` 由 e2e/dynamic-planning 覆盖 —— 三条**直接删**。
+ * `gate` 与 `decision` **迁入** `tests/e2e/cases/`（语义类，5 个新声明字段即可等价表达），
+ * 已从本注册表移除。剩下这些是**机制类**（进程/端口/隔离/恢复），case.json 表达不了，留在此处。
  *
  * 范围边界（plan 腿）：`awf plan` 是**交互式**入口（src/cli/plan.js → launchInteractiveClaude，
  * stdio inherit；w-plan 全流程含人工 Q&A，且 state.json 只在规划末尾落一次），headless 无法
@@ -43,17 +42,21 @@
  *
  * 用法：
  *   npm run test:real -- --list                 列出全部 case（不跑）
- *   npm run test:real -- --case single          定向：跑单个 case
- *   npm run test:real -- --case all             全量：按注册表顺序跑全部 case
- *   npm run test:real -- --case all --out /tmp/evidence.json
+ *   npm run test:real -- --fast                 只跑**不派模型**的 5 个（快、确定，可进提交前门禁）
+ *   npm run test:real -- --case dual            定向：跑单个 case
+ *   npm run test:real -- --case all             全量：按注册表顺序跑全部 case（会真起 claude，烧 token）
  *   （等价直跑：node tests/regression/fullflow-regression.mjs --case all）
  *
  * 选项：
- *   --awf <path>   指定 awf CLI 入口（默认用本仓库 src/awf.js；传另一工作副本的 src/awf.js 可钉住被回归链路）
+ *   --awf <path>   指定 awf CLI 入口（缺省本仓库 cli/awf.cjs，即新树）；server 入口与它同源推导
+ *   --server <path> 显式指定 server 入口（缺省由 --awf 推导）
+ *   --fast         只跑不派模型的 case（机制事实断言，秒级且确定）
  *   --keep         保留沙箱目录（默认保留，证据留存）；--clean 跑前先删
  *   --timeout <ms> 单 case 超时（默认 10 分钟）
  *   --list         列出注册表内全部 case 后退出
  *   --out <path>   汇总证据的 JSON 输出路径（缺省：全量为 evidence-all.json，定向为 evidence-<case>-summary.json）
+ *
+ * 不给 --fast / --case 时**不跑**（报用法退出）—— 真机套件误跑要烧 token，显式才跑。
  *
  * 证据落盘约定（sandbox/regression/，gitignore 产物区）：
  *   evidence-<case>.json  每个 case 一份，**跑完即写**（抛错也写，记为失败断言）——
@@ -69,14 +72,31 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { sessionEnvOf, probeSessionEnv, envPointsAt } from '../harness/session-env.mjs';
 import { spawn, execFileSync } from 'node:child_process';
-// 就绪池/被 hold 判据取自**调度器自己用的那个模块**（state.js），不在这里另写一份近似。
-// 「动态规划 hold 真的挡住了派发」只能用调度器的判据来证，否则证的是 harness 的复述。
-import { heldTaskIds, peekReadyTasks } from '../../src/lib/state.js';
+// 就绪池/被 hold 判据取自**被测那棵树**的 state 模块（见 loadReadyCriteria）：
+// 「动态规划 hold 真的挡住了派发」只能用调度器自己的判据来证；拿旧树的判据去证新树 server，
+// 证的不是被测对象 —— 同 startServer 的「与 --awf 同源」原则。
+let peekReadyTasks = null;
+let heldTaskIds = null;
+
+/** 按被测 CLI 推导 state 模块并加载（旧树 src/lib/state.js；新树 server/shared/state.js） */
+async function loadReadyCriteria() {
+  if (peekReadyTasks) return;
+  const dir = path.dirname(AWF_CLI);
+  const modulePath = path.basename(dir) === 'cli'
+    ? path.join(path.dirname(dir), 'server', 'shared', 'state.js')
+    : path.join(dir, 'lib', 'state.js');
+  const mod = await import(pathToFileURL(modulePath).href);
+  peekReadyTasks = mod.peekReadyTasks;
+  heldTaskIds = mod.heldTaskIds;
+}
+
+const runContext = createRequire(import.meta.url)('../../server/shared/run-context.cjs');
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 // 产物落仓库 sandbox/ 下（gitignore 的产物区）：源码入库、生成物不入库
@@ -85,14 +105,17 @@ const SANDBOX_ROOT = process.env.AWF_REGRESSION_ROOT || path.join(ROOT, 'sandbox
 // ── CLI 参数 ────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const out = { case: 'single', awf: null, timeoutMs: 10 * 60 * 1000, clean: false, out: null, list: false };
+  const out = { case: null, awf: null, server: null, timeoutMs: 10 * 60 * 1000, clean: false, out: null, list: false, fast: false, caseGiven: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--case') out.case = argv[++i];
+    if (a === '--case') { out.case = argv[++i]; out.caseGiven = true; }
     else if (a === '--awf') out.awf = argv[++i];
+    else if (a === '--server') out.server = argv[++i];
     else if (a === '--timeout') out.timeoutMs = Number(argv[++i]);
     else if (a === '--out') out.out = argv[++i];
     else if (a === '--list') out.list = true;
+    // --fast：只跑**不派模型**的 case（机制事实断言，秒级且确定），可进提交前门禁
+    else if (a === '--fast') out.fast = true;
     else if (a === '--clean') out.clean = true;
     else if (a === '--keep') out.clean = false;
   }
@@ -100,14 +123,32 @@ function parseArgs(argv) {
 }
 
 /**
- * awf CLI 入口（必须是 node 可执行的 .js 路径，不能是 PATH 上的 shell shim）。
- * 优先 --awf；缺省用本仓库自身的 src/awf.js，显式可用 --awf 钉住工作副本。
+ * awf CLI 入口（node 可执行，不能是 PATH 上的 shell shim）。
+ * 缺省用**新树** cli/awf.cjs（server/cli/tests 都已是新树，旧树的 src/ 待退役）；--awf 可钉住别的工作副本。
  */
 function resolveAwfCli(explicit) {
   if (explicit) return path.resolve(explicit);
-  const local = path.join(ROOT, 'src', 'awf.js');
+  const local = path.join(ROOT, 'cli', 'awf.cjs');
   if (!fs.existsSync(local)) throw new Error(`找不到 awf CLI：${local}，请传 --awf <path>`);
   return local;
+}
+
+/**
+ * server 入口：**与 CLI 同源推导**，再回落显式 --server。
+ *
+ * 两棵树的布局不同，靠 CLI 自己的位置判定：
+ *   - `cli/awf.cjs`   → 隔壁 `server/server.cjs`（新树：cli 与 server 是兄弟）
+ *   - `src/awf.js`    → 同目录 `src/server/server.cjs`（旧树：server 在 src 下）
+ *
+ * 为什么必须同源：harness 有一半 case **绕过 CLI 直连 server**（生命周期/前端/MCP/动态规划）。
+ * 只换 --awf 而 server 仍硬编码旧树，会拉出「新 CLI + 旧 server」的混搭，结果不可信。
+ */
+function resolveServerEntry(awfCli, explicit) {
+  if (explicit) return path.resolve(explicit);
+  const dir = path.dirname(awfCli);
+  const repo = path.dirname(dir);
+  if (path.basename(dir) === 'cli') return path.join(repo, 'server', 'server.cjs');
+  return path.join(dir, 'server', 'server.cjs');
 }
 
 /**
@@ -253,6 +294,7 @@ function makeProject(name, { tasks, summary, agentsMax = 1, decision = false }) 
 }
 
 let AWF_CLI = null;
+let SERVER_ENTRY = null;
 
 function readState(projectRoot) {
   return JSON.parse(fs.readFileSync(path.join(projectRoot, '.awf', 'state.json'), 'utf8'));
@@ -508,91 +550,8 @@ async function waitSessionReady(projectRoot, { timeoutMs = 180000, intervalMs = 
 
 // ── case 实现 ──────────────────────────────────────────────────────────────
 
-async function caseSingle({ timeoutMs }) {
-  const projectRoot = makeProject('single', {
-    tasks: taskSet('dev'),
-    summary: 'T1-098 单 agent 最小真 run',
-  });
-  const run = launchRun(projectRoot);
-  const envProbe = probeSessionEnv(projectRoot);
-  const settled = await waitRunSettled(projectRoot, { timeoutMs });
-  const { env } = await envProbe;
-  const sum = taskSummary(projectRoot);
-  const artifact = path.join(projectRoot, 'src', 'counter.js');
-  return {
-    case: 'single',
-    projectRoot,
-    run,
-    settled,
-    sessionEnv: env,
-    summary: sum,
-    checks: [
-      check('run 收敛', settled.ok, settled.error),
-      check('T1 done', sum.tasks[0]?.status === 'done', sum.tasks[0]?.status),
-      check('真实产出落盘', fs.existsSync(artifact), artifact),
-      check('mode 复位 idle', sum.mode === 'idle', sum.mode),
-      check('per-run 日志落盘', fs.existsSync(path.join(projectRoot, '.awf', 'logs'))),
-      check('run 会话 env 指向本项目（CC_PROJECT/CC_WORKDIR）', envPointsAt(env, projectRoot), JSON.stringify(env)),
-    ],
-  };
-}
 
-async function caseGate({ timeoutMs }) {
-  const projectRoot = makeProject('gate', {
-    tasks: taskSet('gate'),
-    summary: 'T1-098 门禁（review verdict）真 run',
-  });
-  const run = launchRun(projectRoot);
-  const envProbe = probeSessionEnv(projectRoot);
-  const settled = await waitRunSettled(projectRoot, { timeoutMs });
-  const { env } = await envProbe;
-  const sum = taskSummary(projectRoot);
-  const review = sum.tasks.find((t) => t.kind === 'review');
-  const state = readState(projectRoot);
-  return {
-    case: 'gate',
-    projectRoot,
-    run,
-    settled,
-    sessionEnv: env,
-    summary: sum,
-    checks: [
-      check('run 收敛', settled.ok, settled.error),
-      check('dev 任务 done', sum.tasks.find((t) => t.id === 'T1')?.status === 'done'),
-      check('门禁任务已落账', !!review && ['done', 'blocked'].includes(review.status), review?.status),
-      check('门禁产出 verdict.level', !!review?.verdict, review?.verdict),
-      check('无残留 pending', !state.tasks.some((t) => t.status === 'pending' || t.status === 'active')),
-      check('run 会话 env 指向本项目（CC_PROJECT/CC_WORKDIR）', envPointsAt(env, projectRoot), JSON.stringify(env)),
-    ],
-  };
-}
 
-async function caseMulti({ timeoutMs }) {
-  const projectRoot = makeProject('multi', {
-    tasks: taskSet('dev'),
-    summary: 'T1-098 多 agent 真 run',
-    agentsMax: 2,
-  });
-  const run = launchRun(projectRoot, { multiAgent: true });
-  const envProbe = probeSessionEnv(projectRoot);
-  const settled = await waitRunSettled(projectRoot, { timeoutMs });
-  const { env } = await envProbe;
-  const sum = taskSummary(projectRoot);
-  return {
-    case: 'multi',
-    projectRoot,
-    run,
-    settled,
-    sessionEnv: env,
-    summary: sum,
-    checks: [
-      check('run 收敛', settled.ok, settled.error),
-      check('T1 done', sum.tasks[0]?.status === 'done', sum.tasks[0]?.status),
-      check('真实产出落盘', fs.existsSync(path.join(projectRoot, 'src', 'counter.js'))),
-      check('run 会话 env 指向本项目（CC_PROJECT/CC_WORKDIR）', envPointsAt(env, projectRoot), JSON.stringify(env)),
-    ],
-  };
-}
 
 /**
  * 决策闸门（run.decision.enabled=true）：真 claude 走一次完整决策闭环。
@@ -600,77 +559,6 @@ async function caseMulti({ timeoutMs }) {
  *      → AI 产出 <AWF_DECISION_RESULT> → 闸门 resolve → DecisionStore 落盘 + 置 decisionResume
  *      → CLI observe 轮询到 decisionResume → /send 注入续跑 → 任务继续并落账。
  */
-async function caseDecision({ timeoutMs }) {
-  const projectRoot = makeProject('decision', {
-    tasks: taskSet('decision'),
-    summary: 'T1-098 决策闸门真 run',
-    decision: true,
-  });
-  const run = launchRun(projectRoot);
-  const envProbe = probeSessionEnv(projectRoot);
-  const settled = await waitRunSettled(projectRoot, { timeoutMs });
-  const { env } = await envProbe;
-  const sum = taskSummary(projectRoot);
-  const records = readDecisions(projectRoot);
-  const completed = records.filter((r) => r.event === 'decision_completed');
-  const stamp = logStampOf(projectRoot);
-
-  // T3-011-F1：per-run 日志目录取不到时，**当场取证**而不是只报一个 null。
-  // 背景：DecisionStore 的 runStamp 正是从 `.awf/logs/<version>-<ts>/` 的目录名派生的
-  // （decision-store.cjs 头注释）—— 目录缺失时它回退用当前时间生成，此时「决策属于本次 run」
-  // 仍然成立，只是**派生依据不同**（这正是连跑模式下那条间歇失败的现场）。
-  // 该条件目前无法从测试侧修（根因在 RunLogger._init 读不到 version 时静默 return），
-  // 故这里如实降级判定 + 把现场写进证据，供下次出现时直接定位。
-  const stamps = [...new Set(completed.map((r) => r.runStamp ?? null))];
-  const stampWellFormed = (s) => typeof s === 'string' && /^\d+\.\d+\.\d+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/.test(s);
-  const diagnosis = stamp ? null : {
-    stateVersionReadable: (() => {
-      try {
-        const v = JSON.parse(fs.readFileSync(path.join(projectRoot, '.awf', 'state.json'), 'utf8')).version;
-        return v ?? '(state.json 无 version 字段)';
-      } catch (e) { return `state.json 读取失败: ${e.code || e.message}`; }
-    })(),
-    logsDirListing: (() => {
-      try { return fs.readdirSync(path.join(projectRoot, '.awf', 'logs')); } catch { return null; }
-    })(),
-    decisionStamps: stamps,
-    cliLog: run.logPath,
-  };
-  if (diagnosis) console.log(`  [诊断] per-run 日志目录未生成（decision case）: ${JSON.stringify(diagnosis)}`);
-
-  return {
-    case: 'decision',
-    projectRoot,
-    run,
-    settled,
-    sessionEnv: env,
-    summary: sum,
-    diagnosis,
-    decisions: completed.map((r) => ({
-      decisionId: r.decision_id,
-      runStamp: r.runStamp,
-      type: r.result?.type ?? null,
-      fallback: r.fallback === true,
-      answer: typeof r.result?.answer === 'string' ? r.result.answer.slice(0, 80) : null,
-    })),
-    checks: [
-      check('run 收敛', settled.ok, settled.error),
-      check('决策记录落盘（decision_completed）', completed.length >= 1, `${completed.length} 条`),
-      check('决策非兜底（AI 产出可解析的 Decision Result）', completed.some((r) => r.fallback !== true), JSON.stringify(completed.map((r) => r.result?.type))),
-      check('决策落本次 run 的 runStamp（per-run 隔离）',
-        completed.length > 0 && completed.every((r) => stampWellFormed(r.runStamp)) && stamps.length === 1
-          && (stamp === null || stamps[0] === stamp),
-        stamp !== null ? `${stamp} vs ${stamps.join(',')}` : `无 per-run 日志目录 → 降级为自洽判定，诊断=${JSON.stringify(diagnosis)}`),
-      ...(stamp === null ? [check('（降级）无 per-run 日志目录时的 runStamp 自洽',
-        stamps.length === 1 && stampWellFormed(stamps[0]), `stamps=${JSON.stringify(stamps)}`)] : []),
-      check('续跑注入（CLI 中继 decisionResume）', logContains(run.logPath, '→ 续跑'), run.logPath),
-      check('T1 done', sum.tasks[0]?.status === 'done', sum.tasks[0]?.status),
-      check('真实产出落盘', fs.existsSync(path.join(projectRoot, 'src', 'counter.js'))),
-      check('mode 复位 idle', sum.mode === 'idle', sum.mode),
-      check('run 会话 env 指向本项目（CC_PROJECT/CC_WORKDIR）', envPointsAt(env, projectRoot), JSON.stringify(env)),
-    ],
-  };
-}
 
 /**
  * 双 run（W3-006）：两个独立项目在同一常驻 server 上并发真 run。
@@ -1004,8 +892,8 @@ function listSessions() {
 
 /** 该项目真 run 的期望 tmux 会话名：cc-<projectSid(projectRoot)>（与 run-context.projectSid 同构） */
 function sessionNameOf(projectRoot) {
-  const digest = crypto.createHash('sha1').update(fs.realpathSync(projectRoot)).digest('hex').slice(0, 12);
-  return `cc-p${digest}`;
+  // 委托 run-context：会话名 = cc-<projectSid>，不在这里复刻一遍 sha1（单一知情者）
+  return runContext.projectSessionName(projectRoot);
 }
 
 /** 该项目最近一次 run 的日志目录（.awf/logs/<version-runStamp>） */
@@ -1052,77 +940,10 @@ function tailOf(text, lines = 3) {
   return text.trimEnd().split('\n').slice(-lines).join(' ⏎ ');
 }
 
-/** 直接子进程 pid（缺失/失败 → []） */
-function childrenOf(pid) {
-  try {
-    return execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-  } catch {
-    return [];
-  }
-}
 
-/** 单进程的 CC_ / AWF_ 前缀 env（ps eww 在命令后平铺 env；失败 → null） */
-function envOfPid(pid) {
-  try {
-    const out = execFileSync('ps', ['eww', '-p', String(pid)], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    const env = {};
-    for (const tok of out.split(/\s+/)) {
-      const m = /^(CC_[A-Z_]+|AWF_[A-Z_]+)=(.*)$/.exec(tok);
-      if (m) env[m[1]] = m[2];
-    }
-    return Object.keys(env).length ? env : null;
-  } catch {
-    return null;
-  }
-}
 
-/**
- * 取 tmux 会话内 claude 进程的 CC_* env（pane pid 及其后代，广度有界）。
- * 回归点：tmux 新会话的进程环境来自 tmux **全局** env（启动 tmux server 那个 run 的环境），
- * 并发多 run 时会继承别项目的 CC_PROJECT —— 必须由 bootstrap 显式注入（T1-098 修复）。
- */
-function sessionEnvOf(session) {
-  let root = null;
-  try {
-    root = execFileSync('tmux', ['list-panes', '-t', session, '-F', '#{pane_pid}'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], // 会话不存在时 tmux 会往 stderr 喊 "can't find window"，静音
-    }).trim().split('\n')[0];
-  } catch {
-    return {};
-  }
-  if (!root) return {};
-  const queue = [{ pid: root, depth: 0 }];
-  const seen = new Set();
-  while (queue.length) {
-    const { pid, depth } = queue.shift();
-    if (seen.has(pid)) continue;
-    seen.add(pid);
-    const env = envOfPid(pid);
-    if (env?.CC_SESSION) return env;
-    if (depth < 3) for (const c of childrenOf(pid)) queue.push({ pid: c, depth: depth + 1 });
-  }
-  return {};
-}
 
-/** 轮询等会话内 claude 起来并取到 env（会话在 run 结束时被关，必须在 run 期间取） */
-async function probeSessionEnv(projectRoot, { timeoutMs = 120000 } = {}) {
-  const session = sessionNameOf(projectRoot);
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const env = sessionEnvOf(session);
-    if (env.CC_SESSION) return { session, env };
-    if (Date.now() > deadline) return { session, env: {} };
-    await sleep(1000);
-  }
-}
 
-/** 会话 env 是否指向本项目（CC_PROJECT / CC_WORKDIR 皆为该项目根；与 ensureSession 同取 realpath） */
-function envPointsAt(env, projectRoot) {
-  const real = fs.realpathSync(projectRoot);
-  return env.CC_PROJECT === real && env.CC_WORKDIR === real;
-}
 
 // ── 前端 / 生命周期 case 的辅助（T1-109） ────────────────────────────────────
 
@@ -1155,13 +976,12 @@ function pickFreePort(start) {
  * 没必要为此拉起一个真 claude（也不该让 server 回收类断言受模型会话存活影响）。
  */
 function startServer(projectRoot, { port, env = {}, logTo = null } = {}) {
-  const repo = path.dirname(path.dirname(AWF_CLI));
   // logTo：把 server 输出写进指定文件（T3-011-F1：需要断言 `<项目>/.awf/logs/server.log` 的 case，
   // 必须让 server 由**本项目**唤起 —— 复用别人唤起的 server 时那行日志在别人项目下）。
   const logPath = logTo || path.join(path.dirname(projectRoot), `server-${path.basename(projectRoot)}.log`);
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const fd = fs.openSync(logPath, logTo ? 'a' : 'w');
-  const proc = spawn('node', [path.join(repo, 'src', 'server', 'server.cjs')], {
+  const proc = spawn('node', [SERVER_ENTRY], {
     cwd: projectRoot,
     detached: true,
     stdio: ['ignore', fd, fd],
@@ -1495,7 +1315,9 @@ async function caseWeb() {
   const up = await waitServerUp(port);
 
   // T1-118 之后产物可能真的存在（npm run build 会构建）；T1-119 起页面**只**由产物承载。
-  const webBuilt = fs.existsSync(path.join(ROOT, 'src', 'server', 'public', 'index.html'));
+  // 产物位置与 server 同源：vite outDir 与 build-web.mjs 都落 server/web/public（新树），
+  // 托管侧 WEB_PUBLIC_DEFAULT 也指这里 —— 判据必须看同一个位置。
+  const webBuilt = fs.existsSync(path.join(ROOT, 'server', 'web', 'public', 'index.html'));
   const page = await getPage('/', port);
   const decisionsPath = await getPage('/decisions', port);
   const theme = await getPage('/theme.css', port);      // 旧资产，T1-119 已退役
@@ -1572,6 +1394,7 @@ async function caseWeb() {
  *   8. 非 server 模式下 MCP 拒绝本工具（能力只在 server 侧存在）
  */
 async function caseDynamicPlanning() {
+  await loadReadyCriteria(); // 就绪判据取自被测那棵树
   const projectRoot = makeProject('dynamic-planning', {
     tasks: taskSet('dev2'),
     summary: '动态规划跨进程边界（真 server + 真 MCP）',
@@ -1919,166 +1742,6 @@ async function casePauseRelease({ timeoutMs }) {
  *   4. **同一个 run** 继续跑完：新任务的 startedAt 早于 T3，四个任务全部 done，产物齐全
  *   5. 审计记录完整（提案 → 待批准 → 批准应用）
  */
-async function caseDynamicPlanningRun({ timeoutMs }) {
-  const dev = (id, file, extra = {}) => ({
-    id,
-    title: `创建 ${file}`,
-    kind: 'dev',
-    status: 'pending',
-    deps: [],
-    wbsRef: 'W1',
-    // 遵循 `awf-plan-prompt`：prompt 只留「命令 + task ID + 一句话目标」，范围/约束/验收走结构化字段
-    prompt: `/ai-workflow-code:w-dev ${id}\n\n在项目根创建 ${file}，导出一个具名工厂函数。`,
-    plannedFiles: [file],
-    constraints: [`只创建 ${file}`],
-    acceptance: `${file} 存在`,
-    ...extra,
-  });
-  const t1 = dev('T1', 'src/counter.js');
-  t1.prompt = '/ai-workflow-code:w-dev T1\n\n在项目根创建 src/counter.js，导出自增计数器 makeCounter()，返回 { inc(), value() }。';
-  // 「发现缺口就补正式任务」是**工作方式约束**，属于 constraints 的结构化语义，不该写进 prompt 正文；
-  // 策略给全、缺口位置不给 —— AI 必须自己去 state 里比对"待执行任务需要的产出有没有任务负责"
-  t1.constraints = [
-    '只创建 src/counter.js',
-    '收尾前做一次计划自检：读 .awf/state.json，逐个检查尚未执行的任务，它需要复用的产出是否都有任务负责产出',
-    '若某个待执行任务依赖一个没有任何任务会产出它的文件，不要自己代做，用 MCP 工具 awf_dynamic_plan 为那个任务补一个前置任务：'
-      + '新任务 id 用「<目标任务的 id>-PRE」，operations 用一条 insert_task，relation.type = prerequisite_for，targetTaskId 填那个目标任务',
-    '调用后不论返回 awaiting_approval 还是别的状态都不要等待审批，继续收尾',
-  ];
-  const t2 = dev('T2', 'src/queue.js', { deps: ['T1'] });
-  const t3 = dev('T3', 'src/accumulator.js', { deps: ['T2'] });
-  // 缺口写在这里：T3 要复用 src/adder.js，而任务图里没有产出它的任务 —— 但不告诉 AI 该补什么
-  t3.prompt = '/ai-workflow-code:w-dev T3\n\n在项目根创建 src/accumulator.js，导出 makeAccumulator()，其内部复用来自 src/adder.js 的 makeAdder(n)。';
-  t3.constraints = ['只创建 src/accumulator.js', '不要创建 src/adder.js（它应由任务图里的前置任务提供）'];
-  t3.acceptance = 'src/accumulator.js 存在且复用 src/adder.js 的 makeAdder';
-
-  const projectRoot = makeProject('dynamic-planning-run', {
-    tasks: [t1, t2, t3],
-    summary: '动态规划运行链路（全真：AI 自发现 → 人在飞批准 → 同一 run 继续）',
-  });
-  // 刻意**不**用 ownServer：本 case 要能在 run 内跑（T3-011 就是）。重启 server 会杀掉在飞的 run，
-  // 而它真正验的东西（AI 自发现缺口 / hold / 在飞批准 / 顺序）都不需要重启 —— 常驻 server 是不是
-  // 当前代码由「跑前 awf server stop」这个前提保证，这里只探一下路由是否存在并在缺失时明确报出。
-  const routeProbe = await getFromServer('/awf/dynamic-planning/proposals', projectRoot);
-  const routesOk = routeProbe.status === 200;
-
-  const run = launchRun(projectRoot, { logSuffix: '-run' });
-
-  // 1) 等会话内的 AI 自己把提案发出来（harness 全程不调 awf_dynamic_plan）
-  const proposalSeen = await waitUntil(() => getFromServer('/awf/dynamic-planning/proposals', projectRoot)
-    .then((r) => (r.json?.proposals || []).find((p) => p.status === 'awaiting_approval') || false), {
-    timeoutMs: Math.min(timeoutMs, 480000), intervalMs: 1000,
-  });
-  const proposal = proposalSeen.value || null;
-  const proposalId = proposal?.proposalId || null;
-  const stateAtProposal = readStateSafe(projectRoot);
-  const readyAtProposal = peekReadyTasks(stateAtProposal || {}).map((t) => t.id);
-  const heldAtProposal = [...heldTaskIds(stateAtProposal || {})];
-
-  // 2) 立刻人工批准 —— 必须在 T2 跑完之前落地，run 才不会撞上「无就绪任务」而收尾
-  const stateAtApprove = readStateSafe(projectRoot);
-  const t3AtApprove = (stateAtApprove?.tasks || []).find((t) => t.id === 'T3');
-  const runStatusAtApprove = await getFromServer('/run/status', projectRoot);
-  const activeRunsAtApprove = (runStatusAtApprove.json?.runs || [])
-    .filter((r) => r.status === 'queued' || r.status === 'running').length;
-  const approve = proposalId
-    ? await postToServer(`/run/dynamic-planning/proposals/${proposalId}/approve`, projectRoot,
-      { reviewer: 'regression', note: '运行链路验证' })
-    : { status: 0, json: null };
-
-  // 3) 同一个 run 走到收敛（不重提 run）
-  const settled = await waitFor(projectRoot, (s) => s.mode === 'idle'
-    && s.tasks.every((t) => ['done', 'blocked'].includes(t.status)), { timeoutMs: Math.min(timeoutMs, 900000) });
-  const finalState = readStateSafe(projectRoot);
-  const finalIds = (finalState?.tasks || []).map((t) => t.id);
-  const byId = (id) => (finalState?.tasks || []).find((t) => t.id === id);
-  const insertedId = finalIds.indexOf('T3') > 0 ? finalIds[finalIds.indexOf('T3') - 1] : null;
-  const appliedProposal = await getFromServer('/awf/dynamic-planning/proposals', projectRoot)
-    .then((r) => (r.json?.proposals || []).find((p) => p.proposalId === proposalId));
-
-  const readEvents = () => {
-    try {
-      return fs.readFileSync(path.join(projectRoot, '.awf', 'dynamic-planning', 'events.jsonl'), 'utf8')
-        .split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
-    } catch { return []; }
-  };
-  const eventNames = readEvents().map((e) => e.event);
-
-  return {
-    case: 'dynamic-planning-run',
-    projectRoot,
-    run,
-    proposalId,
-    proposedTargetTask: proposal?.operations?.[0]?.relation?.targetTaskId || null,
-    insertedTaskId: insertedId,
-    readyAtProposal,
-    heldAtProposal,
-    appliedProposalStatus: appliedProposal?.status || null,
-    events: eventNames,
-    summary: taskSummary(projectRoot),
-    checks: [
-      check('常驻 server 提供动态规划路由',
-        routesOk, `probe=${routeProbe.status}${routesOk ? '' : ' — 常驻 server 未注册该路由（旧代码），先 awf server stop 再跑'}`),
-
-      // 1) 会话内的 AI 自己发起，并自己找出缺口
-      check('run 运行中 AI 经 MCP 发起了提案（harness 全程未调用该工具）',
-        proposalSeen.ok && !!proposalId, proposalSeen.ok ? proposalId : '未观察到 awaiting_approval 的提案'),
-      check('提案发起时 state.mode = run（在飞 run 内，而非事后补做）',
-        stateAtProposal?.mode === 'run', `mode=${stateAtProposal?.mode}`),
-      check('提案 requestedBy=ai（会话内 MCP 的缺省调用路径）',
-        proposal?.requestedBy === 'ai', String(proposal?.requestedBy)),
-      check('缺口由 AI 自己找出来：目标任务是 T3', proposal?.operations?.[0]?.relation?.targetTaskId === 'T3',
-        `target=${proposal?.operations?.[0]?.relation?.targetTaskId ?? '(无)'}`),
-      check('提案内容是为该目标插一个前置（insert_task / prerequisite_for）',
-        proposal?.operations?.[0]?.type === 'insert_task'
-        && proposal?.operations?.[0]?.relation?.type === 'prerequisite_for',
-        JSON.stringify(proposal?.operations?.[0]?.type)),
-      check('proposal 文件与事件日志落盘',
-        !!proposalId && fs.existsSync(path.join(projectRoot, '.awf', 'dynamic-planning', 'proposals', `${proposalId}.json`))
-        && eventNames.includes('proposal.awaiting_approval'), eventNames.join(',')),
-
-      // 2) hold 只挡目标及其下游：并行任务仍可继续（这是「同一 run 不停机」的前提）
-      check('hold 覆盖目标 T3', heldAtProposal.includes('T3'), JSON.stringify(heldAtProposal)),
-      check('hold 不牵连上游/无关任务（只覆盖目标及其下游）',
-        !heldAtProposal.includes('T1') && !heldAtProposal.includes('T2'), JSON.stringify(heldAtProposal)),
-      check('被 hold 的任务不进调度器就绪池（state.js 判据）',
-        !readyAtProposal.includes('T3'),
-        `ready=${readyAtProposal.join(',') || '（此刻无就绪：T1 正在跑）'}`),
-
-      // 3) 人在 run 进行中批准
-      check('批准时 run 仍在飞（/run/status 有活跃 run）',
-        activeRunsAtApprove >= 1, `activeRuns=${activeRunsAtApprove} status=${runStatusAtApprove.status}`),
-      check('批准前 T3 从未被派发（仍是 pending、无 startedAt）',
-        t3AtApprove?.status === 'pending' && !t3AtApprove?.exec?.startedAt,
-        `status=${t3AtApprove?.status} startedAt=${t3AtApprove?.exec?.startedAt ?? '无'}`),
-      check('人工批准端点应用了提案',
-        approve.status === 200 && approve.json?.proposal?.status === 'applied',
-        `status=${approve.status} ${approve.json?.proposal?.status ?? approve.json?.error ?? ''}`),
-      check('应用后提案终态可读（applied）', appliedProposal?.status === 'applied', String(appliedProposal?.status)),
-
-      // 4) 同一个 run 继续跑完
-      check('run 收敛（未重提 run）', settled.ok,
-        `mode=${finalState?.mode} ${JSON.stringify(taskSummary(projectRoot).counts)}`),
-      check('四个任务全部 done', (finalState?.tasks || []).every((t) => t.status === 'done'),
-        (finalState?.tasks || []).map((t) => `${t.id}:${t.status}`).join(',')),
-      check('AI 插入的前置任务落在 T3 之前',
-        !!insertedId && insertedId !== 'T2' && insertedId !== 'T1', `inserted=${insertedId} 序=${finalIds.join(',')}`),
-      check('T3 的依赖已重连到新任务', (byId('T3')?.deps || []).includes(insertedId),
-        JSON.stringify(byId('T3')?.deps)),
-      check('新任务在 T3 **之前**被派发（用 startedAt 判据，不依赖日志文本）',
-        !!insertedId && !!byId(insertedId)?.exec?.startedAt && !!byId('T3')?.exec?.startedAt
-        && byId(insertedId).exec.startedAt < byId('T3').exec.startedAt,
-        `${insertedId}.startedAt=${byId(insertedId)?.exec?.startedAt ?? '无'} T3.startedAt=${byId('T3')?.exec?.startedAt ?? '无'}`),
-      check('四个任务的产物都在（前置确实先跑出来了）',
-        ['src/counter.js', 'src/queue.js', 'src/adder.js', 'src/accumulator.js']
-          .every((f) => fs.existsSync(path.join(projectRoot, f))),
-        fs.readdirSync(path.join(projectRoot, 'src')).join(',')),
-      check('审计记录完整（提案 → 待批准 → 批准应用）',
-        ['proposal.awaiting_approval', 'proposal.approved_and_applied'].every((e) => eventNames.includes(e)),
-        eventNames.join(',')),
-    ],
-  };
-}
 // ── case 注册表 ─────────────────────────────────────────────────────────────
 
 /**
@@ -2086,22 +1749,19 @@ async function caseDynamicPlanningRun({ timeoutMs }) {
  * `id` 即 `--case` 取值；数组顺序即 `--case all` 的执行顺序（轻链路在前，失败早暴露）。
  * 未知 case 名由 main 检出并中止，不会静默跑空。
  */
+// `model: false` = 该 case **不派模型会话**（只在进程/端口/文件/HTTP 层断言）——
+// 快、确定，可用 `--fast` 单独跑（提交前门禁）；其余 case 会真起 claude。
 const CASES = [
-  { id: 'single', title: '单 agent 最小链路（DEV 自落账 → run done）', run: caseSingle },
-  { id: 'gate', title: '门禁任务（kind=review）产出 verdict', run: caseGate },
-  { id: 'multi', title: '多 agent 滑动窗口（--multi-agent）', run: caseMulti },
-  { id: 'decision', title: '决策闸门（DC 自决 + DecisionStore 落盘 + 续跑注入）', run: caseDecision },
   { id: 'dual', title: '同机双项目并发 run（会话/state/env/日志隔离）', run: caseDual },
   { id: 'resume', title: '重连续接（--attach 拒绝空闲宿主 / 中断后挂接在飞 run）', run: caseResume },
   { id: 'pause', title: '暂停闩锁 + w-monitor 介入（intervene / interrupt）', run: casePause },
   { id: 'recover', title: '中断后现场恢复（现场保留 → 宿主续推 → --resume 收尾）', run: caseRecover },
   { id: 'pause-release', title: '暂停期间目标结算即放行（不等 mode 恢复，且不放松派发闩锁）', run: casePauseRelease },
-  { id: 'init', title: 'awf init 产出（插件注册/项目 MCP/骨架/幂等）', run: caseInit },
-  { id: 'mcp', title: 'MCP 工具面冒烟（state/session/oneshot 握手 + 工具名）', run: caseMcp },
-  { id: 'lifecycle', title: '常驻 server 空闲回收（探活 → 静置 → 退出）', run: caseLifecycle },
-  { id: 'dynamic-planning', title: '动态规划跨进程边界（真 server + 真 MCP：提案/hold/批准/冲突/拒绝）', run: caseDynamicPlanning },
-  { id: 'dynamic-planning-run', title: '动态规划运行链路（全真：AI 自发现缺口 → 人在飞批准 → 同一 run 继续）', run: caseDynamicPlanningRun },
-  { id: 'web', title: '前端页可达 + 取数 + 项目切换 + 决策 override', run: caseWeb },
+  { id: 'init', title: 'awf init 产出（插件注册/项目 MCP/骨架/幂等）', run: caseInit, model: false },
+  { id: 'mcp', title: 'MCP 工具面冒烟（state/session/oneshot 握手 + 工具名）', run: caseMcp, model: false },
+  { id: 'lifecycle', title: '常驻 server 空闲回收（探活 → 静置 → 退出）', run: caseLifecycle, model: false },
+  { id: 'dynamic-planning', title: '动态规划跨进程边界（真 server + 真 MCP：提案/hold/批准/冲突/拒绝）', run: caseDynamicPlanning, model: false },
+  { id: 'web', title: '前端页可达 + 取数 + 项目切换 + 决策 override', run: caseWeb, model: false },
 ];
 
 const caseIds = () => CASES.map((c) => c.id).join(' / ');
@@ -2110,11 +1770,15 @@ const caseIds = () => CASES.map((c) => c.id).join(' / ');
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  // --fast：只跑不派模型的（机制事实断言，秒级且确定，可进提交前门禁）。
+  const pool = args.fast ? CASES.filter((c) => c.model === false) : CASES;
   if (args.list) {
-    for (const c of CASES) console.log(`${c.id.padEnd(10)} ${c.title}`);
+    for (const c of pool) console.log(`${c.id.padEnd(10)} ${c.title}${c.model === false ? '  [不派模型]' : ''}`);
     return;
   }
   AWF_CLI = resolveAwfCli(args.awf);
+  SERVER_ENTRY = resolveServerEntry(AWF_CLI, args.server);
+  if (!fs.existsSync(SERVER_ENTRY)) throw new Error(`找不到 server 入口：${SERVER_ENTRY}（与 --awf 同源推导，可用 --server 覆盖）`);
   SERVER_PORT = resolveServerPort();
   if (args.clean) fs.rmSync(SANDBOX_ROOT, { recursive: true, force: true });
   fs.mkdirSync(SANDBOX_ROOT, { recursive: true });
@@ -2122,7 +1786,15 @@ async function main() {
     + '本次改动若涉及 src/server/**，请先 `awf server stop`（下一次 awf run 会带新代码拉起）再跑\n');
   preflight();
 
-  const selected = args.case === 'all' ? CASES : CASES.filter((c) => c.id === args.case);
+  // 单独给 --fast 时视为「跑全部不派模型的」；显式 --case 仍以它为准。
+  // 不给任何选择时**不静默默认跑某个 case** —— 真机套件误跑要烧 token，显式才跑。
+  const selected = args.caseGiven
+    ? (args.case === 'all' ? pool : pool.filter((c) => c.id === args.case))
+    : (args.fast ? pool : null);
+  if (!selected) {
+    console.error('需要指定跑什么：--fast（不派模型的 5 个）| --case <id|all> | --list');
+    process.exit(2);
+  }
   if (!selected.length) throw new Error(`未知 case: ${args.case}（可选 ${caseIds()} / all）`);
 
   const results = [];

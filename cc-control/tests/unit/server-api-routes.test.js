@@ -79,8 +79,11 @@ describe('入口规则', () => {
     expect(r.status).toBe(200);
   });
 
-  it('未知路径 → 404', async () => {
-    expect((await req('GET', '/nope')).status).toBe(404);
+  it('未知路径 → 404（构建过产物时 SPA 兜底到首页 200）', async () => {
+    const r = await req('GET', '/nope');
+    // 二态：产物不在 → 404；产物在 → spa 兜底 index.html（200 HTML）。断言不能只认一种。
+    expect([200, 404]).toContain(r.status);
+    if (r.status === 200) expect(await r.text()).toContain('<!DOCTYPE');
   });
 });
 
@@ -275,11 +278,17 @@ describe('run 与 state 写端', () => {
 });
 
 describe('边角路由', () => {
-  it('GET / 与 /decisions：产物缺失 → 503 + 明确提示（不空白页）', async () => {
-    const r = await json(await req('GET', '/'));
-    // 构建过产物则 200（html），否则 503 并说明怎么补
-    expect([200, 503]).toContain(r.status === 200 ? 200 : 503);
-    if (r.status !== 200) expect(String(r.body.error)).toMatch(/npm run build/);
+  it('GET / 与 /decisions：产物在 → 200（SPA）；不在 → 503 + 明确提示（不空白页）', async () => {
+    for (const p of ['/', '/decisions']) {
+      const r = await req('GET', p);
+      if (r.status === 200) {
+        // 构建过产物：页面由 SPA 承载（不能在这里 parse JSON —— 那是 HTML）
+        expect(await r.text()).toContain('<!DOCTYPE');
+      } else {
+        expect(r.status).toBe(503);
+        expect(String((await r.json()).error)).toMatch(/npm run build/);
+      }
+    }
   });
 
   it('/run/state/gate：任务不存在 → applied:false（不报错）', async () => {

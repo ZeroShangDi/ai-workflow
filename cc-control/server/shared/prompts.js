@@ -26,7 +26,7 @@ function promptsPath() {
 
 /** 状态模板文件：core 插件的 mcp/awf-state/state.template.json（awf init 播种 state.json 用） */
 export function stateTemplatePath() {
-  return pluginAssets.pluginAssetPath(CORE_PLUGIN, 'mcp', 'awf-state', 'state.template.json');
+  return pluginAssets.stateTemplatePath(); // 插件内布局单源在 plugin-assets
 }
 
 /**
@@ -135,6 +135,17 @@ export function batchReconcile(batchId) {
  */
 export function subagentDispatch({ taskId, taskTitle = '', taskPrompt }) {
   return resolvePrompt('subagent-dispatch', { taskId, taskTitle, taskPrompt });
+}
+
+/**
+ * 派发未生效时的重派 prompt — 主会话收下了上一条派发指令、回合也正常结束，却没有派生任何子 Agent。
+ * 与 subagentDispatch 的差别：点明「上一回合没起子 Agent」这一事实并要求立刻补救，堵掉
+ * 「已有派发记录 / 被拒绝 / 暂不派发」这类不派发的借口（模板见 prompts.json 的 subagent-redispatch）。
+ * @param {{ taskId: string, taskPrompt: string }} params
+ * @returns {Promise<string>}
+ */
+export function subagentRedispatch({ taskId, taskPrompt }) {
+  return resolvePrompt('subagent-redispatch', { taskId, taskPrompt });
 }
 
 /**

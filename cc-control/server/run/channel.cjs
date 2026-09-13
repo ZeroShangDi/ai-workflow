@@ -11,11 +11,12 @@
  *   - send(text)              —— 发一条 prompt 并等会话回到 ready（含 pause 闩锁）
  *   - readTaskStatus(id)      —— 读任务当前状态（pending/active/done/blocked）
  *   - markBlocked(id)         —— 编排仲裁：多轮追问仍不结算 → 标 blocked 使编排跳过
- *   - prompts                 —— 插件声明的模板（wrapup / settle / contextCheck），经 plugin-bridge
- *   - readUsagePct()          —— statusline 实测上下文占用（null = 无实测，交 AI 自估算）
- *   - readHandoffSnapshot()   —— .awf/context/handoff.md 快照
- *   - consumeContextReady()   —— 一次性读 contextReady 标记（AI 已写快照并通知）
- *   - clearSession()          —— /clear 清空对话（压缩后注入快照）
+ *   - prompts                 —— 插件声明的模板（wrapup / settle），经 plugin-bridge
+ *
+ * 注：任务**上下文压缩**的端口（readUsagePct / readHandoffSnapshot / consumeContextReady /
+ * clearSession 与 prompts.contextCheck）不在这里 —— 压缩检查已拆到 features/context/compaction.cjs，
+ * 由 runtime 的 channel 工厂分别装配两段。此前这些参数留在本模块的必填校验里（正文已不使用），
+ * 导致「压缩拆走了、接口还卡着」：真 run 装配时直接抛「端口 readUsagePct 必填」。
  *
  * ports 为必填（构造时逐一校验，缺失即抛）；readTurnBytes / isAwaitingHuman / waitWhilePaused /
  * sleepFn / log 为可选，见 createSessionChannel 参数默认值。
@@ -43,10 +44,6 @@ function createSessionChannel({
   readTaskStatus,
   markBlocked,
   prompts,
-  readUsagePct,
-  readHandoffSnapshot,
-  consumeContextReady,
-  clearSession,
   readTurnBytes = () => null,
   isAwaitingHuman = () => false,
   sleepFn = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -54,10 +51,10 @@ function createSessionChannel({
   log = () => {},
 } = {}) {
   // 端口装配校验：必填端口缺失即抛（尽早暴露装配漏项，而不是运行到一半才炸）
-  for (const [name, fn] of Object.entries({ send, readTaskStatus, markBlocked, readUsagePct, readHandoffSnapshot, consumeContextReady, clearSession })) {
+  for (const [name, fn] of Object.entries({ send, readTaskStatus, markBlocked })) {
     if (typeof fn !== 'function') throw new Error(`task-channel: 端口 ${name} 必填`);
   }
-  for (const name of ['wrapup', 'settle', 'contextCheck']) {
+  for (const name of ['wrapup', 'settle']) {
     if (typeof prompts?.[name] !== 'function') throw new Error(`task-channel: prompts.${name} 必填`);
   }
   if (typeof readTurnBytes !== 'function') throw new Error('task-channel: 端口 readTurnBytes 须为函数');

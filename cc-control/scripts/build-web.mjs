@@ -3,14 +3,14 @@
  * build-web.mjs — web/（React+Vite）构建进 pipeline（T1-118）
  *
  * ## 为什么需要这一步
- * T1-093 把 **接线** 做完了：`vite.config.js` 的 `build.outDir` 指向 `src/server/public`、
+ * T1-093 把 **接线** 做完了：`vite.config.js` 的 `build.outDir` 指向 `server/web/public`、
  * server 端 SPA 托管也通了。但**没有任何环节会去构建** —— `scripts/build.sh` 不碰 web、
  * 没有 prepack、`web/node_modules` 从来没装上过。于是「接线在」而「产物不存在」，
  * 发布出去的 npm 包里根本没有前端。这正是 `.awf/issues/002` 说的那种落差：
  * 接线 ≠ 被触发，而**「被触发」不是任何人的任务**。
  *
  * ## 依赖缺失不静默跳过
- * - 正常：`cd web && npm run build` → 断言 `src/server/public/index.html` 存在
+ * - 正常：`cd web && npm run build` → 断言 `server/web/public/index.html` 存在
  * - 缺依赖：报错退出并给出修复命令（不猜、不自动装 —— 装依赖是使用者的决定）
  * - 显式跳过：`AWF_SKIP_WEB=1`（打印醒目警告）；`--required`（发布路径）忽略该开关
  *
@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const WEB = path.join(ROOT, 'web');
-const ARTIFACT = path.join(ROOT, 'src', 'server', 'public', 'index.html');
+const ARTIFACT = path.join(ROOT, 'server', 'web', 'public', 'index.html');
 const required = process.argv.includes('--required');
 const skipRequested = process.env.AWF_SKIP_WEB === '1' && !required;
 
@@ -50,7 +50,7 @@ if (!depsInstalled) {
   process.exit(1);
 }
 
-console.log('[build-web] 构建 web/ → src/server/public …');
+console.log('[build-web] 构建 web/ → server/web/public …');
 try {
   execFileSync('npm', ['run', 'build'], { cwd: WEB, stdio: 'inherit' });
 } catch (e) {
@@ -60,9 +60,9 @@ try {
 
 if (!fs.existsSync(ARTIFACT)) {
   console.error(`[build-web] ✘ 构建结束但产物缺失：${path.relative(ROOT, ARTIFACT)}`);
-  console.error('[build-web]   检查 web/vite.config.js 的 build.outDir 是否仍指向 ../src/server/public');
+  console.error('[build-web]   检查 web/vite.config.js 的 build.outDir 是否仍指向 ../server/web/public');
   process.exit(1);
 }
 
 const bytes = fs.statSync(ARTIFACT).size;
-console.log(`[build-web] ✓ 产物就绪：src/server/public/（index.html ${bytes}B）`);
+console.log(`[build-web] ✓ 产物就绪：server/web/public/（index.html ${bytes}B）`);

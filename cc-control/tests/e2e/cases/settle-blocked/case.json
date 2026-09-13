@@ -1,0 +1,34 @@
+{
+  "id": "settle-blocked",
+  "name": "收尾协商：任务不落账 → 追问若干轮 → 标 blocked（不卡死）",
+  "requirements": "AI 干完活却没落账时，宿主必须经收尾协商给几次机会；仍不落账就标 blocked 跳过 —— 绝不能永远 active 把 run 挂死。",
+  "config": { "run": { "agents": { "max": 1, "maxModules": 1, "maxPerModule": 1, "maxPerFeature": 1 } } },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "收尾协商：verify「不落账 → blocked」这条防卡死链路" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "创建 settle-proof.txt 但不落账",
+        "kind": "dev",
+        "status": "pending",
+        "deps": [],
+        "wbsRef": "W1",
+        "prompt": "在项目根创建 settle-proof.txt，内容写 settle-ok。\n\n【本用例的关键约束】创建完文件后**不要**调用 awf_task_complete / awf_task_status 或任何 awf_* 工具，**不要**标记任务状态，也不要输出决策标记 —— 就正常结束本回合。本用例要验证的是「任务没落账」时编排器的收尾协商行为（追问若干轮后标 blocked，而不是永远挂住）。",
+        "plannedFiles": ["settle-proof.txt"],
+        "constraints": ["只创建 settle-proof.txt", "完成后不要落账"],
+        "acceptance": "文件存在（本用例不期望任务被标 done）"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "tasksDone": false,
+    "files": ["settle-proof.txt"],
+    "taskStatus": { "T1": "blocked" },
+    "modeIdle": true,
+    "sessionEnvPointsAt": true
+  }
+}

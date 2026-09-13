@@ -175,9 +175,21 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         const ok = await channel.sendPromptAndWait(text);
         if (!ok) throw new Error(`派发未送达（主会话未在超时内就绪/收尾）：${String(text).slice(0, 60)}…`);
       },
-      prompts: { subagentDispatch: bridge.subagentDispatch, resend: bridge.subagentResend },
+      prompts: {
+        subagentDispatch: bridge.subagentDispatch,
+        subagentRedispatch: bridge.subagentRedispatch,
+        resend: bridge.subagentResend,
+      },
       markActive: (id) => stateApi.markTaskActive(ctx.projectRoot, id),
       releaseActive: (id) => stateApi.requeueTaskIfActive?.(ctx.projectRoot, id) ?? false,
+      // 连续派发均未生效（主会话收下提示词却不派子 Agent）→ 标 blocked 让编排跳过，
+      // 与收尾协商「多轮无产出 → blocked」同一语义；不这样做 run 会干等到超时。
+      markBlocked: (id) => ctx.stores.state.updateSync((s) => {
+        const t = (s?.tasks || []).find((x) => x.id === id);
+        if (!t) return false;
+        t.status = 'blocked';
+        return true;
+      }),
       readTasks: () => ctx.stores.state.readSync()?.tasks || [],
       isBusy: () => session.state === 'busy',
       decisionPending: () => session.decisionPending,

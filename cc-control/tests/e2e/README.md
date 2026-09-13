@@ -23,24 +23,24 @@
 
 ```bash
 # 全部用例
-npm run eval
+npm run test:eval
 
 # 单个用例
-npm run eval -- --only hello-sum
+npm run test:eval -- --only hello-sum
 
 # 单个多 agent 用例（awf run 的 CLI 输出会实时显示，并同时写入 eval.log）
-node tests/eval/run-eval.mjs --only multi-agent-parallel
+node tests/e2e/run-eval.mjs --only multi-agent-parallel
 
 # 列出所有用例（不运行）
-node tests/eval/run-eval.mjs --list
+node tests/e2e/run-eval.mjs --list
 
-# 保留沙箱（默认成功用例会清理，失败用例始终保留日志）
-node tests/eval/run-eval.mjs --keep
+# 清理成功用例的沙箱（缺省**全部保留**——含通过用例的 eval.log，便于复盘/排查）
+node tests/e2e/run-eval.mjs --clean
 ```
 
 ## 用例结构
 
-每个用例一个目录 `tests/eval/cases/<id>/case.json`：
+每个用例一个目录 `tests/e2e/cases/<id>/case.json`：
 
 ```json
 {
@@ -59,7 +59,12 @@ node tests/eval/run-eval.mjs --keep
     "tasksDone": true,                    // 所有任务 status=done 且 exec.result 非空
     "logContain": ["[T1]", "[T2]"],                 // 可选：eval.log 必须含的任务状态事件（多 agent 派发证据）
     "markerFiles": ["eval-marker/T1.done"],          // 可选：并行证据——这些文件 mtime 跨度 < markerSpanMs 才算并行
-    "markerSpanMs": 90000
+    "markerSpanMs": 90000,
+    // ── 链路存活断言（讨论稿 §三.5：让「编排机械对不对」也能声明式表达）──
+    "modeIdle": true,                     // 可选：run 收尾后 state.mode 复位 idle（pause/resume 类不要设）
+    "logStampPerRun": true,               // 可选：per-run 日志目录 .awf/logs/<version>-<ts>/ 落盘
+    "sessionEnvPointsAt": true            // 可选：run 会话的 CC_PROJECT/CC_WORKDIR 指向本项目
+                                          //   （运行中采样——run 一收尾 CLI 就关会话，事后读不到）
   }
 }
 ```
@@ -74,7 +79,7 @@ node tests/eval/run-eval.mjs --keep
 动态规划 proposal），此时在用例目录放一个 `hooks.mjs`：
 
 ```js
-// tests/eval/cases/<id>/hooks.mjs
+// tests/e2e/cases/<id>/hooks.mjs
 export async function duringRun({ readState, get, post, sleep }) { return { checks: [{ ok: true, msg: '…' }] }; }
 export async function afterRun({ readState, sandbox }) { return { checks: [] }; }
 ```
@@ -82,7 +87,7 @@ export async function afterRun({ readState, sandbox }) { return { checks: [] }; 
 - 两者都与 `awf run` **并发**执行（runner 先起 run，再调 `duringRun`，最后 `await` run 结束）；
 - `get` / `post` 打本项目 server（自动带 `?p=<sandbox>`），端口与 `awf run` 同源；
 - 返回的 `checks` 并入该用例评分；
-- 参考实现：`tests/eval/cases/dynamic-planning/hooks.mjs`。
+- 参考实现：`tests/e2e/cases/dynamic-planning/hooks.mjs`。
 
 
 
@@ -100,7 +105,7 @@ export async function afterRun({ readState, sandbox }) { return { checks: [] }; 
 | `multi-agent-parallel` | `max=9, maxModules=2, maxPerModule=2, maxPerFeature=1` | 4 dev 并发 → 4 review 并行 → 2 test 并行；doc 按 plannedFiles 判定并行，commit 独占；批次 banner + marker 时间跨度 |
 | `multi-agent-serial-baseline` | `max=1`（同任务集，extends） | 单 agent 串行也能完成同一任务集；与并行用例对比耗时/批次数 |
 
-跑对照：`npm run eval -- --only multi-agent-parallel` 与 `npm run eval -- --only multi-agent-serial-baseline`，比较两例日志中批次数与总耗时。
+跑对照：`npm run test:eval -- --only multi-agent-parallel` 与 `npm run test:eval -- --only multi-agent-serial-baseline`，比较两例日志中批次数与总耗时。
 
 ## 已知限制
 

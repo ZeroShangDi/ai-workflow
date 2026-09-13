@@ -1,0 +1,72 @@
+{
+  "id": "context-compaction",
+  "name": "上下文压缩检查在真实链路里不挡路",
+  "requirements": "任务前的上下文压缩检查（两层判定）在真机上不能把 run 卡住：无论 AI 判无需压缩还是执行压缩，任务都要照常推进完成。注：第二层（越过阈值→AI 判定→清会话注入快照）需要真实上下文占用越过 80%，真机造不出来（statusline 会不停用实测值覆盖 usage.json，种进去的值立刻被冲掉）——那部分协议由 tests/unit/server-compaction.test.js 覆盖。",
+  "config": {
+    "run": {
+      "agents": {
+        "max": 1,
+        "maxModules": 1,
+        "maxPerModule": 1,
+        "maxPerFeature": 1
+      }
+    }
+  },
+  "files": {
+    ".awf/context/usage.json": "{\n  \"used_percentage\": 85\n}\n"
+  },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": {
+      "summary": "上下文压缩检查（阈值 85% → 第二层）"
+    },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "创建 src/one.js",
+        "kind": "dev",
+        "status": "pending",
+        "deps": [],
+        "wbsRef": "W1",
+        "prompt": "执行 /ai-workflow-code:w-dev T1：在项目根创建 src/one.js，导出常量 ONE = 1；完成后用 awf_task_complete 把 T1 记录为 done（files 填 src/one.js）。",
+        "plannedFiles": [
+          "src/one.js"
+        ],
+        "constraints": [
+          "只创建 src/one.js"
+        ],
+        "acceptance": "src/one.js 存在且导出 ONE"
+      },
+      {
+        "id": "T2",
+        "title": "创建 src/two.js",
+        "kind": "dev",
+        "status": "pending",
+        "deps": [
+          "T1"
+        ],
+        "wbsRef": "W1",
+        "prompt": "执行 /ai-workflow-code:w-dev T2：在项目根创建 src/two.js，导出常量 TWO = 2；完成后用 awf_task_complete 把 T2 记录为 done（files 填 src/two.js）。",
+        "plannedFiles": [
+          "src/two.js"
+        ],
+        "constraints": [
+          "只创建 src/two.js"
+        ],
+        "acceptance": "src/two.js 存在且导出 TWO"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": [
+      "src/one.js",
+      "src/two.js"
+    ],
+    "tasksDone": true,
+    "modeIdle": true,
+    "sessionEnvPointsAt": true
+  }
+}

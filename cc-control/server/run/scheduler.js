@@ -93,18 +93,29 @@ function isExclusive(task) {
   return EXCLUSIVE_KINDS.has(task.kind || 'dev');
 }
 
+/**
+ * 冲突面未知的任务：缺 plannedFiles 且非只读 review —— 无法判定它会碰哪些文件，故**保守串行**
+ * （不与任何任务并行）。判据只有这一处：入池时与「运行中」两侧都用它，保证双向生效。
+ */
+function isConservativeSerial(task) {
+  return !(Array.isArray(task.plannedFiles) && task.plannedFiles.length > 0) && task.kind !== 'review';
+}
+
 /** 从池里取第一个满足「配额 + 文件冲突 + 独占」约束的任务；无可派 → null */
 function pickFromPool(pool, running, quota, scope) {
-  // 独占任务（commit）运行中 → 禁止派发任何其他任务
-  const exclusiveRunning = [...running.taskIds()].some((id) => isExclusive(running.getTask(id)));
-  if (exclusiveRunning) return null;
+  // 运行中有「独占（commit）」或「冲突面未知（无 plannedFiles）」的任务 → 不再派发任何其他任务。
+  // **必须双向**：此前只判了独占，而 noFiles 仅在入池时检查 running 是否为空 —— 它一旦跑起来，
+  // 别的任务照样能并进来，与「保守串行」的语义（不与任何任务并行）矛盾。
+  const blocking = [...running.taskIds()].some((id) => {
+    const t = running.getTask(id);
+    return isExclusive(t) || isConservativeSerial(t);
+  });
+  if (blocking) return null;
 
   for (const task of pool) {
     if (running.has(task.id)) continue;
     const s = scope.get(task.id) || {};
-    // 缺失 plannedFiles（非只读 review）→ 保守串行，无法判定冲突面，不与任何任务并行
-    const noFiles = !(Array.isArray(task.plannedFiles) && task.plannedFiles.length > 0) && task.kind !== 'review';
-    if (isExclusive(task) || noFiles) {
+    if (isExclusive(task) || isConservativeSerial(task)) {
       // 独占/保守串行：仅当无其他运行中时单独派发
       if (running.size === 0) return { task, scope: s };
       continue;

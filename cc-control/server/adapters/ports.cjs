@@ -49,6 +49,8 @@ const oneshot = require('./cc/oneshot.cjs');
 const tooling = require('./cc/tooling.cjs');
 const ccShapes = require('./cc/shapes.cjs');
 const extract = require('./cc/extract.cjs');
+const settings = require('./cc/settings.cjs');
+const profile = require('./cc/profile.cjs');
 const { createHost } = require('./cc/host.cjs');
 const { createHookAdapter } = require('./cc/hook.cjs');
 const { launchInteractiveClaude } = require('./cc/interactive.cjs');
@@ -130,6 +132,8 @@ const PORT_CONTRACT = [
 const NON_PORT_TOOLS = [
   { name: 'cc-shapes', file: 'adapters/cc/shapes.cjs', reason: 'cc 回写形状构造，纯数据函数、无可替换性诉求，不构成能力面' },
   { name: 'extract', file: 'adapters/cc/extract.cjs', reason: 'cc 输出解析（subagent RESULT / transcript 渲染），与 cc-shapes 一读一写对称：纯函数、无可替换性诉求' },
+  { name: 'settings', file: 'adapters/cc/settings.cjs', reason: 'cc 格式 settings 产物构造（statusLine 等），纯数据构造、无会话/进程依赖' },
+  { name: 'profile', file: 'adapters/cc/profile.cjs', reason: 'cc 项目配置注入（.claude/settings.json + 项目 .mcp.json），形状全由 cc 决定、不调 cc 命令' },
 ];
 
 /**
@@ -177,6 +181,8 @@ const PORT_IMPLS = {
   probe: createProbe,
   ccShapes,
   extract,
+  settings,
+  profile,
 };
 
 /**
@@ -242,4 +248,6 @@ module.exports = {
   probe,
   ccShapes,
   extract,
+  settings,
+  profile,
 };
