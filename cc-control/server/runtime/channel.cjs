@@ -16,6 +16,7 @@ const fsp = require('node:fs/promises');
 const { READY_TIMEOUT_MS, LOCAL_CMD_FALLBACK_MS } = require('../config.cjs');
 const { mainTranscriptPath } = require('../observability/metrics.cjs');
 const { submitText } = require('./executor.cjs');
+const projectPaths = require('../shared/project-paths.cjs'); // .awf 布局单源
 
 /**
  * @param {object} deps
@@ -74,7 +75,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
       const readUsagePct = async () => {
         try {
           const pct = JSON.parse(
-            await fsp.readFile(path.join(ctx.projectRoot, '.awf', 'context', 'usage.json'), 'utf-8'),
+            await fsp.readFile(projectPaths.contextUsagePath(ctx.projectRoot), 'utf-8'),
           ).used_percentage;
           return typeof pct === 'number' ? pct : null;
         } catch { return null; }
@@ -82,7 +83,7 @@ function createSessionChannelFactory({ ctx, session, observability }) {
       /** 读上次上下文压缩留下的 handoff 快照；缺失 → null */
       const readHandoffSnapshot = async () => {
         try {
-          return await fsp.readFile(path.join(ctx.projectRoot, '.awf', 'context', 'handoff.md'), 'utf-8');
+          return await fsp.readFile(projectPaths.handoffPath(ctx.projectRoot), 'utf-8');
         } catch { return null; }
       };
 

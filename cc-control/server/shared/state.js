@@ -14,10 +14,10 @@
  *
  * 边界：
  *   - 不含调度决策（配额/补位在 server/run/scheduler.js），本模块只提供「谁就绪、谁冲突」的纯查询。
- *   - 不实现任务图校验/变更算法（在 server/replanning/graph.cjs），此处只调用其 assert / insert 组合。
+ *   - 不实现任务图校验/变更算法（在 shared/task-graph.cjs），此处只调用其 assert 组合。
  *   - 全模块无进程内缓存：每次读盘，保证跨进程对 state.json 的改动能被及时看到。
- *   - STATE_FILE 常量锁定现行单 run 布局（.awf/state.json 相对 projectRoot）；每 run 布局
- *     （.awf/runs/<sid>/state.json）由 store.cjs / run-context 走 filePath 直取，不经过本模块。
+ *   - 文件布局（`.awf/*`）由 `shared/project-paths.cjs` 单源给出；
+ *     每 run 布局（.awf/runs/<sid>/state.json）由 store.cjs / run-context 走 filePath 直取，不经过本模块。
  */
 
 import path from 'path';
@@ -25,24 +25,27 @@ import fs from 'fs';
 import crypto from 'node:crypto';
 // 持久化统一走 store-core（单写序列化 + 原子写），不再各自实现 state.lock + writeFileSync
 import { withFileLock as withStateLock, readJsonSync, writeJsonAtomicSync, updateStateSync } from './store-core.cjs';
+// 项目 .awf 布局（state/config/logs/context/versions…）由 project-paths 单源给出 ——
+// CJS 侧（如 features/replanning/service.cjs）也要这份布局，故不能只写在本 ESM 模块里
+import { stateFilePath, stateLockPath, versionsDir } from './project-paths.cjs';
+// 时间戳归一（版本快照文件名 <version>-<ts>）与 run 标识同一规则，经 run-id 单源
+import { normalizeStamp } from './run-id.cjs';
+// 就绪判据（pending + 未 hold + deps 全 done）的单源实现 —— 与调度器、动态规划的
+// readyBefore/readyAfter 报告共用同一份，避免「报告说就绪」与「真去派的」各算各的
+import { heldTaskIds, depsDone, peekReadyTasks } from './ready-tasks.cjs';
 // 任务图校验与安全插入的唯一实现（纯内存、不做 I/O）；本模块在落账边界调用它兜住非法图
-import taskGraph from '../features/replanning/graph.cjs';
+import taskGraph from './task-graph.cjs';
 
-const { assertTaskGraph, assertTaskDependenciesDone, insertPrerequisiteTask } = taskGraph;
-
-/** 现行单 run 布局下 state.json 相对 projectRoot 的位置 */
-const STATE_FILE = '.awf/state.json';
+// 任务图校验（纯内存、不做 I/O）；本模块在落账边界调用它兜住非法图。
+// 注意：图**插入**原语（insertPrerequisiteTask）不在这里用 —— 它属门禁派生等具体能力，
+// 由能力侧（features/gate/closure.js）自取。
+const { assertTaskGraph, assertTaskDependenciesDone } = taskGraph;
 
 // ── 基础读写 ──
 
-/** state 写锁路径（CLI/MCP/server 共用同名 .awf/state.lock，防跨实现并发写） */
-function stateLockPath(projectRoot) {
-  return path.join(projectRoot, '.awf', 'state.lock');
-}
-
 /** 读取 .awf/state.json（缺失/非法 → null） */
 export function loadState(projectRoot) {
-  return readJsonSync(path.join(projectRoot, STATE_FILE));
+  return readJsonSync(stateFilePath(projectRoot));
 }
 
 /**
@@ -52,7 +55,7 @@ export function loadState(projectRoot) {
  * 若调用方持有的是较早读到的快照、又必须落盘，应改用 replaceStateIfUnchanged（CAS）。
  */
 export function saveState(projectRoot, state) {
-  const filePath = path.join(projectRoot, STATE_FILE);
+  const filePath = stateFilePath(projectRoot);
   state.lastUpdated = new Date().toISOString();
   return withStateLock(stateLockPath(projectRoot), () => {
     writeJsonAtomicSync(filePath, state);
@@ -98,7 +101,7 @@ export function replaceStateIfUnchanged(
   if (typeof expectedStateFingerprint !== 'string' || expectedStateFingerprint.length === 0) {
     throw new TypeError('expectedStateFingerprint must be a non-empty string');
   }
-  const filePath = path.join(projectRoot, STATE_FILE);
+  const filePath = stateFilePath(projectRoot);
   return withStateLock(stateLockPath(projectRoot), () => {
     const current = readJsonSync(filePath);
     const actualLastUpdated = current?.lastUpdated ?? null;
@@ -127,7 +130,7 @@ export function replaceStateIfUnchanged(
  * @returns {boolean} 锁内读到 state 且写入成功 → true；state 不存在 → false（不凭空创建）
  */
 export function setWorkflowMode(projectRoot, mode) {
-  const filePath = path.join(projectRoot, STATE_FILE);
+  const filePath = stateFilePath(projectRoot);
   return withStateLock(stateLockPath(projectRoot), () => {
     const state = readJsonSync(filePath);
     if (!state) return false;
@@ -152,7 +155,7 @@ export function setWorkflowMode(projectRoot, mode) {
  * @throws 图非法/依赖未满足时抛 TaskGraphError（调用方据此判断是否应当派发）
  */
 export function markTaskActive(projectRoot, taskId) {
-  const filePath = path.join(projectRoot, STATE_FILE);
+  const filePath = stateFilePath(projectRoot);
   return withStateLock(stateLockPath(projectRoot), () => {
     const state = readJsonSync(filePath);
     if (!state) return false;
@@ -180,7 +183,7 @@ export function markTaskActive(projectRoot, taskId) {
  * @returns {boolean} true=确实回退了；false=无需回退
  */
 export function requeueTaskIfActive(projectRoot, taskId) {
-  const filePath = path.join(projectRoot, STATE_FILE);
+  const filePath = stateFilePath(projectRoot);
   return withStateLock(stateLockPath(projectRoot), () => {
     const state = readJsonSync(filePath);
     if (!state) return false;
@@ -213,24 +216,8 @@ export function getNextTask(state) {
   return findNextTask(state);
 }
 
-/** 任务依赖是否全部 done（含 deps 缺失 → 不满足） */
-function depsDone(task, taskById) {
-  if (!task.deps || task.deps.length === 0) return true;
-  // 依赖指向不存在任务时 dep 为 undefined → 视为未满足（保守，不放过悬空依赖）
-  return task.deps.every((depId) => {
-    const dep = taskById.get(depId);
-    return dep && dep.status === 'done';
-  });
-}
-
-/**
- * 收集被动态规划 proposal 暂停（hold）的任务 id 集合。
- * 语义：dynamicPlanning.holds 里每个 hold 记录它暂停的 taskIds；这些任务即使 pending + deps 满足
- * 也不进就绪池，等 proposal 批准/决策后再释放。state 或 holds 缺失 → 空集。
- */
-export function heldTaskIds(state) {
-  return new Set(Object.values(state?.dynamicPlanning?.holds || {}).flatMap((hold) => hold?.taskIds || []));
-}
+// depsDone / heldTaskIds 已下沉到 shared/ready-tasks.cjs（就绪判据单源；CJS 侧 planner 也要用），
+// 下方函数仍以原名引用它们，对外 API 不变。
 
 /**
  * 按 state 原始顺序找第一个「就绪」任务：pending 且未被 hold、且 deps 全 done。
@@ -330,16 +317,9 @@ function conflictsWithBatch(task, batchFiles) {
 /**
  * 所有就绪任务（pending 且 deps 全 done、未被 hold），保持 state 原始顺序。
  * 不做配额/文件冲突/独占过滤——那些是滑动窗口调度器运行时判断（selectReadyBatch）。
- * @param {object} state
- * @returns {object[]} 就绪任务（可能为空；state 无 tasks → []）
+ * 实现见 shared/ready-tasks.cjs（就绪判据单源），此处仅作为本模块的对外出口。
  */
-export function peekReadyTasks(state) {
-  const tasks = state?.tasks || [];
-  if (tasks.length === 0) return [];
-  const taskById = new Map(tasks.map((t) => [t.id, t]));
-  const held = heldTaskIds(state);
-  return tasks.filter((t) => t.status === 'pending' && !held.has(t.id) && depsDone(t, taskById));
-}
+export { peekReadyTasks, heldTaskIds };
 
 /**
  * 选择一个可并行的 ready 批次（确定性 greedy，保持 state 原始顺序）
@@ -424,114 +404,29 @@ export function isMilestoneDone(state) {
   return tasks.length > 0 && tasks.every((t) => t.status === 'done');
 }
 
-// ── 门禁闭环 ──
-
-/** 门禁复审最大轮次（超过则保持 blocked，需人工介入）——防止修复-复审无限循环 */
-export const MAX_RECHECK = 3;
+// ── 通用落账原语 ──
 
 /**
- * 计算门禁修复任务的下一轮元数据：recheck 序号 + 派生任务 id。
- * 与 spawnGateFixTask 共用同一组判定（null = 不可派生）。
- * 调用方先取此元数据构建 prompt，再传给 spawnGateFixTask，保证 fixId 一致。
+ * 锁定「现行 state 文件」做一次 **读 → 改 → 写**：mutator 返回**假值** → 放弃本次写入。
  *
- * 不可派生（返回 null）的所有情形：
- *   - gateTask 为空 / 非 review|test / 状态非 blocked
- *   - exec.verdict 缺失（旧协议或卡住，不派生）/ verdict.level === 'pass'（已通过，无需修）
- *   - 已到 MAX_RECHECK 轮次上限（保持 blocked，交人工）
- *
- * @param {object} gateTask 门禁任务（kind=review/test）
- * @returns {{ recheck: number, fixId: string } | null} recheck 为「这一轮」的序号，fixId 形如 `R1-F2`
- */
-export function gateFixMeta(gateTask) {
-  if (!gateTask) return null;
-  if (gateTask.kind !== 'review' && gateTask.kind !== 'test') return null;
-  if (gateTask.status !== 'blocked') return null;
-  const v = gateTask.exec?.verdict;
-  if (!v || v.level === 'pass') return null; // 无 verdict 视为旧协议/卡住，不派生
-  if ((gateTask.exec?.recheck || 0) >= MAX_RECHECK) return null; // 轮次上限，保持 blocked
-  const recheck = (gateTask.exec?.recheck || 0) + 1;
-  return { recheck, fixId: `${gateTask.id}-F${recheck}` };
-}
-
-/**
- * 门禁任务 fail → 派生修复任务 + 回退门禁待复审。
- * 纯 mutate state，不写盘——由调用方（gate-fix.handleGateCompletion）负责 load/save。
- *
- * 不派生的条件：非门禁 / 非 blocked / 无 verdict / verdict pass / 达轮次上限（见 gateFixMeta）。
- * prompt 由调用方经插件模板生成后传入（gateFixMeta 取 fixId 保证一致），本函数不硬编码命令。
- *
- * 注意本函数会修改传入的 state.tasks：insertPrerequisiteTask 就地 splice 并把 target 换成新副本，
- * 因此回退门禁时改的是 inserted.target（state 里的新对象），不是入参 gateTask。
- *
- * @param {object} state 会被就地修改
- * @param {object} gateTask 刚完成的门禁任务（kind=review/test）
- * @param {string} prompt 已生成的修复任务执行提示词
- * @returns {string|null} 新修复任务 id（不派生则 null）
- */
-export function spawnGateFixTask(state, gateTask, prompt) {
-  const meta = gateFixMeta(gateTask);
-  if (!meta) return null;
-  const { recheck, fixId } = meta;
-
-  const fix = {
-    id: fixId,
-    kind: 'dev',
-    title: `修复 ${gateTask.title} 发现的问题（第 ${recheck} 轮）`,
-    status: 'pending', // 必须 pending 才进 peekReadyTasks 就绪池
-    deps: [...(gateTask.deps || [])], // 复制原产物依赖，保证产物就绪后才修
-    plannedFiles: [], // 保守串行：无文件声明不与其他任务并行
-    constraints: [],
-    acceptance: gateTask.acceptance || `门禁 ${gateTask.id} 复审通过`, // 复用门禁验收标准作为修复目标
-    prompt,
-  };
-
-  // 修复任务是门禁的真实前置：必须插在门禁原位置之前，不能 push 到队尾让后续任务越过。
-  // insertPrerequisiteTask 先在副本上校验完整图，失败不会留下半次 mutation。
-  // allowedTargetStatuses=['blocked']：只允许回退 blocked 的门禁（其他状态说明并发写者已推进）。
-  const inserted = insertPrerequisiteTask(state, {
-    targetId: gateTask.id,
-    task: fix,
-    allowedTargetStatuses: ['blocked'],
-  });
-  const gate = inserted.target;
-  gate.status = 'pending'; // 回退门禁待复审
-  gate.exec = gate.exec || {};
-  delete gate.exec.startedAt;
-  delete gate.exec.completedAt;
-  gate.exec.recheck = recheck; // 保留 verdict（供下一轮复审参考），仅递增 recheck
-  return fixId;
-}
-
-/**
- * 锁内重新读取并派生 gate fix，避免 handleGateCompletion 的 load→save 覆盖并发状态。
- * expectedFixId 充当轻量 CAS：调用方生成 prompt 后若 gate 已被其他写者推进，本次 no-op。
- *
- * 与 spawnGateFixTask（纯 mutate、外部负责写盘）的分工：本函数把「读 + 判 + 改 + 写」整体放进
- * updateStateSync 的锁临界区，因此锁内读到的一定是最新 state，无需调用方自己 load/save。
- * 结果通过闭包变量 outcome 带出（mutator 的返回值语义被 updateStateSync 占用为「是否写盘」，
- * 不能直接当结果用——但这里恰好也用同一个对象）。
+ * 这是通用落账原语：本模块只管「锁哪个文件、锁内读最新、命中才原子写」，
+ * **领域规则由 mutator 自带**（如门禁闭环的派生规则在 features/gate/closure.js）。
+ * 锁临界区内读到的一定是最新 state，调用方无需自己 load/save。
  *
  * @param {string} projectRoot
- * @param {string} gateId 门禁任务 id
- * @param {string} prompt 已生成的修复任务提示词
- * @param {string} [expectedFixId] 期望的派生 id；提供时若与实际 meta.fixId 不符则放弃（CAS）
- * @returns {{ fixId: string, recheck: number } | null} 派生成功返回元数据；未派生（条件不符或 CAS 失败）返回 null
+ * @param {(state: object) => *} mutator 就地改 state；返回假值（false/null/undefined）表示放弃写入
+ * @returns {*} mutator 的返回值（未写盘时为 null）
  */
-export function spawnGateFixTaskAtomic(projectRoot, gateId, prompt, expectedFixId) {
-  const statePath = path.join(projectRoot, STATE_FILE);
+export function mutateState(projectRoot, mutator) {
   let outcome = null;
   updateStateSync({
-    statePath,
+    statePath: stateFilePath(projectRoot),
     lockPath: stateLockPath(projectRoot),
     mutator: (state) => {
-      const gate = state.tasks?.find((task) => task.id === gateId);
-      const meta = gateFixMeta(gate);
-      // meta 为空（不可派生）或 CAS 不符 → 返回 false：updateStateSync 不写盘，状态原样
-      if (!meta || (expectedFixId && meta.fixId !== expectedFixId)) return false;
-      const fixId = spawnGateFixTask(state, gate, prompt);
-      if (!fixId) return false;
-      outcome = { fixId, recheck: meta.recheck };
-      return outcome; // 非 false → 触发落盘（state 已被 spawnGateFixTask 就地改好）
+      const result = mutator(state);
+      if (!result) return false; // 假值 = 不写盘，state 原样
+      outcome = result;
+      return result;
     },
   });
   return outcome;
@@ -552,10 +447,10 @@ export function backupState(projectRoot) {
   if (!state) return;
   if (!state.version) return;
 
-  const dir = path.join(projectRoot, '.awf', 'versions');
+  const dir = versionsDir(projectRoot);
   fs.mkdirSync(dir, { recursive: true });
 
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const ts = normalizeStamp(new Date());
   const file = path.join(dir, `${state.version}-${ts}.json`);
   fs.writeFileSync(file, JSON.stringify(state, null, 2));
 }
@@ -575,7 +470,7 @@ export function backupState(projectRoot) {
  * @returns {{ action: 'none'|'run-active'|'archived', archivedPath?: string }}
  */
 export function archiveOldStateForPlan(projectRoot) {
-  const filePath = path.join(projectRoot, STATE_FILE);
+  const filePath = stateFilePath(projectRoot);
   const cur = readJsonSync(filePath);
   if (!cur) return { action: 'none' };
   if (cur.mode === 'run' || cur.mode === 'pause') return { action: 'run-active' };
@@ -590,8 +485,8 @@ export function archiveOldStateForPlan(projectRoot) {
     (Array.isArray(cur.milestones) && cur.milestones.length > 0);
   if (!hasContent) return { action: 'none' };
 
-  const dir = path.join(projectRoot, '.awf', 'versions');
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const dir = versionsDir(projectRoot);
+  const ts = normalizeStamp(new Date());
   const archivedPath = path.join(dir, `state-${ts}.json`);
   // 重置模板保留 version（版本连续性），清空内容维度；currentState 归到 PLAN
   const reset = {

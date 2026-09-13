@@ -24,7 +24,8 @@ const { buildRunContext, projectSid } = require('../shared/run-context.cjs');
 const { createRunStores } = require('../shared/store.cjs');
 const storeCore = require('../shared/store-core.cjs');
 const { RunLogger: RealRunLogger } = require('../observability/run-logger.cjs');
-const { createTmux } = require('../adapters/cc/tmux.cjs');
+const projectPaths = require('../shared/project-paths.cjs'); // .awf 布局单源
+const { host: createHostPort } = require('../adapters/ports.cjs'); // 经唯一门（不在 adapters 外直连 cc/xxx.cjs）
 const { isDecisionEnabled } = require('../features/decision/config.cjs');
 const { DecisionStore } = require('../features/decision/store.cjs');
 
@@ -33,7 +34,7 @@ const { DecisionStore } = require('../features/decision/store.cjs');
  *   projectRoot  run 项目根（.awf 宿主）
  *   env          环境（缺省 process.env；会话名/端口经 runtime-config）
  *   sid          显式 run 标签；缺省用确定性 projectSid(projectRoot)
- *   tmuxFactory  (sessionName) => tmux 原语集；缺省 createTmux（测试可注入 mock）
+ *   tmuxFactory  (sessionName) => tmux 原语集；缺省 host 端口（测试可注入 mock）
  *   RunLogger    RunLogger 类；缺省真实实现（测试注入 mock）
  * @returns 一个**纯容器**：身份 + 路径 + 出口（见文件头），构造过程不读写业务文件
  */
@@ -48,20 +49,20 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
   const stores = createRunStores(storeCtx);
   const tmux = typeof tmuxFactory === 'function'
     ? tmuxFactory(nameCtx.runSessionName)
-    : createTmux(nameCtx.runSessionName);
+    : createHostPort({ sessionName: nameCtx.runSessionName });
 
   // ── 路径 ──
   /** sid 落盘路径（软边界，仅 ?sid= 显式路径用；根锚本项目） */
   function runStateFile(sidKey) {
     return sidKey
-      ? path.join(root, '.awf', 'runs', sidKey, 'state.json') // 显式分片：.awf/runs/<sid>/state.json
-      : path.join(root, '.awf', 'state.json');                // 无 sid：现行布局，绝不静默分片
+      ? projectPaths.runStateFilePath(root, sidKey) // 显式分片：.awf/runs/<sid>/state.json
+      : projectPaths.stateFilePath(root);          // 无 sid：现行布局，绝不静默分片
   }
   /** 与 runStateFile 配套的锁文件路径（同目录，.lock 后缀） */
   function runStateLockFile(sidKey) {
     return sidKey
-      ? path.join(root, '.awf', 'runs', sidKey, 'state.lock')
-      : path.join(root, '.awf', 'state.lock');
+      ? projectPaths.runStateLockPath(root, sidKey)
+      : projectPaths.stateLockPath(root);
   }
   /** 写某个 sid 的 state.json：建目录 → 加文件锁 → 原子写（只在显式 sid 路径用） */
   function writeRunStateSid(sidKey, state) {

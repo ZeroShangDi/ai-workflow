@@ -25,16 +25,20 @@ import context from './context/compaction.cjs';
 import decision from './decision/handler.cjs';
 import gateLoop from './gate/loop.cjs';
 import * as gateFix from './gate/fix.js';
+import * as gateClosure from './gate/closure.js';
 import * as pause from './pause/index.js';
+import monitor from './monitor/index.cjs';
 import replanning from './replanning/index.cjs';
 
 /** 上下文压缩与接力：{ createContextCompactor, formatContextUsage, COMPACTION } */
 export { context };
 /** 决策门阀编排：{ createDecisionHandler, appendDecisionReviewTask } */
 export { decision };
-/** 门禁闭环：{ handleGateCompletion }（fix）+ { buildFixTarget, verdictSummary }（loop） */
-export const gate = { ...gateFix, ...gateLoop };
-/** pause 闩锁：{ PAUSE, waitWhilePaused, isWorkflowPaused, formatWait } */
+/** 门禁闭环：{ handleGateCompletion }（fix）+ { buildFixTarget, verdictSummary }（loop）+ { gateFixMeta, spawnGateFixTask, spawnGateFixTaskAtomic, MAX_RECHECK }（closure） */
+export const gate = { ...gateFix, ...gateLoop, ...gateClosure };
+/** pause 闩锁：{ waitWhilePaused, isWorkflowPaused, formatWait, PAUSE_POLL_MS, PAUSE_ALERT_MS, PAUSE_HEARTBEAT_MS } */
 export { pause };
+/** 介入（编排异常时）：createMonitor({ ctx, session, observability }) → { diagnose, reconcile, inspect } */
+export { monitor };
 /** 动态任务规划：config / planner / service / store / decision-port 的合并面 */
 export { replanning };

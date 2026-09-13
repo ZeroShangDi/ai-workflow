@@ -14,7 +14,6 @@
  * false=不是本域路由，交下一个。deps 由入口注入（本域暂不使用）。
  */
 
-const { appendDecisionReviewTask } = require('../../features/decision/handler.cjs');
 const { readJson, send } = require('./util.cjs');
 
 async function handle(req, res, url, rt, deps) {
@@ -68,7 +67,7 @@ async function handleOverride(req, res, pathname, rt) {
       detail: `instruction=${instruction.slice(0, 40)}`, // 日志只留前 40 字，避免超长
     });
     // 覆盖后追加一个「按新指令复核」的任务，让纠偏进入任务流（而不是只改记录）
-    const task = appendDecisionReviewTask(rt.ctx.stores, {
+    const task = rt.decision.appendDecisionReviewTask({
       decision_id: decisionId,
       instruction,
       original_answer: typeof body.original_answer === 'string' ? body.original_answer : null,

@@ -70,7 +70,7 @@ async function handleHook(req, res, url, rt) {
 
   if (event === 'SessionStart') {
     // 诊断重启期间，忽略隔离会话的 SessionStart（否则会把诊断快照的会话误当主会话）
-    if (rt.observability.diagnosisInFlight && body.session_id && body.session_id !== session.mainSessionId) {
+    if (rt.monitor.inFlight && body.session_id && body.session_id !== session.mainSessionId) {
       console.log(`[diagnosis] ignored isolated SessionStart ${body.session_id}`);
       return send(res, 200, { ok: true, event, state: session.state });
     }
@@ -78,7 +78,7 @@ async function handleHook(req, res, url, rt) {
     if (body.session_id && body.session_id !== session.mainSessionId) {
       rt.subagent.reset();
       resetRunMeta(ctx.projectRoot);
-      rt.observability.metricsCache = { at: 0, value: null }; // 清指标缓存，强制重算
+      rt.observability.invalidateMetrics(); // 清指标缓存，强制重算
     }
     if (body.session_id) session.mainSessionId = body.session_id;
     session.bumpSessionSeq(); // 会话启动序号 +1（CLI 据此判「本次会话已就绪」）
@@ -177,11 +177,13 @@ function hookUpdateSubagentMeta(ctx, key, body, status) {
  * 谓词优先级：needs（需人工）优先于 result；两者都没有则不可结算（可能 recoverable）。
  */
 function handleSubagentStop(rt, body) {
-  const { ctx } = rt;
+  const { ctx, session } = rt;
   const key = body.agent_id || body.session_id || 'unknown';
   rt.subagent.logEvent('SubagentStop', body);
-  // 外部会话的 SubagentStop 直接忽略
-  if (ctx.mainSessionId && body.session_id && body.session_id !== ctx.mainSessionId) return;
+  // 外部会话的 SubagentStop 直接忽略。
+  // 注意用的是 session.mainSessionId（不是 ctx 的）—— 该字段在重构中从 pcx 挪到了 Session 上，
+  // ctx 里没有它；写成 ctx.mainSessionId 会让这个守卫恒为假（外部会话不被跳过）。
+  if (session.mainSessionId && body.session_id && body.session_id !== session.mainSessionId) return;
   const agent = rt.observability.agents.get(key);
   if (agent) agent.status = 'stopped';
   hookUpdateSubagentMeta(ctx, key, body, 'stopped');

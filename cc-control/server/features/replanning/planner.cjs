@@ -20,7 +20,8 @@
  * 本模块只产出「变更后的状态 + 分析报告」，不做 I/O、不落盘、不判断是否需人工批准
  * （requiresDecision 只是把理由汇出来，决策由 service.cjs 编排）。
  */
-const taskGraph = require('./graph.cjs');
+const taskGraph = require('../../shared/task-graph.cjs');
+const { peekReadyTasks } = require('../../shared/ready-tasks.cjs'); // 就绪判据单源
 
 /** 编辑允许触碰的字段白名单；未列入者（status/exec 等）一律拒绝，防止绕过状态机改历史 */
 const EDITABLE_FIELDS = new Set([
@@ -37,25 +38,13 @@ function taskMap(tasks) {
 }
 
 /**
- * 计算当前就绪（可派发）的任务 id：pending + 未被 hold + 全部 dep 已 done。
- * 这里排除被 hold 的任务，说明 hold（见 service.installHold）在此生效——被 hold 者即使
- * 依赖已满足也不出现在就绪集，从而「挡住调度」。readyBefore/readyAfter 之差即这次变更对
- * 可派发面的影响（例如插入前置会让目标从就绪变为不就绪）。
+ * 就绪任务 id（供 readyBefore/readyAfter 报告）。
+ * 判据**不在这里** —— 就绪 = pending + 未 hold + deps 全 done，单源在 shared/ready-tasks.cjs
+ * （state.js 的 peekReadyTasks、调度器、本报告共用同一份）。此处只做「取 id」的投影，
+ * 避免报告里的 readyAfter 与调度器真去派的任务各算各的。
  */
-function readyTaskIds(state) {
-  const byId = taskMap(state.tasks);
-  const held = new Set(Object.values(state.dynamicPlanning?.holds || {}).flatMap((hold) => hold.taskIds || []));
-  return (state.tasks || [])
-    .filter((task) => task.status === 'pending' && !held.has(task.id)
-      && (task.deps || []).every((depId) => byId.get(depId)?.status === 'done'))
-    .map((task) => task.id);
-}
+const readyTaskIds = (state) => peekReadyTasks(state).map((task) => task.id);
 
-/**
- * 下游传递闭包：反复扫描，凡 deps 命中已收集集合的任务都并入，直到不再变化。
- * 返回包含 seedIds 自身的完整集合（调用方按需剔除种子）。用固定点迭代而非递归，
- * 天然容忍任意深度与 DAG 的分叉/汇合。
- */
 function downstreamTaskIds(tasks, seedIds) {
   const found = new Set(seedIds);
   let changed = true;

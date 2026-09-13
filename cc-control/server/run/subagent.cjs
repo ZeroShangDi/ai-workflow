@@ -11,7 +11,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const extract = require('../adapters/cc/extract.cjs');
+const { extract } = require('../adapters/ports.cjs'); // 经端口契约的唯一门（extract 属非端口工具，同样只从这里出）
 
 /**
  * @param {{ paths: { event: string, failed: string, needsInput: string }, stores: { state: object } }} deps

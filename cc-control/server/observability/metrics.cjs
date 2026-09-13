@@ -12,7 +12,7 @@
  *   - cc transcript → 各会话 ~/.claude/projects/<slug>/<sessionId>.jsonl，逐条 assistant usage 累加
  *   - config.json   → run.agents.max（判定单/多 agent 与 token 覆盖率）
  *
- * 「观测产物」：run-meta.json 是观测面唯一写目标之一（由 index.cjs 的 reconcileDiagnosisSession
+ * 「观测产物」：run-meta.json 是观测面唯一写目标之一（由 features/monitor 的诊断后效对齐
  * 与 api 的 run 收尾写），记录本 run 的身份与子 agent 清单，本身不是业务状态。
  *
  * 缓存：本文件**不做缓存**；对外 1s 缓存由调用方 observability/index.cjs 的 metricsCache 承担
@@ -25,10 +25,8 @@ const path = require('path');
 const os = require('os');
 // run-meta 读写归位 store（JsonFileStore 原子写）；usage/config/transcript 解析仍走本地 readJson
 const store = require('../shared/store.cjs');
+const { stateFilePath, runMetaPath, contextUsagePath, configFilePath } = require('../shared/project-paths.cjs'); // .awf 布局单源
 
-const RUN_META_PATH = ['.awf', 'logs', 'run-meta.json'];
-const CONTEXT_USAGE_PATH = ['.awf', 'context', 'usage.json'];
-const CONFIG_PATH = ['.awf', 'config.json'];
 const RECENT_WINDOW_MS = 60 * 1000;
 
 /** 容错读 JSON：文件缺失 / 半截 / 非法 → null。观测面不能因为读不到数据就抛断主流程。 */
@@ -42,7 +40,7 @@ function readJson(filePath) {
 
 /** run-meta.json 的绝对路径（<root>/.awf/logs/run-meta.json） */
 function runMetaFile(projectRoot) {
-  return path.join(projectRoot, ...RUN_META_PATH);
+  return runMetaPath(projectRoot);
 }
 
 /** run-meta store（JsonFileStore：原子写，无需跨进程锁——单写者 server） */
@@ -81,12 +79,12 @@ function readRunMeta(projectRoot) {
 
 /** statusline 写入的实测上下文占用（.awf/context/usage.json）；缺失 → {} */
 function readContextUsage(projectRoot) {
-  return readJson(path.join(projectRoot, ...CONTEXT_USAGE_PATH)) || {};
+  return readJson(contextUsagePath(projectRoot)) || {};
 }
 
 /** 项目 config.json（含 run.agents 配额）；缺失 → {} */
 function readConfig(projectRoot) {
-  return readJson(path.join(projectRoot, ...CONFIG_PATH)) || {};
+  return readJson(configFilePath(projectRoot)) || {};
 }
 
 /** 把项目根路径编码成 cc 的项目 slug（cc 用「路径里 '/' 换 '-'」命名 ~/.claude/projects 下的目录） */
@@ -253,7 +251,7 @@ function deriveEndedAtMs(meta, state) {
  */
 function readRunMetrics(projectRoot, runtime = {}) {
   const nowMs = typeof runtime.nowMs === 'number' ? runtime.nowMs : Date.now();
-  const state = readJson(path.join(projectRoot, '.awf', 'state.json')) || {};
+  const state = readJson(stateFilePath(projectRoot)) || {};
   const usage = readContextUsage(projectRoot);
   const meta = readRunMeta(projectRoot);
   const cfg = readConfig(projectRoot);

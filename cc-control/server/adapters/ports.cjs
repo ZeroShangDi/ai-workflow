@@ -17,7 +17,7 @@
  *
  * **本文件是外部进入 `adapters/` 的唯一门**：外部源码只许 `require('.../adapters/ports.cjs')`
  * 取句柄，不许直连 `cc/xxx.cjs`。破坏这条，端口就退化成硬编码，换 CLI 要满仓库改（这条纪律叫 R-cc）。
- * 注意边界是**整个 adapters 目录**而非「只在 7 端口名册里的才准出」——`ccShapes` 不在名册但同样经这门出。
+ * 注意边界是**整个 adapters 目录**而非「只在 7 端口名册里的才准出」——`ccShapes` / `extract` 不在名册但同样经这门出。
  *
  * ## 契约形状
  * 每端口 = `{ name, status, role, methods[] }`：
@@ -48,6 +48,7 @@
 const oneshot = require('./cc/oneshot.cjs');
 const tooling = require('./cc/tooling.cjs');
 const ccShapes = require('./cc/shapes.cjs');
+const extract = require('./cc/extract.cjs');
 const { createHost } = require('./cc/host.cjs');
 const { createHookAdapter } = require('./cc/hook.cjs');
 const { launchInteractiveClaude } = require('./cc/interactive.cjs');
@@ -127,7 +128,8 @@ const PORT_CONTRACT = [
  *   而口径一旦失真，「哪些能力面还没收口」就再也数不清了。
  */
 const NON_PORT_TOOLS = [
-  { name: 'cc-shapes', file: 'src/adapters/cc-shapes.cjs', reason: 'cc 回写形状构造，纯数据函数、无可替换性诉求，不构成能力面' },
+  { name: 'cc-shapes', file: 'adapters/cc/shapes.cjs', reason: 'cc 回写形状构造，纯数据函数、无可替换性诉求，不构成能力面' },
+  { name: 'extract', file: 'adapters/cc/extract.cjs', reason: 'cc 输出解析（subagent RESULT / transcript 渲染），与 cc-shapes 一读一写对称：纯函数、无可替换性诉求' },
 ];
 
 /**
@@ -163,8 +165,8 @@ const PORT_NAMES = PORT_CONTRACT.map((p) => p.name);
  *
  * `interactive` 在本仓库是「包装」而非同名模块导出（模块导出 `launchInteractiveClaude`，
  * 端口面叫 `launchDialog`）；`probe` 需 host 注入，故是工厂。
- * `ccShapes` **不在 7 端口名册**（见 NON_PORT_TOOLS），但同样经这道门出 —— 界线是「adapters 边界」，
- * 不是「只在名册里的才准出」。
+ * `ccShapes` / `extract` **不在 7 端口名册**（见 NON_PORT_TOOLS），但同样经这道门出 ——
+ * 界线是「adapters 边界」，不是「只在名册里的才准出」。
  */
 const PORT_IMPLS = {
   host: createHost,
@@ -174,6 +176,7 @@ const PORT_IMPLS = {
   interactive: { launchDialog: (opts) => launchInteractiveClaude(opts) },
   probe: createProbe,
   ccShapes,
+  extract,
 };
 
 /**
@@ -220,11 +223,11 @@ const interactive = PORT_IMPLS.interactive;                 // 包装出的端�
  * 导出分两类：
  *   1. 契约元数据 + 工厂 —— PORT_CONTRACT/PORT_NAMES/NON_PORT_TOOLS/PORT_IMPLS/assertPortContract
  *      供审计、单测与 `createCcAdapters` 组装；createHost/createHookAdapter 是工厂原样透出。
- *   2. 单端口句柄 —— `host` / `hook` / `oneshot` / `tooling` / `interactive` / `probe` / `ccShapes`，
+ *   2. 单端口句柄 —— `host` / `hook` / `oneshot` / `tooling` / `interactive` / `probe` / `ccShapes` / `extract`，
  *      这是生产源码唯一的取用入口（T1-117）。注意 `host`/`hook` 同时以上面两种形态出现：
  *      `createHost`/`createHookAdapter` 是「能造多个实例的工厂」，`host`/`hook` 是「默认句柄」，
  *      二者是同一个函数引用，只是命名区分用法。
- * `ccShapes` 一并从这门出，尽管它不在 7 端口名册（裁决见 NON_PORT_TOOLS）。
+ * `ccShapes` / `extract` 一并从这门出，尽管它们不在 7 端口名册（裁决见 NON_PORT_TOOLS）。
  */
 module.exports = {
   // 契约元数据 + 工厂
@@ -238,4 +241,5 @@ module.exports = {
   interactive,
   probe,
   ccShapes,
+  extract,
 };

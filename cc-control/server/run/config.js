@@ -1,14 +1,16 @@
-import path from 'node:path';
-import fs from 'node:fs';
-import decisionConfig from '../features/decision/config.cjs';
+import { configFilePath } from '../shared/project-paths.cjs'; // .awf 布局单源
+import { readJsonFile } from '../shared/config-loader.cjs';
 
 /**
  * run 运行时配置 — 读 .awf/config.json 的 run.* 段
  *
  * 唯一入口：loadRunConfig(projectRoot)。
  * 约定：run.agents 四级并行配额，全部缺省时 max:1 = 现状单任务串行，零行为变化。
- *       run.decision.enabled 决策闸门开关委托 decision-config.cjs（与 server 同一实现/默认 false，
- *       单一来源防漂移）：不配置 = 关 = 旧上抛逻辑。
+ *
+ * 边界：只读 `run.agents`（编排配额，本模块的变化轴）。`run.decision.enabled` **不在这里** ——
+ * 那是 decision 能力的开关，由 features/decision 自己判定，运行期经 ctx.decisionEnabled() 取
+ * （见 runtime/project.cjs）。此前这里顺带返回了 decision 段：既是无人消费的死字段，又让 run 的
+ * 配额加载器背上 decision 的变化轴。
  */
 
 const DEFAULT_AGENTS = {
@@ -32,17 +34,10 @@ function normalizeAgents(src = {}) {
 /**
  * 读取 .awf/config.json 的 run.* 段；文件缺失/非法 JSON → 全部用默认值。
  * @param {string} projectRoot - 用户项目根目录（cwd）
- * @returns {{ agents: { max: number, maxModules: number, maxPerModule: number, maxPerFeature: number }, decision: { enabled: boolean } }}
+ * @returns {{ agents: { max: number, maxModules: number, maxPerModule: number, maxPerFeature: number } }}
  */
 export function loadRunConfig(projectRoot) {
-  let raw = {};
-  try {
-    raw = JSON.parse(fs.readFileSync(path.join(projectRoot, '.awf', 'config.json'), 'utf-8'));
-  } catch {
-    /* 缺失或非法 JSON → 用默认 */
-  }
-  return {
-    agents: normalizeAgents(raw?.run?.agents),
-    decision: { enabled: decisionConfig.isDecisionEnabled(projectRoot) },
-  };
+  // 缺失 / 非法 JSON → null → 用默认；读取形状归 config-loader（与另两个配置读者同一原语）
+  const raw = readJsonFile(configFilePath(projectRoot), { optional: true }) || {};
+  return { agents: normalizeAgents(raw?.run?.agents) };
 }

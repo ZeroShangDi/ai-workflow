@@ -12,10 +12,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const storeCore = require('../../shared/store-core.cjs');
 const store = require('../../shared/store.cjs');
+const { dynamicPlanningDir } = require('../../shared/project-paths.cjs'); // .awf 布局单源
 
 class DynamicPlanningStore {
   constructor(projectRoot) {
-    this.root = path.join(projectRoot, '.awf', 'dynamic-planning');
+    this.root = dynamicPlanningDir(projectRoot);
     this.proposalsDir = path.join(this.root, 'proposals');
     this.eventsPath = path.join(this.root, 'events.jsonl');
   }

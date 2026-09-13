@@ -51,7 +51,7 @@ function createSingleExecutor({ ctx, session, channel, observability }) {
     runTask: async ({ taskId, task, taskIndex = 1 }) => {
       const text = task.prompt || task.title || task.id; // 注入文本：优先 prompt，退化到 title/id
       if (!ctx.tmux.hasSession()) {
-        throw new Error(`tmux session '${ctx.tmux.SESSION}' not found; run bootstrap.sh`);
+        throw new Error(`tmux session '${ctx.tmux.sessionName}' not found; run bootstrap.sh`);
       }
 
       // 派发闩锁：暂停期间不派发新任务；但若这个任务已被别处结算（done/blocked），不必再等

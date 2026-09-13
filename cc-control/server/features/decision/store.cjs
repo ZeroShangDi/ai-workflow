@@ -16,20 +16,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 // 决策 jsonl 追加/读取经 store 层 AppendFileStore（json 模式，进程内串行 + 坏行容忍）
 const store = require('../../shared/store.cjs');
+const { stateFilePath, logsDir, decisionsRunsDir } = require('../../shared/project-paths.cjs'); // .awf 布局单源
+const { normalizeStamp } = require('../../shared/run-id.cjs');       // run 标识/时间戳归一单源
 
-const VERSION_FILE = path.join('.awf', 'state.json');
-const LOGS_DIR = path.join('.awf', 'logs');
-const RUNS_DIR = path.join('.awf', 'decisions', 'runs');
-
-/** 生成与 run-logger 相同的 ts 片段（ISO 去 :/. 前 19 位） */
+/** 生成与 run-logger 相同的 ts 片段：归一经 shared/run-id.cjs（此前此处与 run-logger 各抄一份） */
 function isoStamp() {
-  return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return normalizeStamp(new Date());
 }
 
 /** 读 state.json version；缺失/非法 → null */
 function readVersion(projectRoot) {
   try {
-    return JSON.parse(fs.readFileSync(path.join(projectRoot, VERSION_FILE), 'utf8')).version || null;
+    return JSON.parse(fs.readFileSync(stateFilePath(projectRoot), 'utf8')).version || null;
   } catch {
     return null;
   }
@@ -38,10 +36,10 @@ function readVersion(projectRoot) {
 /** 列出 .awf/logs 下以 `${version}-` 开头的 run 目录名，倒序（最新在前） */
 function logRunDirs(projectRoot, version) {
   if (!version) return [];
-  const logsDir = path.join(projectRoot, LOGS_DIR);
+  const dir = logsDir(projectRoot);
   let names = [];
   try {
-    names = fs.readdirSync(logsDir, { withFileTypes: true })
+    names = fs.readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isDirectory() && d.name.startsWith(`${version}-`))
       .map((d) => d.name);
   } catch {
@@ -76,7 +74,7 @@ class DecisionStore {
   }
 
   get runsDir() {
-    return this._runsDirOverride || path.join(this.projectRoot, RUNS_DIR);
+    return this._runsDirOverride || decisionsRunsDir(this.projectRoot);
   }
 
   /**

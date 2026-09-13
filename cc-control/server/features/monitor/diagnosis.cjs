@@ -1,6 +1,10 @@
 'use strict';
 /**
- * observability/diagnosis.cjs — 运行异常诊断（横切；只读，唯一产物是诊断快照）
+ * monitor/diagnosis.cjs — 诊断的**实现件**：提示词拼装 + 一次隔离的 claude -p + 快照读写
+ *
+ * 归属：monitor feature（不是 observability）。诊断会拉起独立 claude 进程、写快照、
+ *       并在重启后改 session.mainSessionId —— 那是编排动作，observability 的边界是「只读地观察」。
+ *       协议（互斥 / 两拍写 / 上限 / 后效对齐）在 ./index.cjs，本文件只提供机制。
  *
  * 职责：把当前运行指标 + 任务状态拼成提示词，交给一次**独立、只读**的 `claude -p` 分析，
  *       产出 { severity, summary, findings[], dataGaps[] } 落成 run-diagnosis.json 快照。
@@ -8,22 +12,22 @@
  *   - 诊断调用必须隔离项目自身的 hooks 与会话（--safe-mode --no-session-persistence）——
  *     否则诊断进程会被本项目的 hook 反过来影响/污染。这是安全约束，不是性能优化。
  *   - 只喂「指标 + mode/currentState + 任务的必要字段」，不喂整份 state，避免把无关内容带进模型。
- * 快照的消费方：observability/index.cjs（status==='running' 时用它重建会话 id / 订正 run-meta）
- * 与 /awf 诊断页。
+ * 快照的消费方：./index.cjs（status==='running' 时用它重建会话 id / 订正 run-meta）与 /awf 诊断页。
  */
 
 const fs = require('fs');
 const path = require('path');
+const { logsDir } = require('../../shared/project-paths.cjs'); // .awf 布局单源（目录归它，文件名归本产物）
 // claude -p 收口到 oneshot 端口（R-cc：外部源码零 claude 字面）。
 // **端口由调用方注入**（T1-117）：lib 是地基，不应该反向依赖 adapters 的具体实现 ——
 // 装配根（server.cjs）从 ports.cjs 取端口后传进来。
 
-const DIAGNOSIS_PATH = ['.awf', 'logs', 'run-diagnosis.json'];
+const DIAGNOSIS_FILE = 'run-diagnosis.json'; // 目录由 project-paths 给，文件名归本产物
 const DIAGNOSIS_TIMEOUT_MS = 5 * 60 * 1000; // 单次诊断上限 5 分钟（模型分析 + 网络波动留足余量）
 
 /** 诊断快照绝对路径（<root>/.awf/logs/run-diagnosis.json） */
 function diagnosisFile(projectRoot) {
-  return path.join(projectRoot, ...DIAGNOSIS_PATH);
+  return path.join(logsDir(projectRoot), DIAGNOSIS_FILE);
 }
 
 /** 读诊断快照；缺失 / 坏 JSON → null（调用方据此判断「有无诊断」） */

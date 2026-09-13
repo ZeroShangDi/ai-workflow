@@ -19,7 +19,7 @@
  *   state.cjs      /awf/state · metrics · diagnostics · /context-ready · /run/state/*
  *   decisions.cjs  /awf/decisions*（列表 / resolve / override）
  *   planning.cjs   /awf/dynamic-planning/proposals + /run/dynamic-planning/*
- *   session.cjs    /status · /choice · /ask · /send · /cmd · /intervene · /stop · /respond
+ *   session.cjs    /status · /probe · /choice · /ask · /send · /cmd · /intervene · /stop · /respond
  *   run.cjs        /run/submit · /run/status · /run/events · /oneshot
  *   本文件          基础设施：?p 入口规则 · /shutdown · 前端页面 · 静态托管 · 404 兜底 · WebSocket 升级
  *

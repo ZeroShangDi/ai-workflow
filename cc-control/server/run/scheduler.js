@@ -128,7 +128,7 @@ function pickFromPool(pool, running, quota, scope) {
  *  - onTaskComplete: (taskId, task) => void — 完成回调（可选，落账侧）
  * @returns {Promise<{ dispatched: number }>}
  */
-export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, onTaskComplete }) {
+export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, onTaskComplete, shouldStop }) {
   const quota = makeQuota(cfg);
   const running = makeRunning();
   let state = loadState(projectRoot);
@@ -142,6 +142,10 @@ export async function runScheduler({ projectRoot, cfg, dispatcher, waitAnyDone, 
   // 直到池空且无运行中才退出。running 只记「已成功派发」的任务（见下面 accepted===false 分支），
   // 否则 waitAnyDone 会永远等一个从没派出去的任务。
   while (true) {
+    // 宿主已请求停止（run-host.stop()）→ 立即退出，不再补位。
+    // 此前 driveBatch 路径完全不读 stopping：batch 模式下 stop() 只拦住新 submit，
+    // 拦不住已在跑的调度循环（driveSingle 有 while(!stopping)，这里没有）。
+    if (shouldStop?.()) break;
     // 补位：填到配额满或池无可派（含文件冲突/独占/保守串行阻塞）；决策挂起时跳过
     if (!suspended) {
       let picked;

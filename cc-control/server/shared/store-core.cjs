@@ -15,7 +15,7 @@
  *   - 不绑任何业务字段（task/wbs/mode…）。业务语义（create/update/status/result/commit/complete）
  *     由上层（server/MCP/CLI）在 updateStateSync 的 mutator 里组合；T1-011/012/013 接线时复用，
  *     不要再各写一份。
- *   - 不校验写入内容的 schema、不做状态机判断——那是上层与 replanning/graph.cjs 的职责。
+ *   - 不校验写入内容的 schema、不做状态机判断——那是上层与 shared/task-graph.cjs 的职责。
  *   - 不决定目录布局，路径由调用方以 statePath/lockPath 传入。
  *
  * 为什么全部是同步 API：现有调用点全是同步（writeFileSync 一把梭），Node 单线程 + 同文件锁

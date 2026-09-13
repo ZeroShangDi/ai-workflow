@@ -19,12 +19,12 @@
  *   - strict：配置缺失/非法直接抛错，不静默回落——config 是唯一默认源，静默兜底只会掩盖漂移。
  */
 
-const path = require('node:path');
 const { loadConfig } = require('./config-loader.cjs');
+const { pluginConfigPath } = require('./plugin-assets.cjs');
 
-/** plugin/config.json 路径（相对本模块 core/ 定位，不受 cwd / 运行目录影响） */
+/** plugin/config.json 路径（包根由 plugin-assets 推导，不受 cwd / 运行目录影响） */
 function runtimeConfigPath() {
-  return path.resolve(__dirname, '..', '..', 'plugin', 'config.json');
+  return pluginConfigPath();
 }
 
 /**

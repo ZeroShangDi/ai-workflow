@@ -380,6 +380,8 @@ function createRunHost(opts = {}) {
       onTaskComplete: async (id, taskSnapshot) => {
         await settleTaskCompletion(run, id, taskSnapshot);
       },
+      // 宿主 stop() 置位的 stopping 必须传进调度循环，否则 batch 模式下 stop() 无效
+      shouldStop: () => stopping,
     });
     run.dispatched = dispatched;
   }

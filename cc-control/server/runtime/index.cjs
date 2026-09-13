@@ -26,6 +26,8 @@ const { createObservability } = require('../observability/index.cjs');
 const { createDecisionHandler } = require('../features/decision/handler.cjs');
 const gateRules = require('../features/decision/gate.cjs');
 const replanning = require('../features/replanning/index.cjs');
+const { createMonitor } = require('../features/monitor/index.cjs');
+const { probe: createProbePort } = require('../adapters/ports.cjs');
 
 /**
  * @param {{ projectRoot: string, env?: object, sid?: string, tmuxFactory?: Function, RunLogger?: Function }} input
@@ -57,7 +59,17 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
     return s;
   }
 
-  const observability = createObservability({ ctx, session });
+  // monitor 在 observability 之后装配（它要读指标与 state），而 observability 的采集前钩子
+  // 又指向它 —— 用 let + 闭包打破构造期先后（钩子运行时才被调用）
+  let monitor = null;
+
+  const observability = createObservability({
+    ctx,
+    session,
+    // 指标采集前先做「诊断后效」对齐（会话可能被诊断换过 id）：时机归观测，策略归 monitor。
+    // 闭包 + 下面的 `let`：钩子只在运行时被调用，那时 monitor 已装配就位。
+    onBeforeSnapshot: () => monitor?.reconcile(),
+  });
   const subagent = createSubagentRecorder({
     paths: { event: ctx.subagentEventPath, failed: ctx.subagentFailedPath, needsInput: ctx.subagentNeedsPath },
     stores: ctx.stores,
@@ -82,9 +94,25 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
     newDecisionStore: ctx.newDecisionStore,
     decisionEnabled: ctx.decisionEnabled,
     publishEvent,
+    stores: ctx.stores,
   });
 
   const channel = createSessionChannelFactory({ ctx, session, observability });
+
+  // ── 侦查端口（probe）──
+  // 消费方在**外部**：w-monitor 经 MCP awf_session_status → HTTP GET /probe 拿到
+  // 「会话在不在 + ready/busy + 抓取时刻」。server 内部不用它 —— 内部守卫要的是
+  // 「会话没了就 503」的动作语义，那属于 host 端口；probe 是只读观测，且没有失败态。
+  // status 注入进程内读会话态：不给自己的 /status 打回环 HTTP。
+  const probe = createProbePort({
+    host: ctx.tmux,
+    status: () => ({ state: session.state }),
+  });
+
+  // ── 介入（monitor.features）──
+  // 诊断：编排异常时拉起一次隔离的 claude -p 分析现场（协议见 features/monitor/index.cjs）。
+  // 它的「检测」一半不在这里：会话现场走上面的 probe 端口，工作流进展走 observability。
+  monitor = createMonitor({ ctx, session, observability });
 
   // ── state 写原语（惰性装载；测试可经 __CC_RUN_HOST_DEPS__.stateApi 覆盖）──
   // 用「ready promise + 结果变量」双重缓存：-Ready 防并发重复装载，-Api 是可用引用（失败时置 null）
@@ -198,8 +226,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
         cfg = rc.loadRunConfig(ctx.projectRoot);
         const sch = await import('../run/scheduler.js');
         schedulerFn = sch.runScheduler;
-        const gf = await import('../features/gate/fix.js');
-        gateFix = gf.handleGateCompletion;
+        gateFix = await ensureGateFix();
         chain = require('../run/driver.cjs');
         executor = createSingleExecutor({ ctx, session, channel, observability }); // 单 agent 执行器
         batch = await batchTransportFor(stateApi); // 多 agent 传输
@@ -241,6 +268,16 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
     return dynamicPlanning;
   }
 
+  /**
+   * 门禁闭环入口（懒装载；run host 与 web 路由共用同一份实现）。
+   * 消费方一律经这里取 —— web 层不直连 features 内部文件。
+   */
+  let gateFixFn = null;
+  async function ensureGateFix() {
+    if (!gateFixFn) gateFixFn = (await import('../features/gate/fix.js')).handleGateCompletion;
+    return gateFixFn;
+  }
+
   /** 把本项目的一切运行态收干净（测试复位 / shutdown） */
   function reset() {
     session.clearFallbackTimer();
@@ -251,6 +288,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
     }
     sessions.clear();
     observability.reset();
+    monitor?.reset(); // 解除诊断互斥闩
     if (runHost) { try { runHost.stop(); } catch { /* ignore */ } } // 停宿主
     // 清掉所有惰性装配缓存，使下次 ensure* 重新装配
     runHost = null;
@@ -270,8 +308,11 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
     decision,     // 决策处理器（onStop / onAskUserQuestion）
     observability,
     channel,      // 会话通道工厂（sendPromptAndWait / sendLocalCmd / channel()）
+    probe,        // 侦查端口（GET /probe 用；供外部 w-monitor 经 MCP 取会话现场）
+    monitor,      // 介入：诊断（GET/POST /awf/diagnostics 用；协议见 features/monitor）
     ensureRunHost,
     ensureRunStateApi,
+    ensureGateFix,
     batchTransportFor,
     publishEvent,
     dynamicPlanning: dynamicPlanningService,

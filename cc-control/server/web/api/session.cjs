@@ -7,6 +7,7 @@
  *
  * 路由（method + path）：
  *   GET  /status                 会话态快照（无 sid=项目级；?sid=该槽；?snapshot 抓屏）
+ *   GET  /probe                  w-monitor 外部侦查（会话在不在 + ready/busy + 抓取时刻；MCP awf_session_status 的服务端实现）
  *   POST /choice                 AI 挂起一个「选择」决策（校验后置 decisionPending）
  *   POST /ask                    AI 挂起一个「自由输入」决策
  *   POST /send                   注入一段文本（等就绪 → 标 busy → 抓基线 → 注文本）
@@ -53,6 +54,15 @@ async function handle(req, res, url, rt, deps) {
       try { out.snapshot = ctx.tmux.capture(); } catch { out.snapshot = null; } // 可选抓屏（默认不抓，有开销）
     }
     send(res, 200, out);
+    return true;
+  }
+
+  // ── probe（w-monitor 外部侦查）──
+  // GET /probe：会话在不在 + ready/busy + 抓取时刻。这是 MCP `awf_session_status` 的服务端实现。
+  // 刻意**不套** noSession 的 503：侦查没有失败态（probe 的 ok 恒为 true，信息不足由
+  // state='unknown' 表达）—— 监控要靠它判断「会话是否正常」，它自己先报错就无从判断。
+  if (req.method === 'GET' && pathname === '/probe') {
+    send(res, 200, await rt.probe.inspect());
     return true;
   }
 

@@ -1,5 +1,5 @@
 /**
- * pause.js — pause 闩锁（工作流暂停时让调用方原地等待，恢复后自动放行）
+ * pause/index.js — pause 闩锁（工作流暂停时让调用方原地等待，恢复后自动放行）
  *
  * 职责：提供 isWorkflowPaused（读 state.mode === 'pause'）与 waitWhilePaused（轮询等待，直到
  * mode 不再是 pause 或目标任务已结算）。暂停语义是「外部控制器把 state.mode 置为 pause」→
@@ -79,7 +79,8 @@ export function isWorkflowPaused(projectRoot) {
  *
  * **可观测性**：等待超 `alertMs` 打一次告警（项目根 + `label` = 等待所在阶段），之后每
  * `heartbeatMs` 一条心跳，放行时一条恢复日志。这些是运维信息，须落到人均可读的项目运行日志
- * （`log` 由调用方注入 `pcx.logger.logNotice`）；缺省退化为 console。
+ * （`log` 由调用方注入 `observability.pauseNoticeLog()`，见 runtime/channel.cjs 与 runtime/index.cjs）；
+ * 缺省退化为 console。
  *
  * @param {string} projectRoot
  * @param {{ pollMs?: number, label?: string, isSettled?: Function, log?: Function,

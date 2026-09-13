@@ -1,21 +1,23 @@
-// src/server/gate-fix.js — 门禁闭环：fail 自动派生修复 + 复审回退（原 cli/gate-fix，T1-062 归位 server 侧）
+// features/gate/fix.js — 门禁闭环的**编排入口**：完成回调 → 判定 → 派生修复
 //
 // 门禁任务（kind=review/test）由子 Agent / 主会话完成时输出结构化 verdict
-// （exec.verdict，见 plugin/core/agents/awf-worker.md）。CLI 检测
-// 「blocked + verdict.level !== 'pass'」→ 派生修复任务（kind=dev）→ 门禁回退
-// pending + deps 追加修复任务 → 修复完成门禁重新就绪复审 → 直到 pass 或达轮次上限
-// （MAX_RECHECK，state.js 定义，超限保持 blocked 需人工介入）。
+// （exec.verdict，见 plugin/core/agents/awf-worker.md）。检测「blocked + verdict.level !== 'pass'」
+// → 派生修复任务（kind=dev）→ 门禁回退 pending + deps 追加修复任务 → 修复完成门禁重新就绪复审
+// → 直到 pass 或达轮次上限（MAX_RECHECK，超限保持 blocked 需人工介入）。
+//
+// 分工：**规则**在 ./closure.js（判定 + 派生，含轮次上限），**文案**在 ./loop.cjs（verdict → 修复目标），
+// 本文件只做编排（取规则、生成提示词、调原子派生、给日志结论）。
 //
 // 接线：
 //  - 多 agent：runScheduler.onTaskComplete → 本模块
 //  - 单 agent：driveSingle → settleTaskCompletion → 门禁锚点（driver.gateCompletionHook）
 // 入口统一为 host 侧：单/多 agent 都经 run-driver.gateCompletionHook 收敛到本函数（见 run/host.cjs runGateHook）。
 //
-// 边界：本模块只做「幂等判定 + 派生修复任务」；读盘/写盘靠 core/state.js 的原子原语，
-// 修复提示词靠插件模板（core/prompts.js），修复目标文案规则归 gate-loop.cjs。
+// 边界：读盘/写盘靠 shared/state.js 的原子原语，修复提示词靠插件模板（shared/prompts.js）。
 
-import { loadState, spawnGateFixTaskAtomic, gateFixMeta, MAX_RECHECK } from '../../shared/state.js';
+import { loadState } from '../../shared/state.js';
 import { gateFixPrompt } from '../../shared/prompts.js';
+import { gateFixMeta, spawnGateFixTaskAtomic, MAX_RECHECK } from './closure.js';
 import { buildFixTarget } from './loop.cjs';
 
 /**

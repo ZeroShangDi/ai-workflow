@@ -9,8 +9,8 @@
  * 不应被自动改写，故默认必须有人点头。
  */
 
-const fs = require('node:fs');
-const path = require('node:path');
+const { readJsonFile } = require('../../shared/config-loader.cjs');
+const { configFilePath } = require('../../shared/project-paths.cjs'); // .awf 布局单源
 
 const MODES = Object.freeze({
   AUTO_THEN_REVIEW: 'auto_then_review',
@@ -46,13 +46,9 @@ function dynamicPlanningConfigFrom(raw) {
  * @returns {{ mode: string, extensions: object }}
  */
 function loadDynamicPlanningConfig(projectRoot) {
-  let raw = {};
-  try {
-    raw = JSON.parse(fs.readFileSync(path.join(projectRoot, '.awf', 'config.json'), 'utf8'));
-  } catch {
-    // 缺失/非法配置使用安全默认值。
-  }
-  return dynamicPlanningConfigFrom(raw);
+  // .awf/config.json 的读取形状（路径 + 容错语义）是外部约定，经共享原语读
+  const raw = readJsonFile(configFilePath(projectRoot), { optional: true });
+  return dynamicPlanningConfigFrom(raw ?? {});
 }
 
 module.exports = { MODES, DEFAULT_MODE, normalizeMode, dynamicPlanningConfigFrom, loadDynamicPlanningConfig };

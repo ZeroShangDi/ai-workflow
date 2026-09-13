@@ -24,9 +24,10 @@ const { ccShapes } = require('../../adapters/ports.cjs');
  * @param {Function} deps.newDecisionStore 决策追加式存储工厂
  * @param {Function} deps.decisionEnabled  决策闸门是否开启（读配置）
  * @param {Function} deps.publishEvent     上报领域事件（host 事件环）
+ * @param {object} deps.stores             state store（纠偏任务要写任务图；见返回面的 appendDecisionReviewTask）
  */
 function createDecisionHandler({
-  session, logger, newDecisionStore, decisionEnabled, publishEvent = () => {},
+  session, logger, newDecisionStore, decisionEnabled, publishEvent = () => {}, stores,
 }) {
   /** 下一个决策 id（序号由会话持有，保证同一会话内单调） */
   function nextId() {
@@ -166,7 +167,12 @@ function createDecisionHandler({
     return null;
   }
 
-  return { nextId, fallbackResult, persist, onAskUserQuestion, onStop };
+  // 纠偏任务写入：由本实例面透出（web 层一律经 rt 取能力，不直连本模块文件）。
+  // 注：函数本体仍单独导出 —— 它是「任务图写入」不是「决策流程」，模块外的复用面不变。
+  return {
+    nextId, fallbackResult, persist, onAskUserQuestion, onStop,
+    appendDecisionReviewTask: (input) => appendDecisionReviewTask(stores, input),
+  };
 }
 
 /**

@@ -17,7 +17,7 @@ function createMockTmux({ session = 'cc-mock', hasSession = true } = {}) {
   const calls = [];
   let alive = hasSession;
   return {
-    SESSION: session,
+    sessionName: session,
     calls,
     hasSession: () => alive,
     setAlive: (v) => { alive = !!v; },

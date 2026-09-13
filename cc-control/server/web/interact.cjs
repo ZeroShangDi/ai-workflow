@@ -20,8 +20,8 @@
  */
 
 const fs = require('node:fs');
-const path = require('node:path');
 const storeCore = require('../shared/store-core.cjs');
+const projectPaths = require('../shared/project-paths.cjs'); // .awf 布局单源
 
 /**
  * 校验并构造决策模型。
@@ -58,7 +58,7 @@ function createReadyLatch() {
 
 /** handoff 文件路径（.awf/context/handoff.md）—— 固定的项目内相对位置 */
 function handoffPath(projectRoot) {
-  return path.join(projectRoot, '.awf', 'context', 'handoff.md');
+  return projectPaths.handoffPath(projectRoot);
 }
 
 /** 读 handoff 快照；缺失 → null（不抛 —— 无快照是正常态，调用方按 null 走冷启动） */

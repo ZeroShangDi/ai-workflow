@@ -102,6 +102,22 @@ describe('读类路由', () => {
     expect(rt.session.state).toBe('ready');
   });
 
+  it('GET /probe：会话存活 + busy → 侦查快照（MCP awf_session_status 的服务端实现）', async () => {
+    tmux.setAlive(true);
+    rt.session.setBusy();
+    const r = await json(await req('GET', '/probe'));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, session: true, state: 'busy' });
+    expect(typeof r.body.capturedAt).toBe('string');
+  });
+
+  it('GET /probe：会话不在也返 200（侦查无失败态，不套 noSession 的 503）', async () => {
+    // 监控要靠它判断「会话是否正常」—— 它自己先报错就无从判断
+    const r = await json(await req('GET', '/probe'));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, session: false, state: 'ready' });
+  });
+
   it('GET /awf/state：返回本项目 state.json', async () => {
     const r = await json(await req('GET', '/awf/state'));
     expect(r.status).toBe(200);

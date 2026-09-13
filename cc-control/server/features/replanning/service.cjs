@@ -22,8 +22,8 @@
  * 编排 + 持久化；纯图变更逻辑在 planner.cjs，落盘原语在 store.cjs / core，决策能力经 decision-port 适配。
  */
 const crypto = require('node:crypto');
-const path = require('node:path');
 const storeCore = require('../../shared/store-core.cjs');
+const { stateFilePath, stateLockPath } = require('../../shared/project-paths.cjs');
 const { MODES, loadDynamicPlanningConfig } = require('./config.cjs');
 const { DynamicPlanningStore } = require('./store.cjs');
 const { planAdjustment } = require('./planner.cjs');
@@ -144,8 +144,10 @@ function publicProposal(proposal) {
  * @returns {{ propose, approve, reject, resolveDecision, get, list }}
  */
 function createDynamicPlanningService({ projectRoot, configLoader, extensions = {}, decisionPort = null }) {
-  const statePath = path.join(projectRoot, '.awf', 'state.json');
-  const lockPath = path.join(projectRoot, '.awf', 'state.lock');
+  // state 文件布局（.awf/state.json + .awf/state.lock）经共享单源取，不在这里拼字面量 ——
+  // 布局是外部约定，猜一遍就可能与 shared/state.js 不一致。
+  const statePath = stateFilePath(projectRoot);
+  const lockPath = stateLockPath(projectRoot);
   const records = new DynamicPlanningStore(projectRoot);
   const loadConfig = configLoader || (() => loadDynamicPlanningConfig(projectRoot));
 
@@ -515,7 +517,9 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
             readyTaskIds: prepared.analysis.readyAfter,
           };
           response = save(proposal, 'proposal.decision_approved_and_applied', { decisionId });
-          if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: proposal.proposedState });
+          // 传 nextState（锁内重放后的真实新状态）—— 与 approve() 保持一致。
+          // 此前这里误传 proposal.proposedState（创建时快照），会让扩展钩子拿到过期状态。
+          if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: nextState });
         }
       }
       resolvedProposal = proposal;

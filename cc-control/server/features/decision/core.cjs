@@ -1,6 +1,6 @@
 'use strict';
 /**
- * decision.cjs — 决策结果解析与轻量校验（src/server/）
+ * core.cjs — 决策结果解析与轻量校验（features/decision）
  *
  * 协议资产：plugin/decision/decision/PROTOCOL.md + schemas/decision-result.schema.json。
  * 模型在决策模式把 Decision Result 以 <AWF_DECISION_RESULT>…</AWF_DECISION_RESULT> 包裹作为回合最后输出。

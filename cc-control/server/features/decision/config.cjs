@@ -1,8 +1,10 @@
 'use strict';
 /**
- * decision-config.cjs — 决策闸门开关判定（server/CLI 共用单一实现）
+ * config.cjs — 决策闸门开关判定（features/decision）
  *
- * 与 CLI run-config 同源防漂移：src/lib/run-config.js 的 decision 段也委托本模块读取。
+ * 新 server 树与 cli 树**各有一份实现**（server 与 cli 隔离、不共享代码，理由同 shared/prompts.js）：
+ * 旧树那份在 src/lib/decision-config.cjs（由 src/lib/run-config.js 消费），两边读同一个字段
+ * `run.decision.enabled`，语义以本文件为准，改动需两边同步（默认值、仅接受布尔、非法回落缺省）。
  * 缺省 enabled=false（不配置 = 关 = 旧上抛逻辑），仅接受布尔，非法值回落缺省。
  *
  * ## 边界
@@ -14,8 +16,10 @@
  * 闸门会改写 Stop / AskUserQuestion 的控制流（拦截回合、注入决策指令），属侵入性行为；
  * 未显式配置的项目不应被它改变既有运行方式，故缺省 false，开启须在 .awf/config.json 显式声明。
  */
-const fs = require('node:fs');
-const path = require('node:path');
+// .awf/config.json 的读取形状（路径 + 容错语义）由项目配置约定决定，是外部形状 ——
+// 经共享原语读，本模块只管「decision 段的字段语义」。
+const { readJsonFile } = require('../../shared/config-loader.cjs');
+const { configFilePath } = require('../../shared/project-paths.cjs'); // .awf 布局单源
 
 /** 决策闸门缺省关闭（单一来源，ESM/CJS 共用） */
 const DECISION_DEFAULT_ENABLED = false;
@@ -36,13 +40,9 @@ function decisionEnabledFrom(raw) {
  * @returns {boolean}
  */
 function isDecisionEnabled(projectRoot) {
-  let raw = {};
-  try {
-    raw = JSON.parse(fs.readFileSync(path.join(projectRoot, '.awf', 'config.json'), 'utf-8'));
-  } catch {
-    /* 缺失或非法 JSON → 用默认（关） */
-  }
-  return decisionEnabledFrom(raw);
+  // optional：文件缺失 / 非法 JSON → null（用默认「关」），与 CLI 同默认
+  const raw = readJsonFile(configFilePath(projectRoot), { optional: true });
+  return decisionEnabledFrom(raw ?? {});
 }
 
 module.exports = { isDecisionEnabled, decisionEnabledFrom, DECISION_DEFAULT_ENABLED };

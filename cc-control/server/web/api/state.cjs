@@ -22,7 +22,6 @@
  * false=不是本域路由，交下一个。deps 由入口注入（本域暂不使用）。
  */
 
-const { readDiagnosis } = require('../../observability/diagnosis.cjs');
 const { readJson, send } = require('./util.cjs');
 
 async function handle(req, res, url, rt, deps) {
@@ -44,12 +43,12 @@ async function handle(req, res, url, rt, deps) {
     return true;
   }
   if (req.method === 'GET' && pathname === '/awf/diagnostics') {
-    send(res, 200, { ok: true, diagnosis: readDiagnosis(ctx.projectRoot) });
+    send(res, 200, { ok: true, diagnosis: rt.monitor.inspect() });
     return true;
   }
   // POST /awf/diagnostics：启动一次诊断（异步），202 受理 / 409 已在诊断中
   if (req.method === 'POST' && pathname === '/awf/diagnostics') {
-    const result = await rt.observability.startDiagnosis();
+    const result = await rt.monitor.diagnose();
     send(res, result.ok ? 202 : 409, result);
     return true;
   }
@@ -103,8 +102,8 @@ async function handle(req, res, url, rt, deps) {
     const s = ctx.stores.state.readSync();
     const task = s?.tasks?.find((x) => x.id === body.taskId) || null;
     if (!task) { send(res, 200, { ok: true, applied: false, reason: 'task not found' }); return true; }
-    const gf = await import('../../features/gate/fix.js'); // 动态 import：门禁修复较重，按需装载
-    await gf.handleGateCompletion(ctx.projectRoot, body.taskId, task);
+    const handleGateCompletion = await rt.ensureGateFix(); // 懒装载；web 不直连 features 内部文件
+    await handleGateCompletion(ctx.projectRoot, body.taskId, task);
     send(res, 200, { ok: true, applied: true, taskId: body.taskId });
     return true;
   }

@@ -1,4 +1,5 @@
 'use strict';
+const { normalizeStamp } = require('./run-id.cjs'); // 时间戳归一单源（版本快照 / run 目录 / runStamp 同一规则）
 /**
  * store.cjs — store 模块骨架（承接 store-core 持久化核心）
  *
@@ -213,12 +214,9 @@ function createAppendFileStore({ filePath, json = false, ensureDir = true }) {
 function createSnapshotStore({ dir }) {
   const fs = require('node:fs');
 
-  /** ts 归一为版本快照时间戳（YYYY-MM-DDTHH-mm-ss），与 run-id / backupState 命名一致 */
+  /** ts 归一为版本快照时间戳（YYYY-MM-DDTHH-mm-ss）：归一经 shared/run-id.cjs（此前此处是同一实现的副本） */
   function stamp(ts) {
-    const d = ts instanceof Date ? ts : new Date(ts);
-    if (Number.isNaN(d.getTime())) throw new Error(`store.snapshot: 非法时间戳（${String(ts)}）`);
-    // slice(0,19) 截到「秒」：秒以下精度会让同一秒内的快照文件名不同，反而不利于幂等/去重
-    return d.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    return normalizeStamp(ts);
   }
 
   /**

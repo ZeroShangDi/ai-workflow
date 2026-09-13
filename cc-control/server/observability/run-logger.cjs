@@ -20,8 +20,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const store = require('../shared/store.cjs');
+const { normalizeStamp } = require('../shared/run-id.cjs'); // run 标识/时间戳归一单源
+const { logsDir, stateFilePath } = require('../shared/project-paths.cjs'); // .awf 布局单源
 const storeCore = require('../shared/store-core.cjs');
-const extract = require('../adapters/cc/extract.cjs');
+const { extract } = require('../adapters/ports.cjs'); // 经端口契约的唯一门（extract 属非端口工具，同样只从这里出）
 
 const SEP = '─'.repeat(60) + '\n'; // 提示词段前的分隔线：长日志里一眼分清每轮 prompt 边界
 
@@ -49,11 +51,11 @@ class RunLogger {
     const version = this._readVersion();
     if (!version) return;
 
-    const dir = path.join(root, '.awf', 'logs');
+    const dir = logsDir(root);
     fs.mkdirSync(dir, { recursive: true });
 
-    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    this._runDir = path.join(dir, `${version}-${ts}`);
+    // 时间戳归一与 runStamp 同规则，经 shared/run-id.cjs 单源（不再各处手抄同一行正则）
+    this._runDir = path.join(dir, `${version}-${normalizeStamp(new Date())}`);
     fs.mkdirSync(path.join(this._runDir, 'agents'), { recursive: true });
     this._logPath = path.join(this._runDir, 'main.log');
     this._main = store.createAppendFileStore({ filePath: this._logPath });
@@ -71,7 +73,7 @@ class RunLogger {
   /** 从 state.json 读 version（日志目录前缀）；读不到 → null（进而 _init 不建目录，logger 停用） */
   _readVersion() {
     try {
-      const statePath = path.join(this._projectRoot, '.awf', 'state.json');
+      const statePath = stateFilePath(this._projectRoot);
       const raw = fs.readFileSync(statePath, 'utf-8');
       const state = JSON.parse(raw);
       return state.version || null;

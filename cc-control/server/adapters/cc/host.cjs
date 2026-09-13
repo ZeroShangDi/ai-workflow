@@ -2,16 +2,13 @@
 /**
  * host.cjs — host 基座：tmux 原语（会话名参数化，支持 cc-<sid>）
  *
- * 现状 tmux.cjs 把 SESSION 定在模块顶（单 run 会话，经 run-context 装配基础名/cc-<sid>）。
- * 多 run 后需同一套原语作用于任意会话名。本模块 createHost({ sessionName }) 产出
- * 参数化的 tmux 原语（hasSession/sendText/sendEnter/sendCtrlC/capture），会话名由调用方
- * 传 run-context.runSessionName（cc-<sid>）。execFileSync 可注入（测试）。
- * 现状 server.cjs / cli 仍经 tmux.cjs 单会话；host 由 W1-040/069 按 cc-<sid> 接入。
+ * 本模块 createHost({ sessionName }) 产出参数化的 tmux 原语
+ * （hasSession/sendText/sendEnter/sendCtrlC/capture），会话名由调用方传
+ * run-context.runSessionName（cc-<sid>）。execFileSync 可注入（测试）。
  *
- * 与 cc/tmux.cjs 的关系：两者都是「tmux 原语」，但定位不同 ——
- *   - tmux.cjs  = 旧的单例（模块加载即建一个默认会话实例，导出具名函数），兼容既有 require；
- *   - host.cjs  = 新的工厂（显式传会话名，可造多个实例），是 host **端口** 的实现。
- * 新代码（尤其多 run / 多项目）应经端口取 host，不要再新增对 tmux.cjs 的直接依赖。
+ * 「tmux 原语」只有这一份实现：同目录的旧单例 cc/tmux.cjs 方法体与本文件逐条相同，
+ * 仅包装不同（单例 / `SESSION` / global 注入钩子），其单例导出在本树从无消费者 —— 已删。
+ * 新代码一律经 adapters/ports.cjs 取 host，不直连本文件。
  */
 
 // 默认 exec 取值做成惰性函数：宿主环境/测试可能在 require 之后才替换 child_process，

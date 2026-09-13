@@ -138,8 +138,8 @@ function createSessionChannel({
         continue;
       }
       noWorkRounds += 1;
-      if (noWorkRounds > MAX_SETTLE_ROUNDS) {
-        log('error', `任务 ${taskId} 连续 ${noWorkRounds - 1} 轮无产出且未结算，标记 blocked 并跳过`);
+      if (noWorkRounds >= MAX_SETTLE_ROUNDS) {
+        log('error', `任务 ${taskId} 连续 ${noWorkRounds} 轮无产出且未结算，标记 blocked 并跳过`);
         markBlocked(taskId);
         return 'blocked';
       }

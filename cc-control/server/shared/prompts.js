@@ -1,5 +1,5 @@
-import path from 'node:path';
 import fs from 'node:fs/promises';
+import pluginAssets from './plugin-assets.cjs';
 
 /**
  * prompts.js — 读插件声明的提示词模板（server 侧）
@@ -14,16 +14,19 @@ import fs from 'node:fs/promises';
  * 边界：本模块只负责「取模板 + 填值」，不校验模板内容、不做多语言；模板 key 不存在即抛错
  * （宁可失败也不要静默发出空提示词）。所有导出函数都返回 Promise<string>（文件读取是异步的）。
  */
-const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..'); // server/core → 包根（ESM：用 import.meta.dirname）
+// 插件目录由注册表（plugin/config.json 的 marketplace）决定，不写死目录名 ——
+// 定位经 shared/plugin-assets.cjs（外部形状只有一个地方知道），本模块只管「读哪个 key」。
+const CODE_PLUGIN = 'ai-workflow-code';
+const CORE_PLUGIN = 'ai-workflow-core';
 
-/** 插件声明文件：plugin/plugin-code/prompts.json（提示词唯一来源，按 key 组织） */
+/** 插件声明文件：plugin-code 插件的 prompts.json（提示词唯一来源，按 key 组织） */
 function promptsPath() {
-  return path.join(REPO_ROOT, 'plugin', 'plugin-code', 'prompts.json');
+  return pluginAssets.pluginAssetPath(CODE_PLUGIN, 'prompts.json');
 }
 
-/** 状态模板文件：plugin/core/mcp/awf-state/state.template.json（awf init 播种 state.json 用） */
+/** 状态模板文件：core 插件的 mcp/awf-state/state.template.json（awf init 播种 state.json 用） */
 export function stateTemplatePath() {
-  return path.join(REPO_ROOT, 'plugin', 'core', 'mcp', 'awf-state', 'state.template.json');
+  return pluginAssets.pluginAssetPath(CORE_PLUGIN, 'mcp', 'awf-state', 'state.template.json');
 }
 
 /**
@@ -95,7 +98,7 @@ export function contextCheck(usage) {
  * 门禁修复任务 prompt — 由插件模板声明命令与结构，CLI 只填充任务 ID 与修复目标
  * （命令字符串活在模板里，本模块不硬编码，遵守「插件改动，本模块零感知」）。
  * @param {{ fixId: string, fixTarget: string }} params - fixId 如 'R1-F1'；fixTarget 为具体修复目标描述
- *   注意 fixId 须与 state.gateFixMeta 派生的一致（调用方先取 meta 再生成 prompt），本函数只填值不生成 id。
+ *   注意 fixId 须与 features/gate/closure.js 的 gateFixMeta 派生的一致（调用方先取 meta 再生成 prompt），本函数只填值不生成 id。
  * @returns {Promise<string>}
  */
 export function gateFixPrompt({ fixId, fixTarget }) {

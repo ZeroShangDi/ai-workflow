@@ -53,7 +53,7 @@ function writeNeedsProject(method, pathname) {
 
 /** tmux 缺席时的统一响应（503 —— 服务在但外部依赖不在，不是 404/500） */
 function noSession(res, rt) {
-  return send(res, 503, { ok: false, error: `tmux session '${rt.ctx.tmux.SESSION}' not found; run bootstrap.sh` });
+  return send(res, 503, { ok: false, error: `tmux session '${rt.ctx.tmux.sessionName}' not found; run bootstrap.sh` });
 }
 
 module.exports = { readJson, send, requirePaused, writeNeedsProject, noSession };

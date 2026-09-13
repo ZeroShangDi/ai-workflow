@@ -23,6 +23,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { getSessionName, getServerPort } = require('./runtime-config.cjs');
 const { SID_PATTERN, validateRunId } = require('./run-id.cjs');
+const projectPaths = require('./project-paths.cjs'); // .awf 布局单源（本文件的路径表全部取自它）
 
 /** cc-control 包根：server/core/run-context.cjs → 上溯两级（core → server → 包根），不受 cwd 影响 */
 const INFRA_ROOT = path.resolve(__dirname, '..', '..');
@@ -58,7 +59,7 @@ function buildRunContext({ sid = null, projectRoot, env = process.env } = {}) {
   // 不得重复追加后缀（cc-<sid>-<sid>）；跨 run 的父身份由 run-env 在命令边界清洗。
   const sidSuffix = sid == null ? null : `-${sid}`;
   const runSessionName = sid == null || session.endsWith(sidSuffix) ? session : `${session}${sidSuffix}`;
-  const awfDir = path.join(root, '.awf');
+  const awfDir = projectPaths.awfDir(root);
   /** 每 run 目录（T1-018 布局）：.awf/runs/<sid>/；无 sid 时不派生 */
   const runDir = sid == null ? undefined : path.join(awfDir, 'runs', sid);
   // 每 run 布局子路径（sid 存在时产出；内容文件集由 store 归位任务使用，W1-019/020+ 落盘）
@@ -93,13 +94,13 @@ function buildRunContext({ sid = null, projectRoot, env = process.env } = {}) {
     // 与下方每 run 布局并存：无 sid 时 store 用这里的 statePath/contextUsagePath；
     // 有 sid 时改走 runStatePath/runUsagePath（见 store.createRunStores 的回落逻辑）。
     awfDir,
-    statePath: path.join(awfDir, 'state.json'),
-    runConfigPath: path.join(awfDir, 'config.json'),
-    runSettingsPath: path.join(awfDir, 'run-settings.json'),
-    contextUsagePath: path.join(awfDir, 'context', 'usage.json'),
-    runMetaPath: path.join(awfDir, 'logs', 'run-meta.json'),
-    logsDir: path.join(awfDir, 'logs'),
-    decisionsDir: path.join(awfDir, 'decisions', 'runs'),
+    statePath: projectPaths.stateFilePath(root),
+    runConfigPath: projectPaths.configFilePath(root),
+    runSettingsPath: projectPaths.settingsFilePath(root),
+    contextUsagePath: projectPaths.contextUsagePath(root),
+    runMetaPath: projectPaths.runMetaPath(root),
+    logsDir: projectPaths.logsDir(root),
+    decisionsDir: projectPaths.decisionsRunsDir(root),
 
     // ── 每 run 布局（T1-018）：.awf/runs/<sid>/ 及子路径（无 sid → 不派生） ──
     runDir,
