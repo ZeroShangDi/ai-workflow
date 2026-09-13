@@ -1,6 +1,6 @@
 # 旧树 `src/` 退役收口方案（讨论稿）
 
-> 2026-09-13 · 状态：**已评审通过，执行中**
+> 2026-09-13 · 状态：**已完成**（2026-09-14 收口并验证；执行结果见文末 §九）
 > 触发：新树 `server/` + `cli/` 已在真机跑通（e2e `multi-agent-parallel` 11/11、regression 76/76、单测 1060）；
 > 用户裁定「新树可以跑通了，现在进行收口」——删旧树 `src/` 并解开全部指向它的依赖。
 
@@ -180,3 +180,58 @@ D 类：`version-prompt`（能力停用）、`run-follow` / `task-list`（旧 TT
 | 与另一模型撞车 `web/` | 本轮完全不碰 `web/` |
 | 插件 MCP 的 `try/catch` 把问题藏起来 | 改指新树后断言三处回取**真解析成功**，不只「catch 没报错」 |
 | 迁 `plugin-config.js` 与 `profile.cjs` 重复实现 | P0-2 先核对已迁部分，再决定并入还是新增 |
+
+
+---
+
+## 九、执行结果（2026-09-14 完成）
+
+状态：**已完成** —— 旧树 `src/` 已整棵删除，`cli/` + `server/` 成为唯一实现。
+提交按「方案 → 功能 → 测试与门禁 → 删除 → 文档」切分（遵 `.awf/RULES.md`：文档/测试独立于功能实现）。
+
+### 9.1 提交
+
+| commit | 段 | 内容 |
+|---|---|---|
+| `70765ef` | 方案 | 本文件（`docs(discuss)`） |
+| `9290977` | P0 | 补回重构漏搬的接线与能力：bin/发布包（`files` 原不含新树）、插件注册渲染器迁入 `server/shared/plugin-render.cjs`、会话就绪守卫、server.log 轮转、插件 MCP 三处回取改指新树、`serverScriptPath` 单源、server 入口补回三条测试注入缝、修决策生命周期记录 bug、恢复 `decision.required` 推送、删无人引用的聚合桶 |
+| `5e1177d` | P1+P2 | 70+ 测试文件从旧树移植到新树；结构门禁改根（层规则/允许方向/白名单/豁免/结构断言/扫描根） |
+| `6563ea5` | P3 | 删除 `src/` 全量（含 `src/server/public` 构建产物、`src/templates/`）+ 连带删两个「只有旧树在才绿」的测试 |
+| `a3377d6` | P4 | `CLAUDE.md` / `README.md` / `.gitignore` / `docs/features/*` 等 415 处路径改指新树 |
+| `6b7bea5` | 补遗 | 回归/eval harness 里 `path.join` 拼的旧树计算路径（字面 grep 抓不到，删树后 `MODULE_NOT_FOUND` 才现形） |
+| `fd3f917` | 补遗 | 清理 6 处「与旧树并存」的过时自述（现在时断言已不成立） |
+
+### 9.2 验证证据（全部实跑）
+
+| 手段 | 结果 |
+|---|---|
+| `npm test` | **107 文件 / 1001 例全绿**（删旧树后仍全绿） |
+| `npm run lint` | 通过 |
+| `npm run build` | 全链通过（render-config → 语法 → 结构门禁 → web 构建 → `npm pack --dry-run`） |
+| 结构门禁 | 实扫 **170** 个生产文件、27 条边全在声明方向内、0 违例、`--strict` 通过 |
+| 门禁**元验证** | 造一条方向越界 + 一个零引用文件 → exit 1 且两条都报出；复原 → exit 0 |
+| `npm pack` | 194 文件；含 `cli/` + `server/` + `server/web/public/`，**无 `src/`**；`bin → cli/awf.cjs` |
+| 装包冒烟 | 真 `npm i <tarball>` + `awf --help` → 新 CLI 7 命令跑通 |
+| `test:real --fast` | **76/76** 断言通过 |
+| e2e 抽样 | `hello-sum` 1/1、`multi-agent-parallel` 1/1 |
+
+### 9.3 收口时发现的问题（各落一条 issue）
+
+- **014 命令层不可测**：`vi.mock` 拦不到 CJS 模块里的 `require`（旧 CLI 是 ESM 才拦得住）。
+  故 `cli-aux` 等改为真链路断言；未覆盖的执行路径登记在案（出路：改 ESM / 加注入缝 / 维持现状）。
+- **015 重构漏搬测试注入缝**：`__CC_TMUX__` / `__CC_RUNLOGGER__` / `__CC_ONESHOT__` / `__CC_RUN_DIAGNOSIS__`
+  四条，运行时通道一路都在、只有入口没接线 —— 4 个集成用例因此在**真调 tmux**。前三条已补回。
+- **016 决策生命周期记录**：`decision_answered` 被同 `decision_id` 的 `requested` 静默挡掉（`append`
+  是按 decision_id 跨事件去重的，生命周期事件该用 `appendEvent`）—— **真 bug，已修 + 判别性用例 + 元验证**；
+  另恢复「决策挂起」的 WS 推送 `decision.required`。
+- **017 未搬能力清单**：TTY 表现层 `src/lib/ui/*`（有意不搬，边界＝内容由 server 提供、CLI 只管输出/UI）、
+  `auto` 路由的多选应答、版本选择器 `version.js`、以及 `decisionResume` 是否真无消费者（待查）。
+
+### 9.4 遗留
+
+1. `docs/features/*.md` **只做了路径改指**（415 处），正文叙述仍按旧树实现写的 —— 需要单独一轮文档刷新。
+2. issue 017 里的三项待查/待定（auto 多选、`decisionResume` 消费者、TTY 表现层是否重建）。
+3. 收口期间 `web/` 正被另一个模型重构，本轮**一个 `web/` 文件都未触碰**；当时 `npm test` 的 1 条红
+   （`web-api-client` 的 URL 编码）由对方的在途改动引起。
+4. 既有那条 `check-architecture` 可达性红（`T4-001` blocked → 豁免责任人不可达）随旧豁免表清零
+   **顺带转绿** —— 属副作用，任务图本身未动。

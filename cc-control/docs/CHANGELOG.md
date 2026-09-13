@@ -15,6 +15,17 @@
 - **动态任务规划的两组真机证据** —— 回归侧 `dynamic-planning`（31 断言，真 server + 真 awf-state MCP 的跨进程边界链路）与 `dynamic-planning-run`（22 断言，真 tmux + 真 Claude，**一次 run 走到底**：AI 自己从 state 里找出计划缺口并发起提案 → 人在 run 进行中批准 → 同一 run 继续，前置先于目标执行）；eval 侧同源用例 `tests/eval/cases/dynamic-planning/`。
 - **eval 用例的运行中钩子机制** —— `tests/eval/cases/<id>/hooks.mjs` 可导出 `duringRun` / `afterRun`，与 `awf run` **并发**执行（声明式 `case.json` 只能「跑完看结果」，而人工批准这类动作必须发生在 run 进行中）。
 
+### Changed
+
+- **旧树 `src/` 退役收口（2026-09-14）** —— 两套实现收敛为一棵：`cli/` + `server/`。删 `src/` 会同时打断四条链路（`scripts/render-config.mjs` 硬 `import` 它、`package.json` 的 `bin`/`files` 指向它、插件 MCP 三处回退取它、70 个测试文件 `import` 它），故按「先接线 → 再重定向测试 → 再改门禁 → 最后删」一次走完，共 7 个提交（方案 / P0 接线 / P1+P2 测试与门禁 / P3 删除 / P4 文档 / 两条补遗）。方案与逐段执行结果见 `docs/discuss/legacy-tree-retirement.md`。
+  - **发布包此前不含新树**：`bin` 指向 `src/awf.js`、`files` 只有 `plugin/`+`src/`+`scripts/` —— 装出来的 `awf` 一直是旧 CLI。现 `bin → cli/awf.cjs`、`files` 补 `server/`+`cli/`（已用真机装包冒烟验证：`npm i <tarball>` 后 `awf --help` 跑通）。
+  - **补回四处重构漏搬的能力**：插件注册渲染器（**唯一会直接打断 `npm run build` / `prepack` 的旧树独有能力**）迁入 `server/shared/plugin-render.cjs`；`server.log` 单代轮转（新 CLI 初版内联写入后丢了轮转，日志会无限增长）；会话就绪守卫（轮询 `sessionSeq` + 每 5s 补 Enter —— server 一直还在产该信号但 CLI 零消费者，`bootstrap.sh` 只剩一记 `sleep 3 + Enter`，打空即复现 2026-09-10 dual-b：派发文本被信任弹窗吞掉）；server 入口的三条测试注入缝（`__CC_TMUX__` / `__CC_RUNLOGGER__` / `__CC_ONESHOT__` —— 运行时通道一路都在，只有入口没读全局没往下传）。
+  - **修一处真 bug（issue 016）**：决策生命周期记录的 `recordAsked` / `recordAnswered` 用了 `DecisionStore.append`，而 `append` 是**按 `decision_id` 跨事件**去重的 —— 同一次决策的 `decision_answered` 被 `decision_requested` 静默挡掉，「谁答的 / 答了什么」永远查不到。改用 `appendEvent`（按 `(decision_id, event)` 去重），并恢复「决策挂起」的 WS 推送 `decision.required`。
+  - **结构门禁改根（P2）**：旧门禁的层规则、白名单、豁免表、扫描根全部硬编码 `src/` —— 删旧树后会**合法地扫 0 个文件 → 永远绿**（最危险的沉默失效）。现按新树分层与**实测的依赖边**声明允许方向，自洽断言收紧为「扫到 >100 个文件 + 解析出 >10 条层间边」，并加**元验证**（临时造方向越界 + 零引用文件 → 必须 exit 1）。
+  - **删除优于标注**：删掉无人生产引用的聚合桶 `server/features/index.js`（由门禁报出）。
+  - **未搬能力已登记而非静默丢弃（issue 017）**：TTY 表现层 `src/lib/ui/*`（边界＝内容由 server 提供、CLI 只管输出/UI）、`auto` 路由的多选应答、交互式版本选择器、以及 `decisionResume` 消费者存疑。
+  - 收口期间 `web/` 正被另一个模型重构，本轮**未触碰任何 `web/` 文件**。
+
 ## [0.2.0] - 2026-09-11
 
 > **全量一次性架构重构 + 决策闸门里程碑**（2026-09-07 决策闸门收敛 → 2026-09-11 重构收尾）。
