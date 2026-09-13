@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * cli/awf.cjs — 新 CLI 入口（与旧 CLI 并存；旧的在 src/awf.js。后缀是 .cjs 因为包是 type:module）
+ * cli/awf.cjs — CLI 入口（package.json bin；后缀 .cjs 因为包是 type:module）
  *
  * 定位：**薄** —— 只做「起环境 / 提交 / 订阅 / 中继 / 看现场」，编排全在 server 的 run host。
- * 与旧 CLI 的关系：新树自包含，两份实现互不引用；旧 CLI 的服务端是 `src/server/`，本 CLI 的是
- * `server/`（见 lib/context.cjs）。切换 bin 之前，本入口用 `node cli/awf.cjs` 直接跑。
+ * 本 CLI 的服务端是隔壁 `server/`（见 lib/context.cjs）；旧树 `src/` 已随收口退役
+ * （docs/discuss/legacy-tree-retirement.md）。
  *
- * 命令面：init / plan / run / server / open / attach / plugin —— 新 CLI 已能跑完整链路
+ * 命令面：init / plan / run / server / open / attach / plugin —— 完整链路可用
  * （init 建工作区 → plan 出 state → run 执行）。
  */
 

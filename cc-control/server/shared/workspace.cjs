@@ -8,10 +8,9 @@
  * ## 模板放哪
  * 模板是**项目工作区的形状**，随新 server 一起分发：`server/templates/`（本模块是它的读取口）。
  *
- * ⚠️ **过渡期的重复**：旧树 `src/templates/` 里还有一份同名文件（旧 CLI 在读）。用户裁定：
- * 旧树不动，等重构收尾后**直接删掉旧树**，重复随之消失。在那之前，改模板**两边都要改**
- * —— 同 `shared/prompts.js` 的处置（两棵树各一份，注释写明需同步）。
- * 未搬的三份：`CLAUDE.md.template`（已弃用，0 字节）、`w-tree-template.html`（无引用）。
+ * 旧树 `src/templates/` 那份已随旧树退役删除（此前是「过渡期重复、两边都要改」）；现在**只有这一份**。
+ * 未随迁的三份：`CLAUDE.md.template`（已弃用，0 字节，且会引运行期走已停用的旧决策入口）、
+ * `w-tree-template.html`（零引用）。
  *
  * ## state 模板为什么不在这
  * `state.json` 的模板由**插件**声明（`plugin/core/.../awf-state/state.template.json`），

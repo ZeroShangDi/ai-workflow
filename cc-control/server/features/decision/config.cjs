@@ -2,10 +2,10 @@
 /**
  * config.cjs — 决策闸门开关判定（features/decision）
  *
- * 新 server 树与 cli 树**各有一份实现**（server 与 cli 隔离、不共享代码，理由同 shared/prompts.js）：
- * 旧树那份在 src/lib/decision-config.cjs（由 src/lib/run-config.js 消费），两边读同一个字段
- * `run.decision.enabled`，语义以本文件为准，改动需两边同步（默认值、仅接受布尔、非法回落缺省）。
- * 缺省 enabled=false（不配置 = 关 = 旧上抛逻辑），仅接受布尔，非法值回落缺省。
+ * **单一实现**：CLI 侧经 `decisionMode` 直接 require 本模块（旧树曾有第二份 `src/lib/decision-config.cjs`，
+ * 随收口删除），故不存在「两边同步」的问题。
+ * 开关 `run.decision.enabled` 缺省 false（不配置 = 关）；策略 `run.decision.mode` 取 manual | ai | auto，
+ * 缺省由 enabled 反推（开 → ai，关 → auto）。非法值一律回落缺省。
  *
  * ## 边界
  * 只回答「闸门开没开」一个问题，不解析决策内容、不感知会话态。开与关的语义差异全部由

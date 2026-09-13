@@ -6,7 +6,8 @@
  *
  * 现状**尚未达成**，别把上面那句读成既成事实（issue 004-4）：`session` 端口仍 `not-landed`（live 走
  * `scripts/bootstrap.sh`），命令字面仍在 adapters 之外 —— `claude` 在 `scripts/bootstrap.sh:11,42`，
- * `tmux` 在 `src/server/tmux.cjs`、`src/server/host.cjs`（审计 F5，责任 T1-113）。
+ * `tmux` 在 `server/adapters/cc/host.cjs`（**已收口**：旧树 `src/server/tmux.cjs` 随收口删除，
+ * 现在只有这一个实现，字面在本 adapter 内）。
  * 本文件记的是**目标形态 + 未收口的结构化登记**，不是「已经收口了」的完工声明。
  *
  * ## 这个目录为什么长这样（六边形架构 / Ports & Adapters）
@@ -163,7 +164,7 @@ const PORT_NAMES = PORT_CONTRACT.map((p) => p.name);
 /**
  * 端口实现句柄 —— **生产侧进入 adapters 的唯一门**（T1-117）。
  *
- * 目的：`src/cli` / `src/server` / `src/lib` 不再 `require('./xxx.cjs')` 具体实现文件，
+ * 目的：`cli/` / `server/` 各层不再 `require('./xxx.cjs')` 具体实现文件，
  * 一律从这里取。这样「适配器有哪些能力面」只有一个出口，换实现、加端口都只动这里；
  * 此前逐个直连实现文件，契约层形同虚设（`ports.cjs` 零生产引用，F3）。
  *

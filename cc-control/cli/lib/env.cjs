@@ -8,10 +8,10 @@
  *
  * 本模块只做纯对象转换，不改 process.env；不决定身份是什么，只决定「谁该死、谁该活」。
  *
- * ## 与旧树的关系
- * `src/lib/run-env.cjs` 是同一份契约的另一实现（新 CLI 与旧 CLI 隔离、不共享代码，同
- * prompts.js / decision-config.cjs 的处置）。**两边字段必须同步**：新增 run 级身份变量时，
- * 这里、`src/lib/run-env.cjs`、`scripts/bootstrap.sh` 的 ENV_ASSIGNS 三处一起加。
+ * ## 新增 run 级身份变量
+ * 契约有三处落点，**必须同步**：这里（`serverSpawnEnv` / `runSessionEnv`）、
+ * `scripts/bootstrap.sh` 的 ENV_ASSIGNS、以及 bootstrap 显式赋值的那串变量。
+ * （旧树 `src/lib/run-env.cjs` 是曾经的第二份实现，已随旧树退役删除。）
  */
 
 /** run 身份变量：父 run 的这组值不能泄漏进子控制平面 */
