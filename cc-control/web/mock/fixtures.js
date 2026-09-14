@@ -36,7 +36,55 @@ export function createProject(projectRoot, index, scenario) {
     project.status.decisionPending = { kind: 'choice', question: '验证失败后如何继续？', options: ['检查原因后重试', '保留结果并继续'] };
     project.state.mode = 'pause';
   }
+  project.environment = { status: 'ready', files: [
+    { path: 'package.json', status: 'read', summary: 'React 18 · Vite 5 · npm' },
+    { path: '.awf/state.json', status: 'read', summary: '已有任务与 WBS' },
+    { path: 'docs/design/cc-work-design-contract.md', status: 'read', summary: '界面交付约定' },
+    { path: '.awf/decisions/', status: 'read', summary: '历史决策记录' },
+  ], branch: 'main', runtime: 'Node.js 22', warnings: [] };
+  project.requirements = [];
+  project.plan = { status: 'approved', version: 1, summary: '前端工作空间完整交互', tasks: JSON.parse(JSON.stringify(project.state.tasks)) };
+  project.messages = [
+    { id: 'M-1', role: 'user', type: 'text', text: '让前端工作空间可以完整演示需求、规划、运行和复审。', at },
+    { id: 'M-2', role: 'assistant', type: 'text', text: '已读取项目约定。我会先确认依赖和验收标准，再逐步执行。', at },
+    { id: 'M-3', role: 'tool', type: 'tool', title: '读取项目上下文', text: 'package.json · 状态文件 · 设计交付约定', status: 'done', at },
+    { id: 'M-4', role: 'assistant', type: 'task', title: '执行计划', text: '环境 → 状态接口 → 页面交互 → 回归验证', status: 'running', at },
+  ];
+  const early = ['empty', 'directory', 'environment', 'requirement', 'planning', 'plan-ready', 'plan-error'];
+  if (early.includes(scenario) || index === 1) {
+    project.runs = []; project.decisions = []; project.proposals = []; project.messages = [];
+    project.state.tasks = []; project.state.wbs = []; project.state.mode = 'idle'; project.state.currentState = 'PLAN'; project.status.activeAgents = 0;
+    project.snapshot = ''; project.plan = { status: 'empty', version: 0, tasks: [], summary: '' };
+    project.environment.status = scenario === 'directory' ? 'reading' : scenario === 'empty' || index === 1 ? 'unread' : 'ready';
+    if (['requirement', 'planning', 'plan-ready', 'plan-error'].includes(scenario) && index === 0) {
+      project.requirements = [{ id: 'REQ-001', text: '完善项目工作空间：支持需求规划、执行进度、决策审批和日志查询。', status: 'submitted', at }];
+      project.plan = { status: scenario === 'planning' ? 'generating' : scenario === 'plan-error' ? 'failed' : scenario === 'plan-ready' ? 'ready' : 'empty', version: 1, summary: project.requirements[0].text,
+        tasks: scenario === 'plan-ready' ? tasks.slice(0, 6).map(t => ({ ...t, status: 'pending', deps: [] })) : [], error: scenario === 'plan-error' ? '规划过程被中断，可重试。' : null };
+    }
+  }
+  if (scenario === 'waiting-text' && index === 0) { project.status.decisionPending = { kind: 'text', question: '请补充本轮上线的验收条件。' }; project.state.mode = 'pause'; }
+  if (['blocked', 'failed', 'completed', 'cancelled'].includes(scenario) && index === 0) {
+    project.state.tasks.forEach((task, i) => { task.status = scenario === 'completed' || i < 7 ? 'done' : i === 7 ? (scenario === 'failed' ? 'failed' : scenario === 'blocked' ? 'blocked' : 'pending') : 'pending'; });
+    project.state.mode = scenario === 'blocked' ? 'pause' : 'idle'; project.status.activeAgents = 0;
+    project.runs[0].status = scenario === 'completed' ? 'done' : scenario === 'blocked' ? 'running' : scenario;
+    if (scenario !== 'blocked') project.runs[0].endedAt = at;
+  }
+  if (index === 0 && !early.includes(scenario)) {
+    for (const [id, status, reason] of [['P-004', 'applied', '已应用：补充输入校验'], ['P-005', 'conflicted', '冲突：目标任务已改变'], ['P-006', 'rejected', '已替代：旧的依赖调整'], ['P-007', 'failed', '失败：变更验证未通过']]) project.proposals.push(proposal(id, status, reason));
+    project.decisions.push({ event: 'decision_completed', decision_id: 'D-006', status: 'pending_review', runStamp: 'mock-run', result: { real_question: '执行失败是否立即重试？', answer: '保留错误上下文，人工确认后重试。', risks: ['重复执行可能覆盖产物'], type: 'resolved' } });
+    project.decisions.push({ event: 'decision_overridden', decision_id: 'D-006', runStamp: 'mock-run', instruction: '先检查上下文，再启动新的运行。', at });
+  }
+  if (['empty', 'directory'].includes(scenario) || index === 1) {
+    project.environment.files = [{ path: 'package.json', status: 'read', summary: '已识别项目入口' }, { path: '.awf/', status: 'missing', summary: '尚无工作流环境，将从新需求开始' }];
+  }
+  if (scenario === 'queued' && index === 0) { project.runs[0].status = 'queued'; project.state.tasks.forEach(t => { t.status = 'pending'; }); project.status.activeAgents = 0; }
+  if (index === 0 && !early.includes(scenario)) {
+    for (const proposal of project.proposals.filter(p => ['applied_review_pending', 'applied'].includes(p.status))) {
+      const task = proposal.operations[0].task;
+      project.state.tasks.push({ ...task, deps: [], status: scenario === 'completed' ? 'done' : 'pending', source: 'dynamic_planning' });
+    }
+  }
   return project;
 }
 export const PROJECT_ROOTS = ['/mock/cc-work', '/mock/interface-lab'];
-export const SCENARIOS = ['demo', 'idle', 'empty', 'waiting', 'conflict', 'error'];
+export const SCENARIOS = ['empty', 'directory', 'environment', 'requirement', 'planning', 'plan-ready', 'plan-error', 'idle', 'queued', 'demo', 'waiting', 'waiting-text', 'blocked', 'failed', 'completed', 'cancelled', 'conflict', 'error'];

@@ -16,3 +16,11 @@ test('shared dependencies point downward and pages do not import other pages',()
     }
   }
 });
+test('only development bootstrap imports mock; pages do not contain mock data or transports', () => {
+  for (const file of files(root)) {
+    const path = relative(root, file), source = readFileSync(file, 'utf8');
+    if (path === 'main.jsx') continue;
+    assert.doesNotMatch(source, /(?:from\s*|import\s*\(?)["'][^"']*\/mock\//, path);
+    assert.doesNotMatch(source, /\/mock\/(?:cc-work|interface-lab|new-product)|createMockServer|scenario=demo/, path);
+  }
+});

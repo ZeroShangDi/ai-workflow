@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import ProjectPicker from '../../../shared/components/business/ProjectPicker.jsx';
 import { projectName as name } from '../../../shared/lib/project.js';
 import { Button } from '../../../shared/components/ui/index.js';
 export default function Sidebar({
@@ -7,9 +8,11 @@ export default function Sidebar({
   projects,
   project,
   setProject,
-  error
+  error,
+  client
 }) {
   const sidebar = useRef(null);
+  const [adding, setAdding] = useState(false);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement;
@@ -36,7 +39,8 @@ export default function Sidebar({
       }}>
         <span className="project-mark">⌄</span>
         <span>{name(p.projectRoot)}</span>
-      </Button>)}{!projects.length && <p className="muted">{error ? '等待连接 server' : '正在读取项目…'}</p>}</div>
-    <footer className="sidebar-footer">本地工作空间</footer>
+      </Button>)}{!projects.length && <p className="muted">{error ? '等待连接 server' : '暂无项目，请添加工作目录'}</p>}</div>
+    <footer className="sidebar-footer"><Button onClick={() => { setOpen(false); setAdding(true); }}>添加项目</Button><p>本地工作空间</p></footer>
+    {adding && <ProjectPicker client={client} onClose={() => setAdding(false)} onOpened={root => { setProject(root, 'project'); setAdding(false); }} />}
   </aside>);
 }

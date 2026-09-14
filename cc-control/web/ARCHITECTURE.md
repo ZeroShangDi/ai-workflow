@@ -114,9 +114,13 @@ web/src/
 - `npm --prefix web run lint`
 - `npm --prefix web test`：接口作用域/超时、mock 状态流转、路由参数、矩阵和依赖方向。
 - `npm --prefix web run build -- --outDir dist`：验证产物仅写 web；生产 tree-shaking 排除 mock。
-- `web/tests/browser.cjs`：真实浏览器走 mock transport，无路由拦截，覆盖五页四种宽度和主要动作。需要安装 Playwright 或设置 PLAYWRIGHT_MODULE，详见 mock/README。
+- `web/mock/tests/browser.cjs`：真实浏览器走 mock transport，无路由拦截，覆盖七页四种宽度和完整时间轴。需要安装 Playwright 或设置 PLAYWRIGHT_MODULE，详见 mock/README。
 - 与根目录测试兼容的导出继续保留，当前 API client 的 13 项已有测试也通过；不改根目录 tests。
 
 本机没有找到 Code Principles 技能，因此没有声称调用它。此次按依赖方向、单一职责、状态归属、可替换传输和行为测试审查。
 
 本轮结果：ESLint 0 错误/警告；web 下 10 项 Node 测试通过；既有 API client 13 项测试通过；浏览器覆盖 1440/1024/768/390 宽度的五页，验证启动、暂停、发送、回复、审批、替代决策、清屏、主题、空数据、接口异常和浏览器回退，未发起真实 API 请求。构建产物无 mock fixture。正式后端端到端执行和桌面 IPC 本期未验证。
+
+## 2026-09-14：完整 Mock 时间轴
+
+所有模拟数据、日志样本、状态机、预览 UI 和模拟测试收敛至 `web/mock/`；正式页面仍在 `src/pages/`，通过统一 API 消费结果。新增项目/Plan 页面与目录选择器、结构化会话、决策采纳/替代、提案复审/恢复、任务恢复和运行取消/重试。后端接入契约见 `mock/CONTRACT.md` 与 `mock/contract.ts`。开发引导仅从 main 动态载入 mock，生产构建剔除模拟内容。

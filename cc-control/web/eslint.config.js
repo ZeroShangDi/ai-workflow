@@ -6,12 +6,13 @@ import reactHooks from 'eslint-plugin-react-hooks';
 export default [
   { ignores: ['dist', 'node_modules'] },
   js.configs.recommended,
+  { files: ['mock/tests/*.cjs'], languageOptions: { globals: { require: 'readonly' } } },
   {
-    files: ['src/**/*.{js,jsx}'],
+    files: ['src/**/*.{js,jsx}', 'mock/**/*.{js,jsx,mjs,cjs}'],
     plugins: { react, 'react-hooks': reactHooks },
     languageOptions: {
       ecmaVersion: 2022,
-      globals: { AbortController: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', URL: 'readonly', URLSearchParams: 'readonly', window: 'readonly', document: 'readonly', WebSocket: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' },
+      globals: { Response: 'readonly', location: 'readonly', queueMicrotask: 'readonly', structuredClone: 'readonly', process: 'readonly', console: 'readonly', innerWidth: 'readonly', AbortController: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', URL: 'readonly', URLSearchParams: 'readonly', window: 'readonly', document: 'readonly', WebSocket: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' },
       sourceType: 'module',
       parserOptions: { ecmaFeatures: { jsx: true } },
     },

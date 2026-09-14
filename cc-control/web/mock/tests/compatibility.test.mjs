@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMockServer } from '../mock/server.js';
-import { PROJECT_ROOTS } from '../mock/fixtures.js';
-import { API } from '../src/shared/api/index.js';
-import { routeUrl, readRoute } from '../src/app/router.js';
-import { createApiClient } from '../src/shared/lib/http.js';
+import { createMockServer } from '../server.js';
+import { PROJECT_ROOTS } from '../fixtures.js';
+import { API } from '../../src/shared/api/index.js';
+import { routeUrl, readRoute } from '../../src/app/router.js';
+import { createApiClient } from '../../src/shared/lib/http.js';
 const url = path => { const u = new URL(path, 'http://mock'); u.searchParams.set('p', PROJECT_ROOTS[0]); return u.href; };
 test('all read endpoints are implemented; unknown routes cannot reach a live server', () => {
   const server = createMockServer();
@@ -31,7 +31,7 @@ test('approval validates reviewer and updates proposal and tasks', () => {
   assert.ok(s.handle(url(API.state)).body.tasks.some(t=>t.source==='dynamic_planning'));
 });
 test('scenarios isolate empty, waiting and service failures', () => {
-  assert.equal(createMockServer({scenario:'empty'}).handle(url(API.state)).body.tasks.length,0);
+  assert.deepEqual(createMockServer({scenario:'empty'}).handle('/status').body.projects,[]);
   assert.ok(createMockServer({scenario:'waiting'}).handle(url(API.status)).body.decisionPending);
   assert.equal(createMockServer({scenario:'error'}).handle(url(API.state)).status,503);
 });
@@ -62,7 +62,7 @@ test('remaining writes: start, reply, interrupt, override, resolve, diagnosis', 
   const conflict=createMockServer({scenario:'conflict'});
   assert.equal(post(conflict,API.approveProposal('P-001'),{reviewer:'test'}).body.proposal.status,'conflicted');
 });
-import { matrixCells } from '../src/pages/Run/model.js';
+import { matrixCells } from '../../src/pages/Run/model.js';
 test('matrix bounds cells and preserves all task counts including aggregates', () => {
   for (const tasks of [Array.from({length:30},(_,i)=>({id:i,status:'active'})),Array.from({length:30},(_,i)=>({id:i,status:i<8?'done':i<12?'active':'pending'}))]) {
     const cells=matrixCells(tasks); assert.ok(cells.length<=16);assert.equal(cells.reduce((sum,t)=>sum+t.count,0),tasks.length);

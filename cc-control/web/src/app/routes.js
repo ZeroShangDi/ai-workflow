@@ -1,6 +1,8 @@
 // A feature extension adds one route: navigation, loader and reads stay together.
 export const ROUTES = [
-  { key: 'run', label: 'Run', icon: 'run', reads: ['state'], snapshot: true, load: () => import('../pages/Run/index.jsx') },
+  { key: 'project', label: '项目', icon: 'tasks', reads: ['workspace'], load: () => import('../pages/Project/index.jsx') },
+  { key: 'plan', label: 'Plan', icon: 'tasks', reads: ['workspace', 'state'], load: () => import('../pages/Plan/index.jsx') },
+  { key: 'run', label: 'Run', icon: 'run', reads: ['state', 'conversation', 'sourceLog'], snapshot: true, load: () => import('../pages/Run/index.jsx') },
   { key: 'tasks', label: '任务', icon: 'tasks', reads: ['state'], load: () => import('../pages/Tasks/index.jsx') },
   { key: 'decisions', label: '决策', icon: 'decisions', reads: ['decisions'], load: () => import('../pages/Decisions/index.jsx') },
   { key: 'reviews', label: '动态复审', icon: 'decisions', reads: ['proposals'], load: () => import('../pages/DynamicReview/index.jsx') },

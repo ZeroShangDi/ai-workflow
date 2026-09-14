@@ -13,7 +13,7 @@ export function useAction(client, refresh, successMessage = () => '操作已提�
       if (result?.ok === false) throw new Error(result.error || '操作失败');
       setMessage(successMessage(result));
       refresh();
-      return true;
+      return result;
     } catch (e) {
       setMessage(e.message);
       refresh();

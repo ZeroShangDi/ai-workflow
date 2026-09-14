@@ -40,9 +40,9 @@ export function useAppShell() {
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
   }, [open]);
-  return { ...route, projects, error, open, setOpen, views: VIEWS,
+  return { ...route, projects, client, error, open, setOpen, views: VIEWS,
     setView: view => navigate({ view }),
     setRunId: runId => navigate({ runId }),
-    setProject: project => { navigate({ project, runId: '' }); setOpen(false); },
+    setProject: (project, view) => { navigate({ project, runId: '', ...(view ? { view } : {}) }); setOpen(false); },
   };
 }

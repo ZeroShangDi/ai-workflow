@@ -39,6 +39,8 @@ export function useRunPage(props) {
   const respond = value => action(API.respond, { value: String(value) });
   return {
     sendMessage, startRun, toggleMode, interrupt, respond,
+    cancelRun: () => action(API.cancelRun(props.runId), {}),
+    retryRun: async () => { const result = await action(API.retryRun(props.runId), {}); if (result?.runId) props.setRunId(result.runId); },
     ...props,
     tasks,
     active,

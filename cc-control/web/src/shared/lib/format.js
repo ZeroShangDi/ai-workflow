@@ -1,5 +1,7 @@
 // Adapt current server records only; no product fields or persisted state are invented.
 export const label = value => ({
+  failed: '失败',
+  cancelled: '已取消',
   running: '运行中',
   queued: '排队中',
   active: '执行中',

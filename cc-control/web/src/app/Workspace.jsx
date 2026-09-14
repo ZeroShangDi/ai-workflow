@@ -33,7 +33,7 @@ export default function Workspace({
   const Page = pages[route.key];
   const relevant = ['status', 'runs', 'events', ...route.reads];
   return (<><main className="workspace">
-      {!project && <div className="connection-notice" role="status">{connectionError ? "暂未连接到 server，等待连接恢复" : "正在连接工作空间…"}</div>}
+      {!project && <div className="connection-notice" role="status">{connectionError ? '暂未连接到 server，等待连接恢复' : '工作空间为空，点击左侧「添加项目」开始。'}</div>}
       {relevant.filter(k => errors[k]).map(k => <div className="error" role="alert" key={k}>
         {k}
 ：
@@ -42,5 +42,5 @@ export default function Workspace({
       </div>)}
       {workspace.eventNotice && <div role="status">{workspace.eventNotice}</div>}
       <ErrorBoundary key={view}><Suspense fallback={<div className="empty" role="status">正在加载页面…</div>}><Page {...props} /></Suspense></ErrorBoundary>
-    </main><Statusbar run={run} data={data} errors={errors} /></>);
+    </main><Statusbar project={project} run={run} data={data} errors={errors} /></>);
 }

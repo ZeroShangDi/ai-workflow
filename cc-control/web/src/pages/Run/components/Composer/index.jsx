@@ -3,6 +3,7 @@ import { Button, Textarea } from '../../../../shared/components/ui/index.js';
 import Badge from '../../../../shared/components/business/StatusBadge/index.jsx';
 import { display } from '../../../../shared/lib/format.js';
 export default function RunComposer({
+  run, cancelRun, retryRun,
   pending,
   busy,
   input,
@@ -32,9 +33,11 @@ export default function RunComposer({
       <div className="actions">
         {!follow && <Button type="button" onClick={() => setFollow(true)}>回到最新输出</Button>}
         <Badge value={data.state?.mode} />
+        {run?.status === 'running' && <Button type="button" disabled={busy} onClick={cancelRun}>取消运行</Button>}
+        {['failed', 'cancelled'].includes(run?.status) && <Button type="button" disabled={busy || hasActiveRun} onClick={retryRun}>重试运行</Button>}
         {!hasActiveRun && tasks.some(t => t.status === 'pending') && <Button type="button" disabled={busy} onClick={startRun}>启动 Run</Button>}
         {['run', 'pause'].includes(data.state?.mode) && <Button type="button" disabled={busy} onClick={toggleMode}>{data.state.mode === 'pause' ? '恢复运行' : '暂停调度'}</Button>}
-        {data.status?.session && <Button type="button" disabled={busy} onClick={interrupt}>打断当前响应</Button>}
+        {data.status?.session && <Button type="button" disabled={busy || data.status?.state !== 'busy' && !pending} onClick={interrupt}>打断当前响应</Button>}
       </div>
       <div className="composer-box">
         <Textarea aria-label="消息" value={input} onChange={e => setInput(e.target.value)} placeholder={pending ? '输入回复…' : '补充执行要求…'} />

@@ -4,7 +4,7 @@ import { configureTransport } from '../src/shared/lib/transport.js';
 export function startMock() {
   const scenario = new URLSearchParams(location.search).get('scenario') || 'demo';
   const server = createMockServer({ scenario });
-  const timer = setInterval(() => server.advance(), 3000);
+  let timer = setInterval(() => server.advance(), 3000);
   configureTransport({
     mode: 'mock',
     async fetch(input, options = {}) {
@@ -28,5 +28,5 @@ export function startMock() {
       return socket;
     },
   });
-  return { scenario: server.scenario, advance: server.advance, stop: () => clearInterval(timer) };
+  return { scenario: server.scenario, advance: server.advance, recover: server.recover, toggleClock: () => { if (timer) { clearInterval(timer); timer = null; } else timer = setInterval(() => server.advance(), 3000); return !!timer; }, stop: () => clearInterval(timer) };
 }

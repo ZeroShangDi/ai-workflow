@@ -1,0 +1,17 @@
+.project-dialog { color: var(--cc-color-text-primary); background: var(--cc-color-bg-surface); border: 1px solid var(--cc-color-border-default); border-radius: 12px; padding: 24px; width: min(520px, calc(100vw - 32px)); }
+.project-dialog::backdrop { background: #0009; }
+.project-dialog select { width: 100%; margin-top: 12px; }
+.workflow-page { padding: 24px; overflow: auto; height: 100%; max-width: 1100px; margin: 0 auto; }
+.workflow-page header { margin-bottom: 24px; }
+.workflow-page section { border: 1px solid var(--cc-color-border-default); border-radius: 10px; padding: 18px; margin-bottom: 16px; background: var(--cc-color-bg-surface); }
+.workflow-page label { display: block; margin: 12px 0; }
+.workflow-page .workflow-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--cc-color-border-default); }
+.workflow-page .workflow-row > div { min-width: 0; overflow-wrap: anywhere; }
+.workflow-steps { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; padding: 0; list-style: none; }
+.workflow-steps li { padding: 5px 12px; border: 1px solid var(--cc-color-border-default); border-radius: 20px; }
+.workflow-steps .current { color: var(--cc-color-status-info); border-color: currentColor; }
+.conversation-card { margin: 12px 0; padding: 16px; border: 1px solid var(--cc-color-border-default); border-radius: 10px; overflow-wrap: anywhere; }
+.conversation-card[data-role="user"] { margin-left: 36px; background: var(--cc-color-bg-surface); }
+.conversation-card[data-role="tool"] { border-left: 3px solid var(--cc-color-status-info); }
+.conversation-card p { white-space: pre-wrap; }
+@media (max-width: 767px) { .workflow-page { padding: 16px; } .workflow-page .workflow-row { align-items: stretch; flex-direction: column; } }
