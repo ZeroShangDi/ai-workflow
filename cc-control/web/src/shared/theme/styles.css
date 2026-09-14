@@ -1,0 +1,20 @@
+/* Skins override semantic color roles; geometry and component markup stay fixed. */
+:root { --cc-icon-filter: none; --cc-focus-ring: var(--cc-color-status-info); }
+:root[data-theme='light'] {
+  color-scheme: light;
+  --cc-color-bg-app: #f6f7f9;
+  --cc-color-bg-sidebar: #eff1f4;
+  --cc-color-bg-surface: #ffffff;
+  --cc-color-bg-elevated: #e9edf2;
+  --cc-color-bg-hover: #e3e8ef;
+  --cc-color-bg-selected: #dce5ef;
+  --cc-color-text-primary: #17212d;
+  --cc-color-text-secondary: #526072;
+  --cc-color-text-tertiary: #788595;
+  --cc-color-border-default: #d3dae3;
+  --cc-color-status-success: #237d40;
+  --cc-color-status-warning: #906100;
+  --cc-color-status-info: #2261ad;
+  --cc-color-status-danger: #b82f43;
+  --cc-icon-filter: brightness(.4);
+}

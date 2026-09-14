@@ -1,0 +1,18 @@
+.log-output {
+  flex: 1;
+  overflow: auto;
+  padding: var(--cc-spacing-18);
+  min-height: 200px;
+}
+.stream-option {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  margin: var(--cc-spacing-8) 0;
+  text-align: left;
+}
+@media (max-width:767px) {
+.log-output {
+  max-height: 60dvh;
+}
+}

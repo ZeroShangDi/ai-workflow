@@ -1,0 +1,59 @@
+.composer {
+  border-top: 1px solid var(--cc-color-border-default);
+  padding: var(--cc-spacing-16) var(--cc-spacing-18);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  margin: var(--cc-spacing-8) 0;
+  flex-wrap: wrap;
+}
+.actions>span {
+  flex: 1;
+}
+.pending-card {
+  padding: var(--cc-spacing-12);
+  border: 1px solid var(--cc-color-status-warning);
+  margin: var(--cc-spacing-12);
+}
+.composer {
+  padding: var(--cc-spacing-10) var(--cc-spacing-18) var(--cc-spacing-12);
+  flex-shrink: 0;
+}
+.composer>.actions {
+  margin: 0 0 var(--cc-spacing-8);
+  justify-content: flex-end;
+  min-height: 24px;
+}
+.composer button {
+  min-height: 26px;
+  padding: var(--cc-spacing-2) var(--cc-spacing-8);
+  font-size: var(--cc-type-caption-size);
+}
+.composer-box {
+  background: var(--cc-color-bg-surface);
+  border: 1px solid var(--cc-color-border-default);
+  border-radius: var(--cc-radius-8);
+  padding: var(--cc-spacing-8) var(--cc-spacing-10);
+}
+.composer textarea {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  min-height: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: var(--cc-type-caption-size);
+  line-height: var(--cc-type-caption-line);
+  resize: none;
+}
+.composer-box .actions {
+  margin: var(--cc-spacing-4) 0 0;
+  font-size: var(--cc-type-caption-size);
+}
+@media (max-width:767px) {
+.composer>.actions {
+  flex-wrap: wrap;
+}
+}

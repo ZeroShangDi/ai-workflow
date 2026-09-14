@@ -11,12 +11,14 @@ export default [
     plugins: { react, 'react-hooks': reactHooks },
     languageOptions: {
       ecmaVersion: 2022,
+      globals: { AbortController: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', URL: 'readonly', URLSearchParams: 'readonly', window: 'readonly', document: 'readonly', WebSocket: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' },
       sourceType: 'module',
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     settings: { react: { version: 'detect' } },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
+      'react/jsx-uses-vars': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'no-unused-vars': 'warn',
     },

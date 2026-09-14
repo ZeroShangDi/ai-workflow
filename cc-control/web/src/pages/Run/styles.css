@@ -1,0 +1,62 @@
+.output-area {
+  flex: 1;
+  overflow: auto;
+  padding: var(--cc-spacing-24);
+  min-height: 140px;
+}
+.event-tail {
+  font: var(--cc-type-caption-size)/1.8 var(--cc-font-mono);
+  margin-top: var(--cc-spacing-24);
+  border-top: 1px solid var(--cc-color-border-default);
+  padding-top: var(--cc-spacing-12);
+  overflow-wrap: anywhere;
+}
+@media (max-width:767px) {
+.run-view .primary-pane {
+  min-height: 65dvh;
+}
+}
+@media (max-width:767px) {
+.output-area {
+  max-height: 45dvh;
+}
+}
+.run-view .pane-header {
+  height: 47px;
+  min-height: 47px;
+  padding: 0 var(--cc-spacing-18) 0 var(--cc-spacing-20);
+}
+.run-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  min-width: 0;
+}
+.run-identity h1 {
+  font-size: var(--cc-type-caption-size);
+  line-height: var(--cc-type-caption-line);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--cc-color-status-info);
+}
+.run-view select {
+  min-height: 27px;
+  height: 27px;
+  font-size: var(--cc-type-caption-size);
+  padding: var(--cc-spacing-2) var(--cc-spacing-6);
+  max-width: 45%;
+}
+.output-area {
+  padding: var(--cc-spacing-20) var(--cc-spacing-24) var(--cc-spacing-16);
+}
+@media (max-width:767px) {
+.run-identity small {
+  display: none;
+}
+}
