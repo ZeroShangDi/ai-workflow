@@ -131,7 +131,7 @@
       "consumers": ["server/runtime/executor.cjs", "server/adapters/cc/probe.cjs"],
       "evidence": ["E-03"],
       "responsible": "T-P1-02",
-      "note": "平台报告事实，AWF 判定能否继续（U10）"
+      "note": "平台报告事实，AWF 判定能否继续（U10）。注：ctx.tmux→ctx.host 改名试改后因测试替身跨变量引用失败，已回滚，需与 T-P1-03 同批完成"
     },
     {
       "id": "C10",

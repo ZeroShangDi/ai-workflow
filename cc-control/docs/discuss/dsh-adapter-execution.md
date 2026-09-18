@@ -494,7 +494,7 @@ factory: (require) => { … const name = 'awf-probe-plugin'; const inject = ['sl
 | 编号 | 阶段 | 边界（做什么 / 不做什么） | 状态 |
 |---|---|---|---|
 | T-P1-01 | P1 | `ports.cjs` 按项目解析 adapter + `ccShapes`→`shapes` 去 CLI 化；**不改**调度算法 | pending |
-| T-P1-02 | P1 | `ctx.tmux` → `ctx.host` 能力化；`ENTER_DELAY_MS` 下沉进 cc 实现 | pending |
+| T-P1-02 | P1 | `ctx.tmux` → `ctx.host` 能力化；`ENTER_DELAY_MS` 下沉进 cc 实现。**本轮试改后回滚**：见下方「T-P1-02 试改记录」 | pending |
 | T-P1-03 | P1 | `cli/lib/session.cjs` 5 处 tmux 直连 + `attach.cjs` 收口；`session` 端口转正 | pending |
 | T-P1-04 | P1 | 编排模板迁入 server（模板与平台参数分离）；技能/worker/决策资产保持单源 | pending |
 | T-P1-05 | P1 | 测试分层：编排层 CLI 无关 + conformance 套件 + 契约自检（可执行必填方法名断言） | pending |
@@ -505,6 +505,17 @@ factory: (require) => { … const name = 'awf-probe-plugin'; const inject = ['sl
 | T-P3-02 | P3 | 决策/上下文/观测在 DSH 下的接线；`run -r` 最小恢复行为 | pending |
 | T-P4-01 | P4 | 三个业务页面**空页面** + 项目/无会话入口（U4，后续逐页指导） | pending |
 | T-P4-02 | P4 | 干净环境安装/卸载/升级；能力矩阵区分「占位」与「完成」 | pending |
+
+#### T-P1-02 试改记录（2026-09-18，**已回滚**）
+- 试改内容：`server/runtime/project.cjs` 注入键 `tmux`→`host`；生产侧 20 处 `ctx.tmux.*`→`ctx.host.*`；测试替身键 `tmux:`→`host:`。
+- 结果：**115 例测试失败**（5 个文件）。原因：测试替身被**跨变量名引用**——`tests/integration/server.test.js` 用
+  `global.__CC_TMUX__ = m.tmux` 与 `m.tmux.hasSession`，`tests/unit/server-layering.test.js` 断言 `rt.ctx.tmux.hasSession`；
+  只改注入键、不改这些引用，替身取不到。
+- 处置：**按 P1 纪律回滚**（CC 必须可用），回到 `107/108 文件、1005/1009 用例`（仅 4 例无 `claude` 的环境性失败）。
+- **下次要一次做完的范围**（避免再半途）：生产侧 6 个文件 + 测试侧 4 个文件（`decision.test.js`/`decision-gate.test.js`/
+  `one-server-two-projects.test.js`/`server.test.js`）+ `tests/unit/server-layering.test.js` 的断言 + `global.__CC_TMUX__` 改名。
+  建议与 T-P1-03（`session` 端口转正）**同批**做，因为都动 `cli/lib/session.cjs` 与 host 端口面。
+- 另附：`.awf/probe` 探针夹具**不进 git**（已确认未跟踪），全部内容随 `/tmp/awf-dsh-p0-handoff.tar.gz` 转移。
 
 ---
 
@@ -570,6 +581,7 @@ factory: (require) => { … const name = 'awf-probe-plugin'; const inject = ['sl
 | 2026-09-18 | E-03 机制确认（per-agent MCP 挂载、按项目起独立 server），但**未跑通一轮**；定位其唯一未解点为「Cordis 激活窗口内的驱动时机」（F21）。累积 F18～F24。真实 `~/.dsh` 配置面全程 `IDENTICAL`，用户 3080 未受影响 |
 | 2026-09-18 | **E-03 驱动链路打通**：`ctx.inject` 装配 + `sessionController.prompt(req, signal)` 后，两个项目各跑出一轮真实模型回复（`completed`）。剩余唯一问题：MCP 工具未进入模型可见工具表（F26～F28）。累积 F25～F28 |
 | 2026-09-18 | **E-03 完成并验证通过**：`proj-a → 0.2.0\|1`、`proj-b → 9.9.9\|2`（各自 `AWF_PROJECT_ROOT`，未串）。根因是 F29「MCP 工具注册异步，挂载后需等注册完成再派发」。累积 F29/F30；T-P0-06a 关闭。下一步 E-04（worker 权限硬门） |
+| 2026-09-18 | **P1 第一批试改并回滚**：`ctx.tmux`→`ctx.host` 改名导致 115 例失败（测试替身按旧名跨变量引用），按纪律回滚，CC 恢复可用；已记录完整改动范围，建议与 T-P1-03 同批做。 |
 | 2026-09-18 | **P0 收尾 + 换机准备**：U16（approval 受控自动批准）、U17（C15 用「换新会话+交接」）已确认；压缩补测（F35：存在但属 preset isolate realm）；新增 [`dsh-adapter-handoff.md`](dsh-adapter-handoff.md) 作为换机接续入口。 |
 | 2026-09-18 | **T-P0-03 完成**：X1～X9 的 P0 结论已回写 `dsh-adapter-design-codex.md` §8（重写为实测结论表）与 `dsh-adapter-checklist-codex.md`（更新 X9 + 追加同步节），保留历史、区分「已验证/部分/阻塞」。 |
 | 2026-09-18 | **E-10（X8）完成（含明确未完成项）**：技能发现为空且有明确原因（`skill-filesystem` 属 agent preset 平面，F18/F32 同源）→ 记入 T-P2-01；**返回体大小问题实测确认**：346KB 全量 / 747B 单任务 / **`summary:true` 静默无效**；安装卸载与发布包验证登记为 T-P2-01/T-P4-02 待办。 |
