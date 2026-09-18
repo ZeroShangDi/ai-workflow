@@ -21,7 +21,8 @@
     "test:eval": "bash scripts/test-eval.sh",
     "test:coverage": "vitest run --coverage",
     "test:real": "node tests/regression/fullflow-regression.mjs",
-    "check:arch": "node scripts/check-architecture.mjs"
+    "check:arch": "node scripts/check-architecture.mjs",
+    "check:capability": "node scripts/check-capability.mjs"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
