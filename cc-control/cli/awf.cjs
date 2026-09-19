@@ -35,7 +35,7 @@ program
   .action(runCommand);
 
 program
-  .command('plan [description]')
+  .command('plan [description...]')
   .description('启动规划会话，对齐需求、产出 WBS 与任务列表')
   .option('-r, --resume', '恢复上次规划')
   .action(planCommand);
@@ -44,6 +44,7 @@ program
   .command('init')
   .description('初始化项目工作流环境（工作区骨架 + 插件本地注册）')
   .option('-f, --force', '已存在时补全缺失文件')
+  .option('-a, --adapter <platform>', '按平台初始化（cc | dsh）；写进 .awf/config.json，之后不必再带')
   .action(initCommand);
 
 program

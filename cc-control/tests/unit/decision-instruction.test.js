@@ -20,7 +20,7 @@ const REPO = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 describe('decision-instruction — 定位 decision 插件并读取决策指令', () => {
   it('目录经 config.json marketplace 解析，等于注册的 decision 插件 dir', () => {
-    const cfg = JSON.parse(fs.readFileSync(path.join(REPO, 'plugin', 'config.json'), 'utf-8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(REPO, 'server', 'adapters', 'cc', 'plugin', 'config.json'), 'utf-8'));
     const entry = cfg.marketplace.plugins.find((p) => p.name === DECISION_PLUGIN_NAME);
     expect(entry).toBeTruthy();
     expect(decisionPluginDir()).toBe(entry.dir);
@@ -39,9 +39,9 @@ describe('decision-instruction — 定位 decision 插件并读取决策指令',
   it('指令路径 = plugin/<注册 dir>/decision/mode-instruction.md（文件真实存在）', () => {
     const p = decisionInstructionPath();
     expect(fs.existsSync(p)).toBe(true);
-    const cfg = JSON.parse(fs.readFileSync(path.join(REPO, 'plugin', 'config.json'), 'utf-8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(REPO, 'server', 'adapters', 'cc', 'plugin', 'config.json'), 'utf-8'));
     const dir = cfg.marketplace.plugins.find((x) => x.name === DECISION_PLUGIN_NAME).dir;
-    expect(p.endsWith(path.join('plugin', dir, 'decision', 'mode-instruction.md'))).toBe(true);
+    expect(p.endsWith(path.join('server', 'adapters', 'cc', 'plugin', dir, 'decision', 'mode-instruction.md'))).toBe(true);
   });
 
   it('包根由模块位置推导（server 直接无参调用即可读到）', () => {

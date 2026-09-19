@@ -7,7 +7,6 @@
     "awf": "./cli/awf.cjs"
   },
   "files": [
-    "plugin/",
     "server/",
     "cli/",
     "scripts/"

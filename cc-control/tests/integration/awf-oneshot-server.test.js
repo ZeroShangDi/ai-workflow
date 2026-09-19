@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 // T1-080：awf-oneshot 经 server /oneshot（env AWF_BASE 提供时 MCP 不再直连 spawn claude -p）。
 // 用 mock HTTP server 验证 MCP→server 管线（真实 claude 只存在于 server oneshot adapter）。
 
-const MCP_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-oneshot/server.cjs', import.meta.url));
+const MCP_PATH = fileURLToPath(new URL('../../server/adapters/cc/plugin/core/mcp/awf-oneshot/server.cjs', import.meta.url));
 
 let srv;
 let base;

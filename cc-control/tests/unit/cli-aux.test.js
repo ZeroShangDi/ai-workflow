@@ -7,6 +7,7 @@ import { pluginCommand, runPerSpec, execAsync } from '../../cli/commands/plugin.
 import { serverCommand } from '../../cli/commands/server.cjs';
 import { openCommand, TARGETS } from '../../cli/commands/open.cjs';
 import { attachCommand } from '../../cli/commands/attach.cjs';
+import { normalizeDescription } from '../../cli/commands/plan.cjs';
 
 /**
  * cli-aux — 旁路命令（plugin / server / open / attach）
@@ -240,5 +241,28 @@ describe('cli-aux', () => {
       expect(code).toEqual([1]);
       expect(errors.join('\n')).toContain('无法接入会话');
     });
+  });
+});
+
+// `awf plan` 的描述来自 shell 的位置参数：中文引号 `“…”` 不是 shell 的引号字符，
+// 会被按空格切开 —— 只取第一个参数就会**静默截断**（真机踩到：模型只收到「设计一个」）。
+describe('planCommand · 描述归一化', () => {
+  it('多个位置参数拼回一句（中文引号场景）', () => {
+    expect(normalizeDescription(['“设计一个', 'Prompt', '系统”'])).toBe('“设计一个 Prompt 系统”');
+  });
+
+  it('单参数原样保留；空/未提供 → undefined', () => {
+    expect(normalizeDescription('设计一个系统')).toBe('设计一个系统');
+    expect(normalizeDescription('   ')).toBeUndefined();
+    expect(normalizeDescription(undefined)).toBeUndefined();
+  });
+
+  it('引号没闭合时打出「实际收到」的提示（截断必须看得见）', () => {
+    const errors = [];
+    vi.spyOn(console, 'error').mockImplementation((...a) => { errors.push(a.join(' ')); });
+    const out = normalizeDescription(['“设计一个']);
+    expect(out).toBe('“设计一个');
+    expect(errors.join('\n')).toContain('引号看起来没闭合');
+    expect(errors.join('\n')).toContain('“设计一个');
   });
 });

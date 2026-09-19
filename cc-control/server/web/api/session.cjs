@@ -7,6 +7,7 @@
  *
  * 路由（method + path）：
  *   GET  /status                 会话态快照（无 sid=项目级；?sid=该槽；?snapshot 抓屏）
+ *   POST /interactive/plan       规划入口：平台可脱离终端 launch 时，由**服务端**代 CLI 触发
  *   GET  /probe                  w-monitor 外部侦查（会话在不在 + ready/busy + 抓取时刻；MCP awf_session_status 的服务端实现）
  *   POST /choice                 AI 挂起一个「选择」决策（校验后置 decisionPending）
  *   POST /ask                    AI 挂起一个「自由输入」决策
@@ -24,6 +25,7 @@
 const interact = require('../interact.cjs');
 const { READY_TIMEOUT_MS, LOCAL_CMD_FALLBACK_MS, DECISION_FALLBACK_MS } = require('../../config.cjs');
 const { readJson, send, requirePaused, noSession } = require('./util.cjs');
+const { resolveAdapterSource } = require('../../adapters/ports.cjs');
 
 async function handle(req, res, url, rt, deps) {
   const pathname = url.pathname;
@@ -44,6 +46,8 @@ async function handle(req, res, url, rt, deps) {
     }
     const out = {
       ok: true, state: session.state, session: ctx.host.hasSession(), projectRoot: ctx.projectRoot,
+      // 「这个项目现在跑在哪个平台」——CLI 侧唯一的**直接**判据（此前只能翻 .awf/config.json 或看行为差异）
+      adapter: ctx.adapter, adapterSource: resolveAdapterSource(ctx.projectRoot),
       decisionPending: session.decisionPending, contextReady: session.contextReady,
       decisionGate: session.decisionGate, decisionResume: session.decisionResume,
       mainSessionId: session.mainSessionId, sessionSeq: session.sessionSeq,
@@ -87,6 +91,31 @@ async function handle(req, res, url, rt, deps) {
     console.log(`[ask] ${v.decision.question}`);
     rt.publishEvent('decision.required', { question: v.decision.question, options: v.decision.options });
     send(res, 200, { ok: true, decisionPending: session.decisionPending });
+    return true;
+  }
+
+  // ── 规划入口：/interactive/plan ──
+  // 为什么要有这条：CLI 进程里**没有 bridge**（bridge 只在常驻 server 里），DSH 的规划入口
+  // （`plan.launch`：开会话 + 注入指令）必须在服务端触发；cc 的交互式对话要占住用户终端，
+  // 不能在这里跑 —— 故只有声明了 `detached: true` 的平台（DSH）放行，否则显式 501。
+  if (req.method === 'POST' && pathname === '/interactive/plan') {
+    const body = (await readJson(req)) || {};
+    if (typeof body.prompt !== 'string' || body.prompt.length === 0) {
+      send(res, 400, { ok: false, error: 'body must be {prompt: non-empty string}' });
+      return true;
+    }
+    const interactive = rt.ctx.adapters.ports.interactive;
+    if (interactive?.detached !== true) {
+      send(res, 501, { ok: false, error: `平台 ${rt.ctx.adapter} 的规划入口不能脱离终端触发（detached !== true）` });
+      return true;
+    }
+    try {
+      const r = await interactive.launchDialog({ cwd: body.cwd || rt.ctx.projectRoot, prompt: body.prompt });
+      if (r?.ok === false) { send(res, 502, { ok: false, error: r.error || '计划会话启动失败' }); return true; }
+      send(res, 200, { ok: true, url: r?.url ?? null, sessionId: r?.sessionId ?? null });
+    } catch (err) {
+      send(res, 502, { ok: false, error: `计划会话启动失败：${err.message}` });
+    }
     return true;
   }
 

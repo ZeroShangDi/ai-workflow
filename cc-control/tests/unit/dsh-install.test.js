@@ -91,10 +91,58 @@ describe('DSH 装配：installProfile', () => {
     expect(r.error).toContain('dsh --profile web');
   });
 
-  it('webPort 写进配置（打开页面用）', () => {
+  it('webPort 写进配置（DSH 网页端口，打开会话观看页用）', () => {
     makeHome();
     dshInstall.installProfile({ dshHome: HOME, webPort: 39081 });
     expect(fs.readFileSync(PATCH, 'utf8')).toContain('webPort: 39081');
+  });
+
+  // F42：插件没有 awfBase 就**不启动指令通道**（只告警）——真实安装路径必须把它写进配置，
+  // 不能只靠 AWF_DSH_BASE 环境变量（探针走的是环境变量，所以这条一直没被真实安装路径暴露）。
+  it('awfBase 写进配置（插件连常驻 AWF server 的唯一来源）', () => {
+    makeHome();
+    dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', webPort: 3080 });
+    const patch = fs.readFileSync(PATCH, 'utf8');
+    expect(patch).toContain("awfBase: 'http://127.0.0.1:8787'");
+    // 两个端口不是一回事：webPort 是 DSH 网页端口，AWF 端口只能出现在 awfBase 里
+    expect(patch).toContain('webPort: 3080');
+    expect(patch).not.toContain('webPort: 8787');
+  });
+
+  it('不给 awfBase 时不写空配置项（由调用方决定，插件侧缺它会明确告警）', () => {
+    makeHome();
+    dshInstall.installProfile({ dshHome: HOME });
+    expect(fs.readFileSync(PATCH, 'utf8')).not.toContain('awfBase');
+  });
+
+  // F43：插件挂项目 MCP 要靠 awfRepo 定位包内的 MCP server 入口；
+  // 真实安装漏了它 → session.create 直接失败（探针走环境变量，所以一直没暴露）。
+  it('awfRepo 写进配置（插件据此定位包内 MCP server）', () => {
+    makeHome();
+    dshInstall.installProfile({ dshHome: HOME, awfRepo: '/opt/ai-workflow' });
+    expect(fs.readFileSync(PATCH, 'utf8')).toContain("awfRepo: '/opt/ai-workflow'");
+  });
+
+  // 升级场景：配置项变了必须**原地更新**托管块，否则「重新安装」修不好任何东西
+  it('托管块内容有变 → 原地更新（保留用户内容、不重复插块）', () => {
+    makeHome({ patch: '# 用户自己的注释\n[]\n' });
+    const first = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', webPort: 3080 });
+    expect(first.written).toBe(true);
+    const before = fs.readFileSync(PATCH, 'utf8');
+    expect(before).not.toContain('awfRepo');
+
+    const again = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', awfRepo: '/opt/ai-workflow', webPort: 3080 });
+    expect(again.written).toBe(true);
+    expect(again.reason).toContain('更新');
+    const after = fs.readFileSync(PATCH, 'utf8');
+    expect(after).toContain("awfRepo: '/opt/ai-workflow'");
+    expect(after).toContain('# 用户自己的注释');
+    expect(after.match(/>>> awf-dsh/g)).toHaveLength(1); // 不重复插块
+
+    // 内容一致时仍幂等（不写文件）
+    const third = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', awfRepo: '/opt/ai-workflow', webPort: 3080 });
+    expect(third.written).toBe(false);
+    expect(fs.readFileSync(PATCH, 'utf8')).toBe(after);
   });
 });
 
@@ -141,5 +189,43 @@ describe('DSH 装配：环境解析与状态', () => {
     expect(dshInstall.isInstalled({ dshHome: HOME }).installed).toBe(true);
     dshInstall.uninstallProfile({ dshHome: HOME });
     expect(dshInstall.isInstalled({ dshHome: HOME }).installed).toBe(false);
+  });
+});
+
+describe('DSH 装配：技能 installSkills / uninstallSkills', () => {
+  it('技能链接进 $DSH_HOME/skills（符号链接，指向 plugin 里的 SKILL.md 目录）', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-skills-'));
+    const r = dshInstall.installSkills({ dshHome: home });
+    expect(r.installed).toContain('awf-plan-norm');
+    expect(r.installed.length).toBeGreaterThan(3);
+    const link = path.join(home, 'skills', 'awf-plan-norm');
+    expect(fs.existsSync(link)).toBe(true);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true); // 设计目标：安装 = 链接，改源即生效
+    expect(fs.existsSync(path.join(link, 'SKILL.md'))).toBe(true);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('目标已有同名技能且非 AWF 所装 → 跳过，不动用户的东西', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-skills-'));
+    const mine = path.join(home, 'skills', 'awf-plan-norm');
+    fs.mkdirSync(mine, { recursive: true });
+    fs.writeFileSync(path.join(mine, 'SKILL.md'), '用户自己的');
+    const r = dshInstall.installSkills({ dshHome: home });
+    expect(r.skipped.some((x) => x.includes('awf-plan-norm'))).toBe(true);
+    expect(fs.readFileSync(path.join(mine, 'SKILL.md'), 'utf8')).toBe('用户自己的'); // 没被覆盖
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('卸载只摘清单里 AWF 装的，用户自建的技能一个不动', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-skills-'));
+    const userSkill = path.join(home, 'skills', 'user-skill');
+    fs.mkdirSync(userSkill, { recursive: true });
+    fs.writeFileSync(path.join(userSkill, 'SKILL.md'), '用户的');
+    dshInstall.installSkills({ dshHome: home });
+    const r = dshInstall.uninstallSkills({ dshHome: home });
+    expect(r.removed).toContain('awf-plan-norm');
+    expect(fs.existsSync(path.join(home, 'skills', 'awf-plan-norm'))).toBe(false);
+    expect(fs.existsSync(userSkill)).toBe(true); // 用户的还在
+    fs.rmSync(home, { recursive: true, force: true });
   });
 });

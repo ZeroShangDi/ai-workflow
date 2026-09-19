@@ -43,4 +43,7 @@ function projectSettingsPath(cwd) {
 }
 
 // projectSettingsPath 是函数声明（可提升），故能在上方默认参数处被引用
-module.exports = { launchInteractiveClaude, projectSettingsPath };
+/** 可脱离终端进程 launch 吗？cc **不能**：交互式对话必须占住用户的终端（stdio inherit）。 */
+const detached = false;
+
+module.exports = { launchInteractiveClaude, projectSettingsPath, detached };

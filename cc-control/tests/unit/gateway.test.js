@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const GATEWAY = path.resolve(fileURLToPath(new URL('../..', import.meta.url)), 'plugin', 'core', 'hooks', 'gateway.cjs');
+const GATEWAY = path.resolve(fileURLToPath(new URL('../..', import.meta.url)), 'server', 'adapters', 'cc', 'plugin', 'core', 'hooks', 'gateway.cjs');
 
 /** 起一个返回 respond(event, body) 的 JSON 的 stub server，返回 { port, close } */
 function startServer(respond) {

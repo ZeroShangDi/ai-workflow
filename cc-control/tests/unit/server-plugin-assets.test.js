@@ -17,7 +17,7 @@ const REPO = path.resolve(new URL('../..', import.meta.url).pathname);
 
 describe('server · 插件资产定位原语', () => {
   it('按注册表解析插件目录，不写死目录名', () => {
-    const cfg = JSON.parse(fs.readFileSync(path.join(REPO, 'plugin', 'config.json'), 'utf-8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(REPO, 'server', 'adapters', 'cc', 'plugin', 'config.json'), 'utf-8'));
     const entry = cfg.marketplace.plugins.find((p) => p.name === 'ai-workflow-decision');
     expect(entry).toBeTruthy();
     expect(pluginAssets.pluginDir('ai-workflow-decision')).toBe(entry.dir);
@@ -51,7 +51,7 @@ describe('server · decision 指令与开关', () => {
   it('决策模式指令落在 plugin/<注册 dir>/decision/ 下且可读', () => {
     const p = decisionInstruction.decisionInstructionPath();
     expect(fs.existsSync(p)).toBe(true);
-    expect(p.endsWith(path.join('plugin', decisionInstruction.decisionPluginDir(), 'decision', 'mode-instruction.md'))).toBe(true);
+    expect(p.endsWith(path.join('server', 'adapters', 'cc', 'plugin', decisionInstruction.decisionPluginDir(), 'decision', 'mode-instruction.md'))).toBe(true);
     expect(decisionInstruction.readDecisionInstruction()).toContain('AWF_DECISION_RESULT');
   });
 

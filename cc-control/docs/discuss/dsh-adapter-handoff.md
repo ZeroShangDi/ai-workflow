@@ -163,6 +163,9 @@ P2-3 ✅ 隔离探针（进 git）· P2-4 ✅ AWF 侧 7 端口 + 指令通道 ·
 **P2-6e ✅ 子 Agent 停止链路真机打通**：子 Agent 真派出（`session.children` 按 `header.parentSession` 认出）→ 停 run 时**先取名单 → cancel 父 → 逐个 `subagents.interrupt`**（F39 权威要带 `parentSessionId`、F40 cancel 后会摘出活动列表）；停止回执不再被吞。
 **P2-6f ✅ `awf attach` 有落点 + init 记住平台**：网页形态经 server `/probe` 拿本项目会话地址（CLI 进程没有 bridge）；`awf init` 把解析到的平台记进 `.awf/config.json` 并修掉 CLI 装配路径吞掉 `CC_ADAPTER` 的缺陷；会话身份按 realpath 规范化（F38）。
 
+**P3 状态（2026-09-19）**：T-P3-01 ✅ **DSH 多 agent batch 真跑通**（平台化派发提示词 + 子 Agent 末条 RESULT 落账 → `run=done T1=done`；子 Agent 停止逐个打断）；T-P3-02 **部分**：回合末决策门阀已在 DSH 落位（指令再发一条 prompt 回会话 → 结论落盘），`run -r` 的最小挂接沿用 P1 护栏，**重启组合验收未做**。
+**P4 状态（2026-09-19）**：T-P4-01 ✅ 三个 CLI 入口页不再静默回退（占位页 + 入口可证 + 构建产物断言）；T-P4-02 ✅ 发布包 `files` 补 `dsh-plugin/` 并用真 `npm pack` 在新目录验证安装/卸载，能力矩阵区分「已完成 vs 占位」（`docs/features/adapters.md`）。
+
 **P2 状态：已收口（2026-09-19）**。T-P2-01（`server/adapters/dsh/` + 插件 host 半侧）与 T-P2-02（init/plan/run 的 DSH 接线）均已落地，`ADAPTER_PLATFORMS.dsh.status` = `factory`。
 七个命令真机状态：`init` / `run`（单任务）/ `plugin` / `attach` ✅；`plan` / `server` / `open` 🟡（各有一条实测落到平台，缺整链）。
 V03、V08 两条验收完整通过，其余「已验一半 + 缺口明确」—— 对照表见执行记录 §2.18。

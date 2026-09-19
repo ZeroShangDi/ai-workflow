@@ -96,6 +96,13 @@ describe('读类路由', () => {
     expect(Array.isArray(r.body.projects)).toBe(true); // 无 ?p（boot 请求）才带项目列表
   });
 
+  // 「这个项目跑在哪个平台」是排查第一问：必须在 /status 上直接可读，而不是靠翻配置文件或看行为差异
+  it('GET /status：带 adapter 与来源（缺省 cc / default）', async () => {
+    const r = await json(await req('GET', '/status', { noP: true }));
+    expect(r.body.adapter).toBe('cc');
+    expect(r.body.adapterSource).toBe('default'); // 该临时项目没有 .awf/config.json 的 runtime.adapter
+  });
+
   it('GET /status?sid：走该 sid 的独立会话槽', async () => {
     rt.sessionFor('sid-x').setBusy();
     const r = await json(await req('GET', '/status?sid=sid-x'));

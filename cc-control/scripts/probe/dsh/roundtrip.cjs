@@ -19,8 +19,11 @@
  *   node scripts/probe/dsh/roundtrip.cjs --runtime       # 走 runtime/适配器层（项目配置解析 → dsh 工厂 → 插件）
  *   node scripts/probe/dsh/roundtrip.cjs --run           # 真跑一次 run 宿主：建会话 → 提交 → 派发 → 落账
  *   node scripts/probe/dsh/roundtrip.cjs --two-projects  # 双项目隔离验收（单后台、各自会话与项目 MCP）
- *   node scripts/probe/dsh/roundtrip.cjs --subagent      # 子 Agent：真派出来 + 停 run 时真打断（U11/C14）
+ *   node scripts/probe/dsh/roundtrip.cjs --subagent      # 子 Agent：真派出来 + RESULT 真落账 + 停 run 时真打断（U11/C14/T-P3-01）
  *   node scripts/probe/dsh/roundtrip.cjs --attach         # `awf attach`（独立 CLI 进程）拿到网页会话地址（C24/C31）
+ *   node scripts/probe/dsh/roundtrip.cjs --batch          # 多 agent：宿主 batch 调度 → DSH 派子 Agent → RESULT 落账（T-P3-01）
+ *   node scripts/probe/dsh/roundtrip.cjs --decision       # 回合末门阀：模型输出 <AWF_DECISION_REQUIRED> → 指令发回 → 结论落盘（T-P3-02）
+ *   node scripts/probe/dsh/roundtrip.cjs --cli-plan       # `awf plan`（独立 CLI 进程）经 server 代触发规划入口（C07）
  *   bash scripts/probe/dsh/guard.sh check     # 必须 IDENTICAL
  *
  * 退出码：0 = 通道真实可用；1 = 失败（打印现场）；2 = 用法/环境错误。
@@ -31,6 +34,7 @@ const os = require('node:os');
 const net = require('node:net');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const zlib = require('node:zlib');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
 const DSH_HOME = process.env.AWF_DSH_PROBE_HOME || '/tmp/awf-dsh-probe';
@@ -42,6 +46,46 @@ const RESULT_TIMEOUT_MS = 15000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 跑一个 CLI 子进程并收集输出（`awf attach` 是**独立进程**，CLI 里没有 bridge —— 必须这么测） */
+
+/**
+ * 读隔离 DSH 里某项目会话的**首条用户消息**（用来核对「平台到底收到了什么」）。
+ * DSH 的会话日志是 zstd **多帧**追加的（`session.v3.jsonl.zstd`）：逐帧解压再拼。
+ * @param {string} dshHome
+ * @param {string} cwd 项目根（会话 header 里的 cwd）
+ * @returns {string|null} 首条 user/message 文本；找不到 → null
+ */
+function readFirstUserMessage(dshHome, cwd) {
+  const sessionsDir = path.join(dshHome, 'sessions');
+  if (!fs.existsSync(sessionsDir)) return null;
+  const magic = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+  for (const dir of fs.readdirSync(sessionsDir)) {
+    const root = path.join(sessionsDir, dir);
+    if (!fs.statSync(root).isDirectory()) continue;
+    for (const sid of fs.readdirSync(root)) {
+      const file = path.join(root, sid, 'session.v3.jsonl.zstd');
+      if (!fs.existsSync(file)) continue;
+      const buf = fs.readFileSync(file);
+      const offs = [];
+      let i = 0;
+      while ((i = buf.indexOf(magic, i)) !== -1) { offs.push(i); i += 4; }
+      let text = '';
+      offs.forEach((start, k) => {
+        const end = k + 1 < offs.length ? offs[k + 1] : buf.length;
+        try { text += zlib.zstdDecompressSync(buf.subarray(start, end)).toString('utf8'); } catch { /* 半截帧 */ }
+      });
+      let header = null;
+      let first = null;
+      for (const line of text.trim().split('\n')) {
+        let e; try { e = JSON.parse(line); } catch { continue; }
+        if (e.type === 'session') header = e;
+        if (!first && e.type === 'user/message' && e.data?.source?.kind === 'user') first = e.data?.content?.[0]?.text ?? null;
+      }
+      if (header && first && header.cwd && fs.realpathSync.native(header.cwd) === fs.realpathSync.native(cwd)) return first;
+    }
+  }
+  return null;
+}
+
 function runCli(args, { cwd, env }) {
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [path.join(REPO, 'cli', 'awf.cjs'), ...args], { cwd, env });
@@ -65,8 +109,11 @@ function parseArgs(argv) {
   const twoIdx = argv.indexOf('--two-projects');
   const subIdx = argv.indexOf('--subagent');
   const attachIdx = argv.indexOf('--attach');
+  const batchIdx = argv.indexOf('--batch');
+  const decisionIdx = argv.indexOf('--decision');
+  const cliPlanIdx = argv.indexOf('--cli-plan');
   const prompt = i === -1 ? null : (argv[i + 1] ?? '');
-  return { prompt, task: taskIdx !== -1, bash: bashIdx !== -1, plan: planIdx !== -1, oneshot: oneshotIdx !== -1, runtime: runtimeIdx !== -1, run: runIdx !== -1, twoProjects: twoIdx !== -1, subagent: subIdx !== -1, attach: attachIdx !== -1 };
+  return { prompt, task: taskIdx !== -1, bash: bashIdx !== -1, plan: planIdx !== -1, oneshot: oneshotIdx !== -1, runtime: runtimeIdx !== -1, run: runIdx !== -1, twoProjects: twoIdx !== -1, subagent: subIdx !== -1, attach: attachIdx !== -1, batch: batchIdx !== -1, decision: decisionIdx !== -1, cliPlan: cliPlanIdx !== -1 };
 }
 const stamp = () => new Date().toISOString();
 
@@ -102,6 +149,15 @@ async function main() {
         deps: [],
         wbsRef: null,
         acceptance: 'x',
+      }, {
+        id: 'T2',
+        title: '子 Agent 用 RESULT 协议落这一条',
+        kind: 'dev',
+        prompt: '（--subagent 模式：这一条由宿主派出的子 Agent 用 RESULT 协议结算）',
+        status: 'pending',
+        deps: [],
+        wbsRef: null,
+        acceptance: 'x',
       }],
     }));
 
@@ -125,15 +181,50 @@ async function main() {
   console.log(`[roundtrip] AWF server 起于 ${awfBase}（项目 ${tmpProject}）`);
 
   // ── ② 起隔离 DSH（带 AWF 地址）──
+  // 缺省经 **环境变量** AWF_DSH_BASE 告诉插件地址（实验方便）；
+  // `AWF_PROBE_BASE_VIA=config` 则改成写进 **profile 配置**（生产安装形态：`awf init` 写的
+  // `config.awfBase`），并**不再**传环境变量 —— 用来证伪「真实安装路径其实连不上」。
+  const viaConfig = process.env.AWF_PROBE_BASE_VIA === 'config';
+  {
+    // 先清掉上一次 config 模式留下的注入行：插件是 `config.awfBase || AWF_DSH_BASE`，
+    // **配置优先于环境变量** —— 残留的旧端口会让本次运行连到上次的端口上（实测踩到：
+    // 日志里地址是上一次的端口，本次 AWF_DSH_BASE 被无视，插件一直连不上）。
+    const patchPath = path.join(DSH_HOME, 'profiles', PROFILE, 'cordis.patch.yml');
+    const lines = fs.readFileSync(patchPath, 'utf8').split('\n')
+      .filter((l) => !l.includes('awfBase:') && !l.includes('awfRepo:'));
+    if (viaConfig) {
+      const idx = lines.findIndex((l) => l.includes('webPort:'));
+      if (idx === -1) {
+        console.error('[roundtrip] ✗ AWF_PROBE_BASE_VIA=config 但 profile patch 里找不到 awf-dsh 的 webPort 行');
+        return 2;
+      }
+      // 生产安装形态：**两个**必需配置项都只从 profile 配置读（awfBase + awfRepo），不传环境变量
+      lines.splice(idx, 0, `        awfBase: '${awfBase}'`, `        awfRepo: '${REPO}'`);
+      console.log(`[roundtrip] 地址与包根改由 profile 配置提供（awfBase=${awfBase}, awfRepo=${REPO}），不传环境变量`);
+    } else if (lines.length !== fs.readFileSync(patchPath, 'utf8').split('\n').length) {
+      console.log('[roundtrip] 已清掉 profile 里上一次的 awfBase/awfRepo（本次走环境变量）');
+    }
+    fs.writeFileSync(patchPath, lines.join('\n'));
+  }
   const dshLog = [];
-  const child = spawn('dsh', ['--profile', PROFILE, '--port', String(DSH_PORT), '--no-open'], {
-    env: { ...process.env, DSH_HOME, AWF_DSH_BASE: awfBase, AWF_DSH_REPO: REPO },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (c) => dshLog.push(c));
-  child.stderr.on('data', (c) => dshLog.push(c));
+  const childEnv = { ...process.env, DSH_HOME, AWF_DSH_REPO: REPO };
+  if (viaConfig) {
+    delete childEnv.AWF_DSH_BASE;
+    delete childEnv.AWF_DSH_REPO; // 少了这一条，awfRepo 就只能来自 profile 配置 —— 这才是要证的
+  } else childEnv.AWF_DSH_BASE = awfBase;
+  /** 起一个隔离 DSH 子进程（重启重连场景要起两次，故抽成函数） */
+  const spawnDsh = () => {
+    const c = spawn('dsh', ['--profile', PROFILE, '--port', String(DSH_PORT), '--no-open'], {
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    c.stdout.setEncoding('utf8');
+    c.stderr.setEncoding('utf8');
+    c.stdout.on('data', (d) => dshLog.push(d));
+    c.stderr.on('data', (d) => dshLog.push(d));
+    return c;
+  };
+  let child = spawnDsh();
   console.log(`[roundtrip] DSH 起于 :${DSH_PORT}（DSH_HOME=${DSH_HOME}，AWF_DSH_BASE=${awfBase}）`);
 
   const evidence = { startedAt: stamp(), awfBase, dshPort: DSH_PORT, steps: {} };
@@ -147,6 +238,34 @@ async function main() {
     }
     evidence.steps.connected = { at: stamp(), facts: channelMod.channel().lastFacts() };
     console.log(`[roundtrip] ✓ 插件已连上（platform=${evidence.steps.connected.facts.platform}）`);
+
+    // ── ③b 重启 DSH → 插件必须重连，且通道真的恢复可用（V09 基础场景；
+    //     真机踩过的坑：旧 socket 的 close 迟到把新连接误判为断开 → 之后所有指令都回 ws closed）──
+    if (process.env.AWF_ROUNDTRIP_RECONNECT === '1') {
+      console.log('[roundtrip] 重启隔离 DSH，验重连…');
+      child.kill('SIGTERM');
+      const downDeadline = Date.now() + 15000;
+      while (Date.now() < downDeadline && channelMod.channel().connected()) await sleep(200);
+      const sawDown = !channelMod.channel().connected();
+      child = spawnDsh();
+      const upDeadline = Date.now() + CONNECT_TIMEOUT_MS;
+      while (Date.now() < upDeadline && !channelMod.channel().connected()) await sleep(300);
+      const backUp = channelMod.channel().connected();
+      evidence.steps.reconnect = { sawDown, backUp };
+      if (!backUp) {
+        fail('DSH 重启后插件没重连（通道没恢复）', { sawDown, dshLogTail: dshLog.join('').slice(-1200) });
+        return;
+      }
+      // 重连 ≠ 可用：立刻发一条真指令，必须照常受理（这正是「迟到 close」会打掉的那一步）
+      const after = await channelMod.channel().request('session.facts', { projectRoot: tmpProject },
+        { projectRoot: tmpProject, resultTimeoutMs: RESULT_TIMEOUT_MS });
+      evidence.steps['session.facts(重连后)'] = after;
+      if (after.delivery !== 'accepted' || after.ok !== true) {
+        fail('重连后指令仍不可用（通道判定被迟到事件打掉）', after);
+        return;
+      }
+      console.log(`[roundtrip] ✓ 重启后已重连，且通道真的可用（sawDown=${sawDown}）`);
+    }
 
     // ── ④ 真发一条指令：session.facts（不需要模型）──
     const facts = await channelMod.channel().request('session.facts', { projectRoot: tmpProject },
@@ -185,6 +304,14 @@ async function main() {
       return;
     }
     console.log(`[roundtrip] ✓ 会话已创建：${created.result.sessionId}（preset=${created.result.agentPreset}）`);
+    // 工作区登记：DSH 网页按工作区分组会话，没登记就落到「未分组」（真机踩到）
+    const ws = created.result.workspace;
+    evidence.steps['session.create.workspace'] = ws;
+    if (ws?.ok !== true) {
+      fail('会话没有登记到工作区（网页里会显示「未分组」）', ws);
+      return;
+    }
+    console.log(`[roundtrip] ✓ 已挂到工作区：${ws.title ?? '(无标题)'}（${ws.created ? '新建' : '已存在'} id=${ws.id ?? '?'}）`);
 
     const factsAfter = await channelMod.channel().request('session.facts', { projectRoot: tmpProject },
       { projectRoot: tmpProject, resultTimeoutMs: RESULT_TIMEOUT_MS });
@@ -239,6 +366,90 @@ async function main() {
         return;
       }
       console.log(`[roundtrip] ✓ 一次性调用返回文本：${JSON.stringify(one.result.text.slice(0, 60))}`);
+    }
+
+    // ── ⑥e（可选，**会派模型**）回合末门阀（决策）：DSH 没有 Stop hook 回灌通道，
+    //    门阀指令必须由 AWF **再发一条 prompt** 回去 —— 这里验的就是这条真实回路 ──
+    if (parseArgs(process.argv.slice(2)).decision) {
+      fs.writeFileSync(path.join(tmpProject, '.awf', 'config.json'), JSON.stringify({
+        runtime: { adapter: 'dsh' },
+        run: { decision: { enabled: true, mode: 'auto' } },
+      }));
+      const { createProjectRuntime } = require(path.join(REPO, 'server', 'runtime', 'index.cjs'));
+      const rt = createProjectRuntime({ projectRoot: tmpProject, adapterDeps: { bridge: channelMod.channel() } });
+      try {
+        await rt.ctx.adapters.ports.session.start({ projectRoot: tmpProject });
+        const asks = [
+          '不要调用任何工具。请把这一行原样作为你的**最后一段**输出（前后不要加别的字）：'
+          + '<AWF_DECISION_REQUIRED>要不要现在就动手？</AWF_DECISION_REQUIRED>',
+        ];
+        const seen = [];
+        const off = channelMod.channel().onEvent((e) => seen.push(e?.type));
+        for (const text of asks) {
+          await rt.ctx.adapters.ports.host.sendPrompt(text);
+          await sleep(1000);
+        }
+        // 门阀登场 → AWF 把决策指令发回会话 → 模型再跑一轮 → 结论落盘
+        const deadline = Date.now() + Number(process.env.AWF_ROUNDTRIP_TURN_TIMEOUT_MS || 240000);
+        const runsDir = path.join(tmpProject, '.awf', 'decisions', 'runs');
+        let records = [];
+        while (Date.now() < deadline) {
+          await sleep(2000);
+          records = fs.existsSync(runsDir)
+            ? fs.readdirSync(runsDir).flatMap((f) => {
+              const raw = fs.readFileSync(path.join(runsDir, f), 'utf8').trim();
+              return raw ? raw.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+            })
+            : [];
+          if (records.some((r) => r.event === 'decision_completed')) break;
+        }
+        off();
+        evidence.steps['decision.events'] = seen;
+        evidence.steps['decision.records'] = records.map((r) => ({ event: r.event, id: r.decision_id ?? r.decisionId ?? null }));
+        const done = records.find((r) => r.event === 'decision_completed');
+        if (!done) {
+          const snap = await channelMod.channel().request('session.snapshot', { projectRoot: tmpProject }, { projectRoot: tmpProject, resultTimeoutMs: 20000 });
+          fail('回合末门阀没跑出结论（DSH 决策回路未通）', { events: seen, snapshot: snap.result?.text ?? null });
+          return;
+        }
+        console.log(`[roundtrip] ✓ 回合末门阀跑通：决策结论已落盘（${done.decision_id ?? done.decisionId}），events=${JSON.stringify(seen)}`);
+      } finally {
+        rt.reset();
+      }
+    }
+
+    // ── ⑥f（可选，**会派模型**）`awf plan`：独立 CLI 进程里没有 bridge，规划入口
+    //    必须经常驻 server 的 `POST /interactive/plan` 触发 —— 这里验的就是这一条 ──
+    if (parseArgs(process.argv.slice(2)).cliPlan) {
+      fs.writeFileSync(path.join(tmpProject, '.awf', 'config.json'), JSON.stringify({ runtime: { adapter: 'dsh' } }));
+      // 假 server 就绪等待：`awf plan` 会去戳本项目的 AWF server（探针进程内就是那个 server）
+      const planned = await runCli(['plan', '验证 DSH 规划入口'], {
+        cwd: tmpProject,
+        env: { ...process.env, AWF_BROWSER: 'true' },
+      });
+      evidence.steps['awf plan'] = planned;
+      if (planned.code !== 0 || !/规划会话已在网页/.test(planned.out) || !/\?session=/.test(planned.out)) {
+        fail('`awf plan`（独立进程）没能经 server 触发规划入口', planned);
+        return;
+      }
+      console.log(`[roundtrip] ✓ \`awf plan\`（独立进程）经 server 触发规划入口：${planned.out.split('\n')[0]}`);
+
+      // 平台**到底收到了什么**：等日志落盘后读会话首条用户消息。
+      // 这一步正是为了证伪「发过去的还是斜杠命令、模型不认识」（真机踩到过）。
+      await sleep(6000);
+      const sent = readFirstUserMessage(DSH_HOME, tmpProject);
+      evidence.steps['plan.平台收到的首条消息'] = sent ? sent.slice(0, 200) : null;
+      if (!sent) {
+        console.log('[roundtrip] ⚠ 没读到会话首条消息（日志未落盘？）——跳过内容核对');
+      } else if (sent.includes('/ai-workflow-code:w-plan')) {
+        fail('平台上收到的还是斜杠命令字面量（模型无法执行）', { sent: sent.slice(0, 200) });
+        return;
+      } else if (!sent.includes('## 执行阶段')) {
+        fail('平台上收到的不是展开后的规划指令', { sent: sent.slice(0, 300) });
+        return;
+      } else {
+        console.log(`[roundtrip] ✓ 平台收到的是展开后的规划指令（${sent.length} 字，含需求原文：${sent.includes('验证 DSH 规划入口')}）`);
+      }
     }
 
     // ── ⑦ 停止：cancel（keepInbox），且**不删会话**（spec §2：停项目不停后台/不删对话）──
@@ -405,6 +616,55 @@ async function main() {
       }
     }
 
+    // ── ⑩b（可选，**会派模型**）多 agent：宿主 batch 调度 + DSH 原生子 Agent + RESULT 落账 ──
+    // 与 `--run` 的差别：派发提示词里含**平台工具措辞**（这里是 DSH 的 `subagent` 工具），
+    // 且完成感知靠子 Agent 自己输出的 RESULT（不走 MCP 工具落账）—— 这才是 batch 的真实链路。
+    if (parseArgs(process.argv.slice(2)).batch) {
+      fs.writeFileSync(path.join(tmpProject, '.awf', 'config.json'), JSON.stringify({
+        runtime: { adapter: 'dsh' },
+        run: { agents: { max: 2, maxModules: 1, maxPerModule: 1, maxPerFeature: 1 }, decision: { enabled: false, mode: 'auto' } },
+      }));
+      const st0 = JSON.parse(fs.readFileSync(path.join(tmpProject, '.awf', 'state.json'), 'utf8'));
+      st0.tasks = [{ ...st0.tasks[0], id: 'T1', status: 'pending', title: '把这一条做完（batch）' }];
+      fs.writeFileSync(path.join(tmpProject, '.awf', 'state.json'), JSON.stringify(st0));
+      const { createProjectRuntime } = require(path.join(REPO, 'server', 'runtime', 'index.cjs'));
+      const rt = createProjectRuntime({ projectRoot: tmpProject, adapterDeps: { bridge: channelMod.channel() } });
+      try {
+        await rt.ctx.adapters.ports.session.start({ projectRoot: tmpProject });
+        const host = await rt.ensureRunHost();
+        if (!host) throw new Error(`run host 未就绪：${rt.runHostBootErr?.message ?? 'unknown'}`);
+        const sub = host.submitRun({ mode: 'batch' });
+        evidence.steps['batch.submit'] = sub;
+        if (!sub?.ok) throw new Error(`提交 batch run 失败：${sub?.error}`);
+
+        const deadline = Date.now() + Number(process.env.AWF_ROUNDTRIP_RUN_TIMEOUT_MS || 300000);
+        let snap = null;
+        while (Date.now() < deadline) {
+          await sleep(2000);
+          snap = host.snapshot(sub.runId);
+          if (snap?.run?.status && !['running', 'queued'].includes(snap.run.status)) break;
+        }
+        evidence.steps['batch.snapshot'] = snap?.run ?? snap;
+        const st = JSON.parse(fs.readFileSync(path.join(tmpProject, '.awf', 'state.json'), 'utf8'));
+        const t1 = (st.tasks || []).find((t) => t.id === 'T1');
+        evidence.steps['batch.state.json(T1)'] = { status: t1?.status ?? null, exec: t1?.exec ?? null };
+        const eventsPath = path.join(tmpProject, '.awf', 'logs', 'subagent-events.jsonl');
+        evidence.steps['batch.subagent-events'] = fs.existsSync(eventsPath)
+          ? fs.readFileSync(eventsPath, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).event)
+          : [];
+        if (t1?.status !== 'done') {
+          fail('batch run 跑完后 T1 仍未 done（DSH 多 agent 派发/落账未通）', {
+            run: snap?.run, t1, events: evidence.steps['batch.subagent-events'],
+          });
+          return;
+        }
+        console.log(`[roundtrip] ✓ batch 多 agent 跑通：run=${snap?.run?.status} T1=${t1.status}`
+          + `（子 Agent 事件 ${JSON.stringify(evidence.steps['batch.subagent-events'])}）`);
+      } finally {
+        rt.reset();
+      }
+    }
+
     // ── ⑪（可选，**会派模型**）双项目隔离验收（V01/V03）：单后台、两个项目各一套会话与 MCP ──
     if (parseArgs(process.argv.slice(2)).twoProjects) {
       const { createProjectRuntime } = require(path.join(REPO, 'server', 'runtime', 'index.cjs'));
@@ -478,8 +738,11 @@ async function main() {
       try {
         const ports = rt.ctx.adapters.ports;
         await ports.session.start({ projectRoot: tmpProject });
-        const ask = '请用 subagent 工具派生**一个后台子 Agent**，让它执行 bash 命令 `sleep 15` 然后回复 SUB-DONE。'
-          + '你自己不要执行这条命令；派发完成后只回复 DISPATCHED。';
+        // 子 Agent 必须按 awf-worker 的输出协议回一行 RESULT —— AWF 就是靠**末条文本**落账的（T-P3-01）
+        const ask = '请用 subagent 工具派生**一个后台子 Agent**，交给它的任务是：'
+          + '「用 bash 运行 `sleep 5`，然后你的最后一行必须输出：'
+          + 'RESULT: {\"taskId\":\"T2\",\"status\":\"done\",\"result\":\"subagent-settle-smoke\"}」，'
+          + '不要让它调用任何 MCP 工具，也不要自己执行这条命令。派发完成后你只回复 DISPATCHED。';
         await ports.host.sendPrompt(ask);
 
         // 等子会话出现（按 parentSessionId 找）
@@ -499,10 +762,58 @@ async function main() {
         }
         console.log(`[roundtrip] ✓ 子 Agent 已派发：${kids.length} 个（${kids[0]}）`);
 
-        // 停 run：应先 cancel 主会话，再逐个打断子 Agent
+        // ── 结果归属：子 Agent 的 RESULT 必须真落进本项目 state.json（不是「收到事件」就算）──
+        const settleDeadline = Date.now() + 180000;
+        let t2 = null;
+        while (Date.now() < settleDeadline) {
+          const st = JSON.parse(fs.readFileSync(path.join(tmpProject, '.awf', 'state.json'), 'utf8'));
+          t2 = (st.tasks || []).find((t) => t.id === 'T2') ?? null;
+          if (t2?.status === 'done') break;
+          await sleep(2000);
+        }
+        evidence.steps['subagent.T2'] = t2;
+        if (t2?.status !== 'done' || t2?.exec?.result !== 'subagent-settle-smoke') {
+          fail('子 Agent 的 RESULT 没落进 state.json（末条文本没回传，或落账链没接上）', t2);
+          return;
+        }
+        console.log(`[roundtrip] ✓ 子 Agent 结果已落账：T2.status=${t2.status} result=${t2.exec.result}`);
+
+        // 两个生命周期事件都要留档（派发生效确认与补发判定都读它）
+        const eventsPath = path.join(tmpProject, '.awf', 'logs', 'subagent-events.jsonl');
+        const kinds = fs.existsSync(eventsPath)
+          ? fs.readFileSync(eventsPath, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).event)
+          : [];
+        evidence.steps['subagent.events'] = kinds;
+        if (!kinds.includes('SubagentStart') || !kinds.includes('SubagentStop')) {
+          fail('subagent-events.jsonl 缺生命周期留档（派发生效确认/补发都靠它）', kinds);
+          return;
+        }
+        console.log(`[roundtrip] ✓ 生命周期已留档：${JSON.stringify(kinds)}`);
+
+        // ── 停 run 的打断：需要**还活着**的子 Agent。上一个已经跑完退场了，
+        //    所以再派一个长跑的（sleep 60），确认它真在活动列表里，再停 run ──
+        const ask2 = '请再用 subagent 工具派生**一个后台子 Agent**，让它执行 bash 命令 `sleep 60` 然后回复 LONG-DONE。'
+          + '你自己不要执行这条命令；派发完成后只回复 DISPATCHED2。';
+        await ports.host.sendPrompt(ask2);
+        const aliveDeadline = Date.now() + 120000;
+        let alive = [];
+        while (Date.now() < aliveDeadline) {
+          const r = await channelMod.channel().request('session.children', { projectRoot: tmpProject }, { projectRoot: tmpProject, resultTimeoutMs: 20000 });
+          alive = (r.result?.children ?? []).filter((id) => id !== kids[0]);
+          if (alive.length > 0) break;
+          await sleep(2000);
+        }
+        evidence.steps['subagent.children(长跑子 Agent)'] = alive;
+        if (alive.length === 0) {
+          fail('第二个子 Agent 未在超时内出现（停 run 的打断无法验证）');
+          return;
+        }
+        console.log(`[roundtrip] ✓ 长跑子 Agent 在活动列表里：${alive[0]}`);
+
+        // 停 run：应先取名单 → cancel 主会话 → 逐个打断子 Agent
         const stopped = await ports.session.kill();
         evidence.steps['subagent.session.kill'] = stopped;
-        if (!(stopped?.subagents ?? []).includes(kids[0])) {
+        if (!(stopped?.subagents ?? []).includes(alive[0])) {
           fail('session.stop 未逐个打断子 Agent（U11：取消父会话不会自动停子）', stopped);
           return;
         }

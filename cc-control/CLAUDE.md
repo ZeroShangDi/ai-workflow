@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 cc-control/
   package.json             # npm 包
 
-  plugin/                  # 插件市场（.claude-plugin/marketplace.json 注册，三插件）
+  server/adapters/cc/plugin/   # ★ CC 平台插件（.claude-plugin/marketplace.json 注册，三插件；含中性 md）
     config.json            #   ★ 唯一配置源：engineDir / port / marketplace / mcpServers / hooks
                            #     （render-config.mjs 据此生成下方各注册文件）
     settings.json          #   安装清单（本地注入源 / 全局安装源，含 core + decision + plugin-code）
@@ -54,7 +54,7 @@ cc-control/
     mock/                  #   测试脚手架（tmux/日志/state 替身；不进生产装配）
     templates/             #   awf init 的工作区模板（README/config/architecture）
 
-  dsh-plugin/              # AWF 的 DSH 插件（host 半侧）：接 AWF 指令通道，驱动 DSH 会话
+  server/adapters/dsh/plugin/  # ★ DSH 平台插件（host 半侧 Cordis 包 + 技能/命令）：接 AWF 指令通道
   scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
                            #   probe/dsh = DSH 隔离实验夹具（不进产品装配；见其 README）
   tests/                   # unit / integration / e2e / regression / fixtures
@@ -106,7 +106,7 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
 
 ## 架构原则
 
-- **插件改动，CLI 零感知** — 平台参数由插件声明（`plugin/plugin-code/prompts.json` 的 `platform-vars`：worker 子 Agent 类型 / dev 命令 / 技能名），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件参数与入口模板里）。插件改名/改命令，CLI 无需改动。
+- **插件改动，CLI 零感知** — 平台参数由插件声明（`server/adapters/cc/plugin/plugin-code/prompts.json` 的 `platform-vars`：worker 子 Agent 类型 / dev 命令 / 技能名），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件参数与入口模板里）。插件改名/改命令，CLI 无需改动。
 - **提示词归属分离（T-P1-04）** — 编排协议正文随 server（`server/templates/prompts.json`：task-wrapup/settle、context-check、batch-*、subagent-*、gate-fix）；插件只保留 plan 入口模板与平台参数。解析与填充收敛在 `server/shared/prompts.js`，cli 只负责调用/中央调度。
 - **宿主拥有调度权** — 多 agent 下由常驻宿主（`server/run/scheduler.js` 就绪池 + 配额 + plannedFiles 冲突，`server/run/host.cjs` 的 driveBatch 驱动）决定派发，子 Agent 无调度权：禁写 state、只回吐 `RESULT`/`NEEDS_INPUT`。落账原子化走 `awf_task_complete`（一次提交 status+result+files+commits，避免中间态）；需用户决策时子 Agent 以 `NEEDS_INPUT` 上抛，宿主/CLI 检测到决策挂起则暂停补位，等主 Agent AskUserQuestion 解决后恢复。
 
@@ -130,7 +130,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 
 ## Slash commands（core / plugin-code；decision 插件无命令）
 
-### core 插件（plugin/core/commands/，命名空间 `ai-workflow-core`）
+### core 插件（server/adapters/cc/plugin/core/commands/，命名空间 `ai-workflow-core`）
 
 | Command | Purpose |
 |---------|---------|
@@ -139,7 +139,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 | `/w-monitor` | loop 检测 — 非 tmux 调用的 cc 监测 tmux 中 cc 状态 |
 | `/w-state` | awf-state MCP tools 参考（参数/返回/执行流程） |
 
-### plugin-code 插件（plugin/plugin-code/commands/，命名空间 `ai-workflow-code`）
+### plugin-code 插件（server/adapters/cc/plugin/plugin-code/commands/，命名空间 `ai-workflow-code`）
 
 | Command | Purpose |
 |---------|---------|
@@ -158,7 +158,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 
 ## Skills（core / decision / plugin-code）
 
-### core 插件（plugin/core/skills/，命名空间 `ai-workflow-core`）
+### core 插件（server/adapters/cc/plugin/core/skills/，命名空间 `ai-workflow-core`）
 
 **Run 阶段（awf-run-*）**
 - **`awf-run-decision`** — 运行中需决策时的处理方案
@@ -169,17 +169,17 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 
 **通用**
 - **`awf-skill`** — Skill 生命周期管理（创建/修改/聚合/拆分/审计）
-- **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ plugin/core/mcp/awf-state/）
+- **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ server/adapters/cc/plugin/core/mcp/awf-state/）
 
-### decision 插件（plugin/decision/skills/，命名空间 `ai-workflow-decision`）
+### decision 插件（server/adapters/cc/plugin/decision/skills/，命名空间 `ai-workflow-decision`）
 
 **决策技能**
 - **`decision-core`** — 纯决策内核（DC）：识别真正问题与决定性变量，产出可执行、可审查的 Decision Result（12 公理）
 - **`decision-workflow`** — Decision Workflow（DW）职责与协议：单 agent 下 DW 由 Session Server 扮演，本技能供复杂/未来场景复用
 
-配套协议资产：`plugin/decision/decision/PROTOCOL.md`（DC↔DW 最小协议）、`schemas/decision-result.schema.json`、`mode-instruction.md`（决策模式短指令）
+配套协议资产：`server/adapters/cc/plugin/decision/decision/PROTOCOL.md`（DC↔DW 最小协议）、`schemas/decision-result.schema.json`、`mode-instruction.md`（决策模式短指令）
 
-### plugin-code 插件（plugin/plugin-code/skills/，命名空间 `ai-workflow-code`）
+### plugin-code 插件（server/adapters/cc/plugin/plugin-code/skills/，命名空间 `ai-workflow-code`）
 
 **Plan 阶段（awf-plan-*）**
 - **`awf-plan-level`** — 术语与级别规范：全项目统一的层级定义（生态/系统/项目/模块/功能/任务）+ 核心术语
@@ -277,11 +277,11 @@ npm run build             # 打包验证
 npm run test:eval         # 全真端到端：真 claude + tmux（`-- --list` 列 case），非占位
 
 # Claude Code 插件（安装统一在 init 阶段处理）
-awf init                  # 本地注入 plugin/settings.json 到 .claude/settings.json
+awf init                  # 本地注入 server/adapters/cc/plugin/settings.json 到 .claude/settings.json
 awf plugin install --scope global   # 全局安装 settings.json.plugins 声明的插件（claude plugin install）
 
 # 插件配置（集中化）
-npm run build             # 从 plugin/config.json 渲染 marketplace/.mcp.json/hooks/plugin.json
+npm run build             # 从 server/adapters/cc/plugin/config.json 渲染 marketplace/.mcp.json/hooks/plugin.json
 node scripts/render-config.mjs   # 仅渲染（build 的子集）
 ```
 
@@ -303,20 +303,20 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `server/shared/project-paths.cjs` | .awf 布局单源（路径解析） |
 | `server/shared/prompts.js` | 提示词分辨率单源 — 编排模板读 `server/templates/prompts.json`（并入插件 `platform-vars`），入口模板读插件 prompts.json；对外仍是 taskWrapup/taskSettle/contextCheck/subagentDispatch/… 调用方零感知 |
 | `server/templates/prompts.json` | 编排协议提示词模板（T-P1-04 迁入）— task-wrapup/settle、context-check、batch-dispatch/reconcile、subagent-dispatch/redispatch/resend、gate-fix |
-| `plugin/plugin-code/prompts.json` | 插件声明 — plan 入口模板（plan-start/resume/default）+ `platform-vars`（worker 子 Agent 类型 / dev 命令 / 技能名） |
-| `plugin/core/agents/awf-worker.md` | 子 Agent 身份化定义 — 滑动窗口执行单元：禁写 state、禁提问、RESULT/NEEDS_INPUT 最后一行输出协议 |
+| `server/adapters/cc/plugin/plugin-code/prompts.json` | 插件声明 — plan 入口模板（plan-start/resume/default）+ `platform-vars`（worker 子 Agent 类型 / dev 命令 / 技能名） |
+| `server/adapters/cc/plugin/core/agents/awf-worker.md` | 子 Agent 身份化定义 — 滑动窗口执行单元：禁写 state、禁提问、RESULT/NEEDS_INPUT 最后一行输出协议 |
 | `server/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ run.decision 策略（manual/ai/auto，缺省 auto）+ docs 配置 |
 | `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额 + run.decision.mode 决策策略（manual/ai/auto，缺省 auto），awf run 读取（init 从模板生成） |
 | `server/server.cjs` | HTTP Session Server 装配根（/send, /cmd, /hook, /status, /run/*）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
 | `scripts/render-config.mjs` | 按 config.json marketplace.plugins 遍历生成各插件 plugin.json + marketplace + 引擎插件 mcp/hooks（单源），+ 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
-| `plugin/config.json` | ★ 唯一配置源（engineDir / port / marketplace / mcpServers / hooks） |
-| `plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
-| `plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |
-| `plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 20 个 tools；动态规划核心位于 server |
-| `plugin/core/mcp/awf-session/server.cjs` | Session MCP — 7 个 tools |
-| `plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
-| `plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
+| `server/adapters/cc/plugin/config.json` | ★ 唯一配置源（engineDir / port / marketplace / mcpServers / hooks） |
+| `server/adapters/cc/plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
+| `server/adapters/cc/plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |
+| `server/adapters/cc/plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 20 个 tools；动态规划核心位于 server |
+| `server/adapters/cc/plugin/core/mcp/awf-session/server.cjs` | Session MCP — 7 个 tools |
+| `server/adapters/cc/plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
+| `server/adapters/cc/plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
 
 ## 用户配置（`.claude/user/`）

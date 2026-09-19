@@ -17,7 +17,7 @@ export AWF_PROBE_DIR="$PROBE_DIR"
 export AWF_REPO_ROOT="$(cd "$PROBE_DIR/../../.." && pwd)"
 export AWF_PROBE_PLUGIN_SRC="$PROBE_DIR/fixtures/probe-plugin"
 # 生产插件（AWF 的 DSH host 半侧）：与探针插件一起装进隔离 profile
-export AWF_DSH_PLUGIN_SRC="$AWF_REPO_ROOT/dsh-plugin"
+export AWF_DSH_PLUGIN_SRC="$AWF_REPO_ROOT/server/adapters/dsh/plugin"
 
 # ── DSH_HOME：隔离 + 防呆 ──
 export DSH_HOME="${AWF_DSH_PROBE_HOME:-/tmp/awf-dsh-probe}"

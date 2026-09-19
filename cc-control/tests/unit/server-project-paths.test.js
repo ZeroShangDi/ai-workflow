@@ -17,7 +17,12 @@ function sourceFiles(dir = SERVER) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name !== 'public') out.push(...sourceFiles(full));
+      // 平台插件资产（cc/plugin、dsh/plugin）不是 server 代码：它们由 Claude Code / DSH 各自
+      // 装载（MCP server 进程、hook 网关），对 .awf 布局的引用是「外部形状消费方」，不在本规则内
+      if (entry.name === 'public') continue;
+      if (full.endsWith(`${path.sep}adapters${path.sep}cc${path.sep}plugin`)) continue;
+      if (full.endsWith(`${path.sep}adapters${path.sep}dsh${path.sep}plugin`)) continue;
+      out.push(...sourceFiles(full));
     } else if (/\.(cjs|js)$/.test(entry.name)) {
       out.push(full);
     }

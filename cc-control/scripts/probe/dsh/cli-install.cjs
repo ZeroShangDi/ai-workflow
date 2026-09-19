@@ -10,6 +10,7 @@
  *   bash scripts/probe/dsh/guard.sh snapshot
  *   node scripts/probe/dsh/cli-install.cjs          # 装 → dump-config 应含 awf-dsh-plugin → 卸 → dump 应不含
  *   node scripts/probe/dsh/cli-install.cjs --init   # V01：干净项目 `awf init` → 重复 init → --force（幂等/不覆盖）
+ *   node scripts/probe/dsh/cli-install.cjs --pack   # V11：真 `npm pack` → 解包到新目录 → 用**包里的** CLI 装配 profile
  *   bash scripts/probe/dsh/guard.sh check           # 必须 IDENTICAL
  *
  * 退出码：0 = CLI 装配路径真实可用；1 = 失败（打印现场）。
@@ -24,7 +25,7 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '..', '..', '..');
 const DSH_HOME = process.env.AWF_DSH_PROBE_HOME || '/tmp/awf-dsh-probe';
 const PROFILE = process.env.AWF_PROBE_CLI_PROFILE || 'awf-cli';
-const MODE = process.argv.includes('--init') ? 'init' : 'plugin';
+const MODE = process.argv.includes('--init') ? 'init' : (process.argv.includes('--pack') ? 'pack' : 'plugin');
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: 'utf8', ...opts });
@@ -35,6 +36,79 @@ function fail(msg, extra) {
   console.error(`[cli-install] ✗ ${msg}`);
   if (extra !== undefined) console.error(typeof extra === 'string' ? extra : JSON.stringify(extra, null, 2));
   process.exitCode = 1;
+}
+
+/**
+ * V11：发布包在**新目录**里能不能装（P4-02）。
+ *
+ * 为什么必须用真包：`files` 字段漏一个目录，开发机上一切正常（直接跑仓库里的 CLI），
+ * 装出来的包却缺文件 —— `awf plugin install` 会报「插件源码不存在」，而使用者无从判断是
+ * 自己装错了还是包坏了。这里用真 `npm pack` + 解包 + 用**包里的** CLI 装配 profile 来证伪。
+ */
+function runPackFlow(project, profileDir, env, evidence) {
+  const awf = path.join(REPO, 'cli', 'awf.cjs');
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-pack-'));
+  try {
+    // ① 真打包（离线；失败即环境问题，直接报）
+    const packed = run('npm', ['pack', '--pack-destination', packDir], { cwd: REPO, env });
+    evidence.steps['npm pack'] = { code: packed.code, out: packed.out.trim().split('\n').slice(-1)[0] };
+    if (packed.code !== 0) { fail('npm pack 失败', evidence.steps['npm pack']); return false; }
+    const tarball = packed.out.trim().split('\n').filter((l) => l.endsWith('.tgz')).pop();
+    const tgz = path.join(packDir, tarball);
+    if (!fs.existsSync(tgz)) { fail(`找不到打包产物：${tgz}`); return false; }
+
+    // ② 解包到**新目录**（模拟使用者机器）
+    const extractRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-unpack-'));
+    const untar = run('tar', ['-xzf', tgz, '-C', extractRoot], {});
+    if (untar.code !== 0) { fail('解包失败', untar.err); return false; }
+    const pkgRoot = path.join(extractRoot, 'package');
+    // 离线模拟 `npm i`：真使用者装包时 npm 会把 dependencies 放进 node_modules，
+    // 而 `npm pack` 只产包体。不链接的话这里量到的是「没装依赖」，不是「包缺件」。
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(pkgRoot, 'node_modules'), 'dir');
+
+    // ③ 包里有 DSH 插件半侧（`files` 漏 dsh-plugin/ 就死在这一步）
+    const mustHave = ['cli/awf.cjs', 'server/adapters/dsh/install.cjs', 'server/adapters/dsh/plugin/index.js', 'server/adapters/dsh/plugin/lib/ops.js'];
+    const missing = mustHave.filter((rel) => !fs.existsSync(path.join(pkgRoot, rel)));
+    evidence.steps['包内容'] = { checked: mustHave, missing };
+    if (missing.length) { fail(`发布包缺件：${missing.join(', ')}（package.json 的 files 没带上）`, evidence.steps['包内容']); return false; }
+    console.log(`[cli-install] ✓ 发布包含 DSH 插件半侧（${mustHave.length} 项抽查齐备）`);
+
+    // ④ 包里的 CLI 在新目录里装配隔离 profile（不依赖开发机绝对路径）
+    const packedCli = path.join(pkgRoot, 'cli', 'awf.cjs');
+    fs.writeFileSync(path.join(project, '.awf', 'config.json'), JSON.stringify({ runtime: { adapter: 'dsh' } }));
+    const install = run(process.execPath, [packedCli, 'plugin', 'install'], { cwd: project, env: { ...env, AWF_DSH_PROFILE: PROFILE } });
+    evidence.steps['包内 CLI plugin install'] = { code: install.code, out: install.out.trim(), err: install.err.trim() };
+    if (install.code !== 0 || !/已装配|已是装配态/.test(install.out)) {
+      fail('包里的 CLI 没能装配 DSH profile（绝对路径依赖 / 缺件）', evidence.steps['包内 CLI plugin install']);
+      return false;
+    }
+    const patchPath = path.join(profileDir, 'cordis.patch.yml');
+    const copied = path.join(profileDir, 'node_modules', 'awf-dsh-plugin', 'lib', 'ops.js');
+    if (!fs.existsSync(copied)) { fail('插件包没被拷进 profile', { copied }); return false; }
+    // 装配产物必须落在隔离 DSH_HOME 里（不许写回开发机路径）
+    if (!path.resolve(copied).startsWith(path.resolve(DSH_HOME))) { fail('装配写到了 DSH_HOME 之外', { copied }); return false; }
+    console.log(`[cli-install] ✓ 包内 CLI 在新目录装配成功，插件落在隔离 home：${path.relative(DSH_HOME, copied)}`);
+
+    // ⑤ 包里的源码不含开发机绝对路径
+    const scan = ['server/adapters/dsh/plugin/index.js', 'server/adapters/dsh/plugin/lib/ops.js', 'server/adapters/dsh/install.cjs'];
+    const dirty = scan.filter((rel) => fs.readFileSync(path.join(pkgRoot, rel), 'utf8').includes(REPO));
+    evidence.steps['开发机绝对路径'] = { scanned: scan, dirty };
+    if (dirty.length) { fail(`发布包里含开发机绝对路径：${dirty.join(', ')}`, evidence.steps['开发机绝对路径']); return false; }
+    console.log('[cli-install] ✓ 包内源码不含开发机绝对路径');
+
+    // ⑥ 卸载干净（用包里的 CLI）
+    const uninstall = run(process.execPath, [packedCli, 'plugin', 'uninstall'], { cwd: project, env: { ...env, AWF_DSH_PROFILE: PROFILE } });
+    if (uninstall.code !== 0 || fs.readFileSync(patchPath, 'utf8').includes('# >>> awf-dsh')) {
+      fail('包里的 CLI 卸载不干净', { code: uninstall.code, out: uninstall.out.trim() });
+      return false;
+    }
+    console.log('[cli-install] ✓ 包内 CLI 卸载干净（patch 复原）');
+    fs.rmSync(extractRoot, { recursive: true, force: true });
+    console.log(`[cli-install] 打包产物：${tgz}`);
+    return true;
+  } finally {
+    fs.rmSync(packDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -156,6 +230,13 @@ function main() {
   };
   const evidence = { dshHome: DSH_HOME, profile: PROFILE, mode: MODE, steps: {} };
   try {
+    if (MODE === 'pack') {
+      if (!runPackFlow(project, profileDir, env, evidence)) return;
+      evidence.ok = true;
+      console.log('\n[cli-install] 证据：');
+      console.log(JSON.stringify(evidence, null, 2));
+      return;
+    }
     if (MODE === 'init') {
       if (!runInitFlow(project, profileDir, env, evidence)) return;
       evidence.ok = true;
@@ -181,6 +262,26 @@ function main() {
     }
     console.log('[cli-install] ✓ dsh --dump-config 含 awf-dsh-plugin');
     if (!dump.out.includes('awf-dsh')) fail('dump-config 里没有 awf-dsh 行 id');
+
+    // 装配块里两个配置项都必须对（F42）：
+    //   - awfBase：插件连常驻 AWF server 的唯一来源；缺了插件只告警、什么都不驱动
+    //   - webPort：**DSH 网页**端口（会话观看地址），不是 AWF 端口
+    const patchText = fs.readFileSync(path.join(profileDir, 'cordis.patch.yml'), 'utf8');
+    if (!/awfBase: 'http:\/\/127\.0\.0\.1:\d+'/.test(patchText)) {
+      fail('装配块没写 awfBase —— 插件将不启动指令通道（真实安装路径等于没配）', patchText);
+      return;
+    }
+    if (!patchText.includes('webPort: 3080')) {
+      fail('webPort 不是 DSH 网页端口（缺省 3080）—— 会话观看地址会指向错的服务', patchText);
+      return;
+    }
+    // awfRepo：插件挂项目 MCP 要用它定位包内 MCP server；漏了 session.create 直接失败（F43）
+    if (!/awfRepo: '\//.test(patchText)) {
+      fail('装配块没写 awfRepo —— session.create 会以「未配置 awfRepo」失败（规划/执行入口全断）', patchText);
+      return;
+    }
+    console.log('[cli-install] ✓ 装配块含 awfBase（AWF server）、awfRepo（包根）与 webPort=3080（DSH 网页端口）');
+    console.log('  提示：DSH 不在 3080 时用 AWF_DSH_WEB_PORT 声明后重新装配');
 
     // 用户的注释应当还在
     const patched = fs.readFileSync(path.join(profileDir, 'cordis.patch.yml'), 'utf8');

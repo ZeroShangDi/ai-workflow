@@ -75,7 +75,7 @@ function assertMarketplaceShape(marketplace) {
 function readPluginConfig(repoRoot = pkgRoot()) {
   const config = loadConfig({
     rules: PLUGIN_CONFIG_RULES,
-    source: { filePath: path.join(repoRoot, 'plugin', 'config.json') },
+    source: { filePath: path.join(repoRoot, 'server', 'adapters', 'cc', 'plugin', 'config.json') },
     passthrough: true,
   });
   assertMarketplaceShape(config.marketplace);
@@ -90,7 +90,7 @@ function readPluginConfig(repoRoot = pkgRoot()) {
  */
 function enginePluginRoot(repoRoot = pkgRoot()) {
   const config = readPluginConfig(repoRoot);
-  return path.join(repoRoot, 'plugin', config.engineDir || DEFAULT_ENGINE_DIR);
+  return path.join(repoRoot, 'server', 'adapters', 'cc', 'plugin', config.engineDir || DEFAULT_ENGINE_DIR);
 }
 
 /**

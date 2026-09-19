@@ -43,11 +43,20 @@ function profileDir(dshHome, profile = 'web') {
 
 /** 插件源码目录（本包内的 dsh-plugin/） */
 function pluginSourceDir() {
-  return path.resolve(__dirname, '..', '..', '..', 'dsh-plugin');
+  return path.resolve(__dirname, 'plugin');
 }
 
-/** 我们那段 YAML（顶层数组的一项） */
-function managedBlock({ webPort } = {}) {
+/**
+ * 我们那段 YAML（顶层数组的一项）。
+ *
+ * 三个配置项都是**必须写对**的（每一个漏了都会在真实安装里立刻失败，而探针因为走环境变量而看不见）：
+ *   - `awfBase`：AWF 常驻 server 的地址。没有它插件**不启动指令通道**（只告警）—— F42；
+ *   - `awfRepo`：**AWF 包根**。插件要给会话挂项目 MCP，得靠它定位 `<包根>/plugin/core/mcp/` 下的各 MCP server 入口；
+ *     没有它 `session.create` 直接失败（`agents.create 失败：未配置 awfRepo`）—— F43；
+ *   - `webPort`：**DSH 网页**端口（会话观看地址用）。它**不是** AWF server 端口。
+ * @param {{ awfBase?: string, awfRepo?: string, webPort?: number }} [opts]
+ */
+function managedBlock({ awfBase, awfRepo, webPort } = {}) {
   const lines = [
     MARK_BEGIN,
     '# awf 接入层（本段由 ai-workflow 管理；卸载 `awf plugin uninstall` 会整段摘掉）',
@@ -55,10 +64,30 @@ function managedBlock({ webPort } = {}) {
     `    - id: awf-dsh`,
     `      name: '${PLUGIN_PACKAGE}'`,
     '      config:',
+    ...(awfBase ? [`        awfBase: '${awfBase}'`] : []),
+    ...(awfRepo ? [`        awfRepo: '${awfRepo}'`] : []),
     `        webPort: ${Number(webPort) || 3080}`,
     MARK_END,
   ];
   return `${lines.join('\n')}\n`;
+}
+
+/** 取 patch 里我们那段托管块（含标记行）；没有 → null */
+function extractBlock(text) {
+  const lines = String(text || '').split('\n');
+  const begin = lines.findIndex((l) => l.includes(MARK_BEGIN));
+  const end = lines.findIndex((l) => l.includes(MARK_END));
+  if (begin === -1 || end < begin) return null;
+  return lines.slice(begin, end + 1).join('\n') + '\n';
+}
+
+/** 用新块替换旧块（保留用户其它内容；块不存在则返回 null 由调用方决定插哪） */
+function replaceBlock(text, block) {
+  const lines = String(text || '').split('\n');
+  const begin = lines.findIndex((l) => l.includes(MARK_BEGIN));
+  const end = lines.findIndex((l) => l.includes(MARK_END));
+  if (begin === -1 || end < begin) return null;
+  return [...lines.slice(0, begin), ...block.replace(/\n$/, '').split('\n'), ...lines.slice(end + 1)].join('\n');
 }
 
 /** 去掉注释与空白后看内容是否「实质为空」（`[]` 或缺文件） */
@@ -73,10 +102,10 @@ function isEffectivelyEmpty(text) {
 
 /**
  * 把插件装进 DSH profile。
- * @param {{ dshHome?: string, profile?: string, webPort?: number, pluginDir?: string }} [opts]
+ * @param {{ dshHome?: string, profile?: string, awfBase?: string, awfRepo?: string, webPort?: number, pluginDir?: string }} [opts]
  * @returns {{ written: boolean, path: string, pluginPath: string, backupPath: string|null, reason?: string, error?: string }}
  */
-function installProfile({ dshHome, profile = 'web', webPort = 3080, pluginDir } = {}) {
+function installProfile({ dshHome, profile = 'web', awfBase, awfRepo, webPort = 3080, pluginDir } = {}) {
   const dir = profileDir(dshHome, profile);
   const patchPath = path.join(dir, 'cordis.patch.yml');
   const pluginSrc = pluginDir || pluginSourceDir();
@@ -91,10 +120,17 @@ function installProfile({ dshHome, profile = 'web', webPort = 3080, pluginDir } 
     }
 
     const existing = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, 'utf8') : '';
+    const block = managedBlock({ awfBase, awfRepo, webPort });
     if (existing.includes(MARK_BEGIN)) {
-      // 幂等：patch 已有我们的块；仍确保包是最新的拷贝
+      // 幂等：patch 已有我们的块。但**内容可能已经过期**（升级后新增/更正的配置项，
+      // 如 awfRepo）——那时必须原地更新，否则「重新安装」是个无效操作（F43 就是这么被踩到的）。
       copyPlugin(pluginSrc, pluginDest);
-      return { written: false, path: patchPath, pluginPath: pluginDest, backupPath: null, reason: 'patch 已含 awf-dsh 块（跳过写入）' };
+      const current = extractBlock(existing);
+      if (current !== null && current !== block) {
+        fs.writeFileSync(patchPath, replaceBlock(existing, block));
+        return { written: true, path: patchPath, pluginPath: pluginDest, backupPath: null, reason: '托管块内容已更新（配置项有变）' };
+      }
+      return { written: false, path: patchPath, pluginPath: pluginDest, backupPath: null, reason: 'patch 已含 awf-dsh 块且内容一致（跳过写入）' };
     }
 
     // 备份（只备一次，不覆盖已存在的备份）
@@ -104,7 +140,6 @@ function installProfile({ dshHome, profile = 'web', webPort = 3080, pluginDir } 
       if (!fs.existsSync(backupPath)) fs.copyFileSync(patchPath, backupPath);
     }
 
-    const block = managedBlock({ webPort });
     // 保留用户写的一切（含注释）；只把「空数组」那个占位符拿掉，否则 `[]` 后面再跟数组项是非法 YAML
     const kept = existing
       .split('\n')
@@ -173,8 +208,88 @@ function isInstalled({ dshHome, profile = 'web' } = {}) {
   return { installed: patchHas && fs.existsSync(pluginDest), patchHas, pluginPresent: fs.existsSync(pluginDest), path: patchPath, pluginPath: pluginDest };
 }
 
+/**
+ * ── 技能安装（C29 技能发现：DSH 的 `skill` 工具 + `<available_skills>` 目录）──
+ *
+ * 设计（用户拍板）：插件目录里**只保留中性 markdown**（plugin 下各 skills 子目录的 SKILL.md，已带
+ * `name`/`description` frontmatter，与 DSH 兼容）；本 adapter 目录下的代码把它们**构造**进
+ * DSH 的技能根 `$DSH_HOME/skills/<name>`。安装 = **符号链接**（编辑源 md 即时生效，不用重装）；
+ * 链接失败（Windows 等）退化为**复制**（用户认可的先复制两份的口径）。卸载按清单摘掉。
+ */
+
+/** 插件里全部技能（plugin 下各 skills 子目录的 SKILL.md）—— 只读清单 */
+function listSkills() {
+  // DSH 技能唯一来源：`dsh/plugin/skills/<name>`（本身就是指向中性 md 的链接森林，
+  // 见 dsh/plugin/skills/；编辑 cc/plugin/*/skills 里的源 md 即时生效，不必重装）。
+  const root = path.resolve(__dirname, 'plugin', 'skills');
+  const skills = [];
+  if (fs.existsSync(root)) {
+    for (const dir of fs.readdirSync(root)) {
+      const md = path.join(root, dir, 'SKILL.md');
+      if (fs.existsSync(md)) skills.push({ name: dir, sourceDir: path.join(root, dir) });
+    }
+  }
+  return skills;
+}
+
+/** 清单文件：记下「哪些是我们装的、链接还是复制」，卸载只摘我们自己的 */
+function skillsManifestPath(skillsRoot) {
+  return path.join(skillsRoot, '.awf-skills.json');
+}
+
+/**
+ * 把插件技能装进 DSH 技能根。
+ * @returns {{ root: string, installed: string[], skipped: string[], failed: string[] }}
+ */
+function installSkills({ dshHome } = {}) {
+  const home = resolveDshHome(dshHome);
+  const root = path.join(home, 'skills');
+  fs.mkdirSync(root, { recursive: true });
+  const manifest = fs.existsSync(skillsManifestPath(root))
+    ? JSON.parse(fs.readFileSync(skillsManifestPath(root), 'utf8'))
+    : { entries: {} };
+  const installed = [];
+  const skipped = [];
+  const failed = [];
+  for (const { name, sourceDir } of listSkills()) {
+    const dest = path.join(root, name);
+    try {
+      // 目标已存在但**不是我们的**：别动用户的同名技能
+      if (fs.existsSync(dest) && !manifest.entries[name]) { skipped.push(`${name}（目标已存在，非 AWF 所装）`); continue; }
+      if (fs.existsSync(dest)) { try { fs.rmSync(dest, { recursive: true, force: true }); } catch { /* 旧链接坏了也要能重装 */ } }
+      let linked = true;
+      try { fs.symlinkSync(sourceDir, dest, 'dir'); }
+      catch { fs.cpSync(sourceDir, dest, { recursive: true }); linked = false; } // 链接失败 → 复制
+      manifest.entries[name] = { sourceDir, linked };
+      installed.push(name);
+    } catch (err) { failed.push(`${name}: ${err.message}`); }
+  }
+  fs.writeFileSync(skillsManifestPath(root), JSON.stringify(manifest, null, 2));
+  return { root, installed, skipped, failed };
+}
+
+/** 只摘清单里 AWF 自己装的技能；用户自建的技能一个不动 */
+function uninstallSkills({ dshHome } = {}) {
+  const home = resolveDshHome(dshHome);
+  const root = path.join(home, 'skills');
+  const manifestPath = skillsManifestPath(root);
+  const removed = [];
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    for (const name of Object.keys(manifest.entries || {})) {
+      const dest = path.join(root, name);
+      try { if (fs.existsSync(dest)) { fs.rmSync(dest, { recursive: true, force: true }); removed.push(name); } } catch { /* 单个失败不阻断 */ }
+    }
+    fs.rmSync(manifestPath, { force: true });
+  }
+  return { removed };
+}
+
 module.exports = {
   installProfile,
+  managedBlock,
+  extractBlock,
+  replaceBlock,
   uninstallProfile,
   isInstalled,
   resolveDshHome,
@@ -183,4 +298,7 @@ module.exports = {
   PLUGIN_PACKAGE,
   MARK_BEGIN,
   MARK_END,
+  installSkills,
+  uninstallSkills,
+  listSkills,
 };

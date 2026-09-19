@@ -93,17 +93,11 @@ async function handleHook(req, res, url, rt) {
       if (out) hookCcOutput = out.ccOutput;
     }
   } else if (event === 'SubagentStart') {
-    rt.subagent.logEvent(event, body);
-    // 主会话已知且这是外部会话 → 跳过（不是本项目派发的子 agent）
-    if (session.mainSessionId && body.session_id && body.session_id !== session.mainSessionId) {
-      console.log(`[subagent-start] skip external session ${body.session_id}`);
-    } else {
-      const key = body.agent_id || body.session_id || 'unknown';
-      rt.observability.trackAgent(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
-      hookUpdateSubagentMeta(ctx, key, body, 'running');
-    }
+    // 处理器由 runtime 装配（web → run 的依赖方向不允许，且 DSH 用的是同一个实例）
+    const r = rt.subagentLifecycle.started(body);
+    if (r.handled === false) console.log(`[subagent-start] skip ${r.reason}`);
   } else if (event === 'SubagentStop') {
-    handleSubagentStop(rt, body); // 解析 RESULT/NEEDS_INPUT 并原子落账
+    rt.subagentLifecycle.stopped(body); // 解析 RESULT/NEEDS_INPUT 并原子落账
   }
 
   // 决策门阀的两个挂点（在主槽路径上）
@@ -148,66 +142,6 @@ function hookUpdateMeta(ctx, session, body) {
     mainSessionId: body.session_id || meta.mainSessionId || null,
     updatedAt: new Date().toISOString(),
   }));
-}
-
-/** 更新 run-meta 里某子 agent 的条目（SubagentStart/Stop 都调，按 status 区分） */
-function hookUpdateSubagentMeta(ctx, key, body, status) {
-  updateRunMeta(ctx.projectRoot, (meta) => ({
-    ...meta,
-    projectRoot: ctx.projectRoot,
-    subagents: {
-      ...(meta.subagents || {}),
-      [key]: {
-        ...(meta.subagents || {})[key],
-        agentId: key,
-        sessionId: body.session_id || ((meta.subagents || {})[key] || {}).sessionId || null,
-        status,
-        startedAt: ((meta.subagents || {})[key] || {}).startedAt || new Date().toISOString(), // 保留首次开始时间
-        stoppedAt: status === 'stopped' ? new Date().toISOString() : null,
-        transcriptPath: body.agent_transcript_path || ((meta.subagents || {})[key] || {}).transcriptPath || null,
-      },
-    },
-    updatedAt: new Date().toISOString(),
-  }));
-}
-
-/**
- * SubagentStop：解析子 agent 输出并落账。
- * 子 agent 只输出 RESULT（正常完成）或 NEEDS_INPUT（需人工）最后一行，宿主/hook 负责把它落进 state。
- * 谓词优先级：needs（需人工）优先于 result；两者都没有则不可结算（可能 recoverable）。
- */
-function handleSubagentStop(rt, body) {
-  const { ctx, session } = rt;
-  const key = body.agent_id || body.session_id || 'unknown';
-  rt.subagent.logEvent('SubagentStop', body);
-  // 外部会话的 SubagentStop 直接忽略。
-  // 注意用的是 session.mainSessionId（不是 ctx 的）—— 该字段在重构中从 pcx 挪到了 Session 上，
-  // ctx 里没有它；写成 ctx.mainSessionId 会让这个守卫恒为假（外部会话不被跳过）。
-  if (session.mainSessionId && body.session_id && body.session_id !== session.mainSessionId) return;
-  const agent = rt.observability.agents.get(key);
-  if (agent) agent.status = 'stopped';
-  hookUpdateSubagentMeta(ctx, key, body, 'stopped');
-  if (!agent) {
-    // 没记过 SubagentStart → 无基线，跳过（否则可能误结算别的 agent 的任务）
-    console.log(`[subagent-stop] skip untracked agent ${key} (no SubagentStart)`);
-    return;
-  }
-  const needs = rt.subagent.parseNeedsInput(body);
-  const result = needs ? null : rt.subagent.parseResult(body); // 有 needs 就不再解析 result
-  ctx.logger.captureSubagentTranscript(body, needs?.taskId || result?.taskId, key);
-  if (needs) {
-    rt.subagent.logNeedsInput(body, needs);
-    console.log(`[subagent-needs] ${needs.taskId}: ${needs.question.slice(0, 40)}`);
-  } else {
-    const settled = rt.subagent.settle(body); // 原子落账（awf_task_complete）
-    if (!settled.ok) {
-      // 不可结算：记失败（除非明确标记 recoverable===false —— 那就只是丢弃，不算失败）
-      console.log(`[subagent-settle] ${settled.reason} (agent ${key})`);
-      if (settled.recoverable !== false) rt.subagent.logFailure(body, settled);
-    } else {
-      console.log(`[subagent-settle] ${settled.taskId} -> ${settled.status}`);
-    }
-  }
 }
 
 module.exports = { handle };

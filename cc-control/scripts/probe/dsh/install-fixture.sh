@@ -69,7 +69,7 @@ YML
 fi
 
 # ⑤ 插件自己的依赖：生产插件 import 平台的 dsh-mcp-client（会话级挂 MCP 用，P2-5d）。
-#    本机无 pnpm，故把它从真实 home 的 hoisted node_modules **符号链接**进 dsh-plugin/node_modules
+#    本机无 pnpm，故把它从真实 home 的 hoisted node_modules **符号链接**进插件 node_modules
 #    （已被 .gitignore 的 node_modules/ 覆盖）。缺它时插件会**明确报错**而不是静默不挂 MCP。
 PLUGIN_DEPS="$AWF_DSH_PLUGIN_SRC/node_modules/@deepseek-ai"
 REAL_DEPS="$HOME/.dsh/profiles/node_modules/@deepseek-ai"

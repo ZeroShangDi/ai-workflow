@@ -57,7 +57,7 @@ function mergeSettings(base, incoming) {
 /** 读注入模板 `plugin/settings.json`；缺失/非法 → null */
 function readTemplate(pkgRoot) {
   try {
-    return JSON.parse(fs.readFileSync(path.join(pkgRoot, 'plugin', 'settings.json'), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(pkgRoot, 'server', 'adapters', 'cc', 'plugin', 'settings.json'), 'utf8'));
   } catch {
     return null;
   }

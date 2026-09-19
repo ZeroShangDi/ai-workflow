@@ -10,7 +10,7 @@ import pluginAssets from './plugin-assets.cjs';
  * |---|---|---|---|
  * | **编排模板** | task-wrapup / task-settle / context-check / batch-* / subagent-* / gate-fix | `server/templates/prompts.json` | 它们是 AWF 编排协议的正文，随 server 走；换平台要改的是**参数**，不是协议 |
  * | **入口模板** | plan-start / plan-resume / plan-default | `plugin/plugin-code/prompts.json` | 它们直接引用插件的 slash 命令命名空间，属插件资产 |
- * | **平台参数** | worker-agent-type / dev-command / \*skill 名 | `plugin/plugin-code/prompts.json` 的 `platform-vars` | 名称由插件/市场决定（换平台可能变），作为变量填进编排模板 |
+ * | **平台参数** | worker-agent-type / worker-spawn / \*skill 名 | `plugin/plugin-code/prompts.json` 的 `platform-vars`（+ `platform-vars-<平台>` 按平台覆盖） | 名称与**工具措辞**都由插件/市场决定（换平台可能变），作为变量填进编排模板 |
  *
  * 因此：「插件改动，本模块零感知」仍然成立 —— 插件改**参数**不用动 server 模板；
  * 而编排协议正文的修订不再散在插件里。两条边界各自单源。
@@ -28,6 +28,7 @@ const CODE_PLUGIN = 'ai-workflow-code';
  * 编排模板 key —— 决定「从 server 模板读」还是「从插件读」。
  * 新增编排提示词时**必须**同时加到这里，否则会被当成插件入口模板去读而找不到。
  */
+const ADAPTER_DEFAULT = 'cc';
 const ORCHESTRATION_KEYS = new Set([
   'task-wrapup', 'task-settle', 'context-check',
   'batch-dispatch', 'batch-reconcile',
@@ -70,17 +71,25 @@ function fill(text, vars) {
 
 /**
  * 读插件声明的平台参数（kebab-case → camelCase，供 `{camelCase}` 占位符使用）。
+ *
+ * **按平台**：缺省表 `platform-vars` 是 cc 的值；`platform-vars-<平台>`（如 `platform-vars-dsh`）
+ * 覆盖其中同名项。为什么要这样：编排模板里含**平台工具措辞**（派生工具名与参数、提问工具、
+ * 回话工具），cc 是 `Agent 工具（subagent_type…）`/`AskUserQuestion`，DSH 是 `subagent 工具`/
+ * `ask_user_question` —— 同一份模板填上各自的措辞，才不用把模板按平台分叉（模板仍然只有一份）。
+ * @param {string} [adapter] 平台名（缺省 'cc'）；未知平台取缺省表（解析错误在别处显式报）
  * @returns {Promise<Record<string,string>>}
  * @throws {Error} 插件未声明 platform-vars（编排模板会因此发不出去，明确失败优于静默残缺）
  */
-async function platformVars() {
+async function platformVars(adapter = ADAPTER_DEFAULT) {
   const registry = await readRegistry(promptsPath());
   const raw = registry['platform-vars'];
   if (!raw || typeof raw !== 'object' || Object.keys(raw).length === 0) {
     throw new Error('prompts: 插件未声明 platform-vars（编排模板的平台参数单一来源）');
   }
+  const overrides = registry[`platform-vars-${adapter}`];
+  const merged = overrides && typeof overrides === 'object' ? { ...raw, ...overrides } : raw;
   const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [camel(k), String(v)]));
+  return Object.fromEntries(Object.entries(merged).map(([k, v]) => [camel(k), String(v)]));
 }
 
 /**
@@ -90,13 +99,16 @@ async function platformVars() {
  * @returns {Promise<string>} 填充后的完整提示词
  * @throws {Error} key 不存在、该项无 prompt 字段、或编排模板缺平台参数
  */
-export async function resolvePrompt(key, vars = {}) {
+export async function resolvePrompt(key, vars = {}, { adapter = ADAPTER_DEFAULT } = {}) {
   const isOrchestration = ORCHESTRATION_KEYS.has(key);
   const registry = await readRegistry(isOrchestration ? orchestrationPromptsPath() : promptsPath());
   const entry = registry[key];
   if (!entry?.prompt) throw new Error(`prompt template not found: ${key}`);
-  const base = isOrchestration ? await platformVars() : {};
-  return fill(entry.prompt, { ...base, ...vars });
+  const base = isOrchestration ? await platformVars(adapter) : {};
+  // 两遍填：平台参数的值**可以引用别的平台参数**（如 `worker-spawn` 里嵌 `{workerAgentType}`），
+  // 第二遍只拿平台参数表再走一次，调用方传进来的业务值（任务正文等）不会被二次改写 —— 除非它
+  // 恰好含 `{architectureSkill}` 这类平台占位符字面量，那本来也该被填掉。
+  return fill(fill(entry.prompt, { ...base, ...vars }), base);
 }
 
 /**
@@ -106,10 +118,42 @@ export async function resolvePrompt(key, vars = {}) {
  * @param {boolean} [resume] - 是否恢复上次规划会话
  * @returns {Promise<string>}
  */
-export function planEntry(description, resume) {
-  if (resume) return resolvePrompt('plan-resume');
-  if (description) return resolvePrompt('plan-start', { desc: description });
-  return resolvePrompt('plan-default');
+export async function planEntry(description, resume, { adapter = ADAPTER_DEFAULT } = {}) {
+  // 平台没有斜杠命令注册机制时（DSH 未注册插件命令，C29），发 `/ai-workflow-code:w-plan …`
+  // 只会让模型看到一串它无法解释的命令字面量（实测：模型把整个需求当成「命令的参数被截断」）。
+  // 这时把**命令正文**展开成指令，需求原文附在后面 —— 对平台零假设。
+  const inline = (await platformVars(adapter)).planEntryMode === 'inline';
+  if (inline) {
+    // DSH 没有斜杠命令执行（slash command 只在网页输入框触发，`awf plan` 走 API 注入，平台不调 handler）。
+    // 但 DSH 有**技能系统**（`skill` 工具 + <available_skills> 目录）：`awf plugin install` 已把
+    // plugin 里的 SKILL.md 链接进 `$DSH_HOME/skills/`，所以入口只需点名叫模型加载，不必内联 18KB。
+    const head = resume
+      ? '这是**恢复**上次规划会话：先问用户上次进行到哪一步，再从中断处继续；不要从头重问一遍。'
+      : '';
+    const ask = description
+      ? description
+      : '(用户未提供描述：先用 ask_user_question 问清「要做什么、给谁用、核心功能期望」，拿到完整需求再开始)';
+    return [
+      '这是 AWF 的规划任务：把一句需求转成「范围 + WBS + 任务列表」，最后用 awf-state 工具**一次性**写入 state.json。',
+      '',
+      '## 硬性产出',
+      '1. 范围：inScope / outOfScope 都显式列出，100% 敲定，不留 openQuestions。',
+      '2. WBS：逐级拆到叶子，每个叶子有可独立验证的 done 条件；id 用「前缀+序号」。',
+      '3. tasks：每个任务带 wbsRef / deps / acceptance / prompt；在 dev 任务后插入 review、test 门禁任务。',
+      '',
+      '## 流程约束',
+      '- 规划过程中只写临时文件，**最后一步**才用 awf-state 写 state.json。',
+      '- 技术选型在 plan 阶段只定到 60-70%（方向、关键约束），实现细节不强求。',
+      '- 若本平台有 `skill` 工具且能加载 awf-plan-*（norm/wbs/tasks/prompt）或 code-context-onboard，先加载它们获取更细规范再开始；加载不到就按本指令执行。',
+      head ? `\n${head}\n` : '',
+      '## 需求原文（必须完整使用，不得截断或改写）',
+      '',
+      ask,
+    ].join('\n');
+  }
+  if (resume) return resolvePrompt('plan-resume', {}, { adapter });
+  if (description) return resolvePrompt('plan-start', { desc: description }, { adapter });
+  return resolvePrompt('plan-default', {}, { adapter });
 }
 
 /**
@@ -160,11 +204,11 @@ export function gateFixPrompt({ fixId, fixTarget }) {
  * @param {{ batchId: string, tasks: Array<{ taskId: string, title: string, kind: string, prompt: string }> | string }} opts
  * @returns {Promise<string>}
  */
-export function batchDispatch({ batchId, tasks }) {
+export function batchDispatch({ batchId, tasks, adapter }) {
   const tasksText = Array.isArray(tasks)
     ? tasks.map((t) => `- ${t.taskId} [${t.kind}] ${t.title}\n  提示词：${t.prompt}`).join('\n')
     : tasks;
-  return resolvePrompt('batch-dispatch', { batchId, tasks: tasksText });
+  return resolvePrompt('batch-dispatch', { batchId, tasks: tasksText }, { adapter });
 }
 
 /**
@@ -181,8 +225,8 @@ export function batchReconcile(batchId) {
  * @param {{ taskId: string, taskTitle?: string, taskPrompt: string }} opts taskTitle 缺省 ''（模板里可用可不用）
  * @returns {Promise<string>}
  */
-export function subagentDispatch({ taskId, taskTitle = '', taskPrompt }) {
-  return resolvePrompt('subagent-dispatch', { taskId, taskTitle, taskPrompt });
+export function subagentDispatch({ taskId, taskTitle = '', taskPrompt, adapter }) {
+  return resolvePrompt('subagent-dispatch', { taskId, taskTitle, taskPrompt }, { adapter });
 }
 
 /**
@@ -192,8 +236,8 @@ export function subagentDispatch({ taskId, taskTitle = '', taskPrompt }) {
  * @param {{ taskId: string, taskPrompt: string }} params
  * @returns {Promise<string>}
  */
-export function subagentRedispatch({ taskId, taskPrompt }) {
-  return resolvePrompt('subagent-redispatch', { taskId, taskPrompt });
+export function subagentRedispatch({ taskId, taskPrompt, adapter }) {
+  return resolvePrompt('subagent-redispatch', { taskId, taskPrompt }, { adapter });
 }
 
 /**
@@ -201,6 +245,6 @@ export function subagentRedispatch({ taskId, taskPrompt }) {
  * @param {{ agentId: string, reason: string }} params reason=为何要补发（如「RESULT 缺失/格式非法」）
  * @returns {Promise<string>}
  */
-export function subagentResend({ agentId, reason }) {
-  return resolvePrompt('subagent-resend', { agentId, reason });
+export function subagentResend({ agentId, reason, adapter }) {
+  return resolvePrompt('subagent-resend', { agentId, reason }, { adapter });
 }

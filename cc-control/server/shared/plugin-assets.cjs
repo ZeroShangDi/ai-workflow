@@ -25,7 +25,7 @@ function pkgRoot() {
 
 /** 插件注册表文件 plugin/config.json 的绝对路径（它是注册表本身，故不经注册表查） */
 function pluginConfigPath(root = pkgRoot()) {
-  return path.join(root, 'plugin', 'config.json');
+  return path.join(root, 'server', 'adapters', 'cc', 'plugin', 'config.json');
 }
 
 /**
@@ -66,7 +66,7 @@ function pluginDir(name, root = pkgRoot()) {
  * @returns {string}
  */
 function pluginAssetPath(name, ...parts) {
-  return path.join(pkgRoot(), 'plugin', pluginDir(name), ...parts);
+  return path.join(pkgRoot(), 'server', 'adapters', 'cc', 'plugin', pluginDir(name), ...parts);
 }
 
 /**

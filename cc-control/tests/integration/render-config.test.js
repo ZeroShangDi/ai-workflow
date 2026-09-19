@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const RENDER = path.join(ROOT, 'scripts', 'render-config.mjs');
-const PLUGIN_CONFIG = path.join(ROOT, 'plugin', 'config.json');
+const PLUGIN_CONFIG = path.join(ROOT, 'server', 'adapters', 'cc', 'plugin', 'config.json');
 const NODE = process.execPath;
 
 // ── 独立沙箱渲染（--workdir 模式，已从 bootstrap.sh 拆出，手动调用）──
@@ -42,9 +42,9 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     const work = path.join(TMP, 'w2');
     render(work);
     const mcp = fs.readFileSync(path.join(work, '.mcp.json'), 'utf-8');
-    expect(mcp).toContain(`${ROOT}/plugin/core/mcp/awf-state/server.cjs`);
-    expect(mcp).toContain(`${ROOT}/plugin/core/mcp/awf-session/server.cjs`);
-    expect(mcp).toContain(`${ROOT}/plugin/core/mcp/awf-oneshot/server.cjs`);
+    expect(mcp).toContain(`${ROOT}/server/adapters/cc/plugin/core/mcp/awf-state/server.cjs`);
+    expect(mcp).toContain(`${ROOT}/server/adapters/cc/plugin/core/mcp/awf-session/server.cjs`);
+    expect(mcp).toContain(`${ROOT}/server/adapters/cc/plugin/core/mcp/awf-oneshot/server.cjs`);
     // 配置源 mcp args 保持相对路径
     expect(fs.readFileSync(PLUGIN_CONFIG, 'utf-8')).toContain('./mcp/awf-state/server.cjs');
   });
@@ -96,10 +96,10 @@ describe('render-config --workdir 独立沙箱渲染', () => {
   it('TC8: 特殊字符路径（ROOT 含空格，拷贝脚本 + config + 共享模块到带空格目录）', () => {
     const spacedProject = path.join(TMP, 'my project', 'cc-control');
     fs.mkdirSync(path.join(spacedProject, 'scripts'), { recursive: true });
-    fs.mkdirSync(path.join(spacedProject, 'plugin'), { recursive: true });
+    fs.mkdirSync(path.join(spacedProject, 'server', 'adapters', 'cc', 'plugin'), { recursive: true });
     fs.mkdirSync(path.join(spacedProject, 'server', 'shared'), { recursive: true });
     fs.copyFileSync(RENDER, path.join(spacedProject, 'scripts', 'render-config.mjs'));
-    fs.copyFileSync(PLUGIN_CONFIG, path.join(spacedProject, 'plugin', 'config.json'));
+    fs.copyFileSync(PLUGIN_CONFIG, path.join(spacedProject, 'server', 'adapters', 'cc', 'plugin', 'config.json'));
     // 渲染面（原 src/lib/plugin-config.js）现居 server/shared/plugin-render.cjs，
     // 它依赖同目录的 config-loader（读配置）与 plugin-assets（定位包根/插件目录）—— 一并拷贝。
     for (const f of ['plugin-render.cjs', 'config-loader.cjs', 'plugin-assets.cjs']) {
@@ -113,7 +113,7 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     const res = spawnSync(NODE, [path.join(spacedProject, 'scripts', 'render-config.mjs'), '--workdir', work], { encoding: 'utf8' });
     expect(res.status).toBe(0);
     const mcp = fs.readFileSync(path.join(work, '.mcp.json'), 'utf-8');
-    expect(mcp).toContain(`${spacedProject}/plugin/core/mcp/awf-state/server.cjs`);
+    expect(mcp).toContain(`${spacedProject}/server/adapters/cc/plugin/core/mcp/awf-state/server.cjs`);
     expect(() => JSON.parse(mcp)).not.toThrow();
   });
 });

@@ -28,6 +28,8 @@ async function serverCommand(action) {
     const c = createClient({ port: ctx.port, project: ctx.projectRoot });
     const st = await c.getStatus();
     if (st?.ok === false) { console.log(`未运行（端口 ${ctx.port}）：${st.error}`); return; }
+    const src = { env: `环境变量 CC_ADAPTER`, config: `.awf/config.json 的 runtime.adapter`, default: `缺省（未配置）` }[st.adapterSource] || st.adapterSource;
+    console.log(`平台：${st.adapter}（来自 ${src}）`);
     console.log(JSON.stringify(st, null, 2));
     return;
   }

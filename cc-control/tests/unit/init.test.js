@@ -119,6 +119,47 @@ describe('initCommand', () => {
     }
   });
 
+  // 不用手改配置、也不用每次带环境变量：`awf init --adapter dsh` 先把平台写进项目配置，
+  // 之后所有命令（含 init 自己）都按项目解析。
+  it('--adapter dsh：写进 .awf/config.json 并按 DSH 装配；不带参数再跑仍解析为 dsh', async () => {
+    const dshHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-init-adapter-'));
+    const profile = path.join(dshHome, 'profiles', 'probe');
+    fs.mkdirSync(path.join(profile, 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(profile, 'cordis.yml'), '[]\n');
+    fs.writeFileSync(path.join(profile, 'cordis.patch.yml'), '[]\n');
+    vi.stubEnv('DSH_HOME', dshHome);
+    vi.stubEnv('AWF_DSH_PROFILE', 'probe');
+    try {
+      await initCommand({ adapter: 'dsh' });
+      expect(JSON.parse(fs.readFileSync(path.join(TMP, '.awf', 'config.json'), 'utf8')).runtime.adapter).toBe('dsh');
+      expect(fs.readFileSync(path.join(profile, 'cordis.patch.yml'), 'utf8')).toContain('awf-dsh-plugin');
+      expect(fs.existsSync(path.join(TMP, '.claude', 'settings.json'))).toBe(false); // dsh 无项目级注入
+
+      // 第二次不带 --adapter：从配置解析出 dsh（这就是「不用每次带」的证据）
+      await initCommand();
+      expect(fs.existsSync(path.join(profile, 'node_modules', 'awf-dsh-plugin', 'index.js'))).toBe(true);
+    } finally {
+      fs.rmSync(dshHome, { recursive: true, force: true });
+    }
+  });
+
+  it('--adapter nope：未知平台 → 显式报错退出（不静默回落 cc、不建骨架）', async () => {
+    const code = [];
+    vi.spyOn(process, 'exit').mockImplementation((c) => { code.push(c); throw new Error('exit'); });
+    await expect(initCommand({ adapter: 'nope' })).rejects.toThrow('exit');
+    expect(code).toEqual([2]);
+    expect(fs.existsSync(path.join(TMP, '.awf'))).toBe(false);
+  });
+
+  it('--adapter cc：显式指定覆盖配置里已有的 dsh（用户明确要的平台优先）', async () => {
+    fs.mkdirSync(path.join(TMP, '.awf'), { recursive: true });
+    fs.writeFileSync(path.join(TMP, '.awf', 'config.json'), JSON.stringify({ runtime: { adapter: 'dsh' }, run: { agents: { max: 3 } } }));
+    await initCommand({ adapter: 'cc' });
+    const cfg = JSON.parse(fs.readFileSync(path.join(TMP, '.awf', 'config.json'), 'utf8'));
+    expect(cfg.runtime.adapter).toBe('cc');
+    expect(cfg.run.agents.max).toBe(3); // 其它字段原样保留
+  });
+
   it('前置依赖缺失 → 阻断且不建骨架（不在半缺依赖的项目里动手）', async () => {
     vi.stubEnv('PATH', ''); // command -v 全部落空
     const code = [];

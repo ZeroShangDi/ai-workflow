@@ -21,8 +21,29 @@
  * 调用方不需要知道 `<sid>` 拼在哪一层。
  */
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { withFileLock } = require('./store-core.cjs');
+
+/**
+ * 路径同一性：`/var/…` 与 `/private/var/…`（macOS 临时目录）是同一个地方，但字符串不等。
+ * 凡「按项目根比路径」的判定（会话归属、事件归属）都必须用这个，别直接 `===`（F38）。
+ * 路径不存在（临时目录已删）时退回字符串归一；两边都可能不存在，故 isSamePath 两个方向都试。
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function canonPath(p) {
+  if (typeof p !== 'string' || p === '') return null;
+  try { return fs.realpathSync.native(p); } catch { /* 不存在 → 退字符串归一 */ }
+  const abs = path.resolve(p).replace(/\/+$/, '');
+  return abs === '' ? '/' : abs;
+}
+
+function isSamePath(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a === '' || b === '') return false;
+  return a === b || canonPath(a) === canonPath(b);
+}
 
 // ── 根 ──
 
@@ -137,6 +158,8 @@ function withStateLock(projectRoot, fn, opts) {
 }
 
 module.exports = {
+  canonPath,
+  isSamePath,
   awfDir,
   stateFilePath,
   stateLockPath,

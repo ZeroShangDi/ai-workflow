@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const settingsPath = path.resolve(__dirname, '../../plugin/config.json');
+const settingsPath = path.resolve(__dirname, '../../server/adapters/cc/plugin/config.json');
 
 function loadConfig() {
   const raw = fs.readFileSync(settingsPath, 'utf-8');

@@ -162,8 +162,9 @@ function createApi({ registry, stopServer, oneshot }) {
     // ── DSH 桥：插件连上来 = 通道可用 ──
     if (pathname === '/bridge/dsh') {
       wsUpgrade(req, socket, {
-        onClose: () => bridgeChannel.detachSocket('ws closed'),
-        onError: () => bridgeChannel.detachSocket('ws error'),
+        // 传 socket 本身：插件重连后旧 socket 的迟到 close 不能把新连接误判为断开
+        onClose: () => bridgeChannel.detachSocket('ws closed', socket),
+        onError: () => bridgeChannel.detachSocket('ws error', socket),
       });
       // 握手已在本函数内完成（wsUpgrade 写 101），随后登记 socket 并置通道为已连接
       bridgeChannel.attachSocket(socket, { platform: 'dsh', pluginVersion: url?.searchParams.get('pluginVersion') || null });

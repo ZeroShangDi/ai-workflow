@@ -499,12 +499,12 @@ factory: (require) => { … const name = 'awf-probe-plugin'; const inject = ['sl
 | T-P1-04 | P1 | 编排模板迁入 server（模板与平台参数分离）；技能/worker/决策资产保持单源 | **done**（见 §2.4） |
 | T-P1-05 | P1 | 测试分层：编排层 CLI 无关 + conformance 套件 + 契约自检（可执行必填方法名断言） | **done**（见 §2.4） |
 | T-P1-06 | P1 | **`run -r` 最小恢复修复**（把「查询活跃 run 并挂接」补进 `-r` 分支，与 `--attach` 同路径；不新增崩溃恢复、不自动重置 active）；提为显式公共行为修复（U3 已确认） | **done**（见 §2.4） |
-| T-P2-01 | P2 | `server/adapters/dsh/` awf 侧 + 插件 host 半侧：WS 指令下行 + HTTP 回传 | pending |
-| T-P2-02 | P2 | init/plan/run 的 DSH 接线（后台全局单实例、新建规划会话注入、run 新建执行会话） | pending |
-| T-P3-01 | P3 | batch 走 DSH 原生子 Agent + 结果归属校验（旧结果不覆盖新执行） | pending |
-| T-P3-02 | P3 | 决策/上下文/观测在 DSH 下的接线；`run -r` 最小恢复行为 | pending |
-| T-P4-01 | P4 | 三个业务页面**空页面** + 项目/无会话入口（U4，后续逐页指导） | pending |
-| T-P4-02 | P4 | 干净环境安装/卸载/升级；能力矩阵区分「占位」与「完成」 | pending |
+| T-P2-01 | P2 | `server/adapters/dsh/` awf 侧 + 插件 host 半侧：WS 指令下行 + HTTP 回传 | **done**（2026-09-19，见 §2.7～§2.18） |
+| T-P2-02 | P2 | init/plan/run 的 DSH 接线（后台全局单实例、新建规划会话注入、run 新建执行会话） | **done**（2026-09-19：`--init`/`--cli-plan`/`--run`/`--batch` 真机；见 §2.16、§2.21） |
+| T-P3-01 | P3 | batch 走 DSH 原生子 Agent + 结果归属校验（旧结果不覆盖新执行） | **done**（2026-09-19，见 §2.19） |
+| T-P3-02 | P3 | 决策/上下文/观测在 DSH 下的接线；`run -r` 最小恢复行为 | **部分 done**（决策门阀已通；`run -r` 已有 P1 护栏，重启组合未验；见 §2.19） |
+| T-P4-01 | P4 | 三个业务页面**空页面** + 项目/无会话入口（U4，后续逐页指导） | **done**（占位页已交付，完整 UI 待逐页指导；见 §2.20） |
+| T-P4-02 | P4 | 干净环境安装/卸载/升级；能力矩阵区分「占位」与「完成」 | **done**（发布包安装/卸载实测；矩阵见 features/adapters.md；见 §2.20） |
 
 #### T-P1-02 首次试改记录（2026-09-18，**已回滚**——历史保留）
 - 试改内容：`server/runtime/project.cjs` 注入键 `tmux`→`host`；生产侧 20 处 `ctx.tmux.*`→`ctx.host.*`；测试替身键 `tmux:`→`host:`。
@@ -955,25 +955,95 @@ $ node scripts/probe/dsh/roundtrip.cjs --attach
 | `open` | 🟡 | 页面地址由 `ctx.port` 拼，平台无关；但三个业务页面本身仍是空的（P4） |
 | `attach` | ✅ | `--attach` 实测：DSH 下 = 打印并打开本项目会话页 |
 
-**V01～V12 验收映射**（P2 收口；依据只有三类证据，见 §4）
+**V01～V12 验收映射**（P2 收口时建立；下表的「状态/已验」已按 §2.19～§2.21 的后续进展更新为**当前最终状态**。
+依据只有三类证据，见 §4；标 ⬜ 的表示**没做**，不要读成「差不多」）
 
 | 验收 | 状态 | 已验 | 缺口 |
 |---|---|---|---|
-| V01（干净 init / 重复 / 双项目单后台） | 🟡 | `awf init` 干净项目 + 重复 + `--force` + 不可覆盖（`cli-install.cjs --init`）；双项目并发单后台、各读各自项目 MCP（§2.17） | 「init 之后一路 `plan` → `run`」的整链（P3） |
-| V02（plan 注入 / 网页接续 / 技能命令可发现） | 🟡 | `plan.launch` 建规划会话 + 注入指令 + 回网页 URL（§2.13） | `plan -r` 不误归档；DSH 侧技能/命令可发现（C29 的 DSH 半侧） |
+| V01（干净 init / 重复 / 双项目单后台） | 🟡 | `awf init` 干净项目 + 重复 + `--force` + 不可覆盖（`cli-install.cjs --init`）；双项目并发单后台、各读各自项目 MCP（§2.17） | 「同一条命令链跑到底」（干净项目 → `plan` → `run`）未作为一次连续验收；各段分别验过 |
+| V02（plan 注入 / 网页接续 / 技能命令可发现） | 🟡 | `plan.launch` 建规划会话 + 注入指令 + 回网页 URL（§2.13）；**`awf plan` 独立 CLI 进程经 server 代触发**（§2.21/F41） | `plan -r` 的原对话恢复未做（U13：找不到就明确说明并新建）；DSH 侧技能/命令可发现（C29 的 DSH 半侧）未验 |
 | V03（提交→受理→落账→网页可见；错提交不假成功） | ✅ | 提交→accepted→`turn.started/prompt.submitted/session.ready`；20 个 `mcp__awf-state__*` 可见且模型**真落账**（`T1.status=done`）；快照回真实文本；未实现 op / 未知参数显式失败（§2.10–2.13） | 「网页可见」为人工目视项（未截图留证） |
 | V04（父子 Agent 停止 / 排队不偷跑 / 不影响别项目） | 🟡 | 子 Agent 真派出 + 停 run 逐个打断 + 停止后离开活动列表（本轮）；停 A 不影响 B（§2.17） | 「排队内容 + 子 Agent 同时存在」的停止验证 |
-| V05（用量读数 / 交接 / 清空 / 完成信号 / 续跑） | ⬜ | — | C37 未纳入本轮；交接与 `-r` 续跑属 P3 |
+| V05（用量读数 / 交接 / 清空 / 完成信号 / 续跑） | ⬜ | — | **整条未做**：C37（首响/样本）本轮不纳入；C15 的「换新会话 + 交接」、`-r` 续跑均未在 DSH 上验 |
 | V06（worker 工具允许/拒绝；错 taskId 不污染） | 🟡 | 真落账走 MCP 工具（模型可调用、磁盘可见） | worker 禁写工具被拒、错 taskId/重复/迟到结果不污染（多 agent 属 P3） |
-| V07（决策/提问/NEEDS_INPUT/门禁/动态规划） | ⬜ | — | 全属 P3（决策中继 + 门禁闭环在 DSH 侧的真实运行） |
+| V07（决策/提问/NEEDS_INPUT/门禁/动态规划） | 🟡 | **回合末门阀（决策）已在 DSH 真机跑通**：末条 `<AWF_DECISION_REQUIRED>` → 门阀 → 指令再发一条 prompt 回会话 → 结论落盘 `D-…`（§2.19/T-P3-02） | NEEDS_INPUT 上抛→AskUserQuestion 的人工入口、门禁修复闭环、动态规划审批在 DSH 侧**未真机验证** |
 | V08（隔离诊断 / 超时取消 / 不改主会话身份） | ✅ | `llm.oneshot` 真返回（不建会话、可超时取消，§2.13）；`session.stop` 不删会话、主会话 id 不变（§2.9） | — |
-| V09（CLI 退出 / 桥断 / 各自重启 / `-r` 不重复提交） | 🟡 | 断链退避重连**不重放**（插件 + 桥接单测）；通道断开 → 在途指令判「无法确认」 | CLI 退出、AWF/DSH 各自重启的组合验收；`run -r` 不重复提交活跃任务（P3） |
-| V10（三个空页面 / 项目与无会话入口 / 会话定位） | 🟡 | 关页面不停后台（P0 E-09）；会话定位打通（本轮 `awf attach` 拿到本项目会话地址） | 三个业务页面 + 项目/无会话入口（P4）；原生 stop 仍不处理 |
-| V11（发布包新目录可装 / 禁用 A 不卸 B / 部分失败明确） | 🟡 | 从仓库真装进 profile + 精准卸载（§2.16）；`runPerSpec` 部分失败逐条报错（单测） | 发布包在**新目录**安装（不依赖开发机绝对路径）实测（P4）；禁用项目 A 不动 B 的能力 |
-| V12（CC 回归 / 同一 server 服务两平台） | 🟡 | CC 路径全绿：`npm test` 1157 / `check:arch` / `check:capability` / `lint`；DSH 分支不改变 cc 缺省（`resolveAdapterName` 缺省仍是 cc） | 「同一个 AWF server 同时服务 cc 与 dsh 项目」的真实验收 |
+| V09（CLI 退出 / 桥断 / 各自重启 / `-r` 不重复提交） | 🟡 | 断链退避重连**不重放**（插件 + 桥接单测）；通道断开 → 在途指令判「无法确认」；`-r` 最小挂接有 P1 护栏与单测 | **重启组合验收整条未做**（CLI 退出 / 桥断 / AWF 与 DSH 各自重启分别测） |
+| V10（三个空页面 / 项目与无会话入口 / 会话定位） | 🟡 | 三个**占位页**已交付且入口可证（§2.20/T-P4-01）；项目/无会话入口在位；会话定位打通（`awf attach`、`awf open dashboard\|tree\|ui`）；关页面不停后台（P0 E-09） | **完整业务 UI 未交付**（U4 约定逐页指导后另验）；暂停后介入的三条约定仍待你在真实页面确认（U14）；原生 stop 不处理 |
+| V11（发布包新目录可装 / 禁用 A 不卸 B / 部分失败明确） | 🟡 | **真 `npm pack` → 新目录解包 → 用包里的 CLI 装配隔离 profile → 卸载复原**，并断言无开发机绝对路径（§2.20/T-P4-02）；`runPerSpec` 部分失败逐条报错 | 「禁用项目 A 不卸掉 B 的能力」未验；无 pnpm 环境下真 `dsh plugin add` 的安装/升级未验 |
+| V12（CC 回归 / 同一 server 服务两平台） | 🟡 | CC 路径全绿：`npm test` 1185 / `check:arch` / `check:capability` / `lint`；cc 渲染产物逐字节不变（golden）；`resolveAdapterName` 缺省仍是 cc | **「同一个 AWF server 同时服务 cc 与 dsh 项目」未做真实验收**（需要同时起 cc 侧 tmux/claude） |
 
-**P2 出口判定**：P2 的目标（DSH 适配器与插件真实可用、指令通道承担全部会话操作）**已达成**：`init`/`run`/`plugin`/`attach` 四个命令真机可用，`plan`/`server`/`open` 三条有实测落到平台的一半。
+**P2 出口判定（当时）**：P2 的目标（DSH 适配器与插件真实可用、指令通道承担全部会话操作）**已达成**：`init`/`run`/`plugin`/`attach` 四个命令真机可用，`plan`/`server`/`open` 三条有实测落到平台的一半。
 V03/V08 两条验收完整通过，其余为「已验一半 + 缺口明确」。**P2 不再扩范围**，剩余缺口按性质归 P3（编排闭环）与 P4（页面/发布/跨平台）。
+
+### 2.19 P3 完成记录（2026-09-19，真机）
+
+| 任务 | 交付 | 真机证据 |
+|---|---|---|
+| **T-P3-01** batch 走 DSH 原生子 Agent + 结果归属 | 子 Agent 生命周期（`createSubagentLifecycle`：起建基线/停落账）、插件上报子会话 `agent.started/stopped` + 末条文本、**平台化派发提示词**（`platform-vars-<平台>`：cc 用 `Agent 工具（subagent_type…）`/`AskUserQuestion`/`SendMessage`，DSH 用 `subagent 工具`/`ask_user_question`/`send_message`，并把输出协议写进任务正文——DSH 没有 awf-worker 身份） | `--subagent`：派 1 个子 Agent → 末条 `RESULT` 把 `T2` 落成 done(`result=subagent-settle-smoke`) → 生命周期留档 `[SubagentStart,SubagentStop]` → 长跑子 Agent 停 run 时逐个打断 → 停止后离开活动列表。`--batch`：宿主 batch 调度 → **run=done T1=done** |
+| **T-P3-02** 决策/上下文/观测接线 + `run -r` | 回合末门阀在 DSH 落位：插件在 `session.ready` 带本轮末条文本（cc 是 Stop hook 的 `body.last_assistant_message`），runtime 在 READY 上跑门阀，**把指令再发一条 prompt 回会话**（DSH 没有 CC 那种 block-Stop 回灌通道） | `--decision`：两轮事件 `[turn.started,prompt.submitted,session.ready]×2` → 决策记录 `D-mu8ai9gc-1` 落盘（`decision_completed`） |
+
+**测试**：`tests/unit/subagent-lifecycle.test.js`（5，基线/外部会话/untracked/needs 优先/失败记账）、
+`tests/integration/dsh-subagent-settle.test.js`（5，事件→总线→落账全装配）、
+`tests/integration/dsh-decision-gate.test.js`（3，门阀登场/普通回合不发/旧插件不猜）、
+`tests/unit/prompts-golden.test.js`（+2 平台措辞结构断言；cc 渲染产物逐字节不变）、
+`tests/unit/dsh-plugin.test.js`（+子会话上报）、`tests/unit/dsh-adapters.test.js`（+probe url/停止回执）。
+
+**诚实边界**：`run -r` 的**最小挂接**（不重复提交活跃 run）已有 P1 护栏与单测，但「CLI 退出 / 桥断 / AWF 与 DSH 各自重启」的组合验收（V09）**未做**；C28 的 DSH 原生用量/速度读数未接入（覆盖不全按「未知」展示）。
+
+### 2.20 P4 完成记录（2026-09-19，无模型消耗）
+
+| 任务 | 交付 | 验证 |
+|---|---|---|
+| **T-P4-01** 三个空页面 + 项目/无会话入口 | 路由表显式登记 `dashboard`/`tree`/`ui` 三个**占位页**（此前这三个 key 不在表里，`getRoute` 会静默回退到项目页 —— `awf open` 看起来成功、打开的是别处界面）；占位页如实声明「入口已接通、内容待逐页指导」，并给 Run/任务/决策/日志入口；未选项目时显示明确文案 | `tests/unit/web-routes.test.js` 6 条：CLI `TARGETS` ↔ 路由 key 对应、三个入口是占位页、未登记 view 仍回退但入口不在其列、静态托管交给 SPA 壳、**产物含占位文案且不比源码旧**（改了没重建 → 红）。`server/web/public` 已重新构建 |
+| **T-P4-02** 干净环境安装/卸载/升级 + 能力矩阵 | **修一处真缺陷**：`package.json` 的 `files` 漏 `dsh-plugin/`（开发机正常、装出来的包缺 DSH 插件半侧）；`cli-install.cjs --pack`：真 `npm pack` → 解包到新目录 → 用**包里的** CLI 装配隔离 profile → 卸载复原 | `--pack` 全绿：包内容 4 项抽查齐备、装配落在隔离 `DSH_HOME`、包内源码不含开发机绝对路径、卸载后 patch 复原。能力矩阵见 `docs/features/adapters.md` 的「DSH 交付状态：已完成 vs 占位」（占位项显式标注） |
+
+**仍未做（P4 收口后的剩余）**：完整业务 UI（U4 约定逐页指导后另验）、DSH 原生设置页（候选侦察）、
+原生用量/速度读数、重启组合验收。
+
+### 2.21 P3 补遗（2026-09-19，真机）：`awf plan` 在 DSH 下真正可用
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 平台能力声明 | `cc/interactive.cjs`（`detached: false`）/ `dsh/index.cjs`（`detached: true`） | 「这个交互入口能否脱离调用方终端触发」是**平台属性**，由平台声明；上层据此选路，不猜 |
+| 服务端代触发 | `server/web/api/session.cjs` 的 `POST /interactive/plan` | 常驻 server 持有 bridge → 由它调 `plan.launch`（开会话 + 注入规划指令 + 回 URL）；平台 `detached !== true` → **501 显式拒绝**（不静默代跑 cc 的终端对话） |
+| CLI 选路 | `cli/commands/plan.cjs` | `detached === true` → 走 HTTP 面并打印/打开会话 URL；否则本进程 `launchDialog`；服务端没起 → 明确失败并提示 `awf server start` |
+| 客户端端点 | `cli/lib/client.cjs` | 新增 `planLaunch` |
+| 诊断可见性 | `server/web/api/session.cjs`、`cli/commands/server.cjs`、`cli/commands/init.cjs` | `/status` 与 `awf server status` 直接报 `adapter` + `adapterSource`（env/config/default）；`awf init --adapter <平台>` 先把平台写进 `.awf/config.json`（显式覆盖、未知平台 exit 2），不必再靠 `CC_ADAPTER=… awf init` 或手改配置 |
+| plan 入口按平台选形态（F46） | `server/shared/prompts.js`、`plugin/plugin-code/prompts.json`、`cli/commands/plan.cjs` | 平台无斜杠命令机制（DSH）→ 展开 `w-plan` 命令正文 + 需求原文；cc 行为不变（golden 逐字节一致）。真机核对「平台收到的首条消息」= 4952 字指令 |
+| 会话分组（F47） | `dsh-plugin/lib/ops.js` | 建会话前幂等登记工作区（`workspaceRegistry.create`），失败留痕不静默；`session.create`/`plan.launch` 回执带 `workspace` |
+| 描述不再静默截断（F48） | `cli/awf.cjs`、`cli/commands/plan.cjs` | `plan [description...]` 收全部位置参数拼回一句；引号未闭合即提示并打印实际收到的文本 |
+| 重连判定修复（F44） | `server/web/bridge-channel.cjs`、`server/web/api/index.cjs`、`dsh-plugin/lib/bridge-client.js` | `detachSocket(reason, socket)` 加 socket 身份判断（迟到 close 不改判定）；插件重连日志带上关闭码/目标地址（原来只有「指令通道出错」，查不出东西） |
+| 装配块补 `awfRepo`（F43） | `server/adapters/dsh/install.cjs` + `cli/commands/plugin.cjs` | 托管块写 `awfRepo: <AWF 包根>`（`ctx.infraRoot`）——插件据此定位包内 MCP server；`installProfile` 支持**原地更新**已存在的托管块（内容有变即重写，不重复插块），所以升级后 `awf plugin install` 就能修好旧装配 |
+| 装配块补 `awfBase`（F42） | `server/adapters/dsh/install.cjs` + `cli/commands/plugin.cjs` | 托管块写 `awfBase: http://127.0.0.1:<AWF 端口>`；`webPort` 改取 DSH 网页端口（缺省 3080 / `AWF_DSH_WEB_PORT`），不再拿 AWF 端口顶替 |
+
+**七个命令在 DSH 下的真机状态（P3/P4 收尾）**：`init` / `plan` / `run`（单任务 + 多 agent batch）/ `plugin` / `server` / `open` / `attach` **七条都有真机证据**；`plan` 的 `-r` 原对话恢复、DSH 原生观测读数、重启组合验收是**明确未做**的三项。
+
+**真机证据**（隔离 DSH）：`node scripts/probe/dsh/roundtrip.cjs --cli-plan`
+
+```
+✓ `awf plan`（独立进程）经 server 触发规划入口：检测到旧 plan 状态，已归档：…/versions/state-…json
+   （输出含网页会话地址 ?session=…）
+```
+
+**只读配置文件（不传 `AWF_DSH_BASE`）的真机验证**——生产安装形态：
+
+```
+$ AWF_PROBE_BASE_VIA=config node scripts/probe/dsh/roundtrip.cjs
+✓ 地址改由 profile 配置提供（config.awfBase=http://127.0.0.1:<port>），不传 AWF_DSH_BASE
+✓ 插件已连上（platform=dsh）
+```
+
+**同时补齐另两条命令的真机证据**（同轮、无模型消耗）：
+
+```
+$ awf server start → 已启动（端口 56458）;  awf server status → { ok: true, state: "ready", session: false, … };  awf server stop → 已请求关闭
+$ awf open dashboard|tree|ui → 打印 http://localhost:<port>/<target>?p=<项目根>（三个入口在 SPA 里是占位页）
+```
+
+**测试**：`tests/integration/dsh-plan-route.test.js` 3 条（DSH 200 + URL/缺 prompt 400/cc 501）、
+`tests/unit/dsh-adapters.test.js`（断言 dsh `detached=true`、cc `false`）、mock 夹具同步
+（`ports-contract` 的「工厂 ↔ 夹具方法集一致」护栏当场逼出这一处遗漏）。
 
 ---
 
@@ -1017,6 +1087,14 @@ V03/V08 两条验收完整通过，其余为「已验一半 + 缺口明确」。
 | F34 | **子会话执行 `bash` 会停在 `approval/asked`**（web 组合 `workspace-write + approval:ask`）；页面上无人批准、宿主也不代批 → 无人值守 run 会被卡死 | E-09 实验：`lastEvents` 长时间停在 `tool/call`/`approval/asked`，`status=running` 不变 | **AWF 必须定义 approval/authorization 策略**（受控自动批准 vs 接入 AWF 决策），否则主链路不可用；不得擅自放开权限 |
 | F35 | **`compaction` 取不到不是因为它不存在**：服务在 preset 的 isolate realm 内；root ctx 与 `agent.ctx` 都取不到（实测均 false），只有与 preset 同 realm 的作用域可取 | `/api/awf-probe/compact-probe`：`hasRootCompaction=false`、`hasAgentCompaction=false`、`compactNow=null`；源码 `dsh-compaction-basic/lib/index.js:761,944` + `standard/agent.cordis.yml` 的 `isolate: {compaction:true}` | AWF 的压缩接线必须走 preset 同 realm（或驱动 `/compact`），不能假设 root ctx 可取；与 F32 同根因 |
 | F36 | **插件注册的路由不在 dsh 的浏览器信任栅栏内**（2026-09-19 实测，隔离探针）：`webServer.register({kind:'exact', path:'/api/awf-probe/ping'})` 无 cookie 直接 200；同一实例的 `/`、`/api`、`/api/sessions` 都是 401 | 隔离探针（`DSH_HOME=/tmp/awf-dsh-probe`，端口 39081）逐路径状态码：`/`=401、`/api`=401、`/api/sessions`=401、`/api/awf-probe/ping`=**200**、`/nonexistent-xyz`=404 | **与 F16 的推断相反**（F16 只做了「带 cookie → 200」的正向观测，缺「不带 cookie」对照）。含义：**网页→AWF 的入口若走插件路由，插件必须自己做鉴权**；不能假设「注册在 `/api` 下就自动受 dsh 鉴权保护」。spec §2「通过 DSH 插件的受鉴权入口请求 AWF」里的「受鉴权」要由 AWF 实现，不是继承来的 |
+| F46 | **DSH 没有斜杠命令注册 → 入口提示词不能发 `/ai-workflow-code:w-plan …`**：模型只会看到一串它无法执行的命令字面量（真机实测：模型推理里写「DSH may not support that slash command」，并把需求当成「命令的参数」处理） | 用户会话日志原文：`/ai-workflow-code:w-plan “设计一个`；改为「展开命令正文 + 需求原文」后，真机平台收到的首条消息是 4952 字的 w-plan 指令（含需求原文），不再是斜杠命令 | 平台能力差异要落到**入口形态**上：插件用 `platform-vars-<平台>` 的 `plan-entry-mode: command \| inline` 声明，server 据此决定发命令还是发展开指令（C29「DSH 侧技能/命令可发现」仍未做，inline 是当前的正解） |
+| F47 | **DSH 网页按「工作区」分组会话，判据是会话规范 cwd === 已注册工作区路径**：目录没注册过，AWF 建的会话就落到「未分组」（用户明确要求不能这样） | `dsh-client-ui-workspace` 的 `group.ungrouped` 文案 + `dsh-workspace` 的 attach 校验（`cwd === record.path`）；插件改为建会话前幂等调用 `workspaceRegistry.create(cwd, basename)`，真机验证会话带上 workspace（`{id,title,created}` 随回执返回） | 「平台会把东西显示在哪」是接入的一部分：建会话必须同时**登记分组依据**，否则功能通、界面错位 |
+| F48 | **CLI 位置参数会被 shell 按空格切分 → 需求描述静默截断**：中文引号 `“…”` 不是 shell 的引号字符，`awf plan “设计一个 系统”` 只把第一个词传进来（真机：模型只收到「设计一个」） | 会话日志原文 `/ai-workflow-code:w-plan “设计一个`；`awf plan` 改为收**全部位置参数**并拼回一句，且检测到引号未闭合时打印**实际收到**的内容 | 用户输入面的「静默截断」是最伤的一类缺陷：宁可多打一行提示，也不要猜用户想要什么 |
+| F44 | **重连时旧 socket 的迟到 close 会把新连接误判为断开**：`bridge-channel` 的 `detachSocket()` 不带身份判断 → 插件重连后旧 socket 的 `close/error` 一到就把「已连接」清成 `ws closed`，此后所有指令都回「指令通道未连接：ws closed」，而**插件侧一切正常**（用户真实环境就是这么全断的：重启 dsh 后台后 `awf plan` 一直失败） | 用户真实环境 `/probe?p=<dsh 项目>` → `state:"unknown"`、`unknownReason:"…ws closed"`；代码路径 `server/web/api/index.cjs` 的 `onClose: () => detachSocket('ws closed')` 无 socket 参数。修法：`detachSocket(reason, socket)` 身份不符即忽略；新增真机用例 `AWF_ROUNDTRIP_RECONNECT=1`（杀掉隔离 DSH → 等通道断开 → 重启 → 断言重连**且指令真的可用**） | 凡「连接是单例、事件来自多个历史 socket」的地方都要做身份判断；「重连成功」不能只看 `connected()===true`，必须**再发一条真指令**才算可用 |
+| F45 | **`config.awfBase` 优先于 `AWF_DSH_BASE` 环境变量**：插件读 `config.awfBase \|\| process.env.AWF_DSH_BASE`，所以 profile 里的残留配置会**静默压掉**环境变量（探针 config 模式跑完留下旧端口，下一次默认模式连到上次端口上、一直连不上，日志里地址是上一次的端口） | 探针实测：`[awf-dsh][info] 指令通道启动：http://127.0.0.1:<上一次的端口>`，本次 `AWF_DSH_BASE` 被无视 | 诊断顺序要写清：先看 profile 配置，再怀疑环境变量；探针每次启动先清掉上一次注入的配置行（已在 `roundtrip.cjs` 做） |
+| F43 | **生产装配块必须写 `awfRepo`**：插件给会话挂项目 MCP 时靠它定位「AWF 包根/plugin/core/mcp/<name>/server.cjs」，缺了 `session.create` 直接失败（`agents.create 失败：未配置 awfRepo`）→ `awf plan`/`awf run` 全断。探针用 `AWF_DSH_REPO` 环境变量传包根，所以真实安装路径又一次被兜底掩盖（与 F42 同源） | 用户真实环境实测报错原文；补写 `awfRepo` 后，`AWF_PROBE_BASE_VIA=config`（**不传** `AWF_DSH_BASE`/`AWF_DSH_REPO`，两个键都只从 profile 配置读）真机跑通：插件连上 → `session.create` 成功（含挂 MCP）→ `--cli-plan` 的 `awf plan` 拿到网页会话地址 | ① 「探针走环境变量、生产走配置文件」的**每一个**注入项都要有只读配置的真机用例（F42 的教训要一条条还完）；② `installProfile` 遇到已存在的托管块时，**内容有变必须原地更新**，否则「重新安装」修不好任何东西（用户升级时就是这么卡住的） |
+| F42 | **生产装配块必须写 `awfBase`；`webPort` 是 DSH 网页端口、不是 AWF 端口**：插件没有 `config.awfBase`（且无 `AWF_DSH_BASE`）就只告警、不启动指令通道 —— 探针全程用环境变量传地址，所以**真实安装路径等于没配**这条一直没被暴露；同时早先 `awf init` 把 AWF 端口写进了 `webPort`，会让 `awf attach`/`plan` 打出的会话地址指向 AWF server | 读码 + 真机：`managedBlock` 原来只有 `webPort: <AWF 端口>`；补上 `awfBase: http://127.0.0.1:<AWF 端口>`、`webPort` 改取 DSH 网页端口（缺省 3080，`AWF_DSH_WEB_PORT` 可声明）后，`AWF_PROBE_BASE_VIA=config`（**不传环境变量**、只从 profile 配置读地址）真机跑通：插件连上、facts 正常 | 凡「探针走环境变量、生产走配置文件」的注入项，都必须有一条**只读配置文件**的真机用例，否则环境变量会替配置文件兜底到天荒地老 |
+| F41 | **CLI 进程没有 bridge → 平台侧「非终端型」入口必须由常驻 server 代触发**：`awf plan` 原来在 CLI 进程里直调 `interactive.launchDialog`，而 CLI 侧 DSH 端口是 `detachedBridge` → 一律「指令通道未连接」（真机实测：`awf plan "测试需求"` 在 DSH 项目上必失败）。cc 不能照搬到服务端：交互式对话要占住用户终端 | 实测报错原文：`dsh plan.launch: 未交给平台：指令通道未连接（未交给平台）：本进程没有 bridge`；改为「平台声明 `interactive.detached === true` → CLI 走 `POST /interactive/plan`」后，`--cli-plan` 在独立 CLI 进程里真跑通（归档旧 plan → 服务端开会话 → 回网页 URL） | 凡是「平台侧动作 + CLI 侧触发」的能力（plan 入口、attach、后续设置页），都要按**平台声明的能力**选路：能在服务端代跑的走 HTTP 面，必须在用户终端里的留在 CLI 进程；服务端没起时明确失败，不假回退 |
 | F38 | **会话身份按路径比必须规范化**：平台记的 `header.cwd` 与 AWF 传进来的项目根可能一个是 `/var/…`、一个是 `/private/var/…`（macOS 临时目录的真实路径），字符串不等 → 「明明建过会话却找不到」 | `roundtrip.cjs --attach` 首跑：CLI 拿到的是 web 根地址而非会话地址；插件 `findSession` 用 `realpathSync.native` 规范化后同一会话立即命中 | 凡是「按路径找资源」的插件 op（findSession 及其全部下游）都要走同一规范化；路径相等 ≠ 字符串相等 |
 | F39 | **`subagents.interrupt(target, authority)` 的 user 权威必须带 `parentSessionId`**：平台校验 `child.header.parentSession === authority.parentSessionId`，不给就 `UNAUTHORIZED`；`authority.kind==='ancestor'` 则要求 `authority.agent`；且 `activation === undefined` 时静默返回（不抛） | `dsh-subagent/lib/index.js:853`；实测 `--subagent` 首跑 `stopped.subagents` 为空、异常只落在日志里 | 停 run 的打断调用必须构造完整权威；**并且把异常带回回执**，否则「没打断」和「打断失败」在调用方看是一样的 |
 | F40 | **平台 cancel 父会话会把子激活摘出活动会话列表**：先 cancel 再 `sessions.list()` 过滤 `parentSession` → 恒为空 | 实测：`session.children` 能找到子会话，同一进程里 cancel 之后再取 → 0 个；改为 cancel 前取名单后逐个打断即通过 | 「停 run」的正确顺序是 **先取子 Agent 名单 → cancel 父 → 逐个 interrupt**；顺序错了就是静默不打断 |
@@ -1039,6 +1117,12 @@ V03/V08 两条验收完整通过，其余为「已验一半 + 缺口明确」。
 
 | 日期 | 变更 |
 |---|---|
+| 2026-09-19 | **F46～F48：真机首跑三处缺陷**（用户真实环境）：① DSH 无斜杠命令注册 → plan 入口改为**展开命令正文**（模型不再看到 `/ai-workflow-code:w-plan …` 字面量）；② 会话未登记工作区 → 网页显示「未分组」→ 建会话前幂等登记；③ 中文引号不被 shell 当引号 → 描述被静默截断 → `awf plan` 收全部位置参数并在引号未闭合时打印实际内容。详见 §2.21 |
+| 2026-09-19 | **F44/F45：重连竞态修复 + 配置优先于环境变量**：用户真实环境「重启 dsh 后 `awf plan` 一直 ws closed」定位为「旧 socket 迟到 close 把新连接误判为断开」；`detachSocket` 加身份判断，新增 `AWF_ROUNDTRIP_RECONNECT=1` 真机用例（重连后必须再发一条真指令才算可用）。另记 F45：`config.awfBase` 优先于 `AWF_DSH_BASE`，残留配置会静默压掉环境变量。详见 §2.21 |
+| 2026-09-19 | **F43：生产装配块补 `awfRepo` + 托管块可原地更新**：真实环境 `awf plan` 报「未配置 awfRepo」——插件挂项目 MCP 需要包根，而装配块没写（探针用 `AWF_DSH_REPO` 环境变量掩盖）。补齐后新增「两个键都只从 profile 配置读」的真机用例（`AWF_PROBE_BASE_VIA=config` → session.create 成功 + `awf plan` 成功）；`installProfile` 现在遇到内容有变的托管块会原地更新，升级不必先卸载。详见 §2.21 |
+| 2026-09-19 | **F42：生产装配块补 `awfBase`、`webPort` 改回 DSH 网页端口**：探针走环境变量、生产走配置文件，此前真实安装路径等于没配（插件只告警不驱动）；补上后新增「只读配置文件」真机用例（`AWF_PROBE_BASE_VIA=config`）跑通。详见 §2.21 |
+| 2026-09-19 | **P3 补遗：`awf plan` 在 DSH 下可用（F41）**：CLI 进程没有 bridge，规划入口改由常驻 server 的 `POST /interactive/plan` 代触发（平台用 `interactive.detached` 声明能否脱离终端；cc 保持终端直开，服务端对该请求 501）。真机 `--cli-plan` 在独立 CLI 进程里跑通。详见 §2.21 |
+| 2026-09-19 | **P3～P4 推进（T-P3-01/02 + T-P4-01/02）**：DSH 多 agent batch 真跑通（平台化派发提示词 + 子 Agent 末条 RESULT 落账 → run=done）、回合末决策门阀在 DSH 落位（指令再发一条 prompt 回会话 → 结论落盘）、三个 CLI 入口页不再静默回退（占位页 + 入口可证）、发布包 `files` 补 `dsh-plugin/` 并用真 `npm pack` 解包到新目录验证安装/卸载；能力矩阵按「已完成 vs 占位」逐面标注。详见 §2.19/§2.20 |
 | 2026-09-19 | **P2 收口（P2-6e/6f + V01～V12 映射）**：子 Agent 停止链路真机打通（先取名单→cancel 父→逐个打断；权威补 `parentSessionId`；停止回执不再被吞）、会话身份按 realpath 规范化（F38）、`awf attach` 在 DSH 下经 server `/probe` 拿到会话地址（跨进程，CLI 没有 bridge）、`awf init` 把解析到的平台记进 `.awf/config.json`（并修掉 CLI 装配路径吞掉 `CC_ADAPTER` 的缺陷）。七个命令真机状态：`init`/`run`/`plugin`/`attach` ✅，`plan`/`server`/`open` 🟡；V03/V08 完整通过，其余缺口按 P3/P4 归档。详见 §2.18 |
 | 2026-09-19 | **P2-6d 完成（双项目隔离真实验收）**：适配器给每条指令补 `projectRoot`（进程级共享通道的必需项；首跑因漏它导致两项目打到同一会话，实测抓到并修）。`--two-projects` 实测：A→`0.2.0\|T-A`、B→`9.9.9\|T-B` 各读各的、互不串，停 A 不影响 B。详见 §2.17 |
 | 2026-09-19 | **P2-6c 完成（CLI 装配路径可用）**：新增 `server/adapters/dsh/install.cjs`（profile patch 标记块 + 包拷贝 + 备份 + 幂等 + 精准卸载），`awf plugin install/uninstall` 在 DSH 项目上分支到它；适配器支持无 bridge 构造（CLI 侧只需工具面）。真 CLI + 真 `dsh --dump-config` 验证：装→DSH 承认、卸→DSH 不再认、用户内容始终保留。详见 §2.16 |

@@ -12,7 +12,7 @@
     "description": "每个任务执行前的上下文压缩检查（引导 AI 按 code-context-onboard 判断是否需要压缩）"
   },
   "batch-dispatch": {
-    "prompt": "批次执行（多 agent 并行）：\n\n本批次编号：{batchId}\n待执行任务（每个都必须执行，禁止合并/替换/跳过/新增）：\n{tasks}\n\n执行要求：\n1. 在同一轮内并行调用原生 Agent 工具，为批次内每个任务派生一个子 Agent（一条消息内多个 Agent 调用 → 并行启动）。\n2. 每个子 Agent 只执行分配给它的任务提示词；子 Agent 不得写 .awf/state.json、不得调用任务状态 MCP 写接口、不得直接 AskUserQuestion。\n3. dev 子 Agent 应用 {architectureSkill}，review 子 Agent 应用 {reviewArchitectureSkill}；结果包含 architecture 判断。\n4. 等所有子 Agent 全部返回，不得后台遗留。\n5. 用 awf-state MCP 逐任务原子落账：awf_task_complete（一次提交 status + result + files + commits + architecture，勿拆成多次调用）。\n6. 有子 Agent 返回 needs_input → 汇总问题，作为本回合最后一段以 `<AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED>` 输出，由决策门阀接管给出结论，获结论后继续完成该任务。\n7. 全部落账完成后结束本轮。",
+    "prompt": "批次执行（多 agent 并行）：\n\n本批次编号：{batchId}\n待执行任务（每个都必须执行，禁止合并/替换/跳过/新增）：\n{tasks}\n\n执行要求：\n1. 在同一轮内并行调用原生 Agent 工具，为批次内每个任务派生一个子 Agent（一条消息内多个 Agent 调用 → 并行启动）。\n2. 每个子 Agent 只执行分配给它的任务提示词；子 Agent 不得写 .awf/state.json、不得调用任务状态 MCP 写接口、不得直接 {askUserTool}。\n3. dev 子 Agent 应用 {architectureSkill}，review 子 Agent 应用 {reviewArchitectureSkill}；结果包含 architecture 判断。\n4. 等所有子 Agent 全部返回，不得后台遗留。\n5. 用 awf-state MCP 逐任务原子落账：awf_task_complete（一次提交 status + result + files + commits + architecture，勿拆成多次调用）。\n6. 有子 Agent 返回 needs_input → 汇总问题，作为本回合最后一段以 `<AWF_DECISION_REQUIRED>…</AWF_DECISION_REQUIRED>` 输出，由决策门阀接管给出结论，获结论后继续完成该任务。\n7. 全部落账完成后结束本轮。",
     "description": "多任务批次派发（主 Agent 并行派生子 Agent 执行，聚合落账；子 Agent 只执行、由主 Agent 独写 state）"
   },
   "batch-reconcile": {
@@ -20,15 +20,15 @@
     "description": "批次收尾 reconcile prompt（主 Agent 补落账未完成的任务，不重做）"
   },
   "subagent-dispatch": {
-    "prompt": "请用 Agent 工具（subagent_type: {workerAgentType}, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。\n任务标题：{taskTitle}\n你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n【严格约束】本指令只要求你派发这一个任务：派生一个子 Agent，且只派生一个（不要为同一任务并行派生多个）。该任务是否已由调度方派过、要不要去重，由调度方在 state 层判定——你不需要判断，更不得据此跳过派发。其他任务由调度方另行下发。\n【无派发门槛】本项目没有会拦截/拒绝派发的 hook：你唯一要做的动作就是调用 Agent 工具。若调用报错或被拒，立即重试一次并如实回报；严禁只回复文字而不派发，也严禁以「已有派发记录」「已被拒绝」「暂不派发」「等前一个任务结束」等理由跳过。\n子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』；RESULT / NEEDS_INPUT 输出格式已固化在 awf-worker 身份；dev 必须应用 {architectureSkill}，review 必须应用 {reviewArchitectureSkill}）：\n{taskPrompt}\n\n【决策上抛】若子 Agent 返回 NEEDS_INPUT（最后一行 `NEEDS_INPUT: {json}`），你必须立即用 AskUserQuestion 问用户（question/options 用子 Agent 给出的），获答后用 SendMessage 恢复该子 Agent 告知答案，让它继续完成。不要自己猜测关键决策。",
+    "prompt": "请{workerSpawn}派生一个后台子 Agent 执行任务 {taskId}。\n任务标题：{taskTitle}\n你只负责派生子 Agent，不要自己执行任务，不要自己创建文件。\n【严格约束】本指令只要求你派发这一个任务：派生一个子 Agent，且只派生一个（不要为同一任务并行派生多个）。该任务是否已由调度方派过、要不要去重，由调度方在 state 层判定——你不需要判断，更不得据此跳过派发。其他任务由调度方另行下发。\n【无派发门槛】本项目没有会拦截/拒绝派发的 hook：你唯一要做的动作就是调用 {agentTool}。若调用报错或被拒，立即重试一次并如实回报；严禁只回复文字而不派发，也严禁以「已有派发记录」「已被拒绝」「暂不派发」「等前一个任务结束」等理由跳过。\n子 Agent prompt{workerPromptNote}：\n{taskPrompt}\n\n【决策上抛】若子 Agent 返回 NEEDS_INPUT（最后一行 `NEEDS_INPUT: {json}`），你必须立即用 {askUserTool} 问用户（question/options 用子 Agent 给出的），获答后用 {agentMessageTool} 恢复该子 Agent 告知答案，让它继续完成。不要自己猜测关键决策。",
     "description": "滑动窗口单任务派发（主 Agent 用插件内置 ai-workflow-core:awf-worker 派生；约束身份化 + 决策上抛时主 Agent AskUserQuestion）"
   },
   "subagent-resend": {
-    "prompt": "子 Agent {agentId} 的 RESULT 输出无效（{reason}）。请用 SendMessage（to=该子 Agent）恢复它，要求它重新以最后一行 `RESULT: {json}` 输出正确结果，taskId 必须是派发给它的任务 ID。不要自己执行任务。",
+    "prompt": "子 Agent {agentId} 的 RESULT 输出无效（{reason}）。请用 {agentMessageTool}（to=该子 Agent）恢复它，要求它重新以最后一行 `RESULT: {json}` 输出正确结果，taskId 必须是派发给它的任务 ID。不要自己执行任务。",
     "description": "子 Agent 落账失败时的补发要求（主 Agent 恢复该子 Agent 补齐 RESULT，不重做任务）"
   },
   "subagent-redispatch": {
-    "prompt": "【重派】任务 {taskId} 的上一条派发指令已被你收下，但那一回合结束时**没有任何子 Agent 被派生**（调度方按 SubagentStart 事件判定，不会误判）。请立刻补救：\n\n用 Agent 工具（subagent_type: {workerAgentType}, run_in_background: true）派生一个后台子 Agent 执行任务 {taskId}。\n\n你唯一要做的动作就是调用 Agent 工具，不要解释、不要总结、不要问问题；也不要回头去查「是否已派过」——真正的重复派发由调度方在 state 层拦截，与你无关。若调用报错，立即重试一次并如实回报。\n\n子 Agent prompt（必须在开头声明『你的任务 ID 是 {taskId}』）：\n{taskPrompt}",
+    "prompt": "【重派】任务 {taskId} 的上一条派发指令已被你收下，但那一回合结束时**没有任何子 Agent 被派生**（调度方按 SubagentStart 事件判定，不会误判）。请立刻补救：\n\n请{workerSpawn}派生一个后台子 Agent 执行任务 {taskId}。\n\n你唯一要做的动作就是调用 {agentTool}，不要解释、不要总结、不要问问题；也不要回头去查「是否已派过」——真正的重复派发由调度方在 state 层拦截，与你无关。若调用报错，立即重试一次并如实回报。\n\n子 Agent prompt{workerPromptNote}：\n{taskPrompt}",
     "description": "派发未生效时的重派（主会话收下提示词却未派生任何子 Agent → 换这条再派一次）"
   },
   "gate-fix": {

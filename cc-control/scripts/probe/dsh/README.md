@@ -50,7 +50,8 @@ scripts/probe/dsh/
   guard.sh              真实 ~/.dsh 配置面指纹（snapshot|check）
   install-fixture.sh    离线装配：建 profile + 符号链接两个插件 + 写 patch 层
   serve.sh              静默起停（start|wait|stop|url）
-  roundtrip.cjs         指令通道真实链路验证（隔离 AWF + 隔离 DSH；断言 session.facts 与错误路径）
+  roundtrip.cjs         指令通道真实链路验证（模式：默认/prompt/task/bash/plan/oneshot/runtime/run/
+                        two-projects/subagent/batch/decision/attach/cli-plan）
   cli-install.cjs       CLI 装配路径（`awf plugin install`；`--init` = 干净项目 `awf init` 幂等）
   fixtures/probe-plugin/ 探针夹具（Cordis host 半侧：HTTP 路由 ping/services）
 dsh-plugin/             AWF 的 DSH host 半侧（生产插件；profile 里符号链接装入）
@@ -175,6 +176,41 @@ $ node scripts/probe/dsh/roundtrip.cjs --run
 ✓ run 宿主单任务跑通：run=done T1=done
 [guard] check → IDENTICAL
 ```
+
+## 实测记录 · P3/P4（2026-09-19）
+
+```
+$ node scripts/probe/dsh/roundtrip.cjs --subagent   # 子 Agent 真派出 + RESULT 落账 + 停 run 逐个打断
+✓ 子 Agent 已派发：1 个（…）
+✓ 子 Agent 结果已落账：T2.status=done result=subagent-settle-smoke
+✓ 生命周期已留档：["SubagentStart","SubagentStop"]
+✓ 停 run 时逐个打断子 Agent：["…"]
+
+$ node scripts/probe/dsh/roundtrip.cjs --batch      # 多 agent：宿主 batch 调度（平台化派发提示词）
+✓ batch 多 agent 跑通：run=done T1=done（子 Agent 事件 ["SubagentStart","SubagentStop"]）
+
+$ node scripts/probe/dsh/roundtrip.cjs --decision   # 回合末门阀：指令发回会话 → 决策结论落盘
+✓ 回合末门阀跑通：决策结论已落盘（D-mu8ai9gc-1）
+   events=["turn.started","prompt.submitted","session.ready"]×2
+
+$ node scripts/probe/dsh/roundtrip.cjs --attach     # awf attach（独立 CLI 进程）拿会话地址
+✓ `awf attach`（独立进程）拿到会话地址：…:39081/?session=…
+
+$ node scripts/probe/dsh/roundtrip.cjs --cli-plan   # awf plan（独立 CLI 进程）经 server 代触发
+✓ `awf plan`（独立进程）经 server 触发规划入口（输出含网页会话地址）
+
+$ AWF_ROUNDTRIP_RECONNECT=1 node scripts/probe/dsh/roundtrip.cjs   # 重启 DSH → 重连且通道仍可用（F44）
+✓ 重启后已重连，且通道真的可用（sawDown=true）
+
+$ node scripts/probe/dsh/cli-install.cjs --pack     # 发布包在新目录里安装/卸载
+✓ 发布包含 DSH 插件半侧（4 项抽查齐备）
+✓ 包内 CLI 在新目录装配成功，插件落在隔离 home
+✓ 包内源码不含开发机绝对路径
+```
+
+**为什么 attach/plan 要独立进程跑**：CLI 进程里**没有 bridge**（bridge 只在常驻 server 里）。
+平台侧动作能由 server 代触发的走 HTTP 面（`POST /interactive/plan`），必须在用户终端里的留在
+CLI 进程（cc 的交互式对话）—— 判据是平台声明的 `interactive.detached`（F41）。
 
 ## 实测记录 · 双项目隔离（2026-09-19，P2-6d）
 

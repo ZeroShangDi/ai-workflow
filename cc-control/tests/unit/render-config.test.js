@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { readPluginConfig, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings } from '../../server/shared/plugin-render.cjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
-const PLUGIN = path.join(REPO, 'plugin');
+const PLUGIN = path.join(REPO, 'server', 'adapters', 'cc', 'plugin');
 const readFile = (p) => fs.readFileSync(path.join(PLUGIN, p), 'utf8');
 
 // 泛化后的渲染器契约（T1-001）：

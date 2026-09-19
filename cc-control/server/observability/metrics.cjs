@@ -72,6 +72,33 @@ function resetRunMeta(projectRoot) {
   }));
 }
 
+/**
+ * 更新 run-meta 里某子 agent 的条目（SubagentStart/Stop 都调，按 status 区分）。
+ *
+ * 位置说明：原先长在 `web/api/hook.cjs` 里 —— 但「子 Agent 记账」不是 cc hook 的私事：
+ * DSH 经平台事件总线走**同一个**生命周期处理器（T-P3-01），两边都要写这份 run-meta。
+ * 放在观测层（本文件）后，web 与 runtime 都能用，且不产生 web → run 的依赖。
+ */
+function updateSubagentMeta(projectRoot, key, body, status) {
+  return updateRunMeta(projectRoot, (meta) => ({
+    ...meta,
+    projectRoot,
+    subagents: {
+      ...(meta.subagents || {}),
+      [key]: {
+        ...(meta.subagents || {})[key],
+        agentId: key,
+        sessionId: body.session_id || ((meta.subagents || {})[key] || {}).sessionId || null,
+        status,
+        startedAt: ((meta.subagents || {})[key] || {}).startedAt || new Date().toISOString(), // 保留首次开始时间
+        stoppedAt: status === 'stopped' ? new Date().toISOString() : null,
+        transcriptPath: body.agent_transcript_path || ((meta.subagents || {})[key] || {}).transcriptPath || null,
+      },
+    },
+    updatedAt: new Date().toISOString(),
+  }));
+}
+
 /** 读 run-meta；缺失 → 空对象（调用方无需判空） */
 function readRunMeta(projectRoot) {
   return metaStore(projectRoot).readSync() || {};
@@ -392,5 +419,6 @@ module.exports = {
   readRunMeta,
   resetRunMeta,
   updateRunMeta,
+  updateSubagentMeta,
   mainTranscriptPath, // 主会话 transcript 绝对路径（收尾协商的「本轮有无产出」探测用）
 };

@@ -10,6 +10,7 @@ export default function Workspace({
   view,
   runId,
   setRunId,
+  setView,
   connectionError
 }) {
   const workspace = useWorkspace(project, view);
@@ -27,7 +28,8 @@ export default function Workspace({
     runId: run?.runId || runId,
     selectedRunId: runId,
     runs,
-    setRunId
+    setRunId,
+    setView
   };
   const route = getRoute(view);
   const Page = pages[route.key];
@@ -41,6 +43,6 @@ export default function Workspace({
         <Button onClick={workspace.refresh}>重试</Button>
       </div>)}
       {workspace.eventNotice && <div role="status">{workspace.eventNotice}</div>}
-      <ErrorBoundary key={view}><Suspense fallback={<div className="empty" role="status">正在加载页面…</div>}><Page {...props} /></Suspense></ErrorBoundary>
+      <ErrorBoundary key={view}><Suspense fallback={<div className="empty" role="status">正在加载页面…</div>}><Page {...props} route={route} /></Suspense></ErrorBoundary>
     </main><Statusbar project={project} run={run} data={data} errors={errors} /></>);
 }

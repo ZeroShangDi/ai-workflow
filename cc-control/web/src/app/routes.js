@@ -9,6 +9,12 @@ export const ROUTES = [
   { key: 'logs', label: '日志', icon: 'logs', reads: [], snapshot: true, load: () => import('../pages/Logs/index.jsx') },
   { key: 'diagnostics', label: '诊断', hidden: true, reads: [], load: () => import('../pages/Diagnostics/index.jsx') },
   { key: 'wbs-tree', label: 'WBS', hidden: true, reads: [], load: () => import('../pages/WbsTree/index.jsx') },
+  // 三个 CLI 入口页（U4：先做空页面）。`awf open dashboard|tree|ui` 打开的就是它们。
+  // 为什么要显式登记：路由表里没有这三个 key 时，`readRoute` 会**静默回退到第一页（项目）**——
+  // 用户以为打开了新页面，看到的却是别处界面（假成功）。
+  { key: 'dashboard', label: '总览', hidden: true, reads: [], placeholder: true, load: () => import('../pages/Placeholder/index.jsx') },
+  { key: 'tree', label: '任务树', hidden: true, reads: [], placeholder: true, load: () => import('../pages/Placeholder/index.jsx') },
+  { key: 'ui', label: '界面', hidden: true, reads: [], placeholder: true, load: () => import('../pages/Placeholder/index.jsx') },
 ];
 export const VIEWS = ROUTES.filter(route => !route.hidden);
 export const getRoute = key => ROUTES.find(route => route.key === key) || ROUTES[0];

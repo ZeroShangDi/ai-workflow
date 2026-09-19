@@ -51,11 +51,22 @@ function attachSocket(socket, meta = { platform: 'dsh' }) {
 
 /**
  * WS 断开：清 socket + detach 通道（在途指令判「无法确认」，现场保留）。
+ *
+ * **必须传是哪个 socket**（`socket` 参数）：插件重连时会出现「新 socket 已 attach，旧 socket 的
+ * close/error 才到」的迟到事件。不做身份判断就会把**正连着的**通道误判为断开 —— 表现是服务端
+ * 一直回「指令通道未连接：ws closed」，而插件那边一切正常（真机踩到：重启 dsh 后台后 `awf plan`
+ * 全断，插件日志里连接是好的）。
  * @param {string} [reason]
+ * @param {object} [socket] 触发本次断开的 socket；给了就只在它仍是当前 socket 时生效
+ * @returns {boolean} 是否真的执行了 detach（false = 迟到事件，已忽略）
  */
-function detachSocket(reason = 'ws closed') {
+function detachSocket(reason = 'ws closed', socket = undefined) {
+  if (socket !== undefined && pluginSocket !== null && socket !== pluginSocket) {
+    return false; // 迟到事件：当前连的是另一个 socket，别动它
+  }
   pluginSocket = null;
   channel().detach(reason);
+  return true;
 }
 
 /**

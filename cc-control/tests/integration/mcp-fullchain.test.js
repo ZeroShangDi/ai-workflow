@@ -82,11 +82,11 @@ beforeAll(async () => {
   await server.start(port);
 
   // awf-state：stdio 子进程（该模块无 handlers 导出）；session/oneshot：本进程导入（导出 handlers）
-  const STATE_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-state/server.cjs', import.meta.url));
+  const STATE_PATH = fileURLToPath(new URL('../../server/adapters/cc/plugin/core/mcp/awf-state/server.cjs', import.meta.url));
   stateMcp = connectMCP(STATE_PATH);
   await stateMcp.call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } });
-  awfSession = require('../../plugin/core/mcp/awf-session/server.cjs');
-  awfOneshot = require('../../plugin/core/mcp/awf-oneshot/server.cjs');
+  awfSession = require('../../server/adapters/cc/plugin/core/mcp/awf-session/server.cjs');
+  awfOneshot = require('../../server/adapters/cc/plugin/core/mcp/awf-oneshot/server.cjs');
 });
 
 afterAll(async () => {

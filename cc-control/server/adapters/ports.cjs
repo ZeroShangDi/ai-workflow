@@ -58,7 +58,7 @@ const settings = require('./cc/settings.cjs');
 const profile = require('./cc/profile.cjs');
 const { createHost } = require('./cc/host.cjs');
 const { createHookAdapter } = require('./cc/hook.cjs');
-const { launchInteractiveClaude } = require('./cc/interactive.cjs');
+const { launchInteractiveClaude, detached: ccInteractiveDetached } = require('./cc/interactive.cjs');
 const { createProbe } = require('./cc/probe.cjs');
 const { createSessionPort } = require('./cc/session.cjs');
 const { checkPrerequisites: ccCheckPrerequisites } = require('./cc/checks.cjs');
@@ -229,7 +229,9 @@ const PORT_IMPLS = {
   hook: createHookAdapter,
   oneshot,
   tooling,
-  interactive: { launchDialog: (opts) => launchInteractiveClaude(opts) },
+  // `detached`：这个交互入口能否**脱离调用方终端**触发（决定 CLI 侧走端口还是走 AWF server 的
+  // `POST /interactive/plan`）。cc 不能（交互式对话要占住用户终端），DSH 能（只是开会话 + 回 URL）。
+  interactive: { launchDialog: (opts) => launchInteractiveClaude(opts), detached: ccInteractiveDetached },
   probe: createProbe,
   shapes,
   extract,
@@ -379,6 +381,19 @@ function resolveAdapterName(projectRoot, { env = process.env } = {}) {
 }
 
 /**
+ * 平台名是**从哪来的**（诊断用）：`env`（CC_ADAPTER）> `config`（.awf/config.json 的 runtime.adapter）
+ * > `default`（缺省 cc）。「怎么知道我现在跑在哪个环境」的答案要能说出依据，而不是只报一个名字。
+ * @param {string} projectRoot
+ * @param {{ env?: object }} [opts]
+ * @returns {'env'|'config'|'default'}
+ */
+function resolveAdapterSource(projectRoot, { env = process.env } = {}) {
+  if (env[ADAPTER_ENV] !== undefined && env[ADAPTER_ENV] !== null) return 'env';
+  const fromConfig = readJsonFile(configFilePath(projectRoot), { optional: true })?.runtime?.adapter;
+  return fromConfig === undefined || fromConfig === null ? 'default' : 'config';
+}
+
+/**
  * 按项目解析并绑定平台适配器 —— 「这个项目用哪个 CLI」的唯一入口（T-P1-01 / C01）。
  *
  * @param {string} projectRoot 项目根（.awf 宿主）
@@ -427,7 +442,7 @@ module.exports = {
   REQUIRED_PORT_METHODS, assertRequiredMethods,
   createCcAdapters, createHost, createHookAdapter,
   ADAPTER_PLATFORMS, ADAPTER_NAMES, ADAPTER_ENV, ADAPTER_DEFAULT,
-  assertAdapterRegistry, resolveAdapterName, resolveProjectAdapters,
+  assertAdapterRegistry, resolveAdapterName, resolveAdapterSource, resolveProjectAdapters,
   // 单端口句柄
   host: createHost,
   hook: createHookAdapter,

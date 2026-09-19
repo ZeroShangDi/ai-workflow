@@ -12,7 +12,7 @@ import crypto from 'node:crypto';
 // MCP 不再直写文件/自持锁。本测试：真 server + MCP stdio 子进程端到端。
 
 const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
-const MCP_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-state/server.cjs', import.meta.url));
+const MCP_PATH = fileURLToPath(new URL('../../server/adapters/cc/plugin/core/mcp/awf-state/server.cjs', import.meta.url));
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-mcp-server-'));
 const proj = path.join(TMP, 'proj');

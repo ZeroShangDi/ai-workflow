@@ -33,7 +33,7 @@ const {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const pluginRoot = path.join(repoRoot, 'plugin');
+const pluginRoot = path.join(repoRoot, 'server', 'adapters', 'cc', 'plugin');
 
 /** 渲染 hooks 段（含 hooks 顶层包装），__PORT__ → 端口字面量 */
 function renderHooksObject(hooks, port) {

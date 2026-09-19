@@ -73,7 +73,7 @@ describe('parseDecisionResult — 从 last_assistant_message 解析 + 轻量校�
 describe('必填集合与 schema 一致', () => {
   it('REQUIRED_FIELDS = schema.required − decision_id（server 侧赋值）', () => {
     const schema = JSON.parse(
-      fs.readFileSync(path.join(REPO, 'plugin', 'decision', 'decision', 'schemas', 'decision-result.schema.json'), 'utf8'),
+      fs.readFileSync(path.join(REPO, 'server', 'adapters', 'cc', 'plugin', 'decision', 'decision', 'schemas', 'decision-result.schema.json'), 'utf8'),
     );
     const schemaRequired = schema.required.filter((f) => f !== 'decision_id').sort();
     expect([...REQUIRED_FIELDS].sort()).toEqual(schemaRequired);

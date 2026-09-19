@@ -21,8 +21,9 @@ const { createProjectContext } = require('./project.cjs');
 const { createSession } = require('./session.cjs');
 const { createSingleExecutor } = require('./executor.cjs');
 const { createSessionChannelFactory } = require('./channel.cjs');
-const { createSubagentRecorder } = require('../run/subagent.cjs');
+const { createSubagentRecorder, createSubagentLifecycle } = require('../run/subagent.cjs');
 const { createObservability } = require('../observability/index.cjs');
+const { updateSubagentMeta } = require('../observability/metrics.cjs');
 const { createDecisionHandler } = require('../features/decision/handler.cjs');
 const gateRules = require('../features/decision/gate.cjs');
 const replanning = require('../features/replanning/index.cjs');
@@ -109,13 +110,66 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
 
   const channel = createSessionChannelFactory({ ctx, session, observability });
 
+  // ── 子 Agent 生命周期（平台无关处理器）──
+  // cc 经 HTTP hook 送 SubagentStart/Stop；DSH 经平台事件总线送 agent.started/stopped。
+  // 两者用**同一个**处理器（落账语义只有一份，T-P3-01），差别只在入口与附加记账：
+  // 这里没有 run-meta（那是 cc hook 的记账面）、也没有转录文件（DSH 不提供该字段）。
+  const subagentLifecycle = createSubagentLifecycle({
+    subagent,
+    observability,
+    session,
+    // cc 的记账面（run-meta）与转录留档：**两个平台都写**（DSH 也一样能用，只是没有转录文件字段）
+    onMeta: (key, body, status) => updateSubagentMeta(ctx.projectRoot, key, body, status),
+    onTranscript: (body, taskId, key) => ctx.logger?.captureSubagentTranscript?.(body, taskId, key),
+    onSettle: (r) => {
+      if (r.needsInput) console.log(`[subagent-needs] ${r.needsInput.taskId}: ${r.needsInput.question.slice(0, 40)}`);
+      else if (r.ok) console.log(`[subagent-settle] ${r.taskId} -> ${r.status}（via ${ctx.adapter}）`);
+      else console.log(`[subagent-settle] ${r.reason} (agent ${r.agentId}, via ${ctx.adapter})`);
+    },
+  });
+
+  /** 领域事件载荷 → 子 Agent 处理器要的 **hook 形状**（settle 只认 last_assistant_message） */
+  function subagentBody(payload = {}) {
+    return {
+      agent_id: payload.agentId ?? null,
+      session_id: payload.parentSessionId ?? null, // 归属在父会话（校验外部会话要靠它）
+      last_assistant_message: payload.lastAssistantMessage ?? '',
+      reason: payload.reason ?? null,
+    };
+  }
+
   // ── 平台事件 → 会话态（CC 的等价物在 web/api/hook.cjs；DSH 没有 hook 路由，故在装配层接）──
   // 只认「平台说了什么」：turn/end → READY、prompt 提交 → BUSY、会话起来 → ready + 会话序号 +1
   //（会话序号让 CLI 的「等会话就绪」在 DSH 侧也能工作）。
+  /**
+   * 回合末门阀（决策）：把这一轮的末条文本交给决策处理器。
+   *
+   * 平台差异在这里被**数据**抹平：cc 的门阀挂在自己的 Stop hook 上（把 ccOutput 回灌给 cc），
+   * DSH 没有这种回灌通道 → 门阀要的指令得**再发一条 prompt** 回去。所以只有「平台把末条文本
+   * 一起报上来」时（DSH 的 session.ready.lastAssistantMessage）才走这条路，cc 一个字节都不变。
+   * @param {string} text 本轮末条 assistant 文本
+   */
+  async function runDecisionGate(text) {
+    try {
+      const out = decision.onStop({ last_assistant_message: text });
+      const instruction = out?.ccOutput?.reason;
+      if (!instruction) return;
+      const ok = await channel.sendPromptAndWait(instruction);
+      if (ok) observability.notice('decision', 'info', '回合末门阀：决策指令已发回会话');
+      else console.log('[decision-gate] 决策指令未送达会话（未在超时内就绪）');
+    } catch (err) {
+      console.log(`[decision-gate] 失败：${err.message}`); // 门阀失败不阻断 run，只留现场
+    }
+  }
+
   bus.on('run.phase', (event) => {
     const phase = event?.payload?.phase;
     if (phase === 'BUSY') session.setBusy();
-    else if (phase === 'READY') session.setReady();
+    else if (phase === 'READY') {
+      session.setReady();
+      const text = event?.payload?.lastAssistantMessage;
+      if (typeof text === 'string' && text !== '') void runDecisionGate(text);
+    }
     publishEvent('session.phase', { phase, runId: event?.runId ?? null });
   });
   bus.on('run.started', () => {
@@ -126,6 +180,21 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
   bus.on('run.stopped', () => {
     session.clearDecision?.();
     session.setReady();
+  });
+  // 子 Agent 起停：**DSH 侧的唯一入口**（cc 走 hook.cjs）。起了才建基线，停了才落账 ——
+  // 没有基线的 stop 会被处理器按「untracked agent」丢弃（防把别的 agent 的 RESULT 记到本项目）。
+  bus.on('agent.started', (event) => {
+    const r = subagentLifecycle.started(subagentBody(event?.payload));
+    if (r.handled === false) console.log(`[subagent-start] skip ${r.reason}`);
+  });
+  bus.on('agent.stopped', (event) => {
+    const p = event?.payload ?? {};
+    if (!p.lastAssistantMessage) {
+      // 报不了末条文本就结算不了；明确记一行，不假装结算过
+      console.log(`[subagent-stop] agent ${p.agentId ?? '?'} 无末条文本，跳过落账`);
+      return;
+    }
+    subagentLifecycle.stopped(subagentBody(p));
   });
 
   // ── 侦查端口（probe）──
@@ -209,9 +278,11 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
         if (!ok) throw new Error(`派发未送达（主会话未在超时内就绪/收尾）：${String(text).slice(0, 60)}…`);
       },
       prompts: {
-        subagentDispatch: bridge.subagentDispatch,
-        subagentRedispatch: bridge.subagentRedispatch,
-        resend: bridge.subagentResend,
+        // 平台名在这里补：派发/重派/补发三条模板含**平台工具措辞**（派生工具与参数、回话工具），
+        // 由插件按平台声明（`platform-vars-<平台>`），模板本身只有一份（T-P3-01）
+        subagentDispatch: (a) => bridge.subagentDispatch({ ...a, adapter: ctx.adapter }),
+        subagentRedispatch: (a) => bridge.subagentRedispatch({ ...a, adapter: ctx.adapter }),
+        resend: (a) => bridge.subagentResend({ ...a, adapter: ctx.adapter }),
       },
       markActive: (id) => stateApi.markTaskActive(ctx.projectRoot, id),
       releaseActive: (id) => stateApi.requeueTaskIfActive?.(ctx.projectRoot, id) ?? false,
@@ -349,7 +420,8 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
     session,      // 主槽会话（无 sid 的请求用它）
     sessions,     // sid → Session（多 run 分片）
     sessionFor,   // 取/建 sid 槽
-    subagent,     // 子 Agent 记录器（SubagentStart/Stop 落账）
+    subagent,           // 子 Agent 记录器（SubagentStart/Stop 落账）
+    subagentLifecycle,  // 子 Agent 生命周期处理器（cc 的 hook 路由与 DSH 的事件总线共用这一个实例）
     decision,     // 决策处理器（onStop / onAskUserQuestion）
     observability,
     channel,      // 会话通道工厂（sendPromptAndWait / sendLocalCmd / channel()）

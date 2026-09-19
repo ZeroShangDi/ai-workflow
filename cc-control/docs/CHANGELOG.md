@@ -33,6 +33,12 @@
   - **`run -r` 最小恢复（T-P1-06）**：`-r` 先查活跃 run → 有则挂接（与 `--attach` 同路径），无则照常提交；修复了帮助文案承诺而代码从未实现的「活跃 run 挂接续观」（此前会 409）。不新增通用崩溃恢复、不自动重置 active。
   - **适配器一致性与测试分层（T-P1-05）**：新增 `tests/conformance/adapters.conformance.test.js`（对每个已落地平台跑同一套端口契约断言，`dsh` 转正后自动纳入）+ `REQUIRED_PORT_METHODS` / `assertRequiredMethods()` 加载即自检。
   - 出口状态：`npm test` 110/110 文件、1043/1043 用例；`check:capability` / `check:arch` / `lint` / `build` 全绿。**未改任何调度算法**；DSH 适配器本体（`server/adapters/dsh/`）属 P2。
+- **DSH 接入 P3～P4：编排闭环与交付面（T-P3-01/02、T-P4-01/02）** —— 多 agent batch 在 DSH 上真跑通、回合末决策门阀落位、三个 CLI 入口页不再静默回退、发布包可装可卸；能力矩阵按「已完成 vs 占位」逐面标注（`docs/features/adapters.md`）。
+  - **多 agent（T-P3-01）**：子 Agent 生命周期收敛为**平台无关**处理器（起建基线、停按末条文本落账；cc 走 hook 路由、DSH 走事件总线，落账语义只有一份）；派发提示词按平台填措辞（`platform-vars-<平台>`，DSH 用 `subagent` 工具且把输出协议写进任务正文）；真机 `--batch` 得 **run=done T1=done**。
+  - **回合末门阀（T-P3-02）**：DSH 没有 CC 那种 block-Stop 回灌通道 → 门阀指令由 AWF **再发一条 prompt** 回会话；真机 `--decision` 两轮事件 + 决策结论落盘。`run -r` 重启组合未验（如实登记）。
+  - **三个入口页（T-P4-01）**：`awf open dashboard|tree|ui` 此前因路由表缺 key 而**静默回退到项目页**；现在落到显式占位页并保留到真实业务页的入口，产物含占位文案并加了「改了没重建」护栏。
+  - **生产装配块的两处隐蔽缺陷（F42/F43）**：`awf init` 写的 profile 配置块漏了 `awfBase`（插件拿不到 AWF 地址就不启动指令通道）与 `awfRepo`（插件挂项目 MCP 需要包根，缺了 `session.create` 直接失败）；`webPort` 还曾误写 AWF 端口。三者都只在**真实安装**路径暴露（探针用 `AWF_DSH_BASE`/`AWF_DSH_REPO` 环境变量兜底），已修并补「只读 profile 配置」的真机用例；`installProfile` 现在会**原地更新**内容有变的托管块，升级无需先卸载。
+  - **发布包（T-P4-02）**：`files` 漏 `dsh-plugin/` 会让装出来的包缺 DSH 插件半侧（开发机不可见）；补上并用真 `npm pack` → 新目录解包 → **用包里的 CLI** 装配隔离 profile → 卸载复原，另断言包内不含开发机绝对路径。
 - **DSH 接入 P2：适配器 + 插件真实可用（P2-1～P2-6f）** —— `ADAPTER_PLATFORMS.dsh.status` 由 `not-landed` 转 `factory`：新增 AWF 侧适配器（`server/adapters/dsh/`：7 端口 + 指令通道 + profile 装配）与生产插件 host 半侧（`dsh-plugin/`：WS 客户端、会话/规划/一次性调用等 op 表）。逐项验收对照见执行记录 §2.18。
   - **指令通道承担全部会话操作**：建会话（`agents.create` 的**发布前 setup** 窗口装模型选择 + preset + 会话级项目 MCP）、提交（`prompt(request, signal)`）、回合结束 → `session.ready`、可读快照、`session.stop`（**先取子 Agent 名单 → cancel 父 → 逐个 `subagents.interrupt`**；停止回执含被打断的子会话 id，不再吞掉）。
   - **零副作用纪律下的真机验证**：全部实验只在隔离 `DSH_HOME`（`scripts/probe/dsh/`：guard/env/install-fixture/serve + `roundtrip.cjs` 九个模式 + `cli-install.cjs`），用户真实 `~/.dsh` 配置面每轮 `guard.sh check` 恒 `IDENTICAL`。实测覆盖：通道往返、会话创建/停止、真落账（模型经 20 个 `mcp__awf-state__*` 工具写 state）、快照、`plan.launch`、`llm.oneshot`、单任务 `run` 端到端、双项目隔离（单后台）、子 Agent 派出与逐个打断、`awf plugin install` 装进 profile（`dsh --dump-config` 承认）、`awf init` 干净项目幂等。

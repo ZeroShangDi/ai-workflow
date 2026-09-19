@@ -234,7 +234,9 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', 'sandbox', 'coverage'
  * 落进 src/ 只是为了 server 静态托管。把它算作「零生产引用模块」是误报 ——
  * 而且哈希名每构建一次就变，不可能进白名单。
  */
-const SKIP_PATHS = new Set(['server/web/public', 'server/web/public/assets']);
+const SKIP_PATHS = new Set(['server/web/public', 'server/web/public/assets',
+  // 平台按名/路径加载的插件资产（不由 server import）：Claude Code / DSH 各自装载，不是 server 代码
+  'server/adapters/cc/plugin', 'server/adapters/dsh/plugin']);
 
 /** 生产侧引用者目录：这些地方的 import 才算「被生产引用」；tests/ 不算 */
 const PROD_DIRS = ['cli', 'server', 'scripts', 'plugin', 'web/src'];

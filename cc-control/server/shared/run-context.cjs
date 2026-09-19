@@ -108,9 +108,9 @@ function buildRunContext({ sid = null, projectRoot, env = process.env } = {}) {
 
     // ── infra/settings 引用 ──
     /** 插件注册/安装单源（plugin/settings.json 安装清单） */
-    pluginSettingsPath: path.join(INFRA_ROOT, 'plugin', 'settings.json'),
+    pluginSettingsPath: path.join(INFRA_ROOT, 'server', 'adapters', 'cc', 'plugin', 'settings.json'),
     /** 插件唯一配置源（plugin/config.json） */
-    infraConfigPath: path.join(INFRA_ROOT, 'plugin', 'config.json'),
+    infraConfigPath: path.join(INFRA_ROOT, 'server', 'adapters', 'cc', 'plugin', 'config.json'),
     /** 常驻 server 入口 —— CLI spawn 它（`cli/lib/session.cjs` 的 ensureServer），单源在此 */
     serverScriptPath: path.join(INFRA_ROOT, 'server', 'server.cjs'),
     bootstrapScriptPath: path.join(INFRA_ROOT, 'scripts', 'bootstrap.sh'),

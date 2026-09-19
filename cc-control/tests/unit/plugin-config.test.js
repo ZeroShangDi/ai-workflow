@@ -21,7 +21,7 @@ describe('projectMcpJson — 路径形态按场景', () => {
     const { mcpServers } = projectMcpJson(REPO, 8787, REPO);
     const arg = mcpServers['awf-state'].args[0];
     expect(path.isAbsolute(arg)).toBe(false);
-    expect(arg).toBe('plugin/core/mcp/awf-state/server.cjs');
+    expect(arg).toBe('server/adapters/cc/plugin/core/mcp/awf-state/server.cjs');
   });
 
   it('跨项目（projectRoot != repoRoot）→ 绝对路径且可解析到真实文件', () => {

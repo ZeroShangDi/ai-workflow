@@ -66,7 +66,7 @@ describe('项目根与端口', () => {
     const ctx = buildRunContext({ projectRoot: ROOT, env: {} });
     expect(ctx.infraRoot).toBe(INFRA_ROOT);
     expect(path.isAbsolute(ctx.infraRoot)).toBe(true);
-    expect(fs.existsSync(path.join(ctx.infraRoot, 'plugin', 'config.json'))).toBe(true);
+    expect(fs.existsSync(path.join(ctx.infraRoot, 'server', 'adapters', 'cc', 'plugin', 'config.json'))).toBe(true);
   });
 });
 
@@ -95,8 +95,8 @@ describe('settings / infra 引用', () => {
   const ctx = buildRunContext({ projectRoot: ROOT, env: {} });
 
   it('插件注册/安装单源与运行脚本路径', () => {
-    expect(ctx.pluginSettingsPath).toBe(path.join(ctx.infraRoot, 'plugin', 'settings.json'));
-    expect(ctx.infraConfigPath).toBe(path.join(ctx.infraRoot, 'plugin', 'config.json'));
+    expect(ctx.pluginSettingsPath).toBe(path.join(ctx.infraRoot, 'server', 'adapters', 'cc', 'plugin', 'settings.json'));
+    expect(ctx.infraConfigPath).toBe(path.join(ctx.infraRoot, 'server', 'adapters', 'cc', 'plugin', 'config.json'));
     expect(ctx.serverScriptPath).toBe(path.join(ctx.infraRoot, 'server', 'server.cjs'));
     expect(ctx.bootstrapScriptPath).toBe(path.join(ctx.infraRoot, 'scripts', 'bootstrap.sh'));
     expect(ctx.repoDevSettingsPath).toBe(path.join(ctx.infraRoot, '.claude', 'settings.json'));

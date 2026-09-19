@@ -62,6 +62,8 @@ function createMockAdapters() {
 
   const interactive = {
     launchDialog: async (...a) => { calls.push(['interactive.launchDialog', ...a]); return { ok: true }; },
+    // 夹具对齐 cc 形态：交互式对话要占住调用方终端，不能由服务端代触发（见 cc/interactive.cjs）
+    detached: false,
   };
 
   // probe：返回一次侦查快照；state 'ready' 是 mock 缺省（真实值来自 server /status）

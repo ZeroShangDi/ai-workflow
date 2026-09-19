@@ -132,4 +132,77 @@ function createSubagentRecorder({ paths, stores } = {}) {
   return { parseResult, parseNeedsInput, logEvent, logFailure, logNeedsInput, reset, settle };
 }
 
-module.exports = { createSubagentRecorder };
+/**
+ * 子 Agent 生命周期处理器（**平台无关**）。
+ *
+ * 为什么要有这一层：cc 经 HTTP hook（`SubagentStart`/`SubagentStop`）送进来，DSH 经平台事件总线
+ * （插件上报 `agent.started`/`agent.stopped`）送进来 —— 入口不同，但「记什么账、什么时候落账」
+ * 必须**同一份**，否则两个平台的落账语义会各长一套（T-P3-01：结果归属校验属于这一层）。
+ *
+ * @param {{ subagent: object, observability: object, session: object,
+ *           onMeta?: Function, onSettle?: Function, onTranscript?: Function }} deps
+ *   onMeta(key, body, status)          平台附加记账（cc 写 run-meta）；缺省不做
+ *   onSettle(result)                    落账结果回调（诊断/观测用）；缺省不做
+ *   onTranscript(body, taskId, key)      平台转录留档（cc 有 agent_transcript_path，DSH 没有）；缺省不做
+ * @returns {{ started(body): object, stopped(body): object }}
+ */
+function createSubagentLifecycle({
+  subagent, observability, session,
+  onMeta = () => {}, onSettle = () => {}, onTranscript = () => {},
+}) {
+  /**
+   * 子 Agent 起：留档 + 建基线。**必须有基线**，否则 Stop 时无从判断是「本项目派的谁」——
+   * 没有基线就结算，可能把别的 agent 的 RESULT 记到本项目任务上。
+   */
+  function started(body) {
+    if (!body || typeof body !== 'object') return { handled: false, reason: 'no body' };
+    subagent.logEvent('SubagentStart', body);
+    // 主会话已知且不是它 → 外部会话，不当本项目派发的子 Agent（只留档）
+    if (session?.mainSessionId && body.session_id && body.session_id !== session.mainSessionId) {
+      return { handled: false, reason: `external session ${body.session_id}` };
+    }
+    const key = body.agent_id || body.session_id || 'unknown';
+    observability?.trackAgent?.(key, { sessionId: body.session_id || null, status: 'running', startedAt: Date.now() });
+    onMeta(key, body, 'running');
+    return { handled: true, key };
+  }
+
+  /** 子 Agent 停：解析 RESULT/NEEDS_INPUT 并原子落账（needs 优先于 result） */
+  function stopped(body) {
+    if (!body || typeof body !== 'object') return { handled: false, reason: 'no body' };
+    const key = body.agent_id || body.session_id || 'unknown';
+    subagent.logEvent('SubagentStop', body);
+    // 外部会话的 SubagentStop 直接忽略（同 started 的判据）
+    if (session?.mainSessionId && body.session_id && body.session_id !== session.mainSessionId) {
+      return { handled: false, reason: `external session ${body.session_id}` };
+    }
+    const agent = observability?.agents?.get?.(key);
+    if (agent) agent.status = 'stopped';
+    onMeta(key, body, 'stopped');
+    if (!agent) {
+      // 没记过 SubagentStart → 无基线，跳过（否则可能误结算别的 agent 的任务）
+      return { handled: false, reason: `untracked agent ${key}` };
+    }
+    const needs = subagent.parseNeedsInput(body);
+    const result = needs ? null : subagent.parseResult(body); // 有 needs 就不再解析 result
+    onTranscript(body, needs?.taskId || result?.taskId, key);
+    if (needs) {
+      subagent.logNeedsInput(body, needs);
+      onSettle({ ok: false, needsInput: needs, agentId: key });
+      return { handled: true, agentId: key, needsInput: needs };
+    }
+    const settled = subagent.settle(body); // 原子落账（awf_task_complete）
+    if (!settled.ok) {
+      // 不可结算：记失败（除非明确 recoverable===false —— 那就只是丢弃，不算失败）
+      if (settled.recoverable !== false) subagent.logFailure(body, settled);
+      onSettle({ ...settled, agentId: key });
+      return { handled: true, agentId: key, settled };
+    }
+    onSettle({ ...settled, agentId: key });
+    return { handled: true, agentId: key, settled };
+  }
+
+  return { started, stopped };
+}
+
+module.exports = { createSubagentRecorder, createSubagentLifecycle };

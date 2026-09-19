@@ -22,6 +22,7 @@
  */
 
 const { createEvent } = require('../../shared/events.cjs');
+const { isSamePath } = require('../../shared/project-paths.cjs');
 
 /** 需要等结果的长指令（建会话/派发/一次性调用）；其余用 bridge 缺省窗口 */
 const RESULT_WINDOWS = {
@@ -38,9 +39,28 @@ const DSH_EVENT_MAP = {
   'session.stopped': () => ({ type: 'run.stopped', payload: {} }),
   'prompt.submitted': () => ({ type: 'run.phase', payload: { phase: 'BUSY' } }),
   // 回合结束 = 会话回到可派发（与 cc 的 Stop hook 同义）。用既有的 run.phase 词表，不新造事件类型。
-  'session.ready': () => ({ type: 'run.phase', payload: { phase: 'READY' } }),
-  'agent.started': (p) => ({ type: 'agent.started', payload: { agentId: p.agentId || 'agent' } }),
-  'agent.stopped': (p) => ({ type: 'agent.stopped', payload: { agentId: p.agentId || 'agent', taskId: p.taskId ?? null } }),
+  // lastAssistantMessage：带**这一轮的末条文本**，运行时的回合末门阀（决策）据此判定（cc 走 Stop hook 的
+  // body.last_assistant_message，两条入口喂的是同一份东西）。
+  'session.ready': (p) => ({
+    type: 'run.phase',
+    payload: { phase: 'READY', lastAssistantMessage: p.lastAssistantMessage ?? null },
+  }),
+  // 子 Agent 生命周期：payload 里必须带**父会话 id**（归属判定）与**末条 assistant 文本**
+  // （RESULT/NEEDS_INPUT 就写在那里，落账正文见 server/run/subagent.cjs 的平台无关处理器）
+  'agent.started': (p) => ({
+    type: 'agent.started',
+    payload: { agentId: p.agentId || 'agent', parentSessionId: p.parentSessionId ?? null, cwd: p.cwd ?? null },
+  }),
+  'agent.stopped': (p) => ({
+    type: 'agent.stopped',
+    payload: {
+      agentId: p.agentId || 'agent',
+      taskId: p.taskId ?? null,
+      parentSessionId: p.parentSessionId ?? null,
+      lastAssistantMessage: p.lastAssistantMessage ?? null,
+      reason: p.reason ?? null,
+    },
+  }),
 };
 
 /** 平台事实里与领域事件无关、但同步方法要用的字段 */
@@ -296,6 +316,12 @@ function createDshAdapters({ bridge, sessionName = 'dsh', bus, projectRoot } = {
 
   const interactive = {
     /**
+     * 可脱离终端进程 launch 吗？DSH **可以**：它只是「开会话 + 注入指令 + 回网页 URL」，
+     * 不需要占住调用方的终端。CLI 侧因此可以在**没有 bridge** 的进程里经 AWF server 的
+     * `POST /interactive/plan` 触发（cc 不行：交互式对话必须占住用户终端，见 cc/interactive.cjs）。
+     */
+    detached: true,
+    /**
      * 开始规划：DSH 侧在目标项目**新建会话并注入规划指令**，用户在网页里接着聊（U2/Q2）。
      * 与 cc 的「直开终端」不是同一形态，但对上层是同一个能力。
      * @param {{cwd: string, prompt: string}} opts
@@ -312,7 +338,8 @@ function createDshAdapters({ bridge, sessionName = 'dsh', bus, projectRoot } = {
   if (bus?.emit && typeof channel.onEvent === 'function') {
     channel.onEvent((payload) => {
       const cwd = payload?.cwd ?? null;
-      if (projectRoot && cwd && cwd !== projectRoot) return; // 别的项目的事件，不接
+      // 别的项目的事件不接；路径比对走同一性判定（`/var` 与 `/private/var` 是同一处，F38）
+      if (projectRoot && cwd && !isSamePath(cwd, projectRoot)) return;
       hook.hook(payload, {});
     });
   }

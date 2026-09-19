@@ -12,6 +12,7 @@
 const ENDPOINTS = {
   status: ['GET', '/status'],
   probe: ['GET', '/probe'],
+  planLaunch: ['POST', '/interactive/plan'], // 规划入口（平台可脱离终端 launch 时由服务端代触发）
   shutdown: ['POST', '/shutdown'],
   // 会话注入（宿主/tmux 会话）
   send: ['POST', '/send'],

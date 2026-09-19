@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createBridgeClient } from '../../dsh-plugin/lib/bridge-client.js';
-import { createTurnReporter } from '../../dsh-plugin/index.js';
-import { createOps } from '../../dsh-plugin/lib/ops.js';
+import { createBridgeClient } from '../../server/adapters/dsh/plugin/lib/bridge-client.js';
+import { createTurnReporter } from '../../server/adapters/dsh/plugin/index.js';
+import { createOps } from '../../server/adapters/dsh/plugin/lib/ops.js';
 
 /**
  * AWF 的 DSH 插件 host 半侧（`dsh-plugin/`）—— P2-5a。
@@ -471,6 +471,49 @@ describe('插件 host 半侧 — op 表', () => {
     // 无 id 的 session：安全跳过
     report(null, { type: 'turn/end' });
     expect(emitted).toHaveLength(2);
+  });
+
+  // 子 Agent：AWF 没建它，但「谁派的、结果是什么」必须回传 —— 多 agent 的落账靠这条（T-P3-01）
+  it('子会话（header.parentSession 指向 AWF 会话）：turn/start|end → agent.started|stopped + 末条文本', () => {
+    const createdByAwf = new Set(['s-main']);
+    const inFlight = new Set();
+    const emitted = [];
+    const report = createTurnReporter({
+      createdByAwf,
+      inFlight,
+      emit: (e, f) => emitted.push({ e, f }),
+      lastText: () => ({ text: 'RESULT: {"taskId":"T1","status":"done"}' }),
+    });
+    const child = { header: { id: 'c1', cwd: '/proj', parentSession: 's-main' } };
+
+    report(child, { type: 'turn/start' });
+    report(child, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+
+    expect(emitted.map((x) => x.e.type)).toEqual(['agent.started', 'agent.stopped']);
+    expect(emitted[0].e).toMatchObject({ agentId: 'c1', parentSessionId: 's-main', cwd: '/proj' });
+    expect(emitted[1].e).toMatchObject({
+      agentId: 'c1',
+      parentSessionId: 's-main',
+      lastAssistantMessage: 'RESULT: {"taskId":"T1","status":"done"}',
+    });
+    // 子会话**不能**动主会话的 busy/ready 与在途集合
+    expect(inFlight.size).toBe(0);
+    expect(emitted.some((x) => x.e.type === 'session.ready')).toBe(false);
+
+    // 别人的子会话（父不是 AWF 会话）：一个事件都不产
+    report({ header: { id: 'c2', parentSession: 's-other' } }, { type: 'turn/end' });
+    expect(emitted).toHaveLength(2);
+
+    // 取不到文本也要上报（宁可上报空文本让 AWF 判「无 RESULT」，也不静默丢事件）
+    const emitted2 = [];
+    const report2 = createTurnReporter({
+      createdByAwf,
+      inFlight,
+      emit: (e) => emitted2.push(e),
+      lastText: () => { throw new Error('boom'); },
+    });
+    report2(child, { type: 'turn/end' });
+    expect(emitted2[0]).toMatchObject({ type: 'agent.stopped', lastAssistantMessage: null });
   });
 
   it('批准请求登记：noteApproval 记录 toolName/reason/是否 AWF 会话（U16 定策略依据）', () => {

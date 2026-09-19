@@ -80,6 +80,31 @@ describe('bridge-channel — 已连接', () => {
     expect(channelMod.channel().connected()).toBe(false);
   });
 
+  // 真机踩到：重启 dsh 后台 → 新插件连上，**旧 socket 的 close 迟到** →
+  // 服务端把正连着的通道误判为断开，此后所有指令都回「ws closed」，而插件侧一切正常。
+  it('重连后旧 socket 的迟到 close 不改判定（身份不符 → 忽略）', async () => {
+    const oldSocket = makeSocket();
+    const newSocket = makeSocket();
+    channelMod.attachSocket(oldSocket, { platform: 'dsh', pluginVersion: '0.0.1' });
+    channelMod.attachSocket(newSocket, { platform: 'dsh', pluginVersion: '0.0.1' });
+
+    // 旧 socket 的 close 迟到：必须被忽略
+    expect(channelMod.detachSocket('ws closed', oldSocket)).toBe(false);
+    expect(channelMod.channel().connected()).toBe(true);
+    const p = channelMod.channel().request('session.facts', {}, { projectRoot: '/p' });
+    expect(newSocket.frames).toHaveLength(1);
+    const cmd = decodeFrame(newSocket.frames[0]);
+    channelMod.handleCallback({ commandId: cmd.commandId, phase: 'accepted' });
+    channelMod.handleCallback({ commandId: cmd.commandId, phase: 'result', ok: true, result: { sessionExists: false } });
+    const r = await p;
+    expect(r.delivery).toBe('accepted');
+
+    // 当前 socket 自己断开 → 照常 detach（并给出来由）
+    expect(channelMod.detachSocket('ws closed', newSocket)).toBe(true);
+    expect(channelMod.channel().connected()).toBe(false);
+    expect(channelMod.channel().detachedReason()).toContain('ws closed');
+  });
+
   it('socket 已销毁时发指令 → 未交给平台（不静默丢帧）', async () => {
     const socket = makeSocket();
     channelMod.attachSocket(socket);

@@ -36,20 +36,30 @@ const ORCHESTRATION_KEYS = new Set([
   'subagent-dispatch', 'subagent-resend', 'subagent-redispatch', 'gate-fix',
 ]);
 
-/** bridge 声明的平台参数（kebab → camel），供期望值复算 */
-function platformVars() {
-  return Object.fromEntries(Object.entries(pluginRegistry['platform-vars'])
+/**
+ * bridge 声明的平台参数（kebab → camel），供期望值复算。
+ * 与 `server/shared/prompts.js` 同规则：缺省表 + `platform-vars-<平台>` 覆盖（这里用缺省平台 cc）。
+ * @param {string} [adapter]
+ */
+function platformVars(adapter = 'cc') {
+  const base = pluginRegistry['platform-vars'];
+  const overrides = pluginRegistry[`platform-vars-${adapter}`];
+  const merged = overrides ? { ...base, ...overrides } : base;
+  return Object.fromEntries(Object.entries(merged)
     .map(([k, v]) => [k.replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v]));
 }
 
-/** 按 bridge 的同一规则填占位符（split/join，非正则） */
-function fill(key, vars = {}) {
+/** 按 bridge 的同一规则填占位符（split/join，非正则；两遍 —— 平台参数的值可引用别的平台参数） */
+function fill(key, vars = {}, adapter = 'cc') {
   const orchestration = ORCHESTRATION_KEYS.has(key);
   const template = (orchestration ? orchestrationRegistry : pluginRegistry)[key].prompt;
-  const all = orchestration ? { ...platformVars(), ...vars } : vars;
-  let text = template;
-  for (const [k, v] of Object.entries(all)) text = text.split(`{${k}}`).join(v ?? '');
-  return text;
+  const base = orchestration ? platformVars(adapter) : {};
+  const once = (text, table) => {
+    let out = text;
+    for (const [k, v] of Object.entries(table)) out = out.split(`{${k}}`).join(v ?? '');
+    return out;
+  };
+  return once(once(template, { ...base, ...vars }), base);
 }
 
 describe('resolvePrompt — 取模板 + 填值', () => {

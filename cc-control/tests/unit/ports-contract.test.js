@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   PORT_CONTRACT, PORT_NAMES, NON_PORT_TOOLS, assertPortContract, createCcAdapters,
   ADAPTER_PLATFORMS, ADAPTER_NAMES, ADAPTER_ENV, assertAdapterRegistry,
-  resolveAdapterName, resolveProjectAdapters,
+  resolveAdapterName, resolveAdapterSource, resolveProjectAdapters,
 } from '../../server/adapters/ports.cjs';
 import { createMockAdapters } from '../../server/adapters/mock.cjs';
 
@@ -166,6 +166,16 @@ describe('按项目解析平台（T-P1-01 / C01）', () => {
   it(`env ${ADAPTER_ENV} 覆盖配置文件`, () => {
     const root = makeProject({ runtime: { adapter: 'cc' } });
     expect(resolveAdapterName(root, { env: { [ADAPTER_ENV]: 'cc' } })).toBe('cc');
+  });
+
+  // 「我现在跑在哪个环境」必须能说出**依据**，而不是只报一个名字（诊断/排查的第一问）
+  it('平台来源可查：env > config > 缺省', () => {
+    expect(resolveAdapterSource(makeProject(null), { env: {} })).toBe('default');
+    const root = makeProject({ runtime: { adapter: 'dsh' } });
+    expect(resolveAdapterSource(root, { env: {} })).toBe('config');
+    expect(resolveAdapterSource(root, { env: { [ADAPTER_ENV]: 'cc' } })).toBe('env');
+    // 来源与解析结果一致：config 说 dsh 且无 env → 解析出 dsh
+    expect(resolveAdapterName(root, { env: {} })).toBe('dsh');
   });
 
   it('未知平台名 → 显式抛错（不静默回落 cc）', () => {

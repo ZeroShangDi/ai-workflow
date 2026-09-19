@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
-const AWF_STATE_MCP_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-state/server.cjs', import.meta.url));
+const AWF_STATE_MCP_PATH = fileURLToPath(new URL('../../server/adapters/cc/plugin/core/mcp/awf-state/server.cjs', import.meta.url));
 const FIXTURE_STATE = fileURLToPath(new URL('../fixtures/minimal-state.json', import.meta.url));
 
 // ── mock host：只 mock host。E2E 用「真实 RunLogger」验证 .awf/logs 输出 ──

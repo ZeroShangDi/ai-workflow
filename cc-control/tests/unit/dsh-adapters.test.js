@@ -133,6 +133,15 @@ describe('dsh 适配器 — 端口 → 指令映射', () => {
     expect(calls.map((c) => c.op)).toEqual(['plugin.install', 'plugin.uninstall']);
   });
 
+  // CLI 进程没有 bridge：DSH 的规划入口必须能**由常驻 server 代触发**（`POST /interactive/plan`），
+  // 所以端口要声明 detached；cc 相反（交互式对话要占住用户终端）。
+  it('interactive：声明 detached=true（可脱离调用方终端触发）', () => {
+    const { bridge } = makeFakeBridge();
+    const { interactive } = createDshAdapters({ bridge });
+    expect(interactive.detached).toBe(true);
+    expect(require('../../server/adapters/ports.cjs').PORT_IMPLS.interactive.detached).toBe(false);
+  });
+
   it('interactive：launchDialog 走「新建规划会话 + 注入指令」', async () => {
     const { bridge, calls } = makeBridgeWith({ url: 'http://127.0.0.1:3080/s/2' });
     const { interactive } = createDshAdapters({ bridge });
