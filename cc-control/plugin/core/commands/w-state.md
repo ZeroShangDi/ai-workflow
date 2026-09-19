@@ -9,9 +9,11 @@
 所有 tools 自动从 `.mcp.json` 中注册，AI 可直接调用，无需记忆 curl 语法。
 
 ### awf_read_state
-读取当前工作流完整状态（任务、里程碑、WBS、阶段等）
-- `taskId` (string, 可选) — 任务 ID。传了则只返回该任务完整详情（含 `status` / `exec` / `commits`），判断任务状态或 exec 时用单查，避免全量读取
-- 不传 `taskId` → 返回完整 state.json 内容
+读取当前工作流状态。**缺省返回摘要**（`version` / `mode` / `currentState` / `plan.summary` / `counts`（任务计数）/ `active` / `blocked` / `pendingIds`），避免把整份 state 灌进上下文
+- `taskId` (string, 可选) — 任务 ID。传了则只返回该任务完整详情（含 `status` / `exec` / `commits`），判断任务状态或 exec 时用单查
+- `full` (boolean, 可选) — `true` → 返回完整 state.json（大项目可能数百 KB；与 `summary` 互斥）
+- `summary` (boolean, 可选) — 显式要摘要（与缺省同义；与 `full` 互斥）
+- 参数拼错会**报错**（`ok:false` + `unknown argument(s)`），不会被静默忽略
 
 ### awf_task_status
 更新任务状态

@@ -44,7 +44,11 @@ function requirePaused(rt, res) {
 }
 
 // 不依赖任何项目 state 的写端点（唯一例外）；其余写类都要求显式 ?p
-const PROJECT_AGNOSTIC_WRITES = new Set(['/shutdown']);
+const PROJECT_AGNOSTIC_WRITES = new Set([
+  '/shutdown',
+  // DSH 桥回传：一个 DSH 后台服务多项目，指令/回报自带 projectRoot，故不属于任何单个项目
+  '/bridge/dsh/callback',
+]);
 /** 判断该请求是否为「需要项目上下文的写」——是则缺 ?p 必须 400（读/HEAD/OPTIONS 不受限） */
 function writeNeedsProject(method, pathname) {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;

@@ -64,7 +64,7 @@ program
 
 program
   .command('attach')
-  .description('接入 tmux 会话观看实时对话')
+  .description('接入会话观看实时对话（cc → tmux；DSH → 浏览器会话页）')
   .action(attachCommand);
 
 program.parseAsync().catch((err) => {

@@ -27,12 +27,13 @@ const { createDecisionHandler } = require('../features/decision/handler.cjs');
 const gateRules = require('../features/decision/gate.cjs');
 const replanning = require('../features/replanning/index.cjs');
 const { createMonitor } = require('../features/monitor/index.cjs');
+const { createEventBus } = require('../shared/events.cjs');
 
 /**
- * @param {{ projectRoot: string, env?: object, sid?: string, hostFactory?: Function, RunLogger?: Function }} input
+ * @param {{ projectRoot: string, env?: object, sid?: string, hostFactory?: Function, RunLogger?: Function, adapterDeps?: object }} input
  * @returns runtime：ctx（纯上下文）+ 各能力实例 + 惰性装配入口（ensureRunHost / ensureRunStateApi / dynamicPlanning）
  */
-function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger } = {}) {
+function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, adapterDeps } = {}) {
   // 装配顺序（有依赖，别乱动）：
   //   ① ctx（纯上下文）先建 —— 后面所有成员都从这里取出口
   //   ② session（会话态）—— decision/subagent/observability/channel 都依赖它
@@ -40,7 +41,17 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger } 
   //   ④ decision —— 依赖 session + ctx 出口 + publishEvent
   //   ⑤ channel（通道）—— 依赖 ctx + session + observability
   //   ⑥ runHost / runStateApi / dynamicPlanning —— 惰性（首次用到才建），见各自 ensure*
-  const ctx = createProjectContext({ projectRoot, env, sid, hostFactory, RunLogger });
+  // 平台事件总线：适配器把平台事件翻译成领域事件后 emit 到这里（dsh 的 hook 端口就是这么接的）。
+  // 订阅方是下面的会话态映射 —— 它是 CC 侧 `/hook` 路由的**等价物**（DSH 没有 hook 路由）。
+  const bus = createEventBus();
+  const ctx = createProjectContext({
+    projectRoot,
+    env,
+    sid,
+    hostFactory,
+    RunLogger,
+    adapterDeps: { ...(adapterDeps || {}), bus },
+  });
 
   // ── 会话态：主槽一个 Session；每个 sid 一个（承接原 run-slot 的职责）──
   // 主槽 sid = ctx.sid；sid 槽按需懒建并缓存。decisionSeqGen 由 gate 规则提供，保证决策序号单调。
@@ -98,6 +109,25 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger } 
 
   const channel = createSessionChannelFactory({ ctx, session, observability });
 
+  // ── 平台事件 → 会话态（CC 的等价物在 web/api/hook.cjs；DSH 没有 hook 路由，故在装配层接）──
+  // 只认「平台说了什么」：turn/end → READY、prompt 提交 → BUSY、会话起来 → ready + 会话序号 +1
+  //（会话序号让 CLI 的「等会话就绪」在 DSH 侧也能工作）。
+  bus.on('run.phase', (event) => {
+    const phase = event?.payload?.phase;
+    if (phase === 'BUSY') session.setBusy();
+    else if (phase === 'READY') session.setReady();
+    publishEvent('session.phase', { phase, runId: event?.runId ?? null });
+  });
+  bus.on('run.started', () => {
+    session.setReady();
+    session.bumpSessionSeq();
+    publishEvent('session.ready', { via: 'platform' });
+  });
+  bus.on('run.stopped', () => {
+    session.clearDecision?.();
+    session.setReady();
+  });
+
   // ── 侦查端口（probe）──
   // 消费方在**外部**：w-monitor 经 MCP awf_session_status → HTTP GET /probe 拿到
   // 「会话在不在 + ready/busy + 抓取时刻」。server 内部不用它 —— 内部守卫要的是
@@ -105,10 +135,12 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger } 
   // status 注入进程内读会话态：不给自己的 /status 打回环 HTTP。
   // probe 工厂取自**本项目解析出的平台适配器**（T-P1-01）：dsh 的 probe 与 cc 不同实现，
   // 不能在这里写死 cc 的工厂。
-  const probe = ctx.adapters.impls.probe({
-    host: ctx.host,
-    status: () => ({ state: session.state }),
-  });
+  // probe：cc 需要调用方注入 host/status，故 `impls.probe` 是工厂；DSH 的 probe 自带 bridge，
+  // 平台注册表给的是空 impls → 回落用已绑定的端口句柄。
+  const probeFactory = ctx.adapters.impls?.probe;
+  const probe = typeof probeFactory === 'function'
+    ? probeFactory({ host: ctx.host, status: () => ({ state: session.state }) })
+    : ctx.adapters.ports.probe;
 
   // ── 介入（monitor.features）──
   // 诊断：编排异常时拉起一次隔离的 claude -p 分析现场（协议见 features/monitor/index.cjs）。

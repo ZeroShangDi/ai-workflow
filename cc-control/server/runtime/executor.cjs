@@ -12,7 +12,9 @@
  *     只有 CC 已 idle 且任务仍未结算时，才累计「无变化窗口」，超窗交收尾协商。
  */
 
-const { READY_TIMEOUT_MS } = require('../config.cjs');
+const { READY_TIMEOUT_MS, EXECUTOR_POLL_MS } = require('../config.cjs');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * 提交一段输入到会话（文本 + 派发节奏 + 回车）。
@@ -85,7 +87,7 @@ function createSingleExecutor({ ctx, session, channel, observability }) {
       // 等任务自我结算：CC 仍在推进 → 重置无变化窗口；仅当 CC 已 idle 且仍无结算，才累计窗口
       let idleSince = null; // 记录「CC 变为 idle 且无结算」的起始时刻；非 null 表示正在累计
       for (;;) {
-        await sleep(500); // 轮询间隔：state 由 CC 的 MCP 工具异步落账，500ms 足够且不空转
+        await sleep(EXECUTOR_POLL_MS); // 轮询间隔：state 由平台的 MCP 工具异步落账，500ms 足够且不空转
         const t = (ctx.stores.state.readSync()?.tasks || []).find((x) => x.id === taskId);
         if (t && (t.status === 'done' || t.status === 'blocked')) return { status: t.status };
         // 等人工决策应答：人类思考无上限，不计时也不进收尾协商

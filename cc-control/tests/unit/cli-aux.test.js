@@ -229,12 +229,14 @@ describe('cli-aux', () => {
   // ═══════════════════ attach ═══════════════════
 
   describe('attachCommand', () => {
-    it('TC19: 会话不存在 → 报错退出（exit 1），不静默吞掉', () => {
+    // 命令是 async：它先问 server 的 /probe「本项目有没有网页观看地址」（网页形态），
+    // 没有才落到端口的 attach（终端形态）。这里 server 没起 → probe 拿不到 → 走 attach → 失败退出。
+    it('TC19: 会话不存在 → 报错退出（exit 1），不静默吞掉', async () => {
       // 指向一个必然没有对应 tmux 会话的临时目录（会话名 = cc-<projectSid(该目录)>）
       vi.spyOn(process, 'cwd').mockReturnValue(tmpProject());
       const code = [];
       vi.spyOn(process, 'exit').mockImplementation((c) => { code.push(c); throw new Error('exit'); });
-      expect(() => attachCommand()).toThrow('exit');
+      await expect(attachCommand()).rejects.toThrow('exit');
       expect(code).toEqual([1]);
       expect(errors.join('\n')).toContain('无法接入会话');
     });

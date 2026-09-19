@@ -92,6 +92,33 @@ describe('initCommand', () => {
     expect(fs.existsSync(path.join(TMP, '.awf', 'config.json'))).toBe(true);
   });
 
+  // 真机踩到过的回归（P2-6c 收口）：`localPlugin` 曾写死 `buildContext(root, { env: {} })`，
+  // 把 `CC_ADAPTER` 一起吞掉 —— 干净项目上 `CC_ADAPTER=dsh awf init` 会按 cc 注册，
+  // 而 DSH 的资产装配（profile 插件）根本没发生。这里钉住「平台覆盖真的生效」。
+  it('CC_ADAPTER=dsh：按 DSH 装配（装 profile、不做 cc 的项目级注入），并把平台记进 config.json', async () => {
+    const dshHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-init-dsh-'));
+    const profile = path.join(dshHome, 'profiles', 'probe');
+    fs.mkdirSync(path.join(profile, 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(profile, 'cordis.yml'), '[]\n');
+    fs.writeFileSync(path.join(profile, 'cordis.patch.yml'), '# 用户自己的注释\n[]\n');
+    vi.stubEnv('CC_ADAPTER', 'dsh');
+    vi.stubEnv('DSH_HOME', dshHome);
+    vi.stubEnv('AWF_DSH_PROFILE', 'probe');
+    try {
+      await initCommand();
+
+      // 平台进项目：之后不带 CC_ADAPTER 也能解析到 dsh
+      expect(JSON.parse(fs.readFileSync(path.join(TMP, '.awf', 'config.json'), 'utf8')).runtime.adapter).toBe('dsh');
+      // DSH 的接入是「装进 profile」，没有 cc 那套项目级注入
+      expect(fs.readFileSync(path.join(profile, 'cordis.patch.yml'), 'utf8')).toContain('awf-dsh-plugin');
+      expect(fs.readFileSync(path.join(profile, 'cordis.patch.yml'), 'utf8')).toContain('# 用户自己的注释');
+      expect(fs.existsSync(path.join(TMP, '.claude', 'settings.json'))).toBe(false);
+      expect(fs.existsSync(path.join(TMP, '.mcp.json'))).toBe(false);
+    } finally {
+      fs.rmSync(dshHome, { recursive: true, force: true });
+    }
+  });
+
   it('前置依赖缺失 → 阻断且不建骨架（不在半缺依赖的项目里动手）', async () => {
     vi.stubEnv('PATH', ''); // command -v 全部落空
     const code = [];

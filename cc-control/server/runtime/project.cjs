@@ -30,16 +30,17 @@ const { isDecisionEnabled } = require('../features/decision/config.cjs');
 const { DecisionStore } = require('../features/decision/store.cjs');
 
 /**
- * @param {{ projectRoot: string, env?: object, sid?: string, hostFactory?: Function, RunLogger?: Function }} input
+ * @param {{ projectRoot: string, env?: object, sid?: string, hostFactory?: Function, RunLogger?: Function, adapterDeps?: object }} input
  *   projectRoot  run 项目根（.awf 宿主）
  *   env          环境（缺省 process.env；会话名/端口经 runtime-config）
  *   sid          显式 run 标签；缺省用确定性 projectSid(projectRoot)
  *   hostFactory  (sessionName) => host 端口集；缺省用本项目解析出的 host 端口（测试可注入 mock）
  *   RunLogger    RunLogger 类；缺省真实实现（测试注入 mock）
+ *   adapterDeps  透传给平台工厂的额外依赖（如 dsh 的 `bridge`；由 server 入口从 web 层注入 —— 保持 adapters 不反向依赖 web）
  * @returns 一个**纯容器**：身份 + 路径 + 出口（见文件头），构造过程不读写业务文件
  * @throws {Error} 项目配置声明的平台未落地/未知（见 adapters/ports.cjs 的 resolveProjectAdapters）
  */
-function createProjectContext({ projectRoot, env = process.env, sid, hostFactory, RunLogger = RealRunLogger } = {}) {
+function createProjectContext({ projectRoot, env = process.env, sid, hostFactory, RunLogger = RealRunLogger, adapterDeps } = {}) {
   const root = path.resolve(projectRoot || env.CC_PROJECT || process.cwd());
   const runSid = sid || projectSid(root);
   // 命名 ctx：带 sid 标签（tmux 会话名 cc-<sid>）；磁盘 ctx：无 sid（.awf/state.json 现行布局）
@@ -53,6 +54,8 @@ function createProjectContext({ projectRoot, env = process.env, sid, hostFactory
     sessionName: nameCtx.runSessionName,
     bootstrapScriptPath: nameCtx.bootstrapScriptPath, // session 端口起会话用（T-P1-03）
     env,
+    projectRoot: root,       // 多项目共用一个平台通道时，适配器据此过滤事件
+    ...(adapterDeps || {}), // 平台额外依赖（dsh 的 bridge 等）
   });
   const host = typeof hostFactory === 'function'
     ? hostFactory(nameCtx.runSessionName)

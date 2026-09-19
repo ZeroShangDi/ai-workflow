@@ -64,6 +64,7 @@ const { createSessionPort } = require('./cc/session.cjs');
 const { checkPrerequisites: ccCheckPrerequisites } = require('./cc/checks.cjs');
 const { readJsonFile } = require('../shared/config-loader.cjs'); // .awf/config.json 的读取形状（路径 + 容错语义）
 const { configFilePath } = require('../shared/project-paths.cjs'); // .awf 布局单源
+const { createDshAdapters, checkPrerequisites: dshCheckPrerequisites } = require('./dsh/index.cjs'); // DSH 平台工厂（AWF 侧；状态见 ADAPTER_PLATFORMS）
 
 /**
  * 7 端口契约。`methods` 写的是**端口对象上真实存在的方法**（不是愿望清单）——
@@ -168,23 +169,25 @@ assertPortContract();
 const PORT_NAMES = PORT_CONTRACT.map((p) => p.name);
 
 /**
- * 编排层**实际消费**的最小端口方法面（T-P1-05 契约自检的可执行断言项）。
+ * 各平台**必须**提供的最小方法面（T-P1-05 契约自检的可执行断言项；T-P2-4 收窄）。
  *
  * 与 `PORT_CONTRACT.methods` 的差别：那份是「端口上真实存在什么」（能力面全量），
- * 这份是「上层真的会调什么」（消费面）。新增/替换平台时，`methods` 允许有平台特有项，
- * 但**这些方法必须有**，否则上层会以 undefined is not a function 在运行时炸掉。
+ * 这份是「**任何**平台都必须有、上层真的会调什么」（消费面）。
  *
- * 一致性由 `assertRequiredMethods()` 守着（模块加载即执行）：必填项必须出现在
- * 对应端口的 `PORT_CONTRACT.methods` 里 —— 防止两份声明各自漂移。
+ * **T-P2-4 收窄**：原先把 cc 的机制方法（`spawnClaudeP` / `claudePArgs` / `claudeAvailable` /
+ * `buildMarketplaceAdd|Install|Uninstall` / `nudge`）也列进来了 —— 那些名字直指 cc 的机制
+ * （spawn `claude -p`、`claude plugin …` 命令行、tmux 回车）。新平台没有对应机制并不是缺陷，
+ * 把它们当必填等于「用 cc 的实现形状去要求别的平台」。收窄后：**平台无关的能力**必填，
+ * 机制方法由各平台自行决定（DSH 侧对 cc 机制方法给**显式 unsupported**，不静默返回假值）。
  */
 const REQUIRED_PORT_METHODS = {
   host: ['hasSession', 'sendText', 'sendPrompt', 'sendCtrlC', 'capture'],
   hook: ['hook'],
-  oneshot: ['runOneShot', 'spawnClaudeP', 'claudePArgs'],
-  tooling: ['install', 'uninstall', 'claudeAvailable', 'buildMarketplaceAdd', 'buildInstall', 'buildUninstall'],
+  oneshot: ['runOneShot'],
+  tooling: ['install', 'uninstall'],
   interactive: ['launchDialog'],
   probe: ['inspect'],
-  session: ['exists', 'cwd', 'start', 'kill', 'nudge', 'attach'],
+  session: ['exists', 'cwd', 'start', 'kill', 'attach'],
 };
 
 /**
@@ -282,6 +285,27 @@ const ADAPTER_ENV = 'CC_ADAPTER';
 /** cc 平台的非端口工具（形状/资产构造），随平台解析一并给出 */
 const CC_TOOLS = { shapes, extract, settings, profile };
 
+/**
+ * DSH 平台没有 cc 那套项目资产工具（`.claude/settings.json`、`.mcp.json` 形状）。
+ * 给**显式抛错**而不是 `undefined`：前者一眼看出「这层没有」，后者是 `undefined is not a function`。
+ * DSH 的接入装配走 profile patch 层，归 CLI（T-P2-02）。
+ */
+function dshUnsupportedAsset(name) {
+  return () => {
+    throw new Error(`adapters.dsh.tools.${name}: DSH 没有 cc 形状的项目资产工具（接入装配走 profile patch，归 CLI / T-P2-02）`);
+  };
+}
+const DSH_TOOLS = {
+  // DSH 的「装配」= 装进用户级 profile（全局一次，多项目共享；U5/U12）。
+  // 注意参数形状与 cc 的 `profile.installProfile(projectRoot)` **不同**：DSH 是
+  // `installProfile({ dshHome, profile, webPort })` —— CLI 按平台分支调用（见 cli/commands/plugin.cjs）。
+  profile: require('./dsh/install.cjs'),
+  // cc 形状的项目资产在这里**显式抛错**：DSH 没有 `.claude/settings.json` / `.mcp.json` 这套
+  settings: { generateRunSettings: dshUnsupportedAsset('settings.generateRunSettings') },
+  shapes: null,   // 形状构造属 cc 机制（Stop block / permissionDecision）
+  extract: null,
+};
+
 const ADAPTER_PLATFORMS = {
   cc: {
     status: 'factory',
@@ -292,15 +316,19 @@ const ADAPTER_PLATFORMS = {
     create: (opts) => createCcAdapters(opts),
   },
   dsh: {
-    status: 'not-landed',
+    status: 'factory',
     role: 'DeepSeek Harness（插件 host 半侧 + 会话控制器）',
-    tools: null,
-    impls: null,
-    checks: null,
-    create: null,
-    note: 'P0 已实测机制（会话级 MCP / prompt(request,signal) / cancel+whenIdle，见 F25/F26/E-03/E-04）；'
-      + '生产适配器 server/adapters/dsh/ 尚未建立，P1 只做解析入口',
-    responsible: 'T-P2-01',
+    // DSH 的「非端口工具」与 cc 不同：cc 的 settings/profile 是 .claude 形状，DSH 侧不存在对等物
+    // （接入装配走 profile patch，归 CLI）。这里给**显式抛错**的实现，避免上层误当成 cc 资产用。
+    tools: DSH_TOOLS,
+    // DSH 的 probe 端口自带 bridge（不需要调用方注入 host/status），故 impls 为空：
+    // 运行时（server/runtime/index.cjs）在缺 impls.probe 时回落到 ports.probe。
+    impls: {},
+    checks: dshCheckPrerequisites,
+    create: createDshAdapters,
+    note: 'AWF 侧适配器（7 端口）+ 指令通道 + DSH 插件 host 半侧（dsh-plugin/）：'
+      + '会话创建/提交回执/回合结束/任务落账/快照/停止/规划入口/一次性调用均已在隔离探针真实跑通（P2-5a~P2-5f）',
+    responsible: null,
   },
 };
 

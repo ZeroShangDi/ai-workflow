@@ -25,6 +25,11 @@ module.exports = {
    */
   READY_TIMEOUT_MS: Number(process.env.CC_READY_TIMEOUT_MS || 120000),
   /**
+   * 执行器「等任务自我结算」的轮询间隔（ms，缺省 500）。
+   * 任务落账由平台侧的 MCP 工具异步完成，这个间隔决定宿主多快看到结算；测试可用 `CC_EXECUTOR_POLL_MS=10` 加速。
+   */
+  EXECUTOR_POLL_MS: Number(process.env.CC_EXECUTOR_POLL_MS || 500),
+  /**
    * 本地 slash 命令（/clear 等，无 Stop hook 回执）兜底回 ready 的时间（ms）。
    * 本地命令不产生 Stop 事件，会话态会一直卡在 busy；靠这个定时器强制放回 ready。
    */

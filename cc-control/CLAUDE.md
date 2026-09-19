@@ -54,7 +54,9 @@ cc-control/
     mock/                  #   测试脚手架（tmux/日志/state 替身；不进生产装配）
     templates/             #   awf init 的工作区模板（README/config/architecture）
 
+  dsh-plugin/              # AWF 的 DSH 插件（host 半侧）：接 AWF 指令通道，驱动 DSH 会话
   scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
+                           #   probe/dsh = DSH 隔离实验夹具（不进产品装配；见其 README）
   tests/                   # unit / integration / e2e / regression / fixtures
                            #   e2e = 全真端到端用例集（tests/e2e/README.md；与 regression 的关系见 docs/discuss/real-run-suite-merge.md）
   sandbox/                 # 测试沙箱（gitignored）
@@ -220,7 +222,7 @@ These are invoked automatically by slash commands. Do not invoke them manually u
 
 | Tool | 用途 |
 |------|------|
-| `awf_read_state` | 读取状态（默认完整 state；判断任务状态/exec 时传 `taskId` 单查） |
+| `awf_read_state` | 读取状态（**缺省摘要**：mode/plan/计数/active+blocked/pending ids；任务详情传 `taskId`；整份传 `full:true`；未知参数报错） |
 | `awf_task_status` | 更新任务状态（pending/active/done/blocked） |
 | `awf_task_result` | 记录执行结果和产出文件 |
 | `awf_task_commit` | 追加 commit 记录 |

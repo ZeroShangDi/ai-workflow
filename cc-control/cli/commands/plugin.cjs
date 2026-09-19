@@ -24,10 +24,53 @@ function execAsync(cmd) {
   });
 }
 
-/** 本地注册：写进本项目的 .claude/settings.json（enabled-only 生效范围 = 本项目） */
+/**
+ * DSH 的本地装配（T-P2-02）：**没有项目级注入** —— DSH 的接入是「装进用户级 profile」，
+ * 全局一次、多项目共享（U5/U12）。项目侧靠 `.awf/config.json` 的 `runtime.adapter=dsh` 启用。
+ * 默认只写隔离/指定的 DSH_HOME；真实 home 由用户自己确认（CLI 不替用户决定）。
+ */
+function localPluginDsh(action, ctx) {
+  const dsh = ctx.adapters.tools.profile; // = server/adapters/dsh/install.cjs
+  const opts = {
+    profile: process.env.AWF_DSH_PROFILE || 'web',
+    webPort: ctx.port,
+  };
+  if (action === 'install') {
+    const r = dsh.installProfile(opts);
+    if (r.error) {
+      console.error(`DSH 装配失败：${r.error}`);
+      process.exit(1);
+    }
+    console.log(`${r.written ? '已装配' : '已是装配态'} DSH profile ${opts.profile} → ${r.path}`);
+    console.log(`  插件拷贝 → ${r.pluginPath}`);
+    if (r.backupPath) console.log(`  原 patch 已备份 → ${r.backupPath}`);
+    console.log(`  提示：装配写在 DSH_HOME=${dsh.resolveDshHome()}；改的是运行中 profile，重启 dsh 后台后生效`);
+    return;
+  }
+  if (action === 'uninstall') {
+    const r = dsh.uninstallProfile(opts);
+    if (r.error) {
+      console.error(`DSH 卸载失败：${r.error}`);
+      process.exit(1);
+    }
+    console.log(r.written ? `已卸载 DSH 装配 → ${r.path}` : '无可卸载内容');
+    return;
+  }
+  console.error(`未知操作：${action}（可用 install | uninstall）`);
+  process.exit(2);
+}
+
+/**
+ * 本地注册：cc 写本项目的 .claude/settings.json（enabled-only）；DSH 装 profile 插件。
+ *
+ * env 必须跟其它命令**同一份**（`buildContext` 缺省会做 `commandConfigEnv` 清洗）：
+ * 这里曾写死 `env: {}`（旧树只为取一个干净 port），结果把 `CC_ADAPTER` 一起吞掉 ——
+ * 干净项目上 `CC_ADAPTER=dsh awf init` 会按 cc 注册（真机踩到）。
+ */
 function localPlugin(action, projectRoot) {
   // 平台资产按项目解析（T-P1-01）：profile 的注入形状由本项目平台决定，不静态绑 cc
-  const ctx = buildContext(projectRoot, { env: {} });
+  const ctx = buildContext(projectRoot);
+  if (ctx.adapter === 'dsh') return localPluginDsh(action, ctx); // 平台分支（T-P2-02）
   const { profile } = ctx.adapters.tools;
   if (action === 'install') {
     const r = profile.installProfile(projectRoot);
@@ -89,8 +132,16 @@ async function runPerSpec(verb, specs, run) {
 
 async function pluginCommand(action, options = {}) {
   const projectRoot = process.cwd();
-  if (options.scope === 'global') return globalPlugin(action, buildContext(projectRoot));
+  if (options.scope === 'global') {
+    const ctx0 = buildContext(projectRoot);
+    if (ctx0.adapter === 'dsh') {
+      // DSH 没有 `claude plugin` 那套 marketplace：**profile 装配本身就是全局安装**（U5）
+      console.error('DSH 平台没有独立的 global 安装：`awf plugin install`（不带 --scope global）即为全局装配（装进 DSH profile）');
+      process.exit(2);
+    }
+    return globalPlugin(action, buildContext(projectRoot));
+  }
   return localPlugin(action, projectRoot);
 }
 
-module.exports = { pluginCommand, localPlugin, globalPlugin, runPerSpec, execAsync };
+module.exports = { pluginCommand, localPlugin, localPluginDsh, globalPlugin, runPerSpec, execAsync };

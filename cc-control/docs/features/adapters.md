@@ -28,17 +28,51 @@ resolveProjectAdapters(projectRoot, { sessionName, bootstrapScriptPath, env, …
   → resolveAdapterName(projectRoot, { env })
        env.CC_ADAPTER ?? .awf/config.json 的 runtime.adapter ?? 'cc'
        （未知平台名 → 抛错；不静默回落）
-  → 平台已落地？ 否 → 抛错并点名 responsible（当前 dsh → T-P2-01）
+  → 平台已落地（status=factory）？ 否 → 抛错并点名 responsible
   → { name, ports: 7 个已绑定句柄, tools: 形状/资产工具, impls: 平台原始实现, checks: 依赖检查 }
 ```
 
 | 平台 | status | 说明 |
 |------|--------|------|
 | `cc` | `factory` | tmux 会话 + hooks 回调；`checks()` 返回 tmux / claude / node |
-| `dsh` | `not-landed` | P0 已实测机制（E-03/E-04）；生产适配器 `server/adapters/dsh/` 待建（T-P2-01） |
+| `dsh` | `factory` | 适配器 + 插件 host 半侧在位（P2-6a 转 factory）：单后台多项目、会话级 MCP、派发/落账/快照/停止（含子 Agent 逐个打断）均**真机跑通** |
 
 装配落点：`server/runtime/project.cjs` 的 `ctx.adapter` / `ctx.adapters`；`cli/lib/context.cjs` 的
 `buildContext()` 同样附 `adapter` / `adapters`，两边同一解析。
+
+## DSH 平台（`server/adapters/dsh/`，P2-4 起）
+
+DSH 与 cc 的机制不同（会话控制器 + 平台事件，而非 tmux + hooks），因此 DSH 的端口实现全部
+**经指令通道发给 DSH 插件**执行，AWF 侧不做任何会话调度判断。
+
+```
+server/adapters/dsh/
+  bridge.cjs   指令通道（传输无关）：三种送达结论 + ack/result 两段窗口 + 事件上行 + 平台事实
+  index.cjs    createDshAdapters({ bridge, bus, sessionName }) → 7 端口 + checkPrerequisites()
+server/web/
+  bridge-channel.cjs  传输侧单例：WS 升级 /bridge/dsh（插件连上即 attach）
+                      + POST /bridge/dsh/callback（accepted/result/event 回传）
+dsh-plugin/            对侧：AWF 的 DSH host 半侧（Cordis ESM 插件）
+  index.js             装配：读 awfBase（config 或 AWF_DSH_BASE）→ 起指令通道；ctx.effect 管生命周期
+  lib/bridge-client.js 连 WS / 收指令 → **先回 accepted 再回 result**；断线退避重连不重放；事件上行
+  lib/ops.js           指令实现表：session.facts/nudge/open/create/interrupt/stop/prompt/snapshot/
+                       tools/children、plan.launch、llm.oneshot；未实现的 op **显式失败**
+  install.cjs          profile 装配（标记块 + 一次备份 + 链接插件包）—— `awf plugin install` 走这条
+```
+
+| 面 | DSH 侧口径 |
+|---|---|
+| 送达结论 | `not-delivered`（未交给平台）/ `unconfirmed`（发了但无回执，**不等于失败**）/ `accepted`（已交给平台）；上层的 `must()` 把前两者与平台报错变成**显式异常** |
+| 事实类同步方法 | `hasSession()` / `capture()` / `cwd()` 回**最近一次已知值**（同步 API 无法等网络）；新鲜事实走 `probe.inspect()`（ready/busy/absent/unknown） |
+| cc 机制方法 | `spawnClaudeP` / `claudePArgs` / `claudeAvailable` / `build*` **显式 unsupported**（抛错），不静默返回假值 |
+| 断开语义 | 通道断开即 `detach`：在途指令判「无法确认」、**不自动重发**（连接恢复 ≠ 任务恢复） |
+| 两侧现状 | AWF 侧 + 插件 host 半侧 + CLI 装配路径全在位；`status: 'factory'`，`resolveProjectAdapters()` 对 dsh 项目真实返回 7 端口 |
+| 已真机验过 | 指令通道往返；建会话（pre-publication setup：模型选择 + preset + 项目 MCP）/停止（cancel keepInbox，不删会话）；提交→accepted→turn.started/prompt.submitted/session.ready；20 个 `mcp__awf-state__*` 工具可见且模型**真落账**；可读快照；`plan.launch`；`llm.oneshot`；单任务 `run` 端到端；双项目隔离（单后台）；子 Agent 派出 + 停 run 时逐个打断；CLI `awf plugin install` → profile（`dsh --dump-config` 见 `awf-dsh-plugin`）。夹具 `scripts/probe/dsh/roundtrip.cjs`（隔离 `DSH_HOME`，`guard.sh check` 恒 IDENTICAL） |
+| 未落地面 | 子 Agent 的批准策略继承、决策/NEEDS_INPUT/门禁在 DSH 侧的真实闭环、`run -r` 续跑、三个业务页面与项目/无会话入口（P3/P4） |
+
+`REQUIRED_PORT_METHODS`（T-P1-05 的必填面）在 P2-4 **收窄**为平台无关方法：cc 机制方法不再当必填，
+否则等于用 cc 的实现形状要求别的平台。conformance 套件的判据也相应改为「**有工厂**（`create` 是函数）」，
+并在 `status !== 'factory'` 时断言「解析必须显式拒绝」。
 
 ## 执行流程
 

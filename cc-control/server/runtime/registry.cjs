@@ -14,10 +14,10 @@ const path = require('node:path');
 const { createProjectRuntime } = require('./index.cjs');
 
 /**
- * @param {{ env?: object, bootRoot?: string, hostFactory?: Function, RunLogger?: Function }} [deps]
+ * @param {{ env?: object, bootRoot?: string, hostFactory?: Function, RunLogger?: Function, adapterDeps?: object }} [deps]
  *   bootRoot 缺省项目根（无 ?p 的请求落到这里）；缺省 env.CC_PROJECT 或 cwd
  */
-function createProjectRegistry({ env = process.env, bootRoot, hostFactory, RunLogger } = {}) {
+function createProjectRegistry({ env = process.env, bootRoot, hostFactory, RunLogger, adapterDeps } = {}) {
   const boot = path.resolve(bootRoot || env.CC_PROJECT || process.cwd());
   const map = new Map(); // projectRoot → runtime
   let bootRuntime = null; // boot 上下文最先构造，保证 no-p 落到与旧单槽一致的项目
@@ -32,7 +32,7 @@ function createProjectRegistry({ env = process.env, bootRoot, hostFactory, RunLo
     const key = norm(root);
     const existing = map.get(key);
     if (existing) return existing;
-    const created = createProjectRuntime({ projectRoot: key, env, hostFactory, RunLogger });
+    const created = createProjectRuntime({ projectRoot: key, env, hostFactory, RunLogger, adapterDeps });
     map.set(key, created);
     if (key === boot && !bootRuntime) bootRuntime = created; // 记下 boot runtime 备用
     return created;

@@ -1,0 +1,8 @@
+{
+  "name": "awf-probe-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "AWF × DSH 隔离实验探针（host 半侧）：只用于隔离 DSH_HOME 下的能力实测，不进产品装配"
+}

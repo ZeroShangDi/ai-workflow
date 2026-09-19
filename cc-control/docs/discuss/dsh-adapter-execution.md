@@ -538,6 +538,443 @@ P1 六项全部收口；每个提交都满足硬门槛：`npm test` 全绿 + `np
 - 未做通用崩溃恢复与 active 自动重置（T-P1-06 只做最小挂接，U3 边界）。
 - 未在真机 DSH 上复跑（P1 是 CC 基线阶段；DSH 侧从 P2 开始）。
 
+### 2.5 P2 前置核对（2026-09-19，只读源码；本机 `dsh` 0.1.5-rc.1 启动器 + 内部包 0.1.5-rc.2）
+
+P2 开写之前先把「已定位的落地机制」逐条对回本机安装包源码（`~/.nvm/.../node_modules/@deepseek-ai/dsh`）。
+**这是静态核对，不是实测**；结论里标了「待实测」的项必须在 P2-5 用真运行证明。
+
+**A. 已确认的 API（签名级）**
+
+| 能力 | 确认结果 | 证据 |
+|---|---|---|
+| 会话内批准策略 | `ctx.approval.request({agent, toolName, callId, reason?, signal})` → `'allowed-once' \| 'rejected' \| 'cancelled' \| 'unavailable'`；**`allowed-once` 是唯一授权** | `dsh-user-approval/lib/index.js:127-146` |
+| 批准应答者（answerer） | `ctx.waterfall(scope, 'approval/request', req, () => 'unavailable')`；应答者**按 agent 作用域分发**（`dsh-scope` 的取值函数就是 `args[0].agent`） | `dsh-user-approval/lib/index.js:175-192`、`dsh-scope/lib/invariant.js:23` |
+| 注册应答者的写法 | `ctx.on('approval/request', (request, next) => …)`；返回结果即认领，`next()` 委派给下一个应答者 | `dsh-acp/lib/index.js:1115` |
+| 批准策略取值 | **只有 `ask` / `never` 两个**；`never` 在**应答者之前**短路为 `'rejected'` —— 即 `never` = 自动**拒绝**，不是自动批准 | `dsh-user-approval/lib/index.js:37,74,178` |
+| 权限预设表（默认） | `workspace-write` = `sandbox: workspace-write` + **`approval: ask`**；`danger-full-access` = `danger-full-access` + `approval: never` | `dsh-permission-presets/lib/index.js:80-90` |
+| 预设切换 | `ctx.permissionPresets.set(session, name)` / `apply(session, name, setApproval)` | `dsh-permission-presets/lib/index.js:274` |
+| 建会话后的完整组合 | `agents.create({…})` + `installModelSelection(agentCtx, {current, assembled})` + `agentPresets.mount`（F19 的配方在 `dsh-headless/lib/index.js:134-142` 可对照） | 同上 |
+| 插件 HTTP 路由 | `webServer.register({kind, path, handler})` + 另有 `registerUpgrade(route)` / `registerFallback(handler)` / `tapIndex(transform)` | `dsh-host-webserver/lib/index.js:157-250`（upgrade 在 `:190`） |
+
+**B. 与已确认决策的冲突（必须回报，不自行降级）**
+
+`U16` 记录里写的「落地机制」是：`ctx.permissionPresets.set(session, 'workspace-write')`，并声称
+「该预设 = `sandbox: workspace-write` + `approval: never`」。**源码核对不支持这个等式**：
+0.1.5-rc.2 的默认预设表中 `workspace-write` 的 approval 是 **`ask`**，只有 `danger-full-access` 才是 `never`。
+因此按原记录接线**不会消除** F34 的 `approval/asked` 卡死；而改用 `danger-full-access` 又等于放弃沙箱，
+与「项目外仍需人工」相悖。**两者都不满足 U16「受控自动批准」**。
+
+**C. 可满足 U16 的候选路线（待 P2-5 实测）**
+
+1. **注册 AWF 自己的批准应答者**（推荐）：会话仍用 `workspace-write` 预设（沙箱边界保留），
+   插件在**AWF 创建的 agent 作用域**内 `ctx.on('approval/request', …)`：项目范围内的请求回
+   `'allowed-once'`，范围外 `next()` 委派（→ UI/人工，无应答者时 fail closed）。
+   这正是 U16「AWF 自己创建的会话在项目范围内自动批准、项目外仍需人工」的语义，且用到的是平台原生应答者缝，不是绕过沙箱。
+2. 走 `danger-full-access` 预设：不推荐——沙箱同时消失，等于用「全局放开」换「不卡」。若最终只剩这条路，
+   必须在清单里改记范围并让用户重新确认，不能默默采用。
+
+**D. 通信通道的既有约束复核**
+
+AWF 的 `server/web/ws.cjs` 自述「只做服务端→客户端推送，未实现掩码解码/分片；一旦要支持客户端上传必须补齐」。
+结合 spec §2（指令下行用独立 WS、回传用 HTTP POST），P2 的落点定为：**AWF 是 WS 服务端，插件 host 半侧是 WS 客户端**；
+插件→AWF 的**送达确认与结果走 HTTP POST**（与既有 hook 回传同一形态），因此 AWF 侧的 WS 仍保持单向，
+不需要为了 P2 去补掩码/分片。命令需带 `commandId`，超时未确认记为「无法确认」而不是「已送达」。
+
+**E. 本机环境事实（换机后需重核）**
+
+| 项 | 本机实测 | 影响 |
+|---|---|---|
+| `dsh` 可执行 | `/Users/shangjunhao/.nvm/versions/node/v24.14.1/bin/dsh`，`--version` = **0.1.5-rc.1** | 与 P0 记录的 0.1.5-rc.2 基线一致（launcher 与内部包版本号本就不同） |
+| 真实 `~/.dsh` | 存在 `profiles/`（含 `web`）、`sessions/`、`storages/`、`settings.yaml`；用户 `dsh web` 正在 127.0.0.1:3080 运行 | **P2 实验一律隔离 `DSH_HOME`；不动真实 home** |
+| 隔离探针 home | `/tmp/awf-dsh-probe` **不存在** | P0 的探针夹具已丢失且 `.awf/probe/` 不在 git → **必须先按 §5 重建**（P2-3） |
+| `pnpm` | 仍需确认（P0 机器没有） | 无 pnpm 时走离线等价装配（F13） |
+
+### 2.6 P2-3 完成记录（2026-09-19，隔离探针重建，**已纳入 git**）
+
+P0 的探针夹具原本在 `.awf/probe/dsh/`（`.awf/` 被 gitignore），换机时丢失。P2-3 重建并**改放
+`scripts/probe/dsh/`（进 git）** —— 夹具是可复现证据的一部分，不该随 `/tmp` 消失。
+
+| 文件 | 作用 | 实测状态 |
+|---|---|---|
+| `env.sh` | 强制 `DSH_HOME=/tmp/awf-dsh-probe` + 指向真实 home 时报错；凭据符号链接；`profiles/node_modules` 只读复用真实 home 那份（本机无 pnpm） | ✓ |
+| `guard.sh` | 真实 `~/.dsh` **配置面**指纹（snapshot/check），含 `profiles/node_modules` 顶层清单哨兵 | ✓ 实验后 `IDENTICAL` |
+| `install-fixture.sh` | 离线装配：建 profile（`dsh-base`+`dsh-web-app` 两层 bundle）+ 符号链接插件 + 写 patch 层 | ✓ 幂等 |
+| `serve.sh` | 静默起停：`dsh --profile awf-probe --port 39081 --no-open`（**不能用 `dsh web`**，见 F37） | ✓ `[serve] ready` + token URL |
+| `fixtures/probe-plugin/` | Cordis host 半侧探针（ESM；`name`/`inject`/`apply`） | ✓ `/api/awf-probe/ping` 200 |
+
+**已验证的真实运行证据**（隔离 `DSH_HOME`，真实 `~/.dsh` 配置面 `IDENTICAL`）：
+- 探针后台**静默**起来（无浏览器弹窗），监听 39081，日志打印带 token 的 URL；
+- `GET /api/awf-probe/ping` → 200 `{ok:true, plugin:'awf-probe-plugin', dshHome:'/tmp/awf-dsh-probe', profile:'awf-probe', pid, startedAt}`；
+- 同实例鉴权对照：`/`=401、`/api`=401、`/api/sessions`=401、`/api/awf-probe/ping`=**200**、`/nonexistent-xyz`=404
+  → **新增 F36（插件路由不受栅栏保护）**，这条直接改 P2 的 Web 入口设计；
+- `/api/awf-probe/services` → **501 + 明确原因**（`ctx.root` 取不到服务表；不返回空清单冒充结果），
+  能力面枚举待 P2-4 用 cordis `reflect` 重取（`cordis/lib/index.js:727`）。
+
+**未做（明确登记）**：client 半侧（浏览器 entry / 业务页面）未重建 —— U4 的三个空页面属 P4；
+本阶段只需要 host 半侧驱动会话。
+
+### 2.7 P2-4 完成记录（2026-09-19，DSH 适配器 AWF 侧 + 指令通道，**替身级验证**）
+
+**范围口径**：本轮交付的是 **AWF 侧的适配器与通道协议**；DSH 插件 host 半侧与真实链路在 P2-5。
+所以 `ADAPTER_PLATFORMS.dsh.status` **保持 `not-landed`**（`resolveProjectAdapters` 继续显式拒绝 dsh 项目）
+—— 结构就绪 ≠ 可用，不装成功。
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 指令通道（传输无关） | `server/adapters/dsh/bridge.cjs` | 三种送达结论：`not-delivered`（未交给平台）/ `unconfirmed`（发了但无回执，**不等于失败**）/ `accepted`（已交给平台）；ack 与 result **两段窗口**；断开时在途指令一律判「无法确认」且**不自动重发**；事件上行分发；平台事实（含版本）缓存 |
+| 7 端口实现 | `server/adapters/dsh/index.cjs` | host/session/probe/hook/oneshot/tooling/interactive 全部经通道发指令；`must()` 把三态与平台报错变成**显式异常**；cc 机制方法（`spawnClaudeP`/`claudePArgs`/`claudeAvailable`/`build*`）**显式 unsupported** 抛错，不静默返回假值 |
+| 传输接线 | `server/web/bridge-channel.cjs` + `api/index.cjs` | WS 升级 `/bridge/dsh`（插件连上即 `attach`）+ `POST /bridge/dsh/callback`（accepted/result/event 回传；未知 commandId 回 `consumed:false` 并告警）；回传入口挂在 `PROJECT_AGNOSTIC_WRITES`（一个 DSH 后台服务多项目，不需要 `?p`） |
+| 契约收窄 | `ports.cjs` 的 `REQUIRED_PORT_METHODS` | 把 cc **机制**方法从「必填」里拿掉（`spawnClaudeP`/`claudePArgs`/`claudeAvailable`/`build*`/`nudge`）：它们是 cc 的实现形状，不是平台无关能力。必填 = 任何平台都必须有且上层真会调的那批 |
+| 一致性覆盖 | `tests/conformance/adapters.conformance.test.js` | 判据从「status==='factory'」改为「**有工厂**（create 是函数）」——dsh 结构面自动纳入；`status!=='factory'` 时断言**必须显式拒绝**（把「不装成功」也纳入门禁） |
+
+**验证（替身级，明确不是 DSH 可用性证据）**：`tests/unit/dsh-bridge.test.js`（13 例，三态/两段窗口/幂等/断开/事件）、
+`tests/unit/dsh-adapters.test.js`（31 例，端口↔指令映射/三态不被吞/cc 机制方法显式不支持/probe 四态/事件映射/依赖检查）、
+`tests/unit/dsh-bridge-channel.test.js`（7 例，真实 WS 帧编码 + 回传 + 断开）、
+`server-api-routes.test.js` 新增 3 例（回传路由 200/400/未消费告警）。
+全量 `npm test` **113/113 文件、1105/1105 用例**；`check:capability` / `check:arch` / `lint` 全绿。
+
+**下一步（P2-5）**：插件 host 半侧（`createSession`+preset+MCP 挂载+批准应答者 / `prompt(req,signal)` / `whenIdle` /
+`subagents.interrupt` / `ctx.llm.stream`）实现本协议并在**隔离探针**上跑最小真实链路；届时才把 `dsh` 转 `factory`。
+
+### 2.8 P2-5a 完成记录（2026-09-19，**真实链路**：AWF ↔ DSH 插件 指令通道）
+
+本轮把 P2-4 定的协议在**真 DSH 进程**里跑通（真 WS 下行 + 真 HTTP 回传），
+并用一条未实现的 op 验了错误路径。**尚未派模型**（省额度）：建会话/派发/落账留 P2-5b。
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 生产插件（host 半侧） | `dsh-plugin/`（index.js + lib/bridge-client.js + lib/ops.js） | Cordis ESM 插件：连 AWF 的 WS `/bridge/dsh`，收指令 → **先回 accepted 再回 result**；断线按退避**重连不重放**；平台事件经 `{kind:'event'}` 上行；未实现的 op **显式失败**（带 P2-5b 指引），不冒充成功 |
+| op 面（本轮） | `session.facts` / `session.nudge` / `session.open` | facts 读平台 `ctx.sessions.list()`（身份 = `header.cwd` + `header.id`）；`ready` 用插件自己的「有无回合在跑」事实；`llm.oneshot` 已按 `ctx.llm.stream` 写好但**标 unverified**（未实测） |
+| 夹具接线 | `scripts/probe/dsh/install-fixture.sh` | 隔离 profile 现在同时装**探针插件**与**生产插件**（符号链接，改源码即时生效） |
+| 真实链路夹具 | `scripts/probe/dsh/roundtrip.cjs` | 起进程内 AWF（隔离临时项目 + 空闲端口）→ 起隔离 DSH（注入 `AWF_DSH_BASE`）→ 等插件连上 → 发真指令 → 断言回执；退出码即结论 |
+
+**真实运行证据**（`node scripts/probe/dsh/roundtrip.cjs`，2026-09-19，本机）：
+
+```
+[roundtrip] AWF server 起于 http://127.0.0.1:55973（隔离临时项目）
+[roundtrip] ✓ 插件已连上（platform=dsh, pluginVersion=0.0.1）
+[roundtrip] ✓ session.facts 回执：{"sessionExists":false,"reachable":true,"ready":false,
+                                  "cwd":null,"sessionId":null,"snapshot":null}
+              → delivery=accepted, ok=true
+[roundtrip] ✓ 未实现 op 明确失败：op "session.create" 尚未实现（P2-5b）…
+              → delivery=accepted, ok=false（错误路径不静默）
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+口径说明：`sessionExists:false` 是**对的** —— 隔离 home 里确实还没有 AWF 建的会话；
+这条恰好证明 facts 来自平台真实现场，而不是写死的常量。
+
+**仍未做**：见 §2.9（P2-5b 第一段已接走 `session.create` / `interrupt` / `stop`）。
+`dsh` 继续 `not-landed`，`resolveProjectAdapters()` 继续显式拒绝。
+
+### 2.9 P2-5b（第一段）完成记录（2026-09-19，**真实运行**：会话创建 / 停止，未派模型）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| `session.create` | `dsh-plugin/lib/ops.js` | `ctx.get('sessionController').create({ cwd, agentPreset? })` —— DSH 侧一次完成「建会话 + 模型选择 + preset 装载」（F19）；创建出的会话 id 登记进 `createdByAwf`（供 U16 判断「这是不是我们的会话」）；上报 `session.started` 事件 |
+| `session.interrupt` | 同上 | `sessionController.cancel({ sessionId })`；平台固定 `keepInbox:true` —— 回执 ≠ 已停（E-06） |
+| `session.stop` | 同上 | cancel 主会话 + **逐个** `subagents.interrupt(childSessionId)`（按 `header.parentSessionId` 找子）；**不删会话、不关共享后台**（spec §2 边界） |
+| U16 批准应答者（**只记录 + 委派**） | `dsh-plugin/index.js` | `ctx.on('approval/request', (req, next) => …)`：记录 `toolName`/`reason`/是否 AWF 会话并上报 `approval.requested` 事件，然后 `next()` 委派（不自动批准）。**定策略前先测清「workspace-write 下什么操作真的请求批准」** —— 在没测清之前自动批准可能把沙箱边界一起放开 |
+
+**真实运行证据**（`node scripts/probe/dsh/roundtrip.cjs`，2026-09-19，隔离 DSH + 隔离 AWF，**未派模型**）：
+
+```
+✓ 插件已连上（platform=dsh）
+✓ session.facts(建会话前)：{"sessionExists":false,…}
+✓ 未实现 op 明确失败：op "session.snapshot" 尚未实现（P2-5b）…（delivery=accepted, ok=false）
+✓ 会话已创建：session-118c8852-026a-415c-a7a5-67362e3f426a（preset=standard）
+✓ facts 已反映该会话（sessionExists=true, cwd=<临时项目>）
+✓ 已停止且会话仍在（cancel keepInbox，未删会话）：{"sessionId":"session-…","cancelled":true,"subagents":[]}
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+**口径**：`session.stop` 后 facts 仍是 `sessionExists:true` 是**期望行为**（停止 ≠ 删除；spec §2 明确不得顺带删对话）。
+
+### 2.10 P2-5c 完成记录（2026-09-19，**真实运行 + 真派一轮模型**：提交/回执与回合结束）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| `session.prompt` | `dsh-plugin/lib/ops.js` | `sessionController.prompt({sessionId, content:[{type:'text',text}], requestId}, signal)` —— **signal 是第二位置参数**（F26）；`requestId` 用 AWF 的 commandId（平台按它去重，补发不会变两轮）。返回 `accepted` 即「**平台受理**」，不含「任务完成」 |
+| 回合边界上报 | `dsh-plugin/index.js` 的 `createTurnReporter` | `ctx.on('session/event', …)`（firehose）捕 `turn/start|end`：只报 **AWF 自己创建的会话**；`turn/start → turn.started`、`turn/end → session.ready`（+ facts 刷 ready）。**受理回执与回合结束是两件事，分开上报** |
+
+**真实运行证据**（`node scripts/probe/dsh/roundtrip.cjs --prompt "只回复两个字：收到。不要调用任何工具。"`，
+隔离 AWF + 隔离 DSH，**真派一轮模型**）：
+
+```
+✓ 会话已创建：session-45c5b527-…（preset=standard）
+✓ 已停止且会话仍在（cancel keepInbox，未删会话）
+✓ 平台已受理（accepted=true）；等回合结束…
+✓ 回合结束：events=["turn.started","prompt.submitted","session.ready"]
+   证据：session.facts(回合结束后).ready === true
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+**口径**：「平台受理（accepted）」与「这一轮结束（session.ready）」在本轮被**分开观测**到了 ——
+这正是 spec §6「不把『已发送』『已受理』『已完成』混用」在 DSH 侧的落地。
+
+### 2.11 P2-5d 完成记录（2026-09-19，**P2 核心出口条件打通**：会话级挂 MCP + 真落账）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 建会话＝完整配方 | `dsh-plugin/lib/ops.js` 的 `session.create` | 改走 `agents.create({sessionId, meta:{cwd}, agentOptions, setup})`：在 **agent 发布前的 setup 窗口**里 ① `installModelSelection` ② `agentPresets.mount(agentCtx, 'standard')` ③ `agentCtx.plugin(McpClient, …)` 挂项目 MCP。`sessionController.create` **没有 setup 窗口**，挂上去的工具进不了会话工具表（实测 0 个工具） |
+| 项目 MCP（C30） | 同上 `mountMcpInto` | 每项目各起一份 stdio MCP（`plugin/core/mcp/<name>/server.cjs`），把自己的 `AWF_PROJECT_ROOT` 传给子进程 —— 项目隔离不靠共享全局配置 |
+| 工具表核对 | 新增 `session.tools` 指令 | 报 `session.requestHeader().tools`（模型可见工具表）。**只在首次模型请求之后才有值**：header 是 `request/header` 事件的折叠，建会话时恒为 undefined —— 这解释了为什么「建会话时等工具注册」不可行（F29 的核对点必须在首次派发之后） |
+| 离线依赖装配 | `scripts/probe/dsh/install-fixture.sh` | 把 `@deepseek-ai/dsh-mcp-client`、`@deepseek-ai/dsh-agent` 从真实 home 的 hoisted node_modules **符号链接**进 `dsh-plugin/node_modules`（本机无 pnpm）；缺了插件会**明确报错**，不静默不挂 MCP |
+
+**真实运行证据**（`node scripts/probe/dsh/roundtrip.cjs --task`，隔离 AWF + 隔离 DSH，**真派一轮模型**）：
+
+```
+✓ 会话已创建：session-7c7e13e2-…（preset=default，已含模型选择 + preset + MCP）
+✓ 平台已受理（accepted=true）；等回合结束…
+✓ 回合结束：events=["turn.started","prompt.submitted","session.ready"]
+✓ MCP 工具已进可见工具表：20 个 mcp__awf-state__*（read_state / task_complete / dynamic_plan …）
+✓ 经 AWF MCP 工具真落账：T1.status=done（磁盘 state.json 的 exec.completedAt 已写）
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+**含义**：spec §7 的 P2 出口条件里，「项目 MCP / 会话创建 / 提交回执 / 任务落账 / 快照（facts）/ 运行停止」
+**除快照投影外全部有真实运行证据**；这也同时验证了 C17/C19/C36 的**公共落账语义**在 DSH 侧成立
+（模型经 MCP 工具写的是 AWF 的 state.json，不是平台侧另存一份）。
+
+### 2.12 P2-5e（第一段）完成记录（2026-09-19，**真实运行**：可读快照 + U16 取证）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| `session.snapshot`（C25） | `dsh-plugin/lib/ops.js` | 取会话日志里**最后一条 `assistant/message`** 的 `text` 块（`data.message.content` 是 ContentBlock[]，只取 `type==='text'`）；可 `maxChars` 截断并标 `truncated`；没有助手消息时回 `text:null` + 原因，**不编内容** |
+| U16 取证（**结论改变了做法**） | 同上 + 批准应答者 | `--bash` 实验：让模型用 bash 在项目内跑 `pwd` → **零批准请求**，命令正常返回 |
+
+**U16 实测结论（重要）**：在 `workspace-write` 预设下，**项目内的普通 bash 不会请求批准** ——
+沙箱本身就 auto-allow 项目内操作，只有**越出沙箱**的操作才需要批准（预设描述即 "wider retries require approval"）。
+所以：
+
+- U16 说的「AWF 自己创建的执行会话在项目范围内自动批准」**已经由沙箱满足**，**不需要**再加自动批准规则；
+- 「项目外仍需人工」= 保持现在的**只记录 + 委派**（无应答者时平台 fail closed，即拒绝）——既守住了沙箱，
+  也没有把无人值守的主链路卡住；
+- 这也修正了 P0 F34 的解读：`approval/asked` 卡死**不是**普通项目内 bash 的必然结果（P0 那次是另一种建会话路径的子会话）。
+- **仍待验证**：子 Agent 会话里的 bash（子会话是否继承同一策略）—— 留给 P2-5e 余下。
+
+**真实运行证据**（两次，真派模型；隔离 AWF + 隔离 DSH）：
+
+```
+$ node scripts/probe/dsh/roundtrip.cjs --bash
+✓ 快照："/private/var/folders/…"          ← 模型 bash pwd 的真实输出
+✓ 本轮无批准请求（workspace-write 下的普通 bash 不需要批准）
+
+$ node scripts/probe/dsh/roundtrip.cjs --task
+✓ 快照："DONE"
+✓ MCP 工具已进可见工具表：20 个 mcp__awf-state__*
+✓ 经 AWF MCP 工具真落账：T1.status=done
+[guard] check → IDENTICAL
+```
+
+### 2.13 P2-5f 完成记录（2026-09-19，**真实运行**：规划入口 + 一次性调用 + 装配归属）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| `plan.launch`（C07） | `dsh-plugin/lib/ops.js` | 抽出共用 `createSession({cwd, mountMcp})`（发布前 setup：模型选择 + preset + 项目 MCP）；规划会话 = 建会话 + 注入规划指令 + 回网页 URL。规划产物经 awf-state MCP 写 state.json，故规划会话**也要挂 MCP** |
+| `llm.oneshot` 实装并实测（C23） | 同上 | 两个实测踩点：① `llm.stream` 的 `messages` **必须是平台形状**（`createUserMessage({content:[blocks], source})`）—— 传裸 `{role,content}` 得到 `content.some is not a function`；② 文本只能认 `text-delta`（兼容 `text-chunks` 记录），**再叠加 `block-end` 会算两遍**（实测 "OKOK"）。流为空时**明确失败并带回记录形状**，不装成功 |
+| `plugin.*` 归属澄清（C03） | 同上 | DSH 的接入装配是「装 profile」（写 profile patch 层 / 链接包），**归 CLI**（T-P2-02）；插件侧对 `plugin.*` 明确回「不属于这一层」，不是「没做完」 |
+| 离线依赖 | `install-fixture.sh` | 再补 `@deepseek-ai/dsh-llm` 的符号链接（连同 `dsh-mcp-client`、`dsh-agent`） |
+
+**真实运行证据**（`roundtrip --plan --oneshot`，隔离 AWF + 隔离 DSH，真派模型）：
+
+```
+✓ 规划会话已建并注入指令：session-3f50add8-… url=http://127.0.0.1:39081/?session=session-3f50add8-…
+✓ 一次性调用返回文本："OK"（未建会话；早前版本因 delta+block-end 重复得到 "OKOK"，已修）
+[guard] check → IDENTICAL
+```
+
+### 2.14 P2-6a 完成记录（2026-09-19，**dsh 转 factory**：解析 → 适配器 → 插件整条通路真实跑通）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 平台依赖注入通道 | `server/server.cjs`（入口）→ `runtime/registry` → `runtime/index` → `runtime/project` → `resolveProjectAdapters(root, {…, adapterDeps})` | DSH 的适配器需要 `bridge`（指令通道）。bridge 住在 `server/web`，而 **adapters 不许反向依赖 web** —— 因此由**入口**从 web 取好注入，逐层透传 |
+| probe 回落 | `server/runtime/index.cjs` | cc 的 `impls.probe` 是工厂（要 host/status）；DSH 的 probe 自带 bridge → 工厂缺失时回落到已绑定的 `ports.probe` |
+| `dsh` 转 `factory` | `server/adapters/ports.cjs` | 同时给出 DSH 的 `tools`（cc 形状的项目资产工具在这里**显式抛错**，不返回 undefined 让人踩 `undefined is not a function`）与空 `impls`（见上回落） |
+| **真实运行验证** | `scripts/probe/dsh/roundtrip.cjs --runtime` | 走 **runtime/适配器层**（CLI 与宿主实际用的那条路）：项目 `.awf/config.json` 写 `runtime.adapter=dsh` → `createProjectRuntime` → `session.start` → `probe.inspect` → `kill` |
+
+**真实运行证据**（隔离 AWF + 隔离 DSH）：
+
+```
+✓ runtime 路径全通：adapter=dsh → session.start(session-68f43386-…) → probe.inspect(state=ready) → kill
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+含义：`ctx.adapter` 按项目配置解析、DSH 适配器经 bridge 驱动真插件建出真会话、probe 报出 `ready` —— 
+**「按项目选平台 + 适配器可用」这条链路不再只是结构断言**。
+
+### 2.15 P2-6b 完成记录（2026-09-19，**P2 出口「单任务 run」真实跑通** + 打到一处 P1 回归）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 平台事件 → 会话态 | `server/adapters/dsh/index.cjs` + `server/runtime/index.cjs` | 插件事件带 `cwd`（多项目过滤）→ bridge 事件 → 适配器 `hook` 端口（`session.ready` 映射为 **`run.phase:READY`**）→ 项目总线 → runtime 刷 `session.setBusy/setReady`（`run.started` 还会 `bumpSessionSeq`，让 CLI 的「等会话就绪」在 DSH 侧同样成立）。这是 CC 侧 `/hook` 路由的**等价物** |
+| CLI 起环境平台感知 | `cli/lib/session.cjs` | `bringUp` 里「项目 MCP 注入 + run-settings」**只为 cc 执行**；dsh 的项目 MCP 由插件在会话创建时按 agent 作用域挂，不做 cc 形状的资产注入。等待就绪两种平台共用 |
+| 真实链路验证 | `scripts/probe/dsh/roundtrip.cjs --run` | 建会话 → `ensureRunHost` → `submitRun` → 宿主派发（经适配器）→ 模型执行并落账 → run 收尾 |
+
+**真实运行证据**（隔离 AWF + 隔离 DSH，真派模型）：
+
+```
+$ node scripts/probe/dsh/roundtrip.cjs --run
+✓ 会话已创建：session-3ad3adf4-…
+✓ run 宿主单任务跑通：run=done T1=done
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+**这次真运行打到一处 P1 回归（重要，如实记账）**：首跑时 `run=error`，`run.error = "sleep is not defined"`。
+根因是 **T-P1-02** 把注入节奏下沉进 host 端口时，顺手删掉了 `server/runtime/executor.cjs` 顶部的 `sleep` 助手，
+而**结算循环里仍在用它** —— 也就是说 **CC 的单 agent 真实路径当时也已被打断**。当时全绿是因为集成用例要么
+覆盖 `__CC_RUN_HOST_DEPS__` 的假执行器、要么不走真实 executor。处置：
+
+- 恢复 `sleep` 助手；轮询间隔提为常量 `EXECUTOR_POLL_MS`（`server/config.cjs`，env `CC_EXECUTOR_POLL_MS` 可覆盖）；
+- 新增 **回归护栏** `tests/unit/executor-settle.test.js`：直接驱动**真实 executor** 跑完结算循环
+  （落账 done / blocked / 无会话三条），把「循环体能不能执行」钉住；
+- 改后 `run=done T1=done` 复跑通过。
+
+教训（写进 §4 验证纪律口径）：**假执行器的集成用例证明不了真 executor 能跑**；平台无关的真运行
+（这次是 DSH 单任务 run）是唯一能打到这类「跨平台共享代码里的死引用」的手段。
+
+### 2.16 P2-6c 完成记录（2026-09-19，**CLI 装配路径真实可用**：`awf plugin install` → DSH profile）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| DSH 侧装配模块 | `server/adapters/dsh/install.cjs` | 把 AWF 装进 DSH 的**用户级 profile**（全局一次、多项目共享；U5/U12）：① 在 `cordis.patch.yml` 插**标记块**（`# >>> awf-dsh` … `# <<< awf-dsh`）；② 把插件包**拷进** profile 的 `node_modules/`（无 pnpm 时的等价路径，F13）。带**备份**（`.awf-backup`，只备一次）、**幂等**（已有块即跳过）、**卸载只摘自己的块** |
+| CLI 分支 | `cli/commands/plugin.cjs` | `localPlugin` 按平台分支：DSH 走 `installProfile({dshHome, profile, webPort})`（参数形状与 cc 的 `installProfile(projectRoot)` 不同，故必须分支）；`--scope global` 在 DSH 上**明确不支持**并说明「profile 装配本身就是全局安装」 |
+| 工具面 | `server/adapters/ports.cjs` | DSH 的 `tools.profile` = 上面的装配模块；cc 形状资产仍显式抛错 |
+| 无 bridge 也能构造 | `server/adapters/dsh/index.cjs` | CLI 进程没有常驻指令通道（bridge 在 AWF server 里）。**不抛**，改用「未连接」替身：工具面可用，真发指令即得 `not-delivered` + 原因 —— 与真断链同语义 |
+| 真实链路验证 | `scripts/probe/dsh/cli-install.cjs` | 真 CLI 子进程 + 真 `dsh --dump-config`：装 → DSH 承认 → 用户注释保留 → 卸 → DSH 不再认 |
+
+**真实运行证据**（隔离 `DSH_HOME=/tmp/awf-dsh-probe`，新 profile `awf-cli`）：
+
+```
+✓ CLI 已装配：已装配 DSH profile awf-cli → …/cordis.patch.yml
+✓ dsh --dump-config 含 awf-dsh-plugin          ← DSH 自己承认这行 patch 才算数
+✓ 卸载后 dump-config 不再含该插件，用户注释仍在
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+### 2.17 P2-6d 完成记录（2026-09-19，**双项目隔离真实验收**：单后台、各自会话与项目 MCP）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 指令补项目身份 | `server/adapters/dsh/index.cjs` | DSH 的指令通道是**进程级共享**的（一个后台服务多项目），平台按 `projectRoot` 找会话；而 cc 的 host 每项目一份（tmux 会话名自带身份），端口签名里没有 projectRoot。统一用 `withRoot()` 给每条指令补上 |
+| 双项目验收夹具 | `scripts/probe/dsh/roundtrip.cjs --two-projects` | 两个项目各建 runtime（共享同一 bridge）→ 各建会话 → 各派一句「用 awf_read_state 读本项目摘要并回 `<version>\|<任务id>`」→ 断言各读各的、且不串；再停 A，断言 B 不受影响 |
+
+**真实运行证据**（隔离 AWF + 隔离 DSH，真派模型 ×2）：
+
+```
+[roundtrip] 两个项目各建会话：A=dsh B=dsh
+✓ 双项目隔离：A→"0.2.0|T-A" B→"9.9.9|T-B"
+✓ 停 A 不影响 B（单后台、多项目各自独立）
+[guard] check → IDENTICAL（真实 ~/.dsh 配置面零改动）
+```
+
+与 P0 的 E-03 证据（`proj-a → 0.2.0|1`、`proj-b → 9.9.9|2`）同形 —— 但这次是**经 AWF 适配器/runtime**
+（不是裸探针），也就是 CLI/宿主实际走的那条路。
+
+**本轮打到的缺陷（如实记账）**：首跑两边都快照为空 —— 根因是 `host.sendPrompt` 只发 `{text}`，
+**没带 projectRoot**，插件 `findSession(undefined)` 回落到「第一个会话」，两个项目的指令打到同一处。
+这正是「单后台多项目」验收要抓的东西；修法是适配器统一补项目身份。
+
+**仍未做（P2-6b）**：CLI 三命令的 DSH 接线（`init` 装 profile 插件 / `plan` 走 plan.launch / `run` 的 bringUp
+对 DSH 不做 cc 资产注入）+ 单后台复用判定 + 双项目并发验收。
+
+**仍未做（P2-5e）**：`session.snapshot`（可读快照投影，C25）、U16 自动批准规则（现只记录+委派）、
+`plugin.install/uninstall`（C03）、`plan.launch`（C07）、`llm.oneshot` 实测（C23）、
+`session.stop` 对**子 Agent** 的真实打断验证（现只覆盖无子 Agent 场景）、
+以及 T-P2-02（CLI 三命令接线 + 单后台复用 + 双项目验收）。
+
+**仍未做（P2-5c 余下）**：`session.snapshot`（可读快照投影）、**会话级挂 MCP**（C30，派发前等注册 F29）、
+U16 自动批准规则（现在只记录+委派）、`plugin.install/uninstall`、`plan.launch`、`llm.oneshot` 实测、
+以及**经 AWF MCP 工具真落账**的那一段（"建会话 → 派任务 → 落账 → 快照 → 停止"）。
+
+**P2-5c 起点（本轮已核到）**：会话事件的观察接缝是 **`ctx.on('session/event', (session, event) => …)`**
+（firehose；`dsh-acp:1102`、`dsh-agent-presets:1325`、`dsh-agent-instructions:1263` 都这么订阅），
+`turn/start` / `turn/end` 都走这条 —— `session.prompt` 的「回合结束 → 上报 session.ready」就接在这里。
+`prompt` 的平台形状：`sessionController.prompt({ sessionId, content: [{type:'text',text}], requestId? }, signal)`
+→ `{accepted:true}`（`dsh-api-session-controller/lib/index.js:736` 公开方法 + `:2920` 的 Remote 包装即 F26 的两位参数）。
+
+**仍未做（P2-5c）**：`session.prompt`（`sessionController.prompt({sessionId, content}, signal)` + 回合结束信号 ——
+`turn/end` 是会话日志事件，需要找到插件侧观察会话 append 的接缝）、`session.snapshot`（投影）、
+`plugin.install/uninstall`、`plan.launch`、会话级挂 MCP、U16 自动批准规则、`llm.oneshot` 实测。
+最小真实链路里**派模型那一段**也留到这里。
+
+**P2-5b 起点（本轮已核到的确定事实，省下轮重查）**：
+- 建会话：`ctx.get('sessionController').create({ cwd, agentPreset?, sessionId? })` → `{ sessionId, agentPreset? }`
+  （`dsh-api-session-controller/lib/index.js:2726` 注册服务名、`:571` 是 `create`；内部走
+  `agents.ensureSession(sessionId, cwd, 显式 id?, presetId)`，preset 组合在 `dsh-agent` 侧完成 → F19）。
+- **待查**：`sessionController`（api 侧）**没有** `delete/stop/close/cancel/interrupt` —— 取消/停止/`whenIdle`
+  在 `dsh-acp`（E-06 引用的 `dsh-acp/lib/index.js:870/953/956/995`）。P2-5b 第一步就是核清
+  「停会话/停 run/打断当前响应」在 web 组合里到底经哪个服务，再实现 `session.stop` / `session.interrupt`。
+- U16 批准应答者：按 §2.5 的更正写法（`ctx.on('approval/request', …)`，范围内 `allowed-once`、范围外 `next()`），
+  注册到 **AWF 创建的那个 agent 的作用域**（`dsh-scope` 按 `args[0].agent` 分发）。
+
+### 2.18 P2-6e/6f 完成记录 + P2 收口（2026-09-19，真机）
+
+| 交付 | 落点 | 说明 |
+|---|---|---|
+| 停 run 逐个打断子 Agent | `dsh-plugin/lib/ops.js` | 子 Agent 名单在 `cancel` **之前**取；user 权威补 `parentSessionId`；回执带 `subagents/subagentsSeen/errors` |
+| 停止回执不被吞 | `server/adapters/dsh/index.cjs` | `session.kill()` 原样返回平台回执（此前丢弃 → 调用方无法验证子 Agent 真被打断） |
+| init 记住平台 | `server/shared/workspace.cjs` + `cli/commands/init.cjs` | 新增 `applyAdapter()`：把**解析到的平台**记进 `.awf/config.json`；已有显式值不覆盖 |
+| CLI 装配路径认平台 | `cli/commands/plugin.cjs` | `localPlugin` / global 预检不再写死 `env: {}`（它把 `CC_ADAPTER` 一起吞了） |
+| attach 有落点 | `cli/commands/attach.cjs` + 插件 facts + 适配器 probe | 网页形态先经 server `/probe` 拿观看地址（CLI 进程没有 bridge），终端形态才 `attach()` |
+| 会话身份规范化 | `dsh-plugin/lib/ops.js` | `findSession` 按 realpath 比路径（`/var` vs `/private/var` 不是两个项目） |
+
+**真实运行证据**（隔离 `DSH_HOME=/tmp/awf-dsh-probe`；真实 `~/.dsh` 全程 `IDENTICAL`）：
+
+```
+$ node scripts/probe/dsh/roundtrip.cjs --subagent
+✓ 子 Agent 已派发：1 个（105a3727-…）
+✓ 停 run 时逐个打断子 Agent：["105a3727-…"]
+✓ 停止后子会话已不在活动列表
+
+$ node scripts/probe/dsh/cli-install.cjs --init
+✓ `awf init` 在 DSH 项目上跑通（前置检查 ✓ dsh / ✓ node + 建骨架）
+✓ 平台已记入 .awf/config.json（adapter=dsh）；重复 init 幂等（含去掉 CC_ADAPTER 仍是 dsh）
+✓ `awf init --force` 只补缺失目录，state.json 与装配块不受影响
+
+$ node scripts/probe/dsh/roundtrip.cjs --attach
+✓ `awf attach`（独立进程）拿到会话地址：…:39081/?session=session-e4ccff06-…
+```
+
+**本轮打到的四个真缺陷（如实记账）**：
+
+1. `session.kill()` 把平台回执丢了 —— 「子 Agent 是否真被打断」无从验证，测试会「看起来通过」（这正是 U11 要抓的）。
+2. 子 Agent 名单在 `cancel` **之后**取 —— 平台 cancel 父会话会把子激活摘出活动列表，名单恒为空（F40）。
+3. `subagents.interrupt(target, authority)` 的 user 权威**必须带 `parentSessionId`**，否则平台校验不过、UNAUTHORIZED（F39）。
+4. 会话身份按路径**字符串**比 —— macOS 临时目录存在 `/var/…` 与 `/private/var/…` 两种写法，同一个项目被判成「没有会话」（F38）。
+
+**七个命令在 DSH 下的真机状态**
+
+| 命令 | 状态 | 证据 / 缺口 |
+|---|---|---|
+| `init` | ✅ | `cli-install.cjs --init`：干净项目（`CC_ADAPTER=dsh`）→ 骨架 + 平台入库 + 幂等 + `--force` + 卸载复原 |
+| `plan` | 🟡 | `plan.launch` 真跑通（§2.13）；`awf plan` 命令层（门禁/WBS/交互式提问）未在 DSH 上端到端跑 |
+| `run` | ✅（单任务） | `--run` → `run=done T1=done`（§2.15）；多 agent / 决策 / 门禁闭环属 P3 |
+| `plugin` | ✅ | install/uninstall 真装进 profile（§2.16，cli-install 两模式） |
+| `server` | 🟡 | 「单后台多项目、项目级隔离」已验（§2.17）；`awf server start` 在 DSH 项目上的独立启动/复用判定未实跑 |
+| `open` | 🟡 | 页面地址由 `ctx.port` 拼，平台无关；但三个业务页面本身仍是空的（P4） |
+| `attach` | ✅ | `--attach` 实测：DSH 下 = 打印并打开本项目会话页 |
+
+**V01～V12 验收映射**（P2 收口；依据只有三类证据，见 §4）
+
+| 验收 | 状态 | 已验 | 缺口 |
+|---|---|---|---|
+| V01（干净 init / 重复 / 双项目单后台） | 🟡 | `awf init` 干净项目 + 重复 + `--force` + 不可覆盖（`cli-install.cjs --init`）；双项目并发单后台、各读各自项目 MCP（§2.17） | 「init 之后一路 `plan` → `run`」的整链（P3） |
+| V02（plan 注入 / 网页接续 / 技能命令可发现） | 🟡 | `plan.launch` 建规划会话 + 注入指令 + 回网页 URL（§2.13） | `plan -r` 不误归档；DSH 侧技能/命令可发现（C29 的 DSH 半侧） |
+| V03（提交→受理→落账→网页可见；错提交不假成功） | ✅ | 提交→accepted→`turn.started/prompt.submitted/session.ready`；20 个 `mcp__awf-state__*` 可见且模型**真落账**（`T1.status=done`）；快照回真实文本；未实现 op / 未知参数显式失败（§2.10–2.13） | 「网页可见」为人工目视项（未截图留证） |
+| V04（父子 Agent 停止 / 排队不偷跑 / 不影响别项目） | 🟡 | 子 Agent 真派出 + 停 run 逐个打断 + 停止后离开活动列表（本轮）；停 A 不影响 B（§2.17） | 「排队内容 + 子 Agent 同时存在」的停止验证 |
+| V05（用量读数 / 交接 / 清空 / 完成信号 / 续跑） | ⬜ | — | C37 未纳入本轮；交接与 `-r` 续跑属 P3 |
+| V06（worker 工具允许/拒绝；错 taskId 不污染） | 🟡 | 真落账走 MCP 工具（模型可调用、磁盘可见） | worker 禁写工具被拒、错 taskId/重复/迟到结果不污染（多 agent 属 P3） |
+| V07（决策/提问/NEEDS_INPUT/门禁/动态规划） | ⬜ | — | 全属 P3（决策中继 + 门禁闭环在 DSH 侧的真实运行） |
+| V08（隔离诊断 / 超时取消 / 不改主会话身份） | ✅ | `llm.oneshot` 真返回（不建会话、可超时取消，§2.13）；`session.stop` 不删会话、主会话 id 不变（§2.9） | — |
+| V09（CLI 退出 / 桥断 / 各自重启 / `-r` 不重复提交） | 🟡 | 断链退避重连**不重放**（插件 + 桥接单测）；通道断开 → 在途指令判「无法确认」 | CLI 退出、AWF/DSH 各自重启的组合验收；`run -r` 不重复提交活跃任务（P3） |
+| V10（三个空页面 / 项目与无会话入口 / 会话定位） | 🟡 | 关页面不停后台（P0 E-09）；会话定位打通（本轮 `awf attach` 拿到本项目会话地址） | 三个业务页面 + 项目/无会话入口（P4）；原生 stop 仍不处理 |
+| V11（发布包新目录可装 / 禁用 A 不卸 B / 部分失败明确） | 🟡 | 从仓库真装进 profile + 精准卸载（§2.16）；`runPerSpec` 部分失败逐条报错（单测） | 发布包在**新目录**安装（不依赖开发机绝对路径）实测（P4）；禁用项目 A 不动 B 的能力 |
+| V12（CC 回归 / 同一 server 服务两平台） | 🟡 | CC 路径全绿：`npm test` 1157 / `check:arch` / `check:capability` / `lint`；DSH 分支不改变 cc 缺省（`resolveAdapterName` 缺省仍是 cc） | 「同一个 AWF server 同时服务 cc 与 dsh 项目」的真实验收 |
+
+**P2 出口判定**：P2 的目标（DSH 适配器与插件真实可用、指令通道承担全部会话操作）**已达成**：`init`/`run`/`plugin`/`attach` 四个命令真机可用，`plan`/`server`/`open` 三条有实测落到平台的一半。
+V03/V08 两条验收完整通过，其余为「已验一半 + 缺口明确」。**P2 不再扩范围**，剩余缺口按性质归 P3（编排闭环）与 P4（页面/发布/跨平台）。
+
 ---
 
 ## 3. 已确认的静态发现登记（P0 期间累积，供后续阶段引用）
@@ -579,6 +1016,11 @@ P1 六项全部收口；每个提交都满足硬门槛：`npm test` 全绿 + `np
 | F33 | 全局层同名 `McpClient` 实例在**同一进程内不可重复挂载**（`serverName` 必须唯一） | `e04b.json`：重复调用同一路由 → `serverName "awf-state" is already in use` | 全局挂载形态必须每项目用不同 `serverName`，或只挂一次 |
 | F34 | **子会话执行 `bash` 会停在 `approval/asked`**（web 组合 `workspace-write + approval:ask`）；页面上无人批准、宿主也不代批 → 无人值守 run 会被卡死 | E-09 实验：`lastEvents` 长时间停在 `tool/call`/`approval/asked`，`status=running` 不变 | **AWF 必须定义 approval/authorization 策略**（受控自动批准 vs 接入 AWF 决策），否则主链路不可用；不得擅自放开权限 |
 | F35 | **`compaction` 取不到不是因为它不存在**：服务在 preset 的 isolate realm 内；root ctx 与 `agent.ctx` 都取不到（实测均 false），只有与 preset 同 realm 的作用域可取 | `/api/awf-probe/compact-probe`：`hasRootCompaction=false`、`hasAgentCompaction=false`、`compactNow=null`；源码 `dsh-compaction-basic/lib/index.js:761,944` + `standard/agent.cordis.yml` 的 `isolate: {compaction:true}` | AWF 的压缩接线必须走 preset 同 realm（或驱动 `/compact`），不能假设 root ctx 可取；与 F32 同根因 |
+| F36 | **插件注册的路由不在 dsh 的浏览器信任栅栏内**（2026-09-19 实测，隔离探针）：`webServer.register({kind:'exact', path:'/api/awf-probe/ping'})` 无 cookie 直接 200；同一实例的 `/`、`/api`、`/api/sessions` 都是 401 | 隔离探针（`DSH_HOME=/tmp/awf-dsh-probe`，端口 39081）逐路径状态码：`/`=401、`/api`=401、`/api/sessions`=401、`/api/awf-probe/ping`=**200**、`/nonexistent-xyz`=404 | **与 F16 的推断相反**（F16 只做了「带 cookie → 200」的正向观测，缺「不带 cookie」对照）。含义：**网页→AWF 的入口若走插件路由，插件必须自己做鉴权**；不能假设「注册在 `/api` 下就自动受 dsh 鉴权保护」。spec §2「通过 DSH 插件的受鉴权入口请求 AWF」里的「受鉴权」要由 AWF 实现，不是继承来的 |
+| F38 | **会话身份按路径比必须规范化**：平台记的 `header.cwd` 与 AWF 传进来的项目根可能一个是 `/var/…`、一个是 `/private/var/…`（macOS 临时目录的真实路径），字符串不等 → 「明明建过会话却找不到」 | `roundtrip.cjs --attach` 首跑：CLI 拿到的是 web 根地址而非会话地址；插件 `findSession` 用 `realpathSync.native` 规范化后同一会话立即命中 | 凡是「按路径找资源」的插件 op（findSession 及其全部下游）都要走同一规范化；路径相等 ≠ 字符串相等 |
+| F39 | **`subagents.interrupt(target, authority)` 的 user 权威必须带 `parentSessionId`**：平台校验 `child.header.parentSession === authority.parentSessionId`，不给就 `UNAUTHORIZED`；`authority.kind==='ancestor'` 则要求 `authority.agent`；且 `activation === undefined` 时静默返回（不抛） | `dsh-subagent/lib/index.js:853`；实测 `--subagent` 首跑 `stopped.subagents` 为空、异常只落在日志里 | 停 run 的打断调用必须构造完整权威；**并且把异常带回回执**，否则「没打断」和「打断失败」在调用方看是一样的 |
+| F40 | **平台 cancel 父会话会把子激活摘出活动会话列表**：先 cancel 再 `sessions.list()` 过滤 `parentSession` → 恒为空 | 实测：`session.children` 能找到子会话，同一进程里 cancel 之后再取 → 0 个；改为 cancel 前取名单后逐个打断即通过 | 「停 run」的正确顺序是 **先取子 Agent 名单 → cancel 父 → 逐个 interrupt**；顺序错了就是静默不打断 |
+| F37 | `dsh web` 是 `--profile web` 的**别名**，不接受父级 `--profile`（报 `web takes none of parent --profile …`） | 隔离探针实测：`dsh --profile awf-probe web --port …` 失败；`dsh --profile awf-probe --port … --no-open` 成功 | 自定义 profile 的启动方式必须写成 `dsh --profile <name> <app 旗标>`；探针 `serve.sh` 已按此修 |
 
 ---
 
@@ -597,6 +1039,20 @@ P1 六项全部收口；每个提交都满足硬门槛：`npm test` 全绿 + `np
 
 | 日期 | 变更 |
 |---|---|
+| 2026-09-19 | **P2 收口（P2-6e/6f + V01～V12 映射）**：子 Agent 停止链路真机打通（先取名单→cancel 父→逐个打断；权威补 `parentSessionId`；停止回执不再被吞）、会话身份按 realpath 规范化（F38）、`awf attach` 在 DSH 下经 server `/probe` 拿到会话地址（跨进程，CLI 没有 bridge）、`awf init` 把解析到的平台记进 `.awf/config.json`（并修掉 CLI 装配路径吞掉 `CC_ADAPTER` 的缺陷）。七个命令真机状态：`init`/`run`/`plugin`/`attach` ✅，`plan`/`server`/`open` 🟡；V03/V08 完整通过，其余缺口按 P3/P4 归档。详见 §2.18 |
+| 2026-09-19 | **P2-6d 完成（双项目隔离真实验收）**：适配器给每条指令补 `projectRoot`（进程级共享通道的必需项；首跑因漏它导致两项目打到同一会话，实测抓到并修）。`--two-projects` 实测：A→`0.2.0\|T-A`、B→`9.9.9\|T-B` 各读各的、互不串，停 A 不影响 B。详见 §2.17 |
+| 2026-09-19 | **P2-6c 完成（CLI 装配路径可用）**：新增 `server/adapters/dsh/install.cjs`（profile patch 标记块 + 包拷贝 + 备份 + 幂等 + 精准卸载），`awf plugin install/uninstall` 在 DSH 项目上分支到它；适配器支持无 bridge 构造（CLI 侧只需工具面）。真 CLI + 真 `dsh --dump-config` 验证：装→DSH 承认、卸→DSH 不再认、用户内容始终保留。详见 §2.16 |
+| 2026-09-19 | **P2-6b 完成（P2 出口「单任务 run」真实跑通）**：平台事件→会话态接线（session.ready → run.phase:READY；runtime 作为 CC /hook 的 DSH 等价物）、CLI bringUp 平台感知。实测 `--run`：**run=done T1=done**。首跑打到 **P1 回归**（executor 结算循环用了已被删掉的 `sleep`，CC 真实路径同样受影响）→ 已修复 + 新增真实 executor 的回归护栏。详见 §2.15 |
+| 2026-09-19 | **P2-6a 完成（dsh 转 factory）**：入口注入 `adapterDeps.bridge`（adapters 不反向依赖 web）、probe 工厂回落、DSH tools 显式抛错；`--runtime` 实测「项目配置 → 解析 dsh → 适配器 → bridge → 插件」整条：adapter=dsh、session.start 建出真会话、probe.inspect=ready、kill。真实 home `IDENTICAL`。详见 §2.14 |
+| 2026-09-19 | **P2-5f 完成**：`plan.launch`（共用 createSession 配方 + 注入规划指令 + 网页 URL）与 `llm.oneshot`（平台 createUserMessage 形状、只认 text-delta、空文本明确失败）双双真实跑通；`plugin.*` 归属澄清为 CLI 侧。真实 home `IDENTICAL`。详见 §2.13 |
+| 2026-09-19 | **P2-5e（第一段）完成**：实现 `session.snapshot`（最后一条 assistant/message 的 text 块，可截断、无内容不编），实测拿回模型真实输出。**U16 取证改变做法**：workspace-write 下项目内 bash **零批准请求** → 「项目内自动批准」已由沙箱满足，无需额外规则；保持「只记录+委派」即可（项目外 fail closed），且同时修正了 F34 的解读。真实 home `IDENTICAL`。详见 §2.12 |
+| 2026-09-19 | **P2-5d 完成（P2 核心出口打通）**：`session.create` 改走 `agents.create` + **发布前 setup** 里 ① installModelSelection ② agentPresets.mount ③ 挂项目 MCP（`agentCtx.plugin(McpClient,…)`）；新增 `session.tools` 诊断。真派一轮模型实测：20 个 `mcp__awf-state__*` 进可见工具表，模型调用后 **磁盘 state.json 的 T1.status=done**（真落账）。真实 home `IDENTICAL`。快照/批准规则/装配/plan 入口留 P2-5e。详见 §2.11 |
+| 2026-09-19 | **P2-5c 完成（真实运行 + 真派一轮模型）**：实现 `session.prompt`（`prompt(request, signal)`，F26 第二位置参数；requestId=commandId 去重）与回合边界上报（`ctx.on('session/event')` 捕 turn/start|end → turn.started / session.ready）。实跑观测到 **「平台已受理」与「回合结束」分开**：accepted=true 后 events = turn.started → prompt.submitted → session.ready，facts.ready 复位为 true；真实 home `IDENTICAL`。挂 MCP/快照/落账那段留 P2-5d。详见 §2.10 |
+| 2026-09-19 | **P2-5b（第一段）完成（真实运行，未派模型）**：插件侧实现 `session.create`（`sessionController.create` → preset=standard 建出真会话）/ `session.interrupt`（cancel，keepInbox）/ `session.stop`（cancel + 逐个 `subagents.interrupt`，不删会话）；U16 批准应答者先按「只记录 + 委派」接线并上报事实。roundtrip 扩到 7 步全绿，真实 `~/.dsh` `IDENTICAL`。派模型那一段与 prompt/snapshot/挂 MCP 留 P2-5c。详见 §2.9 |
+| 2026-09-19 | **P2-5a 完成（AWF ↔ DSH 插件 指令通道真实链路）**：新增生产插件 `dsh-plugin/`（Cordis host 半侧：先 accepted 再 result / 断线重连不重放 / 事件上行 / 未实现 op 显式失败）+ 真实链路夹具 `scripts/probe/dsh/roundtrip.cjs`。实跑证据：隔离 AWF（临时项目）+ 隔离 DSH 下 `session.facts` → `delivery=accepted, ok=true`（facts 来自平台真实现场），未实现 op → `accepted + ok=false`（错误路径不静默），真实 `~/.dsh` 配置面 `IDENTICAL`。建会话/派发/落账仍属 P2-5b（尚未派模型）。详见 §2.8 |
+| 2026-09-19 | **P2-4 完成（AWF 侧适配器 + 指令通道，替身级验证）**：`server/adapters/dsh/bridge.cjs`（三种送达结论 + ack/result 两段窗口 + 断开不重发）、`dsh/index.cjs`（7 端口；cc 机制方法显式 unsupported）、`server/web/bridge-channel.cjs`（WS `/bridge/dsh` + `POST /bridge/dsh/callback`）、`REQUIRED_PORT_METHODS` 收窄为平台无关面、conformance 判据改为「有工厂」并把「未落地必须显式拒绝」纳入门禁。`dsh` **仍 not-landed**（插件半侧待 P2-5），`npm test` 113/113、1105/1105。详见 §2.7 |
+| 2026-09-19 | **P2-3 完成（隔离探针重建）**：夹具改放 `scripts/probe/dsh/` 并**纳入 git**（P0 那份在 `.awf/probe/` 被 gitignore，换机丢了）；env/guard/install-fixture/serve + 探针插件 host 半侧全部可用。真实运行证据：隔离 home 起静默后台（39081），`/api/awf-probe/ping` 200，实验后真实 `~/.dsh` 配置面 `IDENTICAL`。**新增 F36**（插件注册的路由不受 dsh 浏览器信任栅栏保护：同实例 `/`=401 而 `/api/awf-probe/ping`=200 → Web→AWF 入口必须自做鉴权）与 **F37**（`dsh web` 是 `--profile web` 别名，自定义 profile 必须 `dsh --profile X <app 旗标>`）。详见 §2.6 |
+| 2026-09-19 | **P2 启动**：P2-1 完成 C30 状态读取边界（`awf_read_state` 缺省摘要 / `full:true` 全量 / 未知参数报错；400 任务摘要 <5KB vs 全量 346KB，提交 `2b9b70f`）。P2-2 完成**前置源码核对**（§2.5）：确认批准应答者缝与预设表；**发现 U16 记录的落地机制与 0.1.5-rc.2 源码不符**（workspace-write 的 approval 是 `ask` 而非 `never`；`never` 是自动拒绝），已回报并给出候选路线（清单 U16 更正节 / 接续文档 §6）。本机可执行 `dsh` = 0.1.5-rc.1、真实 `~/.dsh` 有运行中的 web、隔离探针 home 与 `.awf/probe/` 均已丢失 → 下一步 P2-3 重建探针 |
 | 2026-09-19 | **P1 全部完成（T-P1-01～06，6 个提交）**：按项目解析适配器平台、`shapes` 去 CLI 化、`ctx.host` 能力化与 `sendPrompt` 节奏下沉、`session` 端口转正（7 端口全收口）、编排模板迁入 server（模板/平台参数分离 + golden 守卫）、conformance 套件 + 必填方法自检、`run -r` 最小挂接。每步 `npm test`/`check:arch`/`check:capability`/`lint` 全绿；调度算法与 DSH 适配器均未动（后者属 P2）。详见 §2.4 |
 | 2026-09-18 | 建立本文件；登记 T-P0-01～T-P0-14、P1～P4 边界；完成 E-01（隔离环境+版本基线）；E-02 启动；累积 F01～F12 静态发现 |
 | 2026-09-18 | **E-02 完成并验证通过**：第三方插件 host/client 两半侧均真实加载（HTTP 往返 200 + boot graph 含自研 bundle）；累积 F13～F17；E-03 启动 |

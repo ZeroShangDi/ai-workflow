@@ -73,6 +73,43 @@ function textResult(obj) {
   return { content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] };
 }
 
+// ── awf_read_state 的读边界（C30 / E-10）──────────────────────────────────
+// 为什么：默认返回整份 state，体积随任务数线性膨胀。实测 400 任务 = 346KB 文本，
+// 在 DSH 的 maxInlineBytes(50000) 下会以「落盘文件路径」形式进模型上下文 ——
+// 模型看不到内容却以为读到了。此前 `summary:true` 是**静默忽略**的参数（同样回全量），
+// 更糟：调用方以为收敛了。现在缺省只回摘要，全量必须显式 `full:true`，
+// 且参数拼错**报错**而不是静默忽略（U6「明确失败」）。
+const READ_STATE_ARGS = Object.freeze(['taskId', 'summary', 'full']);
+
+/**
+ * 摘要视图：只回编排决策真正需要的小字段。
+ * 取舍：给 `pendingIds` 而不是 pending 任务全文 —— 收尾协商要知道「还有哪些没做完」，
+ * 但任务 prompt 可能很长；要正文/exec 就按 id 单查（`awf_read_state({taskId})`）。
+ * @param {object} s state.json 内容
+ */
+function summarizeState(s) {
+  const tasks = Array.isArray(s.tasks) ? s.tasks : [];
+  const byStatus = {};
+  for (const t of tasks) {
+    const st = (t && t.status) || 'unknown';
+    byStatus[st] = (byStatus[st] || 0) + 1;
+  }
+  const brief = (t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status });
+  return {
+    version: s.version,
+    mode: s.mode,
+    currentState: s.currentState,
+    lastUpdated: s.lastUpdated,
+    plan: s.plan ? { summary: s.plan.summary, milestone: s.plan.milestone } : null,
+    counts: { total: tasks.length, byStatus },
+    active: tasks.filter((t) => t.status === 'active').map(brief),
+    blocked: tasks.filter((t) => t.status === 'blocked').map(brief),
+    pendingIds: tasks.filter((t) => t.status === 'pending').map((t) => t.id),
+    milestones: Array.isArray(s.milestones) ? s.milestones.length : 0,
+    hint: '这是摘要。整份 state 用 awf_read_state({full:true})；单个任务详情用 awf_read_state({taskId})',
+  };
+}
+
 // ---- T1-077：server run api 单写者模式（env CC_AWF_STATE_SERVER=1 启用）----
 // 基础 CRUD 语义仍由本 MCP 判定/mutate；仅读/写边界经 server：读 GET /awf/state、写 POST
 // /run/state/apply（server 以 state.js 锁 + 原子落盘，MCP 不再直写文件/自持锁）。缺省关 →
@@ -159,11 +196,13 @@ function resultFailed(result) {
 const TOOLS = [
   {
     name: 'awf_read_state',
-    description: '读取工作流状态。不传 taskId → 返回完整 state.json；传 taskId → 只返回该任务完整详情（含 status/exec/commits）。判断任务状态或 exec 时用 taskId 单查，避免全量读取',
+    description: '读取工作流状态。缺省返回**摘要**（version/mode/plan 摘要/任务计数/active+blocked/pending 任务 id，避免把整份 state 灌进上下文）；要看某个任务详情传 taskId；要整份 state 传 full:true（大项目可能数百 KB）。参数拼错会报错，不会被静默忽略',
     inputSchema: {
       type: 'object',
       properties: {
-        taskId: { type: 'string', description: '任务 ID，如 T1。传了则只返回该任务详情' },
+        taskId: { type: 'string', description: '任务 ID，如 T1。传了则只返回该任务完整详情（含 status/exec/commits）' },
+        full: { type: 'boolean', description: 'true → 返回完整 state.json（缺省 false；与 summary 互斥）' },
+        summary: { type: 'boolean', description: 'true → 显式要摘要（与缺省行为相同，与 full 互斥）' },
       },
       required: [],
     },
@@ -516,13 +555,25 @@ const handlers = {
     try {
       // special: read-only
       if (name === 'awf_read_state') {
+        // 未知参数报错（此前 `summary:true` 被静默忽略 → 调用方以为已收敛，实际拿到 346KB 全量）
+        const unknown = Object.keys(args || {}).filter((k) => !READ_STATE_ARGS.includes(k));
+        if (unknown.length > 0) {
+          return textResult({
+            ok: false,
+            error: `unknown argument(s): ${unknown.join(', ')}（awf_read_state 支持 ${READ_STATE_ARGS.join(' / ')}）`,
+          });
+        }
+        if (args?.full === true && args?.summary === true) {
+          return textResult({ ok: false, error: 'full 与 summary 互斥：只能显式选一个（或缺省即摘要）' });
+        }
         const s = SERVER_MODE ? await readStateServer() : readState();
         if (args?.taskId) {
           const t = (s.tasks || []).find((x) => x.id == args.taskId);
           if (!t) return textResult({ ok: false, error: `task ${args.taskId} not found` });
           return textResult(t);
         }
-        return textResult(s);
+        if (args?.full === true) return textResult(s);
+        return textResult(summarizeState(s));
       }
 
       // 动态规划是 server 完整能力；MCP 只保留薄协议入口，不在本进程复制业务语义。

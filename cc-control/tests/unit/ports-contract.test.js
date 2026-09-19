@@ -174,16 +174,24 @@ describe('按项目解析平台（T-P1-01 / C01）', () => {
     expect(() => resolveProjectAdapters(root, { env: {} })).toThrow(/未知平台/);
   });
 
-  it('已登记但未落地的平台（dsh）→ 报错且点名责任任务', () => {
+  it('dsh 已落地：解析成功且装配选项（bridge）透传到平台工厂', () => {
     const root = makeProject({ runtime: { adapter: 'dsh' } });
     expect(resolveAdapterName(root, { env: {} })).toBe('dsh');
-    expect(() => resolveProjectAdapters(root, { env: {} })).toThrow(/尚未落地.*T-P2-01/);
+    const bridge = { connected: () => true, request: async () => ({ delivery: 'accepted', ok: true, result: {} }) };
+    const resolved = resolveProjectAdapters(root, { env: {}, bridge });
+    expect(resolved.name).toBe('dsh');
+    expect(typeof resolved.ports.session.start).toBe('function');
+    // DSH 的装配端口是「装进 profile」（参数形状与 cc 不同，CLI 按平台分支调用）
+    expect(typeof resolved.tools.profile.installProfile).toBe('function');
+    expect(typeof resolved.tools.profile.resolveDshHome).toBe('function');
+    // cc 形状的项目资产在 DSH 侧显式抛错（不是 undefined is not a function）
+    expect(() => resolved.tools.settings.generateRunSettings()).toThrow(/没有 cc 形状的项目资产工具/);
   });
 
-  it('注册表自检：未落地平台缺 note/responsible 即抛错', () => {
+  it('注册表自检：未落地平台缺 note/responsible 即抛错（机制保留）', () => {
     expect(assertAdapterRegistry()).toBe(true);
     expect(ADAPTER_NAMES).toContain('cc');
-    expect(ADAPTER_PLATFORMS.dsh.status).toBe('not-landed');
+    expect(ADAPTER_PLATFORMS.dsh.status).toBe('factory');
     expect(() => assertAdapterRegistry({ x: { status: 'not-landed' } })).toThrow(/note \+ responsible/);
     expect(() => assertAdapterRegistry({ x: { status: 'factory' } })).toThrow(/没有 create/);
   });

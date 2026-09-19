@@ -12,6 +12,7 @@
 
 const { createProjectRegistry } = require('./runtime/registry.cjs');
 const { createApi } = require('./web/api/index.cjs');
+const bridgeChannel = require('./web/bridge-channel.cjs'); // DSH 指令通道（入口层注入给适配器）
 const { createBootstrap } = require('./runtime/lifecycle.cjs');
 
 // ── 测试注入缝（生产环境不设置 → 一律回落真实实现）──
@@ -26,7 +27,9 @@ const RunLogger = global.__CC_RUNLOGGER__?.RunLogger || undefined;
 const injectedOneshot = global.__CC_ONESHOT__ || undefined;
 
 // ── 装配：三块按依赖顺序串起来 ──
-const registry = createProjectRegistry({ env: process.env, hostFactory, RunLogger }); // ① 注册表（构造即预置 boot runtime）
+// adapterDeps：平台工厂的额外依赖。**由入口注入**（entry → web + runtime），adapters 本身不反向依赖 web。
+const adapterDeps = { bridge: bridgeChannel.channel() };
+const registry = createProjectRegistry({ env: process.env, hostFactory, RunLogger, adapterDeps }); // ① 注册表（构造即预置 boot runtime）
 const BOOT = () => registry.runtimeFor(registry.bootRoot);    // 取 boot 项目 runtime 的简写
 const PORT = BOOT().ctx.port;                                 // ② 端口来自 boot 上下文（runtime-config）
 

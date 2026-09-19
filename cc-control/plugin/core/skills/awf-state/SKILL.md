@@ -14,7 +14,7 @@ description: >
 
 | Tool | 用途 |
 |------|------|
-| `awf_read_state` | 读取状态（默认完整 state；判断任务状态/exec 时传 `taskId` 单查） |
+| `awf_read_state` | 读取状态（**缺省摘要**：mode/plan 摘要/任务计数/active+blocked/pending ids；任务详情传 `taskId`；整份传 `full:true`） |
 | `awf_task_status` | 更新任务状态（pending/active/done/blocked） |
 | `awf_dynamic_plan` | 运行期提交局部动态规划 proposal，由 server 处理影响与副作用 |
 | `awf_dynamic_plan_status` | 查询动态规划 proposal 状态和分析结果 |
@@ -38,7 +38,7 @@ description: >
 
 - state.json 只能通过 MCP tools 修改，禁止直接文件读写
 - 每个 tool 有明确的写入范围和校验规则
-- 判断任务状态或 exec 时，用 `awf_read_state` 传 `taskId` 单查该任务，不要全量读取整个 state.json
+- 判断任务状态或 exec 时，用 `awf_read_state` 传 `taskId` 单查该任务；**缺省已是摘要**，不要习惯性要全量（整份用 `full:true`，400 任务时可达数百 KB，会以文件路径形式进上下文）
 - plan/idle 阶段可用 `awf_task_create({ prerequisiteFor: targetId, ... })`；运行中发现新的前置工作必须提交 `awf_dynamic_plan`，禁止先 append 再单独更新目标 deps
 - active 目标不会被系统自动撤销；先由人决定如何停止/重派，再把目标恢复为 pending 后插入前置任务
 - run/pause 阶段禁止用 `awf_task_create/update/delete` 拼接结构变更，统一调用 `awf_dynamic_plan`

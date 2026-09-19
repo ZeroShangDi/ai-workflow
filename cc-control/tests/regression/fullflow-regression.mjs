@@ -1431,7 +1431,8 @@ async function caseDynamicPlanning() {
   });
 
   // 0) MCP 确实在 server 模式并读到本项目 state —— 否则后面所有断言都测不到边界
-  const read0 = await mcp.call('awf_read_state', {});
+  //    （显式 full:true：缺省已是摘要，见 C30 读边界）
+  const read0 = await mcp.call('awf_read_state', { full: true });
   const read0Ids = (read0.parsed?.tasks || []).map((t) => t.id);
   const readyBeforePropose = peekReadyTasks(readStateSafe(projectRoot)).map((t) => t.id);
 
@@ -1469,7 +1470,7 @@ async function caseDynamicPlanning() {
   const idsAfterApprove = (stateAfterApprove?.tasks || []).map((t) => t.id);
   const t2AfterApprove = (stateAfterApprove?.tasks || []).find((t) => t.id === 'T2');
   const readyAfterApprove = peekReadyTasks(stateAfterApprove).map((t) => t.id);
-  const readApplied = await mcp.call('awf_read_state', {});
+  const readApplied = await mcp.call('awf_read_state', { full: true });
   const readAppliedIds = (readApplied.parsed?.tasks || []).map((t) => t.id);
   const readAppliedT2 = (readApplied.parsed?.tasks || []).find((t) => t.id === 'T2');
 

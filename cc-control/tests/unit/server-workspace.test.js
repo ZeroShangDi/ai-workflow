@@ -70,3 +70,48 @@ describe('server · 项目工作区（workspace）', () => {
     expect(r).toMatchObject({ created: false, dirs: 0, files: [], state: false });
   });
 });
+
+// T-P2-02 收口：init 按**解析到的平台**装资产（DSH 装 profile 插件），模板缺省却写 cc。
+// 不记就会得到「资产按 dsh 装、项目解析成 cc」——干净项目上 `CC_ADAPTER=dsh awf init` 真机踩到过。
+describe('server · 工作区记录平台（runtime.adapter）', () => {
+  const cfg = () => JSON.parse(fs.readFileSync(awf('config.json'), 'utf8'));
+
+  it('播种时写入解析到的平台（覆盖模板缺省的 cc）', () => {
+    const r = initWorkspace(root, { adapter: 'dsh' });
+    expect(cfg().runtime.adapter).toBe('dsh');
+    expect(r.adapter).toMatchObject({ changed: true, adapter: 'dsh', previous: 'cc' });
+    expect(r.files).toContain('config.json(runtime.adapter)'); // 回执可见，不静默改用户文件
+  });
+
+  it('已是该平台 → 不写文件、回执说明', () => {
+    initWorkspace(root, { adapter: 'dsh' });
+    const before = fs.readFileSync(awf('config.json'), 'utf8');
+    const r = initWorkspace(root, { force: true, adapter: 'dsh' });
+    expect(r.adapter).toMatchObject({ changed: false, reason: '已记录该平台' });
+    expect(fs.readFileSync(awf('config.json'), 'utf8')).toBe(before);
+  });
+
+  it('已显式记了别的平台 → 不覆盖用户选择（目录已在时只补缺失字段）', () => {
+    fs.mkdirSync(awf(), { recursive: true });
+    fs.writeFileSync(awf('config.json'), JSON.stringify({ runtime: { adapter: 'cc' } }));
+    const r = initWorkspace(root, { adapter: 'dsh' });
+    expect(cfg().runtime.adapter).toBe('cc');
+    expect(r.adapter).toMatchObject({ changed: false, previous: 'cc' });
+    expect(r.adapter.reason).toContain('不覆盖');
+  });
+
+  it('已有项目但缺 runtime.adapter → 补记（否则项目解析回 cc）', () => {
+    fs.mkdirSync(awf(), { recursive: true });
+    fs.writeFileSync(awf('config.json'), JSON.stringify({ run: { agents: { max: 3 } } }));
+    const r = initWorkspace(root, { adapter: 'dsh' });
+    expect(cfg().runtime.adapter).toBe('dsh');
+    expect(cfg().run.agents.max).toBe(3); // 其余字段原样保留
+    expect(r.adapter).toMatchObject({ changed: true, previous: null });
+  });
+
+  it('不传 adapter → 完全不动 config.json（缺省路径零行为变化）', () => {
+    const r = initWorkspace(root);
+    expect(cfg().runtime.adapter).toBe('cc');
+    expect(r.adapter).toBe(null);
+  });
+});

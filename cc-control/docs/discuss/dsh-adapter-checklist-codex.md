@@ -768,6 +768,18 @@ U4 的空页面不等于完成业务 UI：后续逐页设计仍需用户指导�
 **落地机制（已定位）**：`ctx.permissionPresets.set(session, 'workspace-write')` —— 该预设 = `sandbox: workspace-write` + `approval: never`，
 按会话生效（`dsh-permission-presets/lib/index.js` 的 `set/apply`）。**待 P2 接线并实测消除 `approval/asked`。**
 
+> **落地机制更正（2026-09-19，P2 前置源码核对）**：上面这条「预设 = workspace-write + approval never」**与 0.1.5-rc.2 源码不符**：
+> 默认预设表里 `workspace-write` 的 approval 是 **`ask`**，只有 `danger-full-access` 才是 `never`
+> （`dsh-permission-presets/lib/index.js:80-90`）；且 approval 策略只有 `ask` / `never` 两个取值，`never` 在应答者之前
+> 短路为 `'rejected'` —— **`never` 是自动拒绝，不是自动批准**（`dsh-user-approval/lib/index.js:37,74,178`）。
+> 因此原记录的接线**不会消除 F34 的卡死**，改用 `danger-full-access` 又会同时失去沙箱，与「项目外仍需人工」相悖。
+>
+> **用户已确认的语义不变**（受控自动批准：AWF 创建的会话在项目范围内自动批准、范围外仍需人工）；变的只是实现路径：
+> 用平台原生的**批准应答者缝** —— 会话保持 `workspace-write` 预设，插件在 AWF 创建的 agent 作用域内注册
+> `ctx.on('approval/request', …)`，范围内回 `'allowed-once'`、范围外 `next()` 委派给 UI/人工
+> （`dsh-user-approval/lib/index.js:175-192`；应答者按 agent 作用域分发，取值见 `dsh-scope/lib/invariant.js:23`）。
+> 详见执行记录 §2.5 B/C；**待 P2-5 真机实测确认消除 `approval/asked`**。
+
 ### U17 上下文清空（C15）的等价语义【已确认】【单选】
 
 **实测**：DSH 0.1.5-rc.2 无 in-place 清空会话上下文的能力（`fork` 非清空、`compaction` 腾窗口但不删历史、`inbox` 只清排队）。

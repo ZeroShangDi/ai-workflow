@@ -10,7 +10,7 @@
  * 「.awf/ 建成什么样」不在这里 —— 那是 `shared/workspace.cjs` 的事（它拥有工作区形状）。
  */
 
-const { resolveProjectAdapters } = require('../../server/adapters/ports.cjs');
+const { resolveProjectAdapters, resolveAdapterName } = require('../../server/adapters/ports.cjs');
 const { initWorkspace } = require('../../server/shared/workspace.cjs');
 const { pluginCommand } = require('./plugin.cjs');
 
@@ -36,7 +36,11 @@ async function initCommand(options = {}) {
 
   await pluginCommand('install', { scope: 'local' });
 
-  const r = initWorkspace(projectRoot, { force: options.force });
+  // 平台要**记进项目**：init 按当前解析到的平台装资产（DSH 装 profile 插件），
+  // 模板缺省却是 cc —— 不记就会得到「资产按 dsh 装、项目解析成 cc」（T-P2-02 收口）。
+  const adapterName = resolveAdapterName(projectRoot);
+  const r = initWorkspace(projectRoot, { force: options.force, adapter: adapterName });
+  if (r.adapter) console.log(`  平台：${adapterName}${r.adapter.changed ? `（已记入 .awf/config.json：${r.adapter.reason}）` : `（${r.adapter.reason}）`}`);
   if (r.created) console.log(`已创建 .awf/（${r.dirs} 个目录）`);
   else if (!options.force) console.log('.awf/ 已存在（用 --force 补全缺失文件）');
   if (r.files.length) console.log(`已播模板：${r.files.join(', ')}`);

@@ -74,6 +74,27 @@ function seedState(projectRoot) {
 }
 
 /**
+ * 把**解析到的平台**记进 `.awf/config.json` 的 `runtime.adapter`（T-P2-02 收口）。
+ * 为什么 init 必须记：模板缺省写的是 `cc`，而 `awf init` 是按当前解析到的平台装的资产
+ * （DSH 会装 profile 插件）——不记就会得到「资产按 dsh 装、项目却解析成 cc」的定时炸弹。
+ * 已有显式值时**不覆盖**（用户选择优先），只在缺失时补记。
+ * @returns {{changed: boolean, adapter: string, previous: string|null, reason: string}}
+ */
+function applyAdapter(projectRoot, adapter, { onlyIfMissing = false } = {}) {
+  const file = path.join(awfDir(projectRoot), 'config.json');
+  let cfg;
+  try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { return { changed: false, adapter, previous: null, reason: 'config.json 缺失或不是 JSON（跳过）' }; }
+  cfg.runtime = cfg.runtime ?? {};
+  const previous = cfg.runtime.adapter ?? null;
+  if (previous === adapter) return { changed: false, adapter, previous, reason: '已记录该平台' };
+  if (onlyIfMissing && previous) return { changed: false, adapter, previous, reason: `已显式记 ${previous}（不覆盖用户选择）` };
+  cfg.runtime.adapter = adapter;
+  fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
+  return { changed: true, adapter, previous, reason: previous ? `由 ${previous} 改为` : '原本缺 runtime.adapter，已补记' };
+}
+
+/**
  * 建工作区骨架并播模板。
  * 幂等：已存在的目录跳过、**已存在的文件绝不覆盖**（用户改过的 README/config 不动）。
  * @param {string} projectRoot
@@ -81,10 +102,12 @@ function seedState(projectRoot) {
  *   force   目录已存在时也执行补全（补缺失文件）
  * @returns {{ created: boolean, dirs: number, files: string[], state: boolean }}
  */
-function initWorkspace(projectRoot, { force = false, version } = {}) {
+function initWorkspace(projectRoot, { force = false, version, adapter } = {}) {
   const root = awfDir(projectRoot);
   const existed = fs.existsSync(root);
-  if (existed && !force) return { created: false, dirs: 0, files: [], state: false };
+  // 目录已在时：这一步也可能带回执（只补记缺失的 runtime.adapter），不能因为提前返回就跳过
+  const adapterNote = adapter ? applyAdapter(projectRoot, adapter, { onlyIfMissing: existed }) : null;
+  if (existed && !force) return { created: false, dirs: 0, files: [], state: false, adapter: adapterNote };
 
   fs.mkdirSync(root, { recursive: true });
   for (const dir of WORKSPACE_DIRS) fs.mkdirSync(path.join(root, dir), { recursive: true });
@@ -100,7 +123,13 @@ function initWorkspace(projectRoot, { force = false, version } = {}) {
 
   const state = seedState(projectRoot);
   replaceVersionInDir(root, version);
-  return { created: !existed, dirs: WORKSPACE_DIRS.length, files, state };
+  // 刚播种的 config.json 里带的是模板缺省 `cc`：解析到的平台才是真相，改回来
+  if (adapter && !existed) {
+    const seeded = applyAdapter(projectRoot, adapter, { onlyIfMissing: false });
+    if (seeded.changed) files.push('config.json(runtime.adapter)');
+    return { created: true, dirs: WORKSPACE_DIRS.length, files, state, adapter: seeded };
+  }
+  return { created: !existed, dirs: WORKSPACE_DIRS.length, files, state, adapter: adapterNote };
 }
 
-module.exports = { initWorkspace, readTemplate, templatesDir, WORKSPACE_DIRS, TEMPLATE_FILES };
+module.exports = { initWorkspace, applyAdapter, readTemplate, templatesDir, WORKSPACE_DIRS, TEMPLATE_FILES };

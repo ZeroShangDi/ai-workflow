@@ -66,7 +66,11 @@
 | TC27 | initialize 协议握手（protocolVersion/capabilities/serverInfo） | 协议 |
 | TC28 | tools/list 返回 **18** 个 tools | 协议 |
 | TC30 | 未知 method → -32601 | 协议 |
-| TC11 | awf_read_state 返回完整 state，且 state 不变 | 正常 |
+| TC11 | awf_read_state 缺省返回**摘要**（counts/pendingIds/active，无 tasks 正文），且 state 不变 | 正常 |
+| TC11b | awf_read_state `full:true` → 完整 state | 正常 |
+| TC11c | awf_read_state 未知参数（如 `taskID` 拼错）→ `ok:false` + `unknown argument(s)` | 异常 |
+| TC11g | awf_read_state `full` 与 `summary` 同时给 → `ok:false`（互斥） | 异常 |
+| TC11h | awf_read_state 400 任务：摘要 < 5KB 而全量 > 100KB（E-10 读边界） | 边界 |
 | TC11d | awf_read_state 传 taskId → 只返回该任务详情 | 正常 |
 | TC11e | awf_read_state 传不存在 taskId → ok:false | 异常 |
 | TC12 | awf_task_status：pending → active，写 `exec.startedAt`，刷新 lastUpdated | 正常 |

@@ -325,3 +325,52 @@ describe('边角路由', () => {
     expect(['awaiting_approval', 'applied_review_pending']).toContain(r.body.proposal.status);
   });
 });
+
+// ── DSH 桥回传入口（P2-4）──
+// 与项目无关（一个 DSH 后台服务多项目），故**不需要 ?p**；未知 commandId 明确回 consumed:false，
+// 不假装成功（迟到/重启前的回报必须看得见）。
+describe('DSH 桥：/bridge/dsh/callback', () => {
+  const bridgeChannel = require('../../server/web/bridge-channel.cjs');
+
+  afterAll(() => { bridgeChannel.reset(); });
+
+  it('未知 commandId → 200 + consumed:false（且不需 ?p）', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/bridge/dsh/callback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commandId: 'ghost', phase: 'result', ok: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, consumed: false });
+  });
+
+  it('在途指令的 accepted 回报被消费 → consumed:true', async () => {
+    // 造一条在途指令：先接上假 socket，再发一条指令拿到 commandId
+    const frames = [];
+    bridgeChannel.attachSocket({ destroyed: false, writable: true, write: (b) => { frames.push(Buffer.from(b)); return true; } });
+    const pending = bridgeChannel.channel().request('session.facts', {});
+    const { parseFrameHeader } = require('../../server/web/ws.cjs');
+    const buf = frames[0];
+    const h = parseFrameHeader(buf);
+    const cmd = JSON.parse(buf.slice(h.headerLen, h.headerLen + h.payloadLen).toString('utf8'));
+
+    const post = (body) => fetch(`http://127.0.0.1:${port}/bridge/dsh/callback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    expect(await (await post({ commandId: cmd.commandId, phase: 'accepted' })).json()).toEqual({ ok: true, consumed: true });
+    expect(await (await post({ commandId: cmd.commandId, phase: 'result', ok: true, result: {} })).json()).toEqual({ ok: true, consumed: true });
+    await expect(pending).resolves.toMatchObject({ delivery: 'accepted', ok: true }); // 收尾，不留悬挂定时器
+  });
+
+  it('非对象 body → 400', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/bridge/dsh/callback`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '"nope"',
+    });
+    expect(res.status).toBe(400);
+  });
+});

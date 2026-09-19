@@ -155,15 +155,67 @@ describe('awf-state MCP Server — JSON-RPC protocol', () => {
 
   // ── read ──
 
-  it('TC11: awf_read_state 返回完整 state', async () => {
+  it('TC11: awf_read_state 缺省返回**摘要**（C30 读边界），且 state 不变', async () => {
     const before = readState(tmpDir);
     const res = await client.callTool('awf_read_state');
 
     expect(res.mode).toBe('idle');
     expect(res.version).toBe('0.1.0');
-    expect(res.tasks).toHaveLength(2);
+    expect(res.counts).toEqual({ total: 2, byStatus: { pending: 2 } });
+    expect(res.pendingIds).toEqual(['T1', 'T2']);
+    expect(res.active).toEqual([]);
+    // 摘要不携带任务正文（那正是体积来源）
+    expect(res.tasks).toBeUndefined();
+    expect(res.hint).toContain('full:true');
     // read-only: state 不变
     expect(readState(tmpDir)).toEqual(before);
+  });
+
+  it('TC11b: full:true → 完整 state（唯一拿全量的方式）', async () => {
+    const res = await client.callTool('awf_read_state', { full: true });
+
+    expect(res.tasks).toHaveLength(2);
+    expect(res.tasks[0].prompt).toBe('p1');
+    expect(res.mode).toBe('idle');
+  });
+
+  it('TC11c: 未知参数**报错**（此前 summary:true 被静默忽略，回的是 346KB 全量）', async () => {
+    const res = await client.callTool('awf_read_state', { taskID: 'T1' }); // 大小写拼错
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('taskID');
+    expect(res.error).toContain('taskId');
+  });
+
+  it('TC11g: full 与 summary 互斥 → 明确报错', async () => {
+    const res = await client.callTool('awf_read_state', { full: true, summary: true });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('互斥');
+  });
+
+  it('TC11h: 摘要远小于全量（400 任务的 state：E-10 实测口径）', async () => {
+    const many = [];
+    for (let i = 0; i < 400; i += 1) {
+      many.push({
+        id: `T${i}`,
+        title: `任务 ${i}`,
+        kind: 'dev',
+        status: i < 2 ? 'active' : (i < 5 ? 'blocked' : 'pending'),
+        prompt: `很长的执行提示词 ${'x'.repeat(400)}`,
+        deps: [], plannedFiles: [`src/f${i}.js`], acceptance: null,
+      });
+    }
+    writeState(tmpDir, { ...baseState(), tasks: many });
+    const full = await client.callTool('awf_read_state', { full: true });
+    const summary = await client.callTool('awf_read_state');
+    const fullBytes = Buffer.byteLength(JSON.stringify(full));
+    const summaryBytes = Buffer.byteLength(JSON.stringify(summary));
+
+    expect(fullBytes).toBeGreaterThan(100000);
+    expect(summaryBytes).toBeLessThan(5000); // DSH maxInlineBytes(50000) 之下，不会被 spill 成文件路径
+    expect(summary.counts.total).toBe(400);
+    expect(summary.active.map((t) => t.id)).toEqual(['T0', 'T1']);
+    expect(summary.blocked).toHaveLength(3);
+    expect(summary.pendingIds).toHaveLength(395);
   });
 
   it('TC11d: awf_read_state 传 taskId → 只返回该任务完整详情', async () => {

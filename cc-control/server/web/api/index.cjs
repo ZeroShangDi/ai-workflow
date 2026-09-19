@@ -30,7 +30,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { createStaticHost } = require('../static.cjs');
 const { encodeTextFrame, upgrade: wsUpgrade } = require('../ws.cjs');
-const { send, writeNeedsProject } = require('./util.cjs');
+const bridgeChannel = require('../bridge-channel.cjs');
+const { send, writeNeedsProject, readJson } = require('./util.cjs');
 const hook = require('./hook.cjs');
 const state = require('./state.cjs');
 const decisions = require('./decisions.cjs');
@@ -103,6 +104,17 @@ function createApi({ registry, stopServer, oneshot }) {
       return;
     }
 
+    // ── DSH 桥：插件回传入口（确认/结果/事件上行）──
+    // 与项目无关（一个 DSH 后台服务多项目，指令里带 projectRoot），故在解析 runtime 之前处理。
+    // 未消费的回传**明确回 consumed:false**，不假装成功（未知 commandId 可能是重启前的迟到回报）。
+    if (req.method === 'POST' && pathname === '/bridge/dsh/callback') {
+      const body = await readJson(req);
+      if (!body || typeof body !== 'object') return send(res, 400, { ok: false, error: 'body must be a JSON object' });
+      const consumed = bridgeChannel.handleCallback(body);
+      if (!consumed) console.warn(`[bridge] 未消费的回传：${JSON.stringify({ commandId: body.commandId, phase: body.phase, kind: body.kind })}`);
+      return send(res, 200, { ok: true, consumed });
+    }
+
     // 到这里才解析项目 runtime：后续所有路由都在某个项目的 runtime 上操作
     const rt = registry.resolveRuntime({ p: url.searchParams.get('p') });
 
@@ -137,20 +149,34 @@ function createApi({ registry, stopServer, oneshot }) {
   }
 
   /**
-   * WebSocket 升级：/run/events 实时事件推送。
-   * 非 /run/events 的升级请求直接断开（本 server 只此一个 WS 端点）。
-   * 就绪后订阅 run host 事件，把每个事件编码成文本帧写出；订阅的退订函数挂在 onClose/onError 上。
+   * WebSocket 升级：两条端点，协议不同、互不干扰。
+   *   /run/events —— 实时事件推送（本项目 run host 事件流；单向）
+   *   /bridge/dsh —— DSH 插件指令通道（AWF→插件 指令下行；插件的确认/结果走 HTTP 回传）
+   * 其余升级请求直接断开。
    */
   function handleUpgrade(req, socket) {
     let pathname = '/';
-    try { pathname = new URL(req.url || '/', 'http://localhost').pathname; } catch { /* 保持默认 */ }
+    let url = null;
+    try { url = new URL(req.url || '/', 'http://localhost'); pathname = url.pathname; } catch { /* 保持默认 */ }
+
+    // ── DSH 桥：插件连上来 = 通道可用 ──
+    if (pathname === '/bridge/dsh') {
+      wsUpgrade(req, socket, {
+        onClose: () => bridgeChannel.detachSocket('ws closed'),
+        onError: () => bridgeChannel.detachSocket('ws error'),
+      });
+      // 握手已在本函数内完成（wsUpgrade 写 101），随后登记 socket 并置通道为已连接
+      bridgeChannel.attachSocket(socket, { platform: 'dsh', pluginVersion: url?.searchParams.get('pluginVersion') || null });
+      return;
+    }
+
     if (pathname !== '/run/events') {
       try { socket.destroy(); } catch { /* ignore */ }
       return;
     }
     // 解析目标项目 runtime；解析失败则退到 boot（WS 也不该静默丢连接，退到 boot 至少有事件流）
     const rt = (() => {
-      try { return registry.resolveRuntime({ p: new URL(req.url, 'http://localhost').searchParams.get('p') }); } catch { return registry.runtimeFor(registry.bootRoot); }
+      try { return registry.resolveRuntime({ p: url.searchParams.get('p') }); } catch { return registry.runtimeFor(registry.bootRoot); }
     })();
     rt.ensureRunHost()
       .then(() => {

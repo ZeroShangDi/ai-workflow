@@ -15,21 +15,44 @@ const { createMockAdapters } = require('../../server/adapters/mock.cjs');
 const { createProjectRuntime } = require('../../server/runtime/index.cjs');
 
 /**
- * 适配器一致性（conformance）套件 —— T-P1-05。
+ * 适配器一致性（conformance）套件 —— T-P1-05（T-P2-4 扩到「有工厂的平台」）。
  *
  * 立场：**平台专属测试证明「这个平台能跑」，conformance 证明「每个平台都满足同一份契约」**。
- * 这里不写 cc 专属断言；平台清单取自 `ADAPTER_PLATFORMS`，将来 dsh 落地（status 转 factory）
- * 会自动进入本套件的覆盖范围，不需要新写用例。
+ * 这里不写任何平台的机制断言（cc 的 tmux / claude 机制方法由 cc 自己的用例覆盖）。
  *
- * 三层断言（对应执行记录 T-P1-05 的「测试分层 + 契约自检」）：
+ * 三层断言：
  *   ① 名册一致 —— 工厂必须返回不多不少的 7 个端口；
- *   ② 必填方法可执行 —— `REQUIRED_PORT_METHODS`（上层真会调的那批）必须是 function，
- *      并对只读/纯函数方法做一次真实调用（存在 ≠ 能用）；
- *   ③ 装配入口一致 —— `resolveProjectAdapters` 与工厂返回同一份端口面。
+ *   ② 必填方法可执行 —— `REQUIRED_PORT_METHODS`（平台无关那批）必须是 function，
+ *      并对它们做一次真实调用（存在 ≠ 能用）；
+ *   ③ 装配入口一致 —— `status==='factory'` 时 `resolveProjectAdapters` 与工厂同面；
+ *      `not-landed` 时必须**显式拒绝**（结构就绪 ≠ 可用，不许悄悄放行）。
  */
 
-/** 已落地平台（status=factory）；新增平台只要注册表转正就自动被覆盖 */
-const LANDED = ADAPTER_NAMES.filter((n) => ADAPTER_PLATFORMS[n].status === 'factory');
+/**
+ * 有工厂的平台（`create` 是函数）—— 这才是「契约面可检」的判据。
+ * 与 `status`（真实可用性）**是两个问题**：cc 与 dsh 都已 `factory`（2026-09-19 起），
+ * 但契约断言只证明「面在、形状对、能调用」，真实可用性由真机用例负责（执行记录 §2.18）。
+ */
+const TESTABLE = ADAPTER_NAMES.filter((n) => typeof ADAPTER_PLATFORMS[n].create === 'function');
+
+/** 假指令通道（DSH 平台的 bridge）：只用于契约面断言，不证明任何真实链路 */
+function makeFakeBridge() {
+  let facts = { sessionExists: true, reachable: true, ready: true, cwd: '/proj', snapshot: 'pane' };
+  return {
+    connected: () => true,
+    lastFacts: () => ({ ...facts }),
+    noteFacts: (patch) => { facts = { ...facts, ...patch }; return { ...facts }; },
+    onEvent: () => () => {},
+    pendingCount: () => 0,
+    detachedReason: () => null,
+    async request(op) {
+      if (op === 'session.facts') {
+        return { commandId: 'c', op, delivery: 'accepted', ok: true, result: { sessionExists: true, ready: true } };
+      }
+      return { commandId: 'c', op, delivery: 'accepted', ok: true, result: {} };
+    },
+  };
+}
 
 /** 注入的 exec 替身：只认 tmux 的只读子命令；其余一律抛错（避免测试悄悄真跑外部命令） */
 function makeExec() {
@@ -57,6 +80,7 @@ function makeOpts() {
     execFileSync: makeExec(),
     bus: { emit: () => 0 },
     status: async () => ({ state: 'ready' }),
+    bridge: makeFakeBridge(), // dsh 用；cc 忽略
   };
 }
 
@@ -72,12 +96,12 @@ function makeRoot(config) {
 beforeEach(() => { process.env.CC_ENTER_DELAY_MS = '0'; });
 afterEach(() => { delete process.env.CC_ENTER_DELAY_MS; });
 
-describe('conformance：平台端口面（每个已落地平台跑同一套断言）', () => {
-  it('至少有一个已落地平台（否则本套件形同虚设）', () => {
-    expect(LANDED.length).toBeGreaterThan(0);
+describe('conformance：平台端口面（每个有工厂的平台跑同一套断言）', () => {
+  it('至少有一个可检平台（否则本套件形同虚设）', () => {
+    expect(TESTABLE.length).toBeGreaterThan(0);
   });
 
-  describe.each(LANDED)('平台 %s', (platform) => {
+  describe.each(TESTABLE)('平台 %s', (platform) => {
     const ports = ADAPTER_PLATFORMS[platform].create(makeOpts());
 
     it('① 名册一致：工厂恰好返回 7 个端口', () => {
@@ -94,41 +118,41 @@ describe('conformance：平台端口面（每个已落地平台跑同一套断�
       }
     });
 
-    it('② 只读/纯函数方法可真实调用（存在 ≠ 能用）', async () => {
+    it('② 平台无关的方法可真实调用（存在 ≠ 能用）', async () => {
       expect(ports.host.sessionName).toBe('cc-check');
-      expect(ports.host.hasSession()).toBe(true);
+      expect(typeof ports.host.hasSession()).toBe('boolean');
       expect(typeof ports.host.capture()).toBe('string');
-      await expect(ports.host.sendPrompt('hi')).resolves.toBeUndefined();
+      await ports.host.sendPrompt('hi'); // 不抛即通过（返回形状由各平台自定）
 
       expect(ports.session.sessionName).toBe('cc-check');
-      expect(ports.session.exists()).toBe(true);
-      expect(ports.session.cwd()).toBe('/proj');
-      expect(() => ports.session.kill()).not.toThrow();
-      expect(() => ports.session.nudge()).not.toThrow();
-      expect(ports.session.start({ projectRoot: '/proj', env: {} })).toEqual({ ok: true });
+      expect(typeof ports.session.exists()).toBe('boolean');
+      expect(typeof ports.session.cwd() === 'string' || ports.session.cwd() === null).toBe(true);
+      expect(await ports.session.start({ projectRoot: '/proj', env: {} })).toMatchObject({ ok: true });
+      await ports.session.kill();   // 不抛
+      await ports.session.attach(); // 不抛（cc = tmux attach；dsh = 返回网页 URL）
 
-      const probe = ADAPTER_PLATFORMS[platform].impls.probe({
-        host: ports.host,
-        status: ports.status,
-      });
-      const snapshot = await probe.inspect();
-      expect(snapshot.ok).toBe(true);
-      expect(snapshot.session).toBe(true);
+      const snapshot = await ports.probe.inspect();
+      expect(snapshot.ok).toBe(true);            // 侦查没有失败态
       expect(typeof snapshot.capturedAt).toBe('string');
 
       expect(typeof ports.hook.hook({ hook_event_name: 'PreToolUse' }, {})).toBe('number');
-      expect(Array.isArray(ports.oneshot.claudePArgs('p'))).toBe(true);
-      expect(typeof ports.tooling.buildMarketplaceAdd('/mp')).toBe('string');
-      expect(typeof ports.tooling.buildInstall('spec')).toBe('string');
-      expect(typeof ports.tooling.buildUninstall('spec')).toBe('string');
+      await expect(ports.tooling.install({})).resolves.toBeDefined();
+      await expect(ports.tooling.uninstall({})).resolves.toBeDefined();
+      // 注意：不在这里调 oneshot.runOneShot —— cc 的实现会真起 `claude -p`（外呼）。
+      // 方法存在性由上一组「必填方法」断言守着；真实行为归平台专属测试 + 真机档。
     });
 
-    it('③ 装配入口一致：resolveProjectAdapters 与工厂返回同一份端口面', () => {
+    it('③ 装配入口一致：已落地平台可解析且端口面一致', () => {
       const root = makeRoot({ runtime: { adapter: platform } });
-      const resolved = resolveProjectAdapters(root, makeOpts());
-      expect(resolved.name).toBe(platform);
-      expect(Object.keys(resolved.ports).sort()).toEqual(Object.keys(ports).sort());
-      expect(typeof resolved.impls.host).toBe('function'); // 原始实现（需自注入依赖者经此取）
+      const status = ADAPTER_PLATFORMS[platform].status;
+      if (status === 'factory') {
+        const resolved = resolveProjectAdapters(root, makeOpts());
+        expect(resolved.name).toBe(platform);
+        expect(Object.keys(resolved.ports).sort()).toEqual(Object.keys(ports).sort());
+      } else {
+        // 未落地平台：**结构就绪 ≠ 可用**。必须显式拒绝并点名责任任务，不能悄悄放行。
+        expect(() => resolveProjectAdapters(root, makeOpts())).toThrow(/尚未落地/);
+      }
     });
   });
 });

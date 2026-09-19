@@ -93,8 +93,8 @@ afterAll(async () => {
 
 describe('awf-state MCP → server run api（T1-077）', () => {
   it('awf_read_state 经 server 读；awf_task_status 经 server apply 落盘（语义保留，写收 server）', async () => {
-    // 读（经 server GET /awf/state）
-    const read = await mcp.call('tools/call', { name: 'awf_read_state', arguments: {} });
+    // 读（经 server GET /awf/state）；缺省是摘要（C30），要任务正文得显式 full:true
+    const read = await mcp.call('tools/call', { name: 'awf_read_state', arguments: { full: true } });
     const text = read.content?.[0]?.text;
     expect(text).toBeTruthy();
     expect(JSON.parse(text).tasks[0].id).toBe('T1');

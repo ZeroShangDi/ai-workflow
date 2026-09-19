@@ -158,7 +158,7 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 
 | # | Tool | Required | 行为 |
 |---|------|----------|------|
-| 1 | `awf_read_state` | — | 不传 `taskId` 返回完整 state；传 `taskId` 只返回该任务详情（未找到 → `ok:false`） |
+| 1 | `awf_read_state` | — | 缺省返回**摘要**（version/mode/plan.summary/counts/active/blocked/pendingIds）；`taskId` → 该任务详情（未找到 → `ok:false`）；`full:true` → 完整 state；未知参数 → `ok:false`（C30 读边界，见下） |
 | 2 | `awf_task_status` | `id,status` | 改 status（enum pending/active/done/blocked）；active 写 `exec.startedAt`，done/blocked 写 `exec.completedAt`，pending 清两者 |
 | 3 | `awf_task_result` | `id` | 写 `exec.result` / `exec.files` |
 | 4 | `awf_task_commit` | `id,hash,message` | 追加 `task.commits[]` |
@@ -179,6 +179,20 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 | 19 | `awf_dynamic_plan` | `reason,operations` | server 侧局部动态规划；按配置自动应用或等待批准，高风险变化建立正式 decision_requested 并等待人工 resolve |
 | 20 | `awf_dynamic_plan_status` | `proposalId` | 查询 proposal、影响闭包、ready 变化和应用状态 |
 
+### 读边界：`awf_read_state` 的体积（C30 / E-10）
+
+`awf_read_state` 缺省只回**摘要** —— 这是为避免读回体积随任务数线性膨胀：
+
+| 调用 | 返回 |
+|---|---|
+| `awf_read_state`（缺省） | `version` / `mode` / `currentState` / `plan.summary` / `counts`（总数 + 各状态计数）/ `active` / `blocked` / `pendingIds` / `milestones` / `hint` |
+| `awf_read_state({taskId})` | 该任务完整详情（`status` / `exec` / `commits`） |
+| `awf_read_state({full:true})` | 整份 state.json |
+
+实测口径（400 任务 state）：全量约 **346KB**，摘要在 **5KB 以下**。DSH 侧 `maxInlineBytes: 50000`，
+超过就会以「落盘文件路径」进模型上下文 —— 模型看不到内容却以为读到了。此前 `summary:true` 是
+**静默忽略**的参数（同样回全量），现在参数拼错一律 `ok:false`（U6 明确失败），不再有「以为收敛了」的假象。
+
 ## 验收标准
 
 - [ ] CLI/MCP/server 三端写同一 `.awf/state.json` 经同一 `state.lock` 互斥，无撕裂/丢更新
@@ -188,5 +202,6 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
 - [ ] `findNextTask` / `peekReadyTasks` / `selectReadyBatch` 对 deps、配额、plannedFiles 冲突、commit 独占的判定与 `state.js` 实现一致
 - [ ] 门禁闭环：`spawnGateFixTask` 仅在 blocked + verdict 非 pass 且未达 `MAX_RECHECK` 时派生
 - [ ] MCP `tools/list` 返回 20 个工具，未知 tool/method 分别返回 `ok:false` 与 `-32601`
+- [ ] `awf_read_state` 缺省摘要且体积有界（400 任务摘要 < 5KB）；`full:true` 才回全量；未知参数 `ok:false`
 - [ ] run/pause 阶段 task create/update/delete 不能绕过 server 动态规划能力
 - [ ] `kind=doc` 的 `T1-*` / `T4-*` + `W4-*` 约束生效

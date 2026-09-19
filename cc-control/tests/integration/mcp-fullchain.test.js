@@ -107,8 +107,8 @@ const parse = (res) => JSON.parse(res.content[0].text);
 
 describe('MCP 全链路（T1-084）', () => {
   it('主会话写状态 → await_choice → context_ready → oneshot，全部经同一 server', async () => {
-    // 1) awf-state（子进程）读（server）→ 标记 done（server apply 落盘）
-    const read = parse(await stateMcp.call('tools/call', { name: 'awf_read_state', arguments: {} }));
+    // 1) awf-state（子进程）读（server，显式 full:true —— 缺省是摘要）→ 标记 done（server apply 落盘）
+    const read = parse(await stateMcp.call('tools/call', { name: 'awf_read_state', arguments: { full: true } }));
     expect(read.tasks[0].id).toBe('T1');
     const upd = parse(await stateMcp.call('tools/call', { name: 'awf_task_status', arguments: { id: 'T1', status: 'done' } }));
     expect(upd.ok).toBe(true);

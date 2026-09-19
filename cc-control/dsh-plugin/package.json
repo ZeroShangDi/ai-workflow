@@ -1,0 +1,11 @@
+{
+  "name": "awf-dsh-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "AWF 的 DSH 插件 host 半侧：接 AWF 指令通道（WS 下行 / HTTP 回传），驱动 DSH 会话",
+  "dsh": {
+    "plugin": true
+  }
+}

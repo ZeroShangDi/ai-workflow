@@ -33,6 +33,10 @@
   - **`run -r` 最小恢复（T-P1-06）**：`-r` 先查活跃 run → 有则挂接（与 `--attach` 同路径），无则照常提交；修复了帮助文案承诺而代码从未实现的「活跃 run 挂接续观」（此前会 409）。不新增通用崩溃恢复、不自动重置 active。
   - **适配器一致性与测试分层（T-P1-05）**：新增 `tests/conformance/adapters.conformance.test.js`（对每个已落地平台跑同一套端口契约断言，`dsh` 转正后自动纳入）+ `REQUIRED_PORT_METHODS` / `assertRequiredMethods()` 加载即自检。
   - 出口状态：`npm test` 110/110 文件、1043/1043 用例；`check:capability` / `check:arch` / `lint` / `build` 全绿。**未改任何调度算法**；DSH 适配器本体（`server/adapters/dsh/`）属 P2。
+- **DSH 接入 P2：适配器 + 插件真实可用（P2-1～P2-6f）** —— `ADAPTER_PLATFORMS.dsh.status` 由 `not-landed` 转 `factory`：新增 AWF 侧适配器（`server/adapters/dsh/`：7 端口 + 指令通道 + profile 装配）与生产插件 host 半侧（`dsh-plugin/`：WS 客户端、会话/规划/一次性调用等 op 表）。逐项验收对照见执行记录 §2.18。
+  - **指令通道承担全部会话操作**：建会话（`agents.create` 的**发布前 setup** 窗口装模型选择 + preset + 会话级项目 MCP）、提交（`prompt(request, signal)`）、回合结束 → `session.ready`、可读快照、`session.stop`（**先取子 Agent 名单 → cancel 父 → 逐个 `subagents.interrupt`**；停止回执含被打断的子会话 id，不再吞掉）。
+  - **零副作用纪律下的真机验证**：全部实验只在隔离 `DSH_HOME`（`scripts/probe/dsh/`：guard/env/install-fixture/serve + `roundtrip.cjs` 九个模式 + `cli-install.cjs`），用户真实 `~/.dsh` 配置面每轮 `guard.sh check` 恒 `IDENTICAL`。实测覆盖：通道往返、会话创建/停止、真落账（模型经 20 个 `mcp__awf-state__*` 工具写 state）、快照、`plan.launch`、`llm.oneshot`、单任务 `run` 端到端、双项目隔离（单后台）、子 Agent 派出与逐个打断、`awf plugin install` 装进 profile（`dsh --dump-config` 承认）、`awf init` 干净项目幂等。
+  - **过程中打到的真缺陷**（都补了单测/夹具护栏）：CLI 装配路径写死空 env 吞掉 `CC_ADAPTER`（干净项目上 `awf init` 按 cc 注册）；`init` 不把解析到的平台记进 `.awf/config.json`（资产按 dsh 装、项目却解析成 cc）；指令不带 `projectRoot` 让多项目打到同一会话；会话身份按路径**字符串**比（`/var` 与 `/private/var` 被判成两个项目）；executor 结算循环引用已删除的 `sleep`（**CC 路径同样受影响**的 P1 回归）。
 
 ## [0.2.0] - 2026-09-11
 

@@ -93,6 +93,7 @@ function ensureSession(ctx, { reuseExisting = false } = {}) {
     const cwd = sessionPort.cwd();
     if (cwd && path.resolve(cwd) === path.resolve(ctx.projectRoot)) return false;
   }
+  // 非 cc 平台（dsh）：start 由适配器翻译成「平台建会话」；kill 是「取消 + 打断子 Agent」，不删会话
   sessionPort.kill();
   sessionPort.start({
     projectRoot: ctx.projectRoot,
@@ -145,11 +146,22 @@ async function waitSessionStarted(ctx, seqBefore, deps = {}) {
   }
 }
 
-/** 起环境：项目 MCP 注册 → server → run-settings → 会话 →（新建时）等会话就绪 */
+/**
+ * 起环境：项目 MCP 注册 → server → run-settings → 会话 →（新建时）等会话就绪。
+ *
+ * **平台差异**（P2-6b）：
+ *   cc  —— 项目 MCP 与 run-settings 都是 `.claude` 形状的产物，由 CLI 注入；会话是 tmux。
+ *   dsh —— 项目 MCP 由**插件在会话创建时按 agent 作用域挂**（见 dsh-plugin），run-settings 没有对等物；
+ *          因此这两步只为 cc 执行，不要拿 cc 的资产形状去套 DSH。
+ * 会话就绪等待两种平台共用：`sessionSeqOf` 读 AWF `/status` 的会话序号 —— DSH 侧由插件的
+ * `session.started` 事件经平台总线驱动 `bumpSessionSeq`，所以同一套等待也成立。
+ */
 async function bringUp(ctx, { reuseExisting = false } = {}) {
-  ctx.adapters.tools.profile.installProjectMcp(ctx.projectRoot, ctx.port);
+  if (ctx.adapter === 'cc') {
+    ctx.adapters.tools.profile.installProjectMcp(ctx.projectRoot, ctx.port);
+  }
   const server = await ensureServer(ctx);
-  writeRunSettings(ctx);
+  if (ctx.adapter === 'cc') writeRunSettings(ctx);
   const seqBefore = await sessionSeqOf(ctx); // 基准须在建会话**之前**取
   const created = ensureSession(ctx, { reuseExisting });
   // 只在新建会话时等：resume/attach 复用的是已经在跑的现场
