@@ -79,6 +79,26 @@ function handleCallback(payload) {
 }
 
 /** 当前通道句柄（api/诊断用；注意是单例） */
+/**
+ * 强制关掉当前插件连接（server 关停时用）。
+ *
+ * **为什么必须有**：WS 是 `upgrade` 上来的 socket，**不在 http server 的连接表里** ——
+ * `server.closeAllConnections()` 管不到它。于是 `server.close(cb)` 的回调**永不触发**，
+ * 空闲回收那条 `stop().then(() => process.exit(0))` 也就永不执行：进程变成**僵尸**
+ * （不再 listen 但活着），而插件仍连着它 —— 新起的 server 收不到插件，
+ * `awf plan` 报「指令通道未连接：ws closed」。真机踩到过（旧 server 00:06 起，
+ * 被孤立到 01:10 还活着，期间 8787 已经换人 listen）。
+ * @returns {boolean} 是否真的关掉了某个 socket
+ */
+function closeSocket() {
+  const s = pluginSocket;
+  pluginSocket = null;
+  if (bridge) { try { bridge.detach('server shutdown'); } catch { /* 已断 */ } }
+  if (!s) return false;
+  try { s.destroy(); } catch { /* 已断 */ }
+  return true;
+}
+
 function current() {
   return channel();
 }
@@ -90,4 +110,4 @@ function reset() {
   pluginSocket = null;
 }
 
-module.exports = { channel, current, attachSocket, detachSocket, handleCallback, reset };
+module.exports = { channel, current, attachSocket, detachSocket, closeSocket, handleCallback, reset };

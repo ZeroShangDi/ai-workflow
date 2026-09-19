@@ -126,3 +126,42 @@ describe('bridge-channel — 已连接', () => {
     expect(channelMod.handleCallback({ commandId: 'ghost', phase: 'result', ok: true })).toBe(false);
   });
 });
+
+/**
+ * `closeSocket()` —— server 关停时必须显式关掉插件的 WS。
+ *
+ * 守卫的是一个真机踩到过的僵尸进程：WS 是 `upgrade` 上来的 socket，**不在 http server 的连接表里**，
+ * `server.closeAllConnections()` 管不到它 → `server.close(cb)` 回调不触发 → 空闲回收的
+ * `stop().then(exit)` 不执行 → 进程不再 listen 却活着，插件还连着它。
+ * 表现极具迷惑性：`awf plan` 报「指令通道未连接」，而 `awf server start` 说「已在运行」，
+ * 因为 8787 上确实是另一个（新）server 在 listen。
+ */
+describe('closeSocket — server 关停时关掉插件连接（防僵尸进程）', () => {
+  function socketWithDestroy() {
+    const s = makeSocket();
+    s.destroyedCount = 0;
+    s.destroy = () => { s.destroyedCount += 1; s.destroyed = true; s.writable = false; };
+    return s;
+  }
+
+  it('有连接时：destroy socket，返回 true', () => {
+    const s = socketWithDestroy();
+    channelMod.attachSocket(s, { platform: 'dsh' });
+    expect(channelMod.closeSocket()).toBe(true);
+    expect(s.destroyedCount).toBe(1);
+  });
+
+  it('没有连接时：返回 false，不抛（关停路径不该因为「本来就没连」失败）', () => {
+    channelMod.reset();
+    expect(channelMod.closeSocket()).toBe(false);
+  });
+
+  it('关掉之后指令判「未交给平台」并带上原因（不假装发出去了）', async () => {
+    const s = socketWithDestroy();
+    channelMod.attachSocket(s, { platform: 'dsh' });
+    channelMod.closeSocket();
+    const r = await channelMod.channel().request('session.facts', {});
+    expect(r.delivery).toBe('not-delivered');
+    expect(r.error).toContain('指令通道未连接');
+  });
+});

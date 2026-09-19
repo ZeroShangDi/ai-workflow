@@ -46,6 +46,10 @@ const bootstrap = createBootstrap({
   onUpgrade: api.handleUpgrade,
   projectRoot: BOOT().ctx.projectRoot,
   sessionName: BOOT().ctx.runSessionName,
+  // 关停前必须先关掉的长连接：插件的 WS 是 upgrade 上来的，不在 http server 的连接表里，
+  // 不关它 server.close 的回调不触发 → 空闲回收的 exit 不执行 → 进程变僵尸（真机踩到）。
+  // 装配根注入，runtime 因此不必反向依赖 web 层（结构门禁的方向约束）。
+  closeTransports: [() => bridgeChannel.closeSocket()],
 });
 api.setTouch(bootstrap.touch); // 把「活动刷新」注入 api：每个请求经 touch() 参与空闲回收计时
 

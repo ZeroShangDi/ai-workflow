@@ -13,6 +13,9 @@
 const http = require('node:http');
 const { isIdleDue, idleDefaultMs } = require('./idle.cjs');
 
+/** 关停兜底上限：长连接没被关干净时，最多等这么久也要给出结论（实测注释见 stop()） */
+const CLOSE_FALLBACK_MS = 3000;
+
 /**
  * @param {object} deps
  * @param {object} deps.registry   项目注册表（all() → runtime，读 runHost 判活跃）
@@ -20,8 +23,9 @@ const { isIdleDue, idleDefaultMs } = require('./idle.cjs');
  * @param {Function} deps.onUpgrade (req, socket) → void
  * @param {string} deps.projectRoot boot 项目根（启动横幅用）
  * @param {string} deps.sessionName boot 会话名（启动横幅用）
+ * @param {Array<Function>} [deps.closeTransports] 关停前必须先关掉的**长连接**（由装配根注入）
  */
-function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionName }) {
+function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionName, closeTransports = [] }) {
   const server = http.createServer(handler);
   server.on('upgrade', onUpgrade || (() => {})); // 未注入 upgrade 处理器时挂空函数，避免事件无监听者报错
 
@@ -64,9 +68,26 @@ function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionNam
     for (const rt of registry.all()) {
       if (rt.runHost) { try { rt.runHost.stop(); } catch { /* ignore */ } }
     }
+    // ① 先关长连接（尤其插件的 WS —— `upgrade` 上来的 socket **不在 http server 的连接表里**，
+    //    `closeAllConnections()` 管不到它）。不关它，`server.close(cb)` 的回调要等 3s 兜底才触发。
+    //    关闭器由**装配根**注入（server.cjs 同时认识 web 与 runtime），runtime 不反向依赖 web 层。
+    //
+    // ①② 两条**都是必需的**，实测（带一条 WS 连接 / 空闲阈值 0.8s / 检查粒度 0.3s）：
+    //    两条都在 → 1027ms 退出；只留 ② → 4097ms（等满兜底）；两条都不要 → **永不退出**
+    //    （`server.close(cb)` 回调不触发 → `stop().then(exit)` 不执行 → 进程不再 listen 却活着，
+    //     插件仍连着它，新 server 收不到插件 —— 表现是 `awf plan` 报「指令通道未连接」而
+    //     `awf server start` 说「已在运行」）。别把其中任何一条当冗余删掉。
+    for (const close of closeTransports) {
+      try { close(); } catch { /* 单个失败不阻断关停 */ }
+    }
+    // ② 兜底：万一还有别的长连接吊着，关停也不能无限等 —— Promise 必须给出结论
+    //    （空闲回收的 `stop().then(() => process.exit(0))` 全靠它）。
     return new Promise((resolve) => {
-      server.close(() => resolve());
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      server.close(finish);
       if (server.closeAllConnections) server.closeAllConnections();
+      setTimeout(finish, CLOSE_FALLBACK_MS).unref();
     });
   }
 
