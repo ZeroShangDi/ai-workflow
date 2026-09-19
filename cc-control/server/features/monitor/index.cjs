@@ -28,17 +28,17 @@
 const path = require('node:path');
 const { readRunMeta, updateRunMeta } = require('../../observability/metrics.cjs');
 const { buildDiagnosisPrompt, diagnoseWithClaude, readDiagnosis, writeDiagnosis } = require('./diagnosis.cjs');
-const { oneshot: oneshotPort } = require('../../adapters/ports.cjs');
 
 /**
  * @param {object} deps
- * @param {object} deps.ctx            项目上下文（读 projectRoot / stores）
+ * @param {object} deps.ctx            项目上下文（读 projectRoot / stores / adapters）
  * @param {object} deps.session        会话态（读写 mainSessionId —— 后效对齐的落点）
  * @param {object} deps.observability  观测面（metricsSnapshot / readProjectState / invalidateMetrics）
- * @param {object} [deps.oneshot]      cc oneshot 端口（诊断调用；缺省经 adapters 的 ports）
+ * @param {object} [deps.oneshot]      oneshot 端口（诊断调用）；缺省取本项目平台解析出的
+ *                                     `ctx.adapters.ports.oneshot`（T-P1-01）。两者都缺 → 诊断时明确失败
  * @returns {{ diagnose, reconcile, reset, inspect, readonly inFlight }}
  */
-function createMonitor({ ctx, session, observability, oneshot = oneshotPort } = {}) {
+function createMonitor({ ctx, session, observability, oneshot = ctx?.adapters?.ports?.oneshot } = {}) {
   let inFlight = false; // 诊断互斥闩：一次只允许一个诊断在跑
 
   /**

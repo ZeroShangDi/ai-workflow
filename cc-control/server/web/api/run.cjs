@@ -15,7 +15,6 @@
  * false=不是本域路由，交下一个。deps 由入口注入（本域暂不使用）。
  */
 
-const { oneshot: oneshotPort } = require('../../adapters/ports.cjs');
 const { readJson, send } = require('./util.cjs');
 
 async function handle(req, res, url, rt, deps) {
@@ -62,8 +61,9 @@ async function handle(req, res, url, rt, deps) {
       send(res, 400, { ok: false, error: 'body must be {prompt: non-empty string}' });
       return true;
     }
-    // oneshot 端口可由入口注入（测试用 global.__CC_ONESHOT__，见 .awf/issues/015）；缺省用真实 adapter
-    const port = deps?.oneshot || oneshotPort;
+    // oneshot 端口可由入口注入（测试用 global.__CC_ONESHOT__，见 .awf/issues/015）；
+    // 缺省用**本项目解析出的平台**适配器（T-P1-01），不再静态绑 cc
+    const port = deps?.oneshot || rt.ctx.adapters.ports.oneshot;
     const r = await port
       .runOneShot({ prompt: body.prompt, cwd: typeof body.cwd === 'string' ? body.cwd : undefined, timeoutMs: 300000 })
       .catch((e) => ({ ok: false, error: e.message })); // 失败也回 200 + {ok:false}，让调用方按体判

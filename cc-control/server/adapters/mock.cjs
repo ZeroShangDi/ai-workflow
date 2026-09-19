@@ -11,9 +11,7 @@
  * 契约对齐：这是**测试替身**，不是第二份实现 —— 目的是让上层（cli/server）在不启动真 cc / tmux
  * 的前提下跑通接线。所以方法集必须与 ports.cjs 的 PORT_CONTRACT 一一对齐（对齐由
  * tests/unit/ports-contract.test.js 断言守着）：若 mock 比契约多/少方法，「测试绿」就证明不了契约成立。
- *
- * 顺带一提，mock 里也保留了 `session` 端口（契约中它是 not-landed）—— 这是为了让消费方能提前
- * 按目标形态编码；生产侧 createCcAdapters 并不返回它。
+ * 7 端口全部齐备（含 T-P1-03 收口进来的 session），生产侧 `createCcAdapters` 同样返回这 7 个。
  *
  * @returns {{ ports: object, calls: Array, reset: Function }}
  *   ports  7 端口（host/hook/oneshot/tooling/interactive/probe/session）的 mock 实现
@@ -26,11 +24,13 @@ function createMockAdapters() {
   const calls = [];
   const rec = (name) => (...args) => { calls.push([name, ...args]); return undefined; };
 
-  // host：有会话、能抓 pane；无返回值的 send* 走 rec 记录
+  // host：有会话、能抓 pane；无返回值的 send* 走 rec 记录。
+  // sendPrompt 是能力方法（文本+节奏+回车，T-P1-02）：替身只记一次调用，不模拟分两次发。
   const host = {
     sessionName: 'mock-cc',
     hasSession: (...a) => { calls.push(['host.hasSession', ...a]); return true; },
     sendText: rec('host.sendText'),
+    sendPrompt: rec('host.sendPrompt'),
     sendEnter: rec('host.sendEnter'),
     sendCtrlC: rec('host.sendCtrlC'),
     capture: (...a) => { calls.push(['host.capture', ...a]); return 'pane'; },
@@ -69,10 +69,15 @@ function createMockAdapters() {
     inspect: async () => { calls.push(['probe.inspect']); return { ok: true, state: 'ready' }; },
   };
 
-  // session：契约里 not-landed、生产不返回；这里给出目标形态实现，供消费方提前编码（见文件头说明）
+  // session：T-P1-03 起已收口为 factory，方法集与 cc/session.cjs 一致
   const session = {
+    sessionName: 'mock-cc',
+    exists: (...a) => { calls.push(['session.exists', ...a]); return true; },
+    cwd: (...a) => { calls.push(['session.cwd', ...a]); return '/mock'; },
     start: async (...a) => { calls.push(['session.start', ...a]); return { ok: true }; },
-    stop: async (...a) => { calls.push(['session.stop', ...a]); return { ok: true }; },
+    kill: (...a) => { calls.push(['session.kill', ...a]); },
+    nudge: (...a) => { calls.push(['session.nudge', ...a]); },
+    attach: (...a) => { calls.push(['session.attach', ...a]); },
   };
 
   return {

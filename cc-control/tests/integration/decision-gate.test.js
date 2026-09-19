@@ -9,13 +9,14 @@ import { findNextTask } from '../../server/shared/state.js';
 
 // ── mocks：注入到 server.cjs（原生 require 的 CJS 依赖无法用 vi.mock 拦截）──
 const m = {
-  tmux: {
+  host: {
     hasSession: vi.fn(() => true),
     sendText: vi.fn(),
+    sendPrompt: vi.fn(),
     sendEnter: vi.fn(),
     sendCtrlC: vi.fn(),
     capture: vi.fn(() => 'pane'),
-    SESSION: 'cc',
+    sessionName: 'cc',
   },
   logger: {
     resetTranscript: vi.fn(),
@@ -56,7 +57,7 @@ function writeGate(on) {
 process.env.CC_PROJECT = PROJ;
 process.env.HOME = path.join(TMP, 'home');
 fs.mkdirSync(process.env.HOME, { recursive: true });
-global.__CC_TMUX__ = m.tmux;
+global.__CC_HOST__ = m.host;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 global.__CC_RUN_DIAGNOSIS__ = { buildDiagnosisPrompt: () => '', diagnoseWithClaude: m.diagnose = vi.fn(), readDiagnosis: () => null, writeDiagnosis: () => {} };
 
@@ -80,7 +81,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await server?.stop();
   for (const k of ['CC_PROJECT', 'HOME']) delete process.env[k];
-  for (const g of ['__CC_TMUX__', '__CC_RUNLOGGER__', '__CC_RUN_DIAGNOSIS__']) delete global[g];
+  for (const g of ['__CC_HOST__', '__CC_RUNLOGGER__', '__CC_RUN_DIAGNOSIS__']) delete global[g];
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -92,7 +93,7 @@ beforeEach(() => {
   process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR;
   server._resetForTest();
   vi.clearAllMocks();
-  m.tmux.hasSession.mockReturnValue(true);
+  m.host.hasSession.mockReturnValue(true);
   fs.rmSync(RUNS_DIR, { recursive: true, force: true }); // 每个场景从空 store 开始
   // state 任务表复位（纠偏任务断言需从空开始，避免跨用例残留 pending 干扰 findNextTask）
   fs.writeFileSync(path.join(PROJ, '.awf', 'state.json'), JSON.stringify({ mode: 'run', version: '0.2.0', tasks: [] }));

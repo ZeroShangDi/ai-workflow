@@ -3,7 +3,7 @@
  * api/session.cjs — 会话域：会话态读取 + 会话注入 + 决策入口
  *
  * 职责：把「给 CC 一句话 / 打断 / 挂起与应答决策 / 查会话态」这些对人机对话面的操作，
- * 转成对 rt.channel / rt.session / ctx.tmux / ctx.logger 的调用。
+ * 转成对 rt.channel / rt.session / ctx.host / ctx.logger 的调用。
  *
  * 路由（method + path）：
  *   GET  /status                 会话态快照（无 sid=项目级；?sid=该槽；?snapshot 抓屏）
@@ -22,7 +22,7 @@
  */
 
 const interact = require('../interact.cjs');
-const { READY_TIMEOUT_MS, LOCAL_CMD_FALLBACK_MS, DECISION_FALLBACK_MS, ENTER_DELAY_MS } = require('../../config.cjs');
+const { READY_TIMEOUT_MS, LOCAL_CMD_FALLBACK_MS, DECISION_FALLBACK_MS } = require('../../config.cjs');
 const { readJson, send, requirePaused, noSession } = require('./util.cjs');
 
 async function handle(req, res, url, rt, deps) {
@@ -43,7 +43,7 @@ async function handle(req, res, url, rt, deps) {
       return true;
     }
     const out = {
-      ok: true, state: session.state, session: ctx.tmux.hasSession(), projectRoot: ctx.projectRoot,
+      ok: true, state: session.state, session: ctx.host.hasSession(), projectRoot: ctx.projectRoot,
       decisionPending: session.decisionPending, contextReady: session.contextReady,
       decisionGate: session.decisionGate, decisionResume: session.decisionResume,
       mainSessionId: session.mainSessionId, sessionSeq: session.sessionSeq,
@@ -51,7 +51,7 @@ async function handle(req, res, url, rt, deps) {
     };
     if (!url.searchParams.get('p')) out.projects = deps.registry.list();     // 无 ?p 视为「概览请求」，附带项目清单
     if (url.searchParams.get('snapshot')) {
-      try { out.snapshot = ctx.tmux.capture(); } catch { out.snapshot = null; } // 可选抓屏（默认不抓，有开销）
+      try { out.snapshot = ctx.host.capture(); } catch { out.snapshot = null; } // 可选抓屏（默认不抓，有开销）
     }
     send(res, 200, out);
     return true;
@@ -98,7 +98,7 @@ async function handle(req, res, url, rt, deps) {
       send(res, 400, { ok: false, error: 'body must be {text: non-empty string}' });
       return true;
     }
-    if (!ctx.tmux.hasSession()) { noSession(res, rt); return true; }
+    if (!ctx.host.hasSession()) { noSession(res, rt); return true; }
     const ok = await session.waitReady(READY_TIMEOUT_MS);
     if (!ok) { send(res, 409, { ok: false, error: 'still busy (ready timeout)' }); return true; } // 忙 → 409，不排队
     ctx.logger.captureFromTranscript();
@@ -115,7 +115,7 @@ async function handle(req, res, url, rt, deps) {
       send(res, 400, { ok: false, error: 'body must be {cmd: non-empty string}' });
       return true;
     }
-    if (!ctx.tmux.hasSession()) { noSession(res, rt); return true; }
+    if (!ctx.host.hasSession()) { noSession(res, rt); return true; }
     const ok = await rt.channel.sendLocalCmd(body.cmd);
     if (!ok) { send(res, 409, { ok: false, error: 'still busy (ready timeout)' }); return true; }
     send(res, 200, { ok: true, sent: body.cmd });
@@ -129,7 +129,7 @@ async function handle(req, res, url, rt, deps) {
       return true;
     }
     if (!requirePaused(rt, res)) return true;
-    if (!ctx.tmux.hasSession()) { noSession(res, rt); return true; }
+    if (!ctx.host.hasSession()) { noSession(res, rt); return true; }
     ctx.logger.logPrompt(`[w-monitor intervention] ${body.reason || 'unspecified'}\n${body.text}`);
     session.setBusy();
     await submitRaw(rt, body.text);
@@ -140,8 +140,8 @@ async function handle(req, res, url, rt, deps) {
   if (req.method === 'POST' && pathname === '/intervene/interrupt') {
     const body = (await readJson(req)) || {};
     if (!requirePaused(rt, res)) return true;
-    if (!ctx.tmux.hasSession()) { noSession(res, rt); return true; }
-    ctx.tmux.sendCtrlC();
+    if (!ctx.host.hasSession()) { noSession(res, rt); return true; }
+    ctx.host.sendCtrlC();
     session.clearDecision();
     session.clearFallbackTimer();
     session.setFallbackTimer(setTimeout(() => {
@@ -152,8 +152,8 @@ async function handle(req, res, url, rt, deps) {
   }
   // /stop：直接打断（不要求 pause —— 停是安全操作）；同样起兜底
   if (req.method === 'POST' && pathname === '/stop') {
-    if (!ctx.tmux.hasSession()) { noSession(res, rt); return true; }
-    ctx.tmux.sendCtrlC();
+    if (!ctx.host.hasSession()) { noSession(res, rt); return true; }
+    ctx.host.sendCtrlC();
     session.clearDecision();
     session.clearFallbackTimer();
     session.setFallbackTimer(setTimeout(() => {
@@ -171,7 +171,7 @@ async function handle(req, res, url, rt, deps) {
       send(res, 400, { ok: false, error: 'body must be {value: non-empty string}' });
       return true;
     }
-    if (!ctx.tmux.hasSession()) {
+    if (!ctx.host.hasSession()) {
       session.clearDecision();
       noSession(res, rt);
       return true;
@@ -206,11 +206,9 @@ async function handle(req, res, url, rt, deps) {
   return false;
 }
 
-/** 直接注入文本（不等待收尾）—— /send 与 /intervene 用 */
+/** 直接注入文本（不等待收尾）—— /send 与 /intervene 用；节奏由 host 端口负责（T-P1-02） */
 async function submitRaw(rt, text) {
-  rt.ctx.tmux.sendText(text);
-  await new Promise((r) => setTimeout(r, ENTER_DELAY_MS)); // 文本与回车分两次发，中间留节奏
-  rt.ctx.tmux.sendEnter();
+  await rt.ctx.host.sendPrompt(text);
 }
 
 module.exports = { handle };

@@ -104,8 +104,8 @@ CLI 读取 .awf/state.json + .awf/config.json（run.agents 配额）
 
 ## 架构原则
 
-- **插件改动，CLI 零感知** — 提示词由插件声明（`plugin/plugin-code/prompts.json`），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件模板里）。插件改名/改命令，CLI 无需改动。
-- **插件耦合收敛** — cli 与插件的必要耦合集中在 `server/shared/prompts.js`（读插件 prompts.json 填充提示词），cli 只负责调用/中央调度。
+- **插件改动，CLI 零感知** — 平台参数由插件声明（`plugin/plugin-code/prompts.json` 的 `platform-vars`：worker 子 Agent 类型 / dev 命令 / 技能名），cli/lib 只读取并填充占位符，不写死任何插件命令字符串（命名空间只存在于插件参数与入口模板里）。插件改名/改命令，CLI 无需改动。
+- **提示词归属分离（T-P1-04）** — 编排协议正文随 server（`server/templates/prompts.json`：task-wrapup/settle、context-check、batch-*、subagent-*、gate-fix）；插件只保留 plan 入口模板与平台参数。解析与填充收敛在 `server/shared/prompts.js`，cli 只负责调用/中央调度。
 - **宿主拥有调度权** — 多 agent 下由常驻宿主（`server/run/scheduler.js` 就绪池 + 配额 + plannedFiles 冲突，`server/run/host.cjs` 的 driveBatch 驱动）决定派发，子 Agent 无调度权：禁写 state、只回吐 `RESULT`/`NEEDS_INPUT`。落账原子化走 `awf_task_complete`（一次提交 status+result+files+commits，避免中间态）；需用户决策时子 Agent 以 `NEEDS_INPUT` 上抛，宿主/CLI 检测到决策挂起则暂停补位，等主 Agent AskUserQuestion 解决后恢复。
 
 ## Development workflow state machine
@@ -299,8 +299,9 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `server/shared/state.js` | state.json 读写 + 就绪池/scope/文件冲突（peekReadyTasks/buildScopeIndex/filesConflict/EXCLUSIVE_KINDS） |
 | `server/shared/run-context.cjs` | run 装配器 — sid→路径/会话名（cc-<projectSid>）/workdir/settings 单源（server/client/MCP 共用） |
 | `server/shared/project-paths.cjs` | .awf 布局单源（路径解析） |
-| `server/shared/prompts.js` | 插件提示词边界 — 读插件 prompts.json 填充提示词（taskWrapup/taskSettle/contextCheck/subagentDispatch/subagentRedispatch/subagentResend），调用方零感知 |
-| `plugin/plugin-code/prompts.json` | 插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + subagent-dispatch/**redispatch**/resend），runtime 指令由插件声明 |
+| `server/shared/prompts.js` | 提示词分辨率单源 — 编排模板读 `server/templates/prompts.json`（并入插件 `platform-vars`），入口模板读插件 prompts.json；对外仍是 taskWrapup/taskSettle/contextCheck/subagentDispatch/… 调用方零感知 |
+| `server/templates/prompts.json` | 编排协议提示词模板（T-P1-04 迁入）— task-wrapup/settle、context-check、batch-dispatch/reconcile、subagent-dispatch/redispatch/resend、gate-fix |
+| `plugin/plugin-code/prompts.json` | 插件声明 — plan 入口模板（plan-start/resume/default）+ `platform-vars`（worker 子 Agent 类型 / dev 命令 / 技能名） |
 | `plugin/core/agents/awf-worker.md` | 子 Agent 身份化定义 — 滑动窗口执行单元：禁写 state、禁提问、RESULT/NEEDS_INPUT 最后一行输出协议 |
 | `server/templates/awf-config.json` | init 模板 — run.agents 配额（max/maxModules/maxPerModule/maxPerFeature）+ run.decision 策略（manual/ai/auto，缺省 auto）+ docs 配置 |
 | `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额 + run.decision.mode 决策策略（manual/ai/auto，缺省 auto），awf run 读取（init 从模板生成） |

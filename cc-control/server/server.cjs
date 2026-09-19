@@ -18,14 +18,15 @@ const { createBootstrap } = require('./runtime/lifecycle.cjs');
 // 旧 server 曾在此读 global.__CC_TMUX__ / __CC_RUNLOGGER__，重构时漏搬，导致靠它拦 tmux 的
 // 集成用例全部改成真调 tmux（.awf/issues/015）。这里按原语义补回：**只回落到真实默认**，
 // 不改任何生产行为 —— 传 undefined 时由 runtime/project.cjs 自己建真实 host 端口与 RunLogger。
-const injectedTmux = global.__CC_TMUX__ || null;
-const tmuxFactory = injectedTmux ? () => injectedTmux : undefined;
+// T-P1-02：注入缝随能力面改名 __CC_TMUX__ → __CC_HOST__（`ctx.tmux` → `ctx.host`），不留双名。
+const injectedHost = global.__CC_HOST__ || null;
+const hostFactory = injectedHost ? () => injectedHost : undefined;
 const RunLogger = global.__CC_RUNLOGGER__?.RunLogger || undefined;
 // oneshot 端口同理：旧 server.cjs 读过它（/oneshot 的无状态调用），重构漏搬；缺省 undefined → api 用真实 adapter
 const injectedOneshot = global.__CC_ONESHOT__ || undefined;
 
 // ── 装配：三块按依赖顺序串起来 ──
-const registry = createProjectRegistry({ env: process.env, tmuxFactory, RunLogger }); // ① 注册表（构造即预置 boot runtime）
+const registry = createProjectRegistry({ env: process.env, hostFactory, RunLogger }); // ① 注册表（构造即预置 boot runtime）
 const BOOT = () => registry.runtimeFor(registry.bootRoot);    // 取 boot 项目 runtime 的简写
 const PORT = BOOT().ctx.port;                                 // ② 端口来自 boot 上下文（runtime-config）
 

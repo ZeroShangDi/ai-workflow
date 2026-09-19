@@ -1,10 +1,11 @@
 'use strict';
 /**
- * cli/lib/session.cjs — 环境拉起（server 进程 / tmux 会话 / run-settings / 项目配置注入）
+ * cli/lib/session.cjs — 环境拉起（server 进程 / 会话 / run-settings / 项目配置注入）
  *
- * 这是 CLI 唯一**较厚**的地方，因为它是「server 还没起时」的引导：进程与 shell 操作没人能替它做。
- * 除此之外不含任何编排判断，也**不含任何 cc 形状实现** —— run-settings 与 `.mcp.json` 注入都经
- * `adapters/ports.cjs` 取（见 cc/settings.cjs、cc/profile.cjs）。
+ * 这是 CLI 唯一**较厚**的地方，因为它是「server 还没起时」的引导：进程操作没人能替它做。
+ * 除此之外不含任何编排判断，也**不含任何平台实现** —— run-settings、`.mcp.json` 注入与
+ * 会话生命周期（起/停/探测/补 Enter）都经 `adapters/ports.cjs` 取（T-P1-01/T-P1-03）：
+ * 本文件零 `tmux` / `claude` 字面。
  *
  * ## 只拉新 server
  * 同类端口上若已有**不兼容的旧版** server 驻留（无 `/probe`），必须显式报错而不是复用 ——
@@ -19,17 +20,17 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn, execSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const { serverSpawnEnv, runSessionEnv } = require('./env.cjs');
 const client = require('./client.cjs');
 const { openServerLog, serverLogPath } = require('./server-log.cjs');
-const { settings: settingsPort, profile } = require('../../server/adapters/ports.cjs');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 写 run 专属 settings（声明 statusLine）：bootstrap 以 --settings 注入，作用域限本次会话 */
 function writeRunSettings(ctx) {
-  const settings = settingsPort.generateRunSettings({
+  // 平台资产经本项目解析出的适配器取（T-P1-01）：settings 形状由平台决定，不在这里静态绑 cc
+  const settings = ctx.adapters.tools.settings.generateRunSettings({
     workdir: ctx.projectRoot,
     contextUsageScript: path.join(ctx.infraRoot, 'scripts', 'context-usage.mjs'),
   });
@@ -81,24 +82,21 @@ async function ensureServer(ctx) {
 // ── tmux 会话 ──
 
 /**
- * 确保 tmux 会话存在且指向本项目。
- * resume/attach 时优先复用现场；但**空输出必须判为不存在** —— tmux 对不存在的会话
- * 返回空串且退出码 0，path.resolve('') 会静默取进程 cwd，令相等判断恒真（旧 CLI 踩过这个坑）。
+ * 确保会话存在且指向本项目（会话生命周期经本项目平台的 session 端口 —— T-P1-03；
+ * CLI 不再直连 tmux）。resume/attach 时优先复用现场；**空 cwd 必须判为不存在**：
+ * 「空串当路径」会让相等判断恒真（旧 CLI 踩过这个坑，判定已下沉进端口实现）。
  * @returns {boolean} 是否新建了会话
  */
 function ensureSession(ctx, { reuseExisting = false } = {}) {
-  const name = ctx.runSessionName;
+  const sessionPort = ctx.adapters.ports.session;
   if (reuseExisting) {
-    try {
-      const cwd = execSync(`tmux display-message -p -t ${name} "#{pane_current_path}"`, { encoding: 'utf8' }).trim();
-      if (cwd && path.resolve(cwd) === path.resolve(ctx.projectRoot)) return false;
-    } catch { /* 会话不存在 → 往下走重建 */ }
+    const cwd = sessionPort.cwd();
+    if (cwd && path.resolve(cwd) === path.resolve(ctx.projectRoot)) return false;
   }
-  try { execSync(`tmux kill-session -t ${name} 2>/dev/null`, { stdio: 'ignore' }); } catch { /* 没有就算了 */ }
-  execSync(`bash "${ctx.bootstrapScriptPath}"`, {
-    stdio: 'ignore',
-    cwd: ctx.projectRoot,
-    env: runSessionEnv({ projectRoot: ctx.projectRoot, port: ctx.port, sessionName: name }),
+  sessionPort.kill();
+  sessionPort.start({
+    projectRoot: ctx.projectRoot,
+    env: runSessionEnv({ projectRoot: ctx.projectRoot, port: ctx.port, sessionName: ctx.runSessionName }),
   });
   return true;
 }
@@ -123,10 +121,7 @@ async function sessionSeqOf(ctx) {
 async function waitSessionStarted(ctx, seqBefore, deps = {}) {
   const {
     status = () => sessionSeqOf(ctx),
-    nudge = () => {
-      try { execSync(`tmux send-keys -t ${ctx.runSessionName} Enter 2>/dev/null`, { stdio: 'ignore' }); }
-      catch { /* 无会话忽略 */ }
-    },
+    nudge = () => ctx.adapters.ports.session.nudge(), // 补 Enter（T-P1-03：经 session 端口，不直连 tmux）
     sleepFn = sleep,
     timeoutMs = Number(process.env.CC_SESSION_READY_TIMEOUT_MS ?? 60000),
     nudgeMs = 5000, // bootstrap 已 nudge 过一次，这里再等一个间隔才补
@@ -150,9 +145,9 @@ async function waitSessionStarted(ctx, seqBefore, deps = {}) {
   }
 }
 
-/** 起环境：项目 MCP 注册 → server → run-settings → tmux 会话 →（新建时）等会话就绪 */
+/** 起环境：项目 MCP 注册 → server → run-settings → 会话 →（新建时）等会话就绪 */
 async function bringUp(ctx, { reuseExisting = false } = {}) {
-  profile.installProjectMcp(ctx.projectRoot, ctx.port);
+  ctx.adapters.tools.profile.installProjectMcp(ctx.projectRoot, ctx.port);
   const server = await ensureServer(ctx);
   writeRunSettings(ctx);
   const seqBefore = await sessionSeqOf(ctx); // 基准须在建会话**之前**取
@@ -162,9 +157,9 @@ async function bringUp(ctx, { reuseExisting = false } = {}) {
   return { server, sessionCreated: created };
 }
 
-/** 结束本次 run 的会话（server 常驻保留：空闲自动回收 / 显式 stop） */
+/** 结束本次 run 的会话（server 常驻保留：空闲自动回收 / 显式 stop）；经 session 端口（T-P1-03） */
 function stopSession(ctx) {
-  try { execSync(`tmux kill-session -t ${ctx.runSessionName} 2>/dev/null`, { stdio: 'ignore' }); } catch { /* 已不在 */ }
+  ctx.adapters.ports.session.kill();
 }
 
 module.exports = {

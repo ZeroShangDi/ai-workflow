@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 // ── mocks：注入到 server.cjs（vitest 无法 mock 被原生 require 的 CJS 依赖，用注入钩子）──
 
 const m = {
-  tmux: {
+  host: {
     hasSession: vi.fn(() => true),
     sendText: vi.fn(),
+    sendPrompt: vi.fn(),
     sendEnter: vi.fn(),
     capture: vi.fn(() => 'mock pane content'),
-    SESSION: 'cc',
+    sessionName: 'cc',
   },
   logger: {
     resetTranscript: vi.fn(),
@@ -38,7 +39,7 @@ process.env.CC_ENTER_DELAY_MS = '0';           // submit 不等待
 process.env.CC_LOCAL_CMD_MS = '60';            // 无 decision 的 fallback
 process.env.CC_DECISION_FALLBACK_MS = '60';    // 有 decision 的 fallback（默认 5min）
 
-global.__CC_TMUX__ = m.tmux;
+global.__CC_HOST__ = m.host;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 
 const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
@@ -57,7 +58,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.stop();
-  delete global.__CC_TMUX__;
+  delete global.__CC_HOST__;
   delete global.__CC_RUNLOGGER__;
   for (const k of ['CC_PROJECT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_LOCAL_CMD_MS', 'CC_DECISION_FALLBACK_MS']) {
     delete process.env[k];
@@ -67,7 +68,7 @@ afterAll(async () => {
 beforeEach(() => {
   server._resetForTest();
   vi.clearAllMocks();
-  m.tmux.hasSession.mockReturnValue(true);
+  m.host.hasSession.mockReturnValue(true);
 });
 
 // ─────────────────────────────────────────────
@@ -273,15 +274,14 @@ describe('/choice /ask /respond 路由', () => {
     // 若未跳过 waitReady：busy 状态下会等 READY_TIMEOUT(300ms) 后返回 409
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, sent: '1' });
-    expect(m.tmux.sendText).toHaveBeenCalledWith('1');
-    expect(m.tmux.sendEnter).toHaveBeenCalled();
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('1');
     expect(m.logger.logChoice).toHaveBeenCalledWith('Q', '1');
   });
 
   it('TC23: /respond 无 decisionPending → 正常 waitReady', async () => {
     const res = await api('POST', '/respond', { value: 'done' });
     expect(res.status).toBe(200);
-    expect(m.tmux.sendText).toHaveBeenCalledWith('done');
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('done');
     expect(m.logger.logChoice).not.toHaveBeenCalled();
     // LOCAL_CMD fallback(60ms) 恢复 ready
     await sleep(120);
@@ -292,7 +292,7 @@ describe('/choice /ask /respond 路由', () => {
     await api('POST', '/hook', { event: 'UserPromptSubmit' }); // state = busy
     const res = await api('POST', '/respond', { value: 'cmd' });
     expect(res.status).toBe(409);
-    expect(m.tmux.sendText).not.toHaveBeenCalled();
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
   });
 
   it('TC24: /respond value 为空 → clearDecision + 400', async () => {
@@ -300,16 +300,16 @@ describe('/choice /ask /respond 路由', () => {
     const res = await api('POST', '/respond', { value: '' });
     expect(res.status).toBe(400);
     expect(server._getState().decisionPending).toBeNull();
-    expect(m.tmux.sendText).not.toHaveBeenCalled();
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
   });
 
   it('TC25: /respond session 不存在 → 503', async () => {
     await api('POST', '/choice', { question: 'Q', options: ['A'] });
-    m.tmux.hasSession.mockReturnValue(false);
+    m.host.hasSession.mockReturnValue(false);
     const res = await api('POST', '/respond', { value: '1' });
     expect(res.status).toBe(503);
     expect(server._getState().decisionPending).toBeNull();
-    expect(m.tmux.sendText).not.toHaveBeenCalled();
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
   });
 });
 
@@ -335,7 +335,7 @@ describe('完整链路', () => {
     // 3. /respond（有 decision → 跳过 waitReady）
     const r = await api('POST', '/respond', { value: '1' });
     expect(r.status).toBe(200);
-    expect(m.tmux.sendText).toHaveBeenCalledWith('1');
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('1');
 
     // 4. Stop → 清理
     await api('POST', '/hook', { event: 'Stop' });
@@ -352,7 +352,7 @@ describe('完整链路', () => {
 
     const r = await api('POST', '/respond', { value: 'A' });
     expect(r.status).toBe(200);
-    expect(m.tmux.sendText).toHaveBeenCalledWith('A');
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('A');
 
     await api('POST', '/hook', { event: 'Stop' });
     expect(server._getState().decisionPending).toBeNull();
@@ -367,7 +367,7 @@ describe('完整链路', () => {
 
     const r = await api('POST', '/respond', { value: 'myname' });
     expect(r.status).toBe(200);
-    expect(m.tmux.sendText).toHaveBeenCalledWith('myname');
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('myname');
   });
 });
 

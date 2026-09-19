@@ -57,7 +57,7 @@ function deferredFallbackResult() {
 /** decision_completed 记录构造（供 store 落盘与决策记忆） */
 // status 固定 pending_review：决策一旦落盘即进入待人工复查态，本模块只负责「记录 + 置续跑位」，
 // 是否认可由 Review 侧消费，不在闸门内做终审。
-const { ccShapes } = require('../../adapters/ports.cjs'); // 经端口契约取用（T1-117）
+const { shapes } = require('../../adapters/ports.cjs'); // 经端口契约取用（T1-117；T-P1-01 去 CLI 化改名）
 function buildCompletedRecord({ decisionId, result, source, createdAt }) {
   return {
     event: 'decision_completed',
@@ -108,7 +108,7 @@ function classifyStop({ enabled, text, deciding, stopHookActive }) {
 
 /** deny ccOutput 构造（permissionDecision）——cc 回写形状归 cc-shapes */
 function denyOutput(reason) {
-  return ccShapes.denyPermission(reason);
+  return shapes.denyPermission(reason);
 }
 
 /**

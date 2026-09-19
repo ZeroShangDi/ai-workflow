@@ -14,7 +14,7 @@
  * 边界（明确不做什么）：
  *   - 只管**内存态**，不落盘：持久化走 `ctx.stores`（出口之一）。
  *   - 不含「当前是不是决策模式」的判定规则：`decisionGate` 只是承载位，判定在 decision 模块。
- *   - 不知道 cc / tmux 的任何事：注入由调用方经 `ctx.tmux` 完成。
+ *   - 不知道 cc / tmux 的任何事：注入由调用方经 `ctx.host` 完成。
  *
  * ready/busy 状态机（全链路的核心语义）：
  *   - 会话默认 `ready`；`/send`（或 /intervene /respond）注入后置 `busy`；

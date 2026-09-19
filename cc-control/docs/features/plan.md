@@ -69,7 +69,7 @@ planCommand(description, options)
 | `planCommand(description, options)` | 主入口：归档判定 → 拼 prompt → 启会话 | `cli/commands/plan.cjs` |
 | `spawnClaude(cwd, prompt)` | plan 内部 helper：日志 + `interactive.launchDialog` + 成功日志 | `cli/commands/plan.cjs` |
 | `planEntry(description, resume)` | 按场景选 key 并填充占位符，返回入口提示词 | `server/shared/prompts.js` |
-| `resolvePrompt(key, vars)` | 读 `prompts.json`，替换 `{var}` 占位符 | `server/shared/prompts.js` |
+| `resolvePrompt(key, vars)` | 按 key 选模板源（入口 → 插件 prompts.json；编排 → `server/templates/prompts.json` 并并入 `platform-vars`），替换 `{var}` 占位符 | `server/shared/prompts.js` |
 | `launchInteractiveClaude(opts)` | spawn `claude`（`stdio:'inherit'`）；`code∈{0,null}` resolve，否则 reject | `server/adapters/cc/interactive.cjs` |
 | `archiveOldStateForPlan(projectRoot)` | 归档残留 state 并重置为 plan 模板 | `server/shared/state.js` |
 

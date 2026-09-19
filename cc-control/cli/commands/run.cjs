@@ -3,8 +3,13 @@
  * cli/commands/run.cjs — awf run（薄）
  *
  * CLI 在 run 里的全部职责，只有四件：
- *   ① 起环境（server / tmux / settings / .mcp.json）；② 提交 run；③ 订阅事件与状态并展示；
+ *   ① 起环境（server / 会话 / settings / .mcp.json）；② 提交 run；③ 订阅事件与状态并展示；
  *   ④ 把人机决策转给用户、把回应写回。
+ *
+ * 三种接入方式（T-P1-06 后语义对齐）：
+ *   fresh   起环境后**提交**新 run；
+ *   resume  起环境（复用现场）后**先查活跃 run**：有则挂接、无则提交（`-r` 的现场核对）；
+ *   attach  起环境后**只挂接**：没有活跃 run 就报错，绝不擅自新提交。
  *
  * **不做**：不挑任务、不推进阶段、不做多 agent 调度、不直接读写 state 的编排字段 ——
  * 那些都在 server 的 run host 里（宿主拥有调度权）。本文件里每一次状态写入都是经 HTTP 的
@@ -96,6 +101,24 @@ async function observe(client, { runId, afterSeq = 0, mode = 'auto' }) {
   }
 }
 
+/**
+ * 查询活跃 run 并挂接其事件流（**不重复提交**）。
+ *
+ * `--attach` 与 `run -r`（T-P1-06）共用这条路径：两者都表示「我要接上现场看」。
+ * 不带 runId 的 snapshot 返回全部 run 摘要 —— 取其中 `running|queued` 的那个。
+ * @returns {Promise<object|null>} 挂接的 run 摘要；没有活跃 run → null（由调用方决定报错还是新提交）
+ * @throws {Error} 观察过程中 run 异常终止
+ */
+async function attachActiveRun(client, decisionMode) {
+  const snap = await client.runSnapshot();
+  const active = (snap.runs || []).find((r) => r.status === 'running' || r.status === 'queued');
+  if (!active) return null;
+  console.log(`${C.dim}  挂接 runId=${active.runId}${C.reset}`);
+  const outcome = await observe(client, { runId: active.runId, mode: decisionMode });
+  if (!outcome.ok) throw new Error(outcome.error);
+  return active;
+}
+
 async function runCommand(task, options = {}) {
   const ctx = buildContext(process.cwd());
   if (!readJsonSync(stateFilePath(ctx.projectRoot))) {
@@ -123,14 +146,15 @@ async function runCommand(task, options = {}) {
       if (r?.ok === false) throw new Error(`无法置 mode=run：${r.error}`);
     }
     if (connectionMode === 'attach') {
-      // 不带 runId 的 snapshot 返回全部 run 摘要 —— 挂接其中活跃的那个
-      const snap = await client.runSnapshot();
-      const active = (snap.runs || []).find((r) => r.status === 'running' || r.status === 'queued');
-      if (!active) throw new Error('没有活跃 run 可挂接');
-      console.log(`${C.dim}  挂接 runId=${active.runId}${C.reset}`);
-      const outcome = await observe(client, { runId: active.runId, mode: decisionMode });
-      done = outcome.ok;
-      if (!done) throw new Error(outcome.error);
+      if (!(await attachActiveRun(client, decisionMode))) throw new Error('没有活跃 run 可挂接');
+      done = true;
+      return;
+    }
+    // run -r（T-P1-06）：先查活跃 run → 有则挂接（与 --attach 同路径，不重复提交）；
+    // 无则按现状提交。**不**新增崩溃恢复、**不**自动重置 active（U3 已确认范围）。
+    if (connectionMode === 'resume' && (await attachActiveRun(client, decisionMode))) {
+      console.log(`${C.dim}  run -r：已挂接到现场（未重复提交）${C.reset}`);
+      done = true;
       return;
     }
     const sub = await client.submitRun({ runId: options.runId || undefined, mode: options.multiAgent ? 'batch' : undefined });
@@ -152,4 +176,4 @@ async function runCommand(task, options = {}) {
   }
 }
 
-module.exports = { runCommand, observe, renderEvent };
+module.exports = { runCommand, observe, renderEvent, attachActiveRun };

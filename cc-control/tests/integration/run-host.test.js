@@ -38,9 +38,10 @@ process.env.CC_READY_TIMEOUT_MS = '300';
 process.env.CC_ENTER_DELAY_MS = '0';
 process.env.HOME = path.join(TMP, 'home');
 fs.mkdirSync(path.join(TMP, 'home'), { recursive: true });
-// tmux mock（server.cjs 顶层加载），run host 默认 executor 未接线，这里走注入 fake
-global.__CC_TMUX__ = {
-  hasSession: () => true, sendText: () => {}, sendEnter: () => {}, sendCtrlC: () => {}, capture: () => 'pane', SESSION: 'cc',
+// host mock（server.cjs 顶层加载），run host 默认 executor 未接线，这里走注入 fake
+// T-P1-02：注入面是 host（不再是 tmux 机制名），能力方法是 sendPrompt
+global.__CC_HOST__ = {
+  hasSession: () => true, sendText: () => {}, sendPrompt: async () => {}, sendEnter: () => {}, sendCtrlC: () => {}, capture: () => 'pane', sessionName: 'cc',
 };
 global.__CC_RUNLOGGER__ = { RunLogger: class { constructor() {} get enabled() { return false; } } };
 
@@ -91,7 +92,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.stop();
-  delete global.__CC_TMUX__;
+  delete global.__CC_HOST__;
   delete global.__CC_RUNLOGGER__;
   delete global.__CC_RUN_HOST_DEPS__;
   delete process.env.CC_PROJECT;

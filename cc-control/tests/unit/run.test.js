@@ -220,6 +220,27 @@ describe('runCommand', () => {
     expect(logs.join('\n')).toContain('保留 tmux 与 server 现场');
   });
 
+  // ── T-P1-06：run -r 的最小恢复（先查活跃 run → 有则挂接，与 --attach 同路径）──
+
+  it('run -r 撞上有活跃 run → 挂接现场（**不重复提交**，此前会 409）', async () => {
+    writeState();
+    net.runs = [{ runId: 'r7', status: 'running' }];
+    await runCommand(undefined, { resume: true });
+
+    expect(net.submitted).toEqual([]); // 关键：没有第二次 submit
+    expect(logs.join('\n')).toContain('挂接 runId=r7');
+    expect(logs.join('\n')).toContain('未重复提交');
+    expect(session.bringUp).toHaveBeenCalledWith(expect.anything(), { reuseExisting: true });
+  });
+
+  it('run -r 无活跃 run（只有已结束的）→ 按现状提交', async () => {
+    writeState();
+    net.runs = [{ runId: 'r0', status: 'done' }];
+    await runCommand(undefined, { resume: true });
+
+    expect(net.submitted).toEqual([{ runId: 'default', mode: undefined }]);
+  });
+
   it('--resume 撞上 pause：保留 pause 闩锁（不擅自把 mode 切成 run）', async () => {
     writeState({ mode: 'pause' });
     await runCommand(undefined, { resume: true });

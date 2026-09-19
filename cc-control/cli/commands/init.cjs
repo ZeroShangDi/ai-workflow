@@ -10,34 +10,24 @@
  * 「.awf/ 建成什么样」不在这里 —— 那是 `shared/workspace.cjs` 的事（它拥有工作区形状）。
  */
 
-const { execSync } = require('node:child_process');
-const { tooling } = require('../../server/adapters/ports.cjs');
+const { resolveProjectAdapters } = require('../../server/adapters/ports.cjs');
 const { initWorkspace } = require('../../server/shared/workspace.cjs');
 const { pluginCommand } = require('./plugin.cjs');
 
-/** PATH 上有没有这个命令（`command -v`；找不到不抛） */
-function hasCommand(name) {
-  try {
-    execSync(`command -v ${name}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** 前置检查：返回 [{ name, ok, hint }]。任一不过 → 中止（不在半缺依赖的项目里建骨架） */
-function checkPrerequisites() {
-  return [
-    { name: 'tmux', ok: hasCommand('tmux'), hint: 'brew install tmux' },
-    { name: 'claude', ok: tooling.claudeAvailable(), hint: '安装 Claude Code 并确保 claude 在 PATH' },
-    { name: 'node', ok: hasCommand('node'), hint: '安装 Node.js（插件 MCP server 需要）' },
-  ];
+/**
+ * 前置检查：清单由**本项目平台的适配器**声明（C02 / T-P1-01）——
+ * cc 要 tmux/claude/node，DSH 不要求用户安装 Claude Code。
+ * @param {string} [projectRoot] 项目根（缺省 cwd）
+ * @returns {Array<{ name: string, ok: boolean, hint: string }>}
+ */
+function checkPrerequisites(projectRoot = process.cwd()) {
+  return resolveProjectAdapters(projectRoot).checks();
 }
 
 async function initCommand(options = {}) {
   const projectRoot = process.cwd();
 
-  const deps = checkPrerequisites();
+  const deps = checkPrerequisites(projectRoot);
   for (const d of deps) console.log(`  ${d.ok ? '✓' : '✗'} ${d.name}${d.ok ? '' : `  —— ${d.hint}`}`);
   if (deps.some((d) => !d.ok)) {
     console.error('\n  缺少必要依赖，安装后重试');

@@ -493,12 +493,12 @@ factory: (require) => { … const name = 'awf-probe-plugin'; const inject = ['sl
 
 | 编号 | 阶段 | 边界（做什么 / 不做什么） | 状态 |
 |---|---|---|---|
-| T-P1-01 | P1 | `ports.cjs` 按项目解析 adapter + `ccShapes`→`shapes` 去 CLI 化；**不改**调度算法 | pending |
-| T-P1-02 | P1 | `ctx.tmux` → `ctx.host` 能力化；`ENTER_DELAY_MS` 下沉进 cc 实现。**本轮试改后回滚**：见下方「T-P1-02 试改记录」 | pending |
-| T-P1-03 | P1 | `cli/lib/session.cjs` 5 处 tmux 直连 + `attach.cjs` 收口；`session` 端口转正 | pending |
-| T-P1-04 | P1 | 编排模板迁入 server（模板与平台参数分离）；技能/worker/决策资产保持单源 | pending |
-| T-P1-05 | P1 | 测试分层：编排层 CLI 无关 + conformance 套件 + 契约自检（可执行必填方法名断言） | pending |
-| T-P1-06 | P1 | **`run -r` 最小恢复修复**（把「查询活跃 run 并挂接」补进 `-r` 分支，与 `--attach` 同路径；不新增崩溃恢复、不自动重置 active）；提为显式公共行为修复（U3 已确认） | pending |
+| T-P1-01 | P1 | `ports.cjs` 按项目解析 adapter + `ccShapes`→`shapes` 去 CLI 化；**不改**调度算法 | **done**（2026-09-19，见 §2.4） |
+| T-P1-02 | P1 | `ctx.tmux` → `ctx.host` 能力化；`ENTER_DELAY_MS` 下沉进 cc 实现 | **done**（与 T-P1-03 同批，见 §2.4） |
+| T-P1-03 | P1 | `cli/lib/session.cjs` 5 处 tmux 直连 + `attach.cjs` 收口；`session` 端口转正 | **done**（见 §2.4） |
+| T-P1-04 | P1 | 编排模板迁入 server（模板与平台参数分离）；技能/worker/决策资产保持单源 | **done**（见 §2.4） |
+| T-P1-05 | P1 | 测试分层：编排层 CLI 无关 + conformance 套件 + 契约自检（可执行必填方法名断言） | **done**（见 §2.4） |
+| T-P1-06 | P1 | **`run -r` 最小恢复修复**（把「查询活跃 run 并挂接」补进 `-r` 分支，与 `--attach` 同路径；不新增崩溃恢复、不自动重置 active）；提为显式公共行为修复（U3 已确认） | **done**（见 §2.4） |
 | T-P2-01 | P2 | `server/adapters/dsh/` awf 侧 + 插件 host 半侧：WS 指令下行 + HTTP 回传 | pending |
 | T-P2-02 | P2 | init/plan/run 的 DSH 接线（后台全局单实例、新建规划会话注入、run 新建执行会话） | pending |
 | T-P3-01 | P3 | batch 走 DSH 原生子 Agent + 结果归属校验（旧结果不覆盖新执行） | pending |
@@ -506,16 +506,37 @@ factory: (require) => { … const name = 'awf-probe-plugin'; const inject = ['sl
 | T-P4-01 | P4 | 三个业务页面**空页面** + 项目/无会话入口（U4，后续逐页指导） | pending |
 | T-P4-02 | P4 | 干净环境安装/卸载/升级；能力矩阵区分「占位」与「完成」 | pending |
 
-#### T-P1-02 试改记录（2026-09-18，**已回滚**）
+#### T-P1-02 首次试改记录（2026-09-18，**已回滚**——历史保留）
 - 试改内容：`server/runtime/project.cjs` 注入键 `tmux`→`host`；生产侧 20 处 `ctx.tmux.*`→`ctx.host.*`；测试替身键 `tmux:`→`host:`。
 - 结果：**115 例测试失败**（5 个文件）。原因：测试替身被**跨变量名引用**——`tests/integration/server.test.js` 用
   `global.__CC_TMUX__ = m.tmux` 与 `m.tmux.hasSession`，`tests/unit/server-layering.test.js` 断言 `rt.ctx.tmux.hasSession`；
   只改注入键、不改这些引用，替身取不到。
 - 处置：**按 P1 纪律回滚**（CC 必须可用），回到 `107/108 文件、1005/1009 用例`（仅 4 例无 `claude` 的环境性失败）。
-- **下次要一次做完的范围**（避免再半途）：生产侧 6 个文件 + 测试侧 4 个文件（`decision.test.js`/`decision-gate.test.js`/
-  `one-server-two-projects.test.js`/`server.test.js`）+ `tests/unit/server-layering.test.js` 的断言 + `global.__CC_TMUX__` 改名。
-  建议与 T-P1-03（`session` 端口转正）**同批**做，因为都动 `cli/lib/session.cjs` 与 host 端口面。
+- 结论与后续：2026-09-19 按本记录的范围**一次做完**（生产 6 文件 + 测试 5 文件 + `global.__CC_TMUX__`→`__CC_HOST__` +
+  `tmuxFactory`→`hostFactory` + 替身键与断言同改），并与 T-P1-03 同批提交，一次通过。
 - 另附：`.awf/probe` 探针夹具**不进 git**（已确认未跟踪），全部内容随 `/tmp/awf-dsh-p0-handoff.tar.gz` 转移。
+
+### 2.4 P1 完成记录（2026-09-19，CC 基线收口）
+
+P1 六项全部收口；每个提交都满足硬门槛：`npm test` 全绿 + `npm run check:arch` + `npm run check:capability` + `npm run lint`。
+
+| 任务 | 提交 | 交付物（可核查的落点） |
+|---|---|---|
+| T-P1-01 | `093fea3` | `ports.cjs`：`ADAPTER_PLATFORMS` + `resolveAdapterName` / `resolveProjectAdapters`（读 `.awf/config.json` 的 `runtime.adapter`，`CC_ADAPTER` 可覆盖，未知/未落地显式抛错并点名责任任务）；`ccShapes`→`shapes`；cc 依赖清单下沉 `cc/checks.cjs`；`ctx.adapter` / `ctx.adapters` |
+| T-P1-02 | `499b58e` | `ctx.host` 能力面 + `host.sendPrompt`（`ENTER_DELAY_MS` 下沉进 `cc/host.cjs`）；注入缝 `__CC_HOST__`、参数 `hostFactory`、替身键与断言同批迁移 |
+| T-P1-03 | `499b58e` | `server/adapters/cc/session.cjs`（exists/cwd/start/kill/nudge/attach）；`cli/lib/session.cjs` 与 `attach.cjs` 零 tmux 直连；`session` 端口 `not-landed`→`factory`，7 端口全部收口 |
+| T-P1-04 | `ef1e286` | `server/templates/prompts.json`（9 条编排模板）+ 插件 `platform-vars`；`prompts.js` 按 key 分流；golden fixture 逐字节守卫迁移不改产出 |
+| T-P1-05 | `ec92a50` | `tests/conformance/adapters.conformance.test.js`（按已落地平台跑同一套契约断言）+ `REQUIRED_PORT_METHODS` / `assertRequiredMethods()` 加载即自检 |
+| T-P1-06 | `e7074ec` | `attachActiveRun()` 抽公共路径；`run -r` 有活跃 run → 挂接不重复提交，无 → 照常提交；不新增崩溃恢复、不自动重置 active |
+
+**P1 硬门槛达成口径**（本机，2026-09-19）：`npm test` 110/110 文件、1043/1043 用例通过（含 `claude` 在本机 PATH 上）；
+`check:capability` ✓；`check:arch` ✓；`lint` ✓；`build` ✓。
+
+**P1 明确未做（避免误读）**：
+- 未新增 `server/adapters/dsh/`（平台注册表里 `dsh` 仍 `not-landed`，解析入口会显式报错）——这是 P2。
+- 未改任何调度算法（scheduler / driver / 配额 / 门禁闭环），与 C34 的边界一致。
+- 未做通用崩溃恢复与 active 自动重置（T-P1-06 只做最小挂接，U3 边界）。
+- 未在真机 DSH 上复跑（P1 是 CC 基线阶段；DSH 侧从 P2 开始）。
 
 ---
 
@@ -576,6 +597,7 @@ factory: (require) => { … const name = 'awf-probe-plugin'; const inject = ['sl
 
 | 日期 | 变更 |
 |---|---|
+| 2026-09-19 | **P1 全部完成（T-P1-01～06，6 个提交）**：按项目解析适配器平台、`shapes` 去 CLI 化、`ctx.host` 能力化与 `sendPrompt` 节奏下沉、`session` 端口转正（7 端口全收口）、编排模板迁入 server（模板/平台参数分离 + golden 守卫）、conformance 套件 + 必填方法自检、`run -r` 最小挂接。每步 `npm test`/`check:arch`/`check:capability`/`lint` 全绿；调度算法与 DSH 适配器均未动（后者属 P2）。详见 §2.4 |
 | 2026-09-18 | 建立本文件；登记 T-P0-01～T-P0-14、P1～P4 边界；完成 E-01（隔离环境+版本基线）；E-02 启动；累积 F01～F12 静态发现 |
 | 2026-09-18 | **E-02 完成并验证通过**：第三方插件 host/client 两半侧均真实加载（HTTP 往返 200 + boot graph 含自研 bundle）；累积 F13～F17；E-03 启动 |
 | 2026-09-18 | E-03 机制确认（per-agent MCP 挂载、按项目起独立 server），但**未跑通一轮**；定位其唯一未解点为「Cordis 激活窗口内的驱动时机」（F21）。累积 F18～F24。真实 `~/.dsh` 配置面全程 `IDENTICAL`，用户 3080 未受影响 |

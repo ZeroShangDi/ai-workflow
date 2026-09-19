@@ -14,18 +14,28 @@
 
 const { commandConfigEnv } = require('./env.cjs');
 const runContext = require('../../server/shared/run-context.cjs');
+const { resolveProjectAdapters } = require('../../server/adapters/ports.cjs');
 
 /**
  * @param {string} projectRoot 项目根（.awf 宿主）
  * @param {{ env?: object, sid?: string }} [opts] env 缺省 process.env（会先清洗父 run 身份）
  * @returns {object} run-context 的全部字段（含 serverScriptPath / bootstrapScriptPath）
+ *   + `adapter`（平台名）与 `adapters`（解析出的平台适配器包）；平台未落地时在此显式抛错（T-P1-01）
  */
 function buildContext(projectRoot, { env = process.env, sid = null } = {}) {
   // sid 缺省必须补 projectSid(projectRoot)：会话名 = `cc-<sid>`，而 server 端（runtime/project.cjs）
   // 用 `sid || projectSid(root)` 兜底同一个值。这里若留空，run-context 会回落到基础名 `cc`，
   // 于是 CLI 建出 `cc` 而宿主去找 `cc-<sid>` —— 派发时 "tmux session not found"（真机踩到）。
   const runSid = sid || runContext.projectSid(projectRoot);
-  return runContext.buildRunContext({ projectRoot, sid: runSid, env: commandConfigEnv(env) });
+  const cleanEnv = commandConfigEnv(env);
+  const ctx = runContext.buildRunContext({ projectRoot, sid: runSid, env: cleanEnv });
+  // 平台按项目解析（T-P1-01）：CLI 后续一律经 ctx.adapters，不再静态 import cc 实现
+  const adapters = resolveProjectAdapters(ctx.projectRoot, {
+    sessionName: ctx.runSessionName,
+    bootstrapScriptPath: ctx.bootstrapScriptPath, // session 端口起会话用（T-P1-03）
+    env: cleanEnv,
+  });
+  return { ...ctx, adapter: adapters.name, adapters };
 }
 
 module.exports = { buildContext };

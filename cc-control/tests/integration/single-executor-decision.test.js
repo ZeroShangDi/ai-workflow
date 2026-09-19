@@ -19,13 +19,15 @@ fs.writeFileSync(STATE_PATH, JSON.stringify({
 }, null, 2));
 
 const sent = [];
-global.__CC_TMUX__ = {
+// T-P1-02：注入面是 host，能力方法 sendPrompt（文本+节奏+回车由平台实现）
+global.__CC_HOST__ = {
   hasSession: () => true,
-  sendText: (t) => { sent.push(t); },
+  sendText: () => {},
+  sendPrompt: async (t) => { sent.push(t); },
   sendEnter: () => {},
   sendCtrlC: () => {},
   capture: () => 'pane',
-  SESSION: 'cc',
+  sessionName: 'cc',
 };
 global.__CC_RUNLOGGER__ = {
   RunLogger: class {
@@ -54,7 +56,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.stop();
-  delete global.__CC_TMUX__;
+  delete global.__CC_HOST__;
   delete global.__CC_RUNLOGGER__;
   for (const k of ['CC_PROJECT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_SESSION_READY_TIMEOUT_MS']) delete process.env[k];
   fs.rmSync(TMP, { recursive: true, force: true });

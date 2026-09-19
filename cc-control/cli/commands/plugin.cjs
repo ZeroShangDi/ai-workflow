@@ -12,7 +12,6 @@
 
 const path = require('node:path');
 const { exec } = require('node:child_process');
-const { profile, tooling } = require('../../server/adapters/ports.cjs');
 const { buildContext } = require('../lib/context.cjs');
 
 /** child_process.exec 的 Promise 包装（tooling 的 install/uninstall 需要注入执行器） */
@@ -27,11 +26,14 @@ function execAsync(cmd) {
 
 /** 本地注册：写进本项目的 .claude/settings.json（enabled-only 生效范围 = 本项目） */
 function localPlugin(action, projectRoot) {
+  // 平台资产按项目解析（T-P1-01）：profile 的注入形状由本项目平台决定，不静态绑 cc
+  const ctx = buildContext(projectRoot, { env: {} });
+  const { profile } = ctx.adapters.tools;
   if (action === 'install') {
     const r = profile.installProfile(projectRoot);
     if (!r.written) return console.error(`本地注册失败：${r.error}`);
     console.log(`已本地注册 → ${r.path}`);
-    const m = profile.installProjectMcp(projectRoot, buildContext(projectRoot, { env: {} }).port);
+    const m = profile.installProjectMcp(projectRoot, ctx.port);
     if (m.written) console.log(`已注册项目 MCP → ${m.servers.join(', ')}`);
     return;
   }
@@ -46,6 +48,7 @@ function localPlugin(action, projectRoot) {
 
 /** 全局安装：先注册 marketplace，再按清单逐个 claude plugin install */
 async function globalPlugin(action, ctx) {
+  const { profile, tooling } = ctx.adapters.tools;
   const specs = profile.listDeclaredPlugins();
   if (!specs.length) return console.error('plugin/settings.json 未声明任何插件');
 

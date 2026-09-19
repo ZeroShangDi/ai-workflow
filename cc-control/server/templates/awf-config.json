@@ -1,4 +1,7 @@
 {
+  "runtime": {
+    "adapter": "cc"
+  },
   "run": {
     "agents": {
       "max": 1,

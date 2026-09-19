@@ -48,7 +48,7 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(root, '.awf'), { recursive: true });
   fs.writeFileSync(path.join(root, '.awf', 'state.json'), JSON.stringify(BASE_STATE));
   tmux = createMockTmux({ hasSession: false });
-  rt = createProjectRuntime({ projectRoot: root, tmuxFactory: () => tmux });
+  rt = createProjectRuntime({ projectRoot: root, hostFactory: () => tmux });
   server = http.createServer(makeApi().handle);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   port = server.address().port;
@@ -189,12 +189,13 @@ describe('hook 路由', () => {
 });
 
 describe('会话控制路由', () => {
-  it('/send：无 tmux → 503；有 tmux → 注入并置 busy', async () => {
+  it('/send：无会话 → 503；有会话 → 注入并置 busy', async () => {
     expect((await json(await req('POST', '/send', { body: { text: 'hi' } }))).status).toBe(503);
     tmux.setAlive(true);
     const r = await json(await req('POST', '/send', { body: { text: 'hi' } }));
     expect(r.status).toBe(200);
-    expect(tmux.calls.some((c) => c.op === 'sendText' && c.text === 'hi')).toBe(true);
+    // T-P1-02：派发经 host 能力方法 sendPrompt（替身按一次调用记录）
+    expect(tmux.calls.some((c) => c.op === 'sendPrompt' && c.text === 'hi')).toBe(true);
   });
 
   it('/send 缺 text → 400', async () => {

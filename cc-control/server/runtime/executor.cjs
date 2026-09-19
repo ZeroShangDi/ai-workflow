@@ -12,20 +12,19 @@
  *     只有 CC 已 idle 且任务仍未结算时，才累计「无变化窗口」，超窗交收尾协商。
  */
 
-const { READY_TIMEOUT_MS, ENTER_DELAY_MS } = require('../config.cjs');
+const { READY_TIMEOUT_MS } = require('../config.cjs');
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/** 注文本 → 稍等 → 回车（tmux 注入节奏） */
+/**
+ * 提交一段输入到会话（文本 + 派发节奏 + 回车）。
+ * 节奏属平台机制（T-P1-02 已下沉进 host 适配器），本层不再知道 ENTER_DELAY_MS。
+ */
 async function submitText(ctx, text) {
-  ctx.tmux.sendText(text);
-  await sleep(ENTER_DELAY_MS);
-  ctx.tmux.sendEnter();
+  await ctx.host.sendPrompt(text);
 }
 
 /**
  * @param {object} deps
- * @param {object} deps.ctx           项目上下文（tmux / stores / logger / projectRoot）
+ * @param {object} deps.ctx           项目上下文（host / stores / logger / projectRoot）
  * @param {object} deps.session       会话态（waitReady / setBusy / state / decisionPending）
  * @param {Function} deps.channel     会话通道工厂（惰性取 task-channel 实例）
  * @param {object} deps.observability 观测面（notice / pauseNoticeLog）
@@ -50,8 +49,8 @@ function createSingleExecutor({ ctx, session, channel, observability }) {
      */
     runTask: async ({ taskId, task, taskIndex = 1 }) => {
       const text = task.prompt || task.title || task.id; // 注入文本：优先 prompt，退化到 title/id
-      if (!ctx.tmux.hasSession()) {
-        throw new Error(`tmux session '${ctx.tmux.sessionName}' not found; run bootstrap.sh`);
+      if (!ctx.host.hasSession()) {
+        throw new Error(`tmux session '${ctx.host.sessionName}' not found; run bootstrap.sh`);
       }
 
       // 派发闩锁：暂停期间不派发新任务；但若这个任务已被别处结算（done/blocked），不必再等

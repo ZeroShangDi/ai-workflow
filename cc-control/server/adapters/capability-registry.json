@@ -1,7 +1,7 @@
 {
   "$comment": "AWF 适配能力登记（U9）。机器可读、可自动对账：`npm run check:capability`。字段与判定规则见 scripts/check-capability.mjs 的 REGISTRY_RULES。本文件是「能力」登记，不是「端口」名册 —— 端口名册在 server/adapters/ports.cjs。",
   "version": 1,
-  "updated": "2026-09-18",
+  "updated": "2026-09-19",
   "legend": {
     "status": {
       "implemented": "已有生产实现且接线成立",
@@ -22,12 +22,12 @@
       "kind": "public",
       "port": null,
       "status": "partial",
-      "cc": { "impl": ["server/adapters/ports.cjs"], "note": "当前静态取 CC（createCcAdapters）；按项目解析尚未落地" },
-      "dsh": { "impl": [], "note": "需 .awf/config.json 的 runtime.adapter + ports.cjs 按项目解析" },
-      "consumers": ["cli/lib/context.cjs"],
+      "cc": { "impl": ["server/adapters/ports.cjs"], "note": "已按项目解析（resolveProjectAdapters 读 .awf/config.json 的 runtime.adapter，缺省 cc；env CC_ADAPTER 可覆盖）；装配进 ctx.adapter / ctx.adapters" },
+      "dsh": { "impl": [], "note": "解析入口已就位，但平台本体未落地 → resolveProjectAdapters 显式抛错点名责任任务（不静默回落 cc）" },
+      "consumers": ["cli/lib/context.cjs", "server/runtime/project.cjs"],
       "evidence": ["F03", "F11"],
-      "responsible": "T-P1-01",
-      "note": "缺省 cc，运行中不热切换"
+      "responsible": "T-P2-01",
+      "note": "缺省 cc，运行中不热切换；未知/未落地平台显式失败（U6）"
     },
     {
       "id": "C02",
@@ -35,12 +35,12 @@
       "kind": "public",
       "port": "tooling",
       "status": "partial",
-      "cc": { "impl": ["cli/commands/init.cjs", "server/adapters/cc/tooling.cjs"], "note": "init 固定检查 tmux/claude/node" },
-      "dsh": { "impl": [], "note": "需查 dsh 自身依赖（含 pnpm，见 F13）" },
+      "cc": { "impl": ["cli/commands/init.cjs", "server/adapters/cc/checks.cjs"], "note": "依赖清单由平台 adapter 声明（cc/checks.cjs：tmux/claude/node），init 经 resolveProjectAdapters(...).checks() 取" },
+      "dsh": { "impl": [], "note": "需查 dsh 自身依赖（含 pnpm，见 F13）；入口已在（checks 按平台取），缺 dsh 侧清单" },
       "consumers": ["cli/commands/init.cjs"],
       "evidence": ["F01", "F13"],
-      "responsible": "T-P1-01",
-      "note": "DSH 侧不得要求安装 CC"
+      "responsible": "T-P2-02",
+      "note": "DSH 侧不得要求安装 CC（C02：清单随平台解析，CLI 不再写死 cc 依赖）"
     },
     {
       "id": "C03",
@@ -74,7 +74,7 @@
       "kind": "public",
       "port": "session",
       "status": "partial",
-      "cc": { "impl": ["cli/lib/session.cjs"], "note": "ensureServer 复用 /probe；live 走 bootstrap.sh" },
+      "cc": { "impl": ["cli/lib/session.cjs", "server/adapters/cc/session.cjs"], "note": "ensureServer 复用 /probe；会话起停经 session 端口（T-P1-03 已收口 tmux 直连）" },
       "dsh": { "impl": [], "note": "DSH web 后台全局单实例；复用判定待实现" },
       "consumers": ["cli/lib/session.cjs"],
       "evidence": ["F11"],
@@ -87,7 +87,7 @@
       "kind": "public",
       "port": "session",
       "status": "partial",
-      "cc": { "impl": ["cli/lib/session.cjs"], "note": "tmux 名 + cwd 校验" },
+      "cc": { "impl": ["server/adapters/cc/session.cjs"], "note": "tmux 名 + cwd 校验（exists/cwd/start/kill/nudge），T-P1-03 已从 CLI 收口" },
       "dsh": { "impl": [], "note": "sessionController.create({cwd}) 已验证（E-03）" },
       "consumers": ["cli/lib/session.cjs", "server/web/api/session.cjs"],
       "evidence": ["E-03"],
@@ -113,7 +113,7 @@
       "kind": "public",
       "port": "session",
       "status": "partial",
-      "cc": { "impl": ["cli/commands/open.cjs", "cli/commands/attach.cjs"], "note": "open 固定 AWF URL；attach 直调 tmux（待收口 T-P1-03）" },
+      "cc": { "impl": ["cli/commands/open.cjs", "cli/commands/attach.cjs", "server/adapters/cc/session.cjs"], "note": "open 固定 AWF URL；attach 经 session 端口的 attach()（T-P1-03 已收口 tmux 直连）" },
       "dsh": { "impl": [], "note": "插件路由 + dsh 鉴权已验证可作入口（F16/F24）" },
       "consumers": ["cli/commands/open.cjs", "cli/commands/attach.cjs"],
       "evidence": ["E-02", "F24"],
@@ -130,8 +130,8 @@
       "dsh": { "impl": [], "note": "需区分存在/可达/就绪三种事实" },
       "consumers": ["server/runtime/executor.cjs", "server/adapters/cc/probe.cjs"],
       "evidence": ["E-03"],
-      "responsible": "T-P1-02",
-      "note": "平台报告事实，AWF 判定能否继续（U10）。注：ctx.tmux→ctx.host 改名试改后因测试替身跨变量引用失败，已回滚，需与 T-P1-03 同批完成"
+      "responsible": "T-P2-01",
+      "note": "平台报告事实，AWF 判定能否继续（U10）。T-P1-02 已完成 ctx.tmux→ctx.host 能力化（含测试替身与 __CC_HOST__ 注入缝同批改名）"
     },
     {
       "id": "C10",
@@ -139,11 +139,11 @@
       "kind": "public",
       "port": "host",
       "status": "partial",
-      "cc": { "impl": ["server/adapters/cc/host.cjs"], "note": "sendText + delay + sendEnter（盲发）" },
+      "cc": { "impl": ["server/adapters/cc/host.cjs"], "note": "host.sendPrompt（文本+派发节奏+回车的能力方法；Enter 节奏已由 T-P1-02 下沉进 adapter）；仍为盲发，无平台受理回执" },
       "dsh": { "impl": [], "note": "sessionController.prompt(request, signal) 有受理回执（E-03/F26）" },
-      "consumers": ["server/runtime/executor.cjs"],
+      "consumers": ["server/runtime/executor.cjs", "server/web/api/session.cjs"],
       "evidence": ["E-03", "F26"],
-      "responsible": "T-P1-02",
+      "responsible": "T-P2-01",
       "note": "「平台受理」与「任务完成」必须分开"
     },
     {
@@ -217,13 +217,13 @@
       "name": "恢复/挂接已有执行",
       "kind": "public",
       "port": "session",
-      "status": "planned",
-      "cc": { "impl": ["cli/lib/session.cjs"], "note": "-r 未实现活跃挂接分支（spec §5 静态结论）" },
+      "status": "partial",
+      "cc": { "impl": ["cli/commands/run.cjs", "cli/lib/session.cjs"], "note": "-r 先查活跃 run → 有则挂接（与 --attach 同路径 attachActiveRun），无则提交；T-P1-06 已修" },
       "dsh": { "impl": [], "note": "沿用同一入口做最小挂接与现场核对（U3）" },
       "consumers": ["cli/commands/run.cjs", "cli/lib/session.cjs"],
       "evidence": [],
-      "responsible": "T-P1-06",
-      "note": "已核对：-r 无「查询活跃 run 并挂接」分支（run.cjs:136 直接 submitRun），单槽宿主下会 409；最小修复提为 T-P1-06，不建设通用崩溃恢复"
+      "responsible": "T-P3-02",
+      "note": "最小恢复行为已落地（不重复提交活跃 run）；通用崩溃恢复与 active 自动重置仍**不做**（U3 边界）"
     },
     {
       "id": "C17",
@@ -456,8 +456,8 @@
       "dsh": { "impl": [], "note": "同一套公共实现；本轮只改接线与事件入口" },
       "consumers": ["server/run/host.cjs"],
       "evidence": [],
-      "responsible": "T-P1-01",
-      "note": "平台无关；不得因 DSH 重写调度算法"
+      "responsible": null,
+      "note": "平台无关；不得因 DSH 重写调度算法（P1 已按此执行：T-P1-01～06 均未改调度）"
     },
     {
       "id": "C35",

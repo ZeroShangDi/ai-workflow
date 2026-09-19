@@ -2,18 +2,20 @@
 
 > 目的：**换一台电脑也能在 15 分钟内接着干**。本文件是唯一的「新机器上手」入口；
 > 细节在执行记录，设计在执行 spec，用户取舍在 Codex 清单。三份文件的分工见 §2。
-> 最后更新：2026-09-18（P0 收尾、U16/U17 确认后）。
+> 最后更新：2026-09-19（P1 全部完成、进入 P2 前）。
 
 ---
 
 ## 0. 30 秒摘要
 
 - 任务：按已确认 spec 把 AWF（ai-workflow）接入 DSH，覆盖全七命令，P0→P4 分阶段推进。
-- **当前阶段：P0 基本完成**（9/10 实验有真实运行证据）；**下一步进入 P1（CC 契约收口）**。
-- 已完成并验证：插件加载、会话级 MCP 多项目隔离、worker 权限边界（U15 已定）、decision 护栏、
+- **当前阶段：P1（CC 契约收口）已完成**（T-P1-01～06 全部收口，6 个提交）；**下一步进入 P2（DSH 最小完整链路）**。
+- P0 已完成并验证：插件加载、会话级 MCP 多项目隔离、worker 权限边界（U15 已定）、decision 护栏、
   单任务真实落账、一次性隔离调用、取消/父子停止语义、UI 入口可执行。
+- P1 已完成：按项目解析平台（`resolveProjectAdapters`）、7 端口全收口（`session` 转正）、
+  `ctx.host` 能力化 + 派发节奏下沉、编排模板迁入 server、conformance 套件、`run -r` 最小挂接。
 - **两个待接线项**（已有确认结论，属 P2 实现）：`approval` 受控自动批准（U16）、上下文清空用「换新会话+交接」（U17）。
-- P0 全程遵守：不越权动用户真实 `~/.dsh`、CC 路径保持可用、实验静默运行（`--no-open`）。
+- P0/P1 全程遵守：不越权动用户真实 `~/.dsh`、CC 路径保持可用、实验静默运行（`--no-open`）。
 
 ---
 
@@ -30,7 +32,7 @@ git pull                      # 或 clone 后切到 feature/cc-control-v0.2.0
 # ③ 装依赖并验证基线
 cd cc-control
 npm install
-npm test                      # 期望 107/108 文件、1005/1009 用例通过（唯一失败见下）
+npm test                      # 期望 110/110 文件、1043/1043 用例通过
 npm run check:capability      # 期望 ✓ 对账通过
 npm run check:arch            # 期望 结构门禁通过
 
@@ -48,8 +50,9 @@ sleep 25
 bash .awf/probe/dsh/serve.sh wait    # 输出 [serve] ready
 ```
 
-**已知的预期失败（不是你的环境坏了）**：`tests/unit/init.test.js` 有 4 例失败，原因是该机器 PATH 上没有 `claude`
-（该文件第一例就叫「本机三项齐备（真机用例的前置条件）」）。有 `claude` 的机器上应通过。
+**若 `npm test` 有 4 例失败**：几乎一定是 `tests/unit/init.test.js`，原因是该机器 PATH 上没有 `claude`
+（该文件第一例就叫「本机三项齐备（真机用例的前置条件）」）。有 `claude` 的机器上应全绿
+（2026-09-19 P1 收口机即为全绿 110/110、1043/1043）。
 
 ---
 
@@ -67,36 +70,22 @@ bash .awf/probe/dsh/serve.sh wait    # 输出 [serve] ready
 
 ---
 
-## 3. 必须先做：把未提交的 P0 产出带过去
+## 3. 换机只差一件：实验夹具 `.awf/probe/`
 
-这些文件**当前未提交**，直接换机器会丢失。二选一：
+**P0 与 P1 的产出都已提交**（P0：`2b34873`；P1：`093fea3` / `499b58e` / `e7074ec` / `ec92a50` / `ef1e286`），
+换机 `git pull` 即可，无未提交的源码或文档。
 
-**方案 A（推荐）：提交到分支**
+唯一不在 git 里的是**探针夹具 `.awf/probe/`**（`.awf/` 部分被忽略）——它包含全部 DSH 探针脚本与插件夹具，
+**是复跑 P0 实验的唯一途径**。走之前打包带走（或按 §5 在目标机器重建）：
+
 ```bash
 cd <repo>/cc-control
-git add docs/discuss/dsh-adapter-design-codex.md \
-        docs/discuss/dsh-adapter-execution.md \
-        docs/discuss/dsh-adapter-checklist-codex.md \
-        scripts/check-capability.mjs \
-        server/adapters/capability-registry.json \
-        tests/unit/capability-registry.test.js \
-        package.json
-git commit -m "feat(cc-control): DSH 接入 P0 —— 9 项关键能力实测 + 能力登记对账（U9）"
-```
-（`package.json` 只加了一行 script `check:capability`，无依赖变化。）
-
-**方案 B：打包带走（不动 git 历史）**
-```bash
-cd <repo>/cc-control
-tar czf /tmp/awf-dsh-p0.tar.gz \
-  docs/discuss/dsh-adapter-{design,execution,checklist}-codex.md \
-  scripts/check-capability.mjs server/adapters/capability-registry.json \
-  tests/unit/capability-registry.test.js package.json .awf/probe
+tar czf /tmp/awf-dsh-probe.tar.gz .awf/probe
 # 目标机器解开覆盖即可
 ```
 
-⚠️ **实验夹具 `.awf/probe/` 不在 git 里**（`.awf/` 部分被忽略）。它包含全部探针脚本与插件夹具，
-**是复跑 P0 实验的唯一途径**。请务必按方案 B 一起打包（或在目标机器按 §5 重建）。
+⚠️ 若只关心 P2 起的新工作量，`.awf/probe/` 不是必须的（P2 要在 `server/adapters/dsh/` 里新写生产适配器）；
+但若要**复现 P0 的 X1～X9 结论**，没有它就等于从零再来。
 
 ---
 
@@ -109,8 +98,8 @@ tar czf /tmp/awf-dsh-p0.tar.gz \
 | 隔离实验 home | `/tmp/awf-dsh-probe` | 换机重建（§1 第 ④ 步）；`/tmp` 重启会清空 |
 | 实验端口 | `39081`（探针）/ `3080`（用户） | 39081 被占则改 `.awf/probe/dsh/patches/port-39081.yml` 与 `serve.sh` 的 `AWF_PROBE_WEB_PORT` |
 | pnpm | **本机没有** → `dsh plugin add` 不可用 | 有 pnpm 的机器可直接用官方路径；没 pnpm 就用 `.awf/probe/dsh/install-fixture.sh` 的离线等价装配（F13） |
-| 浏览器桥（bbx） | 可用（用于 UI 真实页面验证） | 需要时由你在扩展里启用；不用也不影响 P1 |
-| `claude` 命令 | PATH 上**没有** → init 相关 4 例测试预期失败 | 有 claude 的机器上应复跑确认 |
+| 浏览器桥（bbx） | 可用（用于 UI 真实页面验证） | 需要时由你在扩展里启用；不用也不影响 P2 |
+| `claude` 命令 | P0 机器 PATH 上**没有** → init 相关 4 例预期失败 | P1 收口机（2026-09-19）**有** `claude` → 110/110 全绿；换机后以实测为准 |
 
 ---
 
@@ -118,7 +107,7 @@ tar czf /tmp/awf-dsh-p0.tar.gz \
 
 ```bash
 mkdir -p .awf/probe/dsh/{patches,fixtures}
-# 需要的脚本（内容见本文件 §6 的职责说明，或从上一台机器的打包件恢复）：
+# 需要的脚本（职责见下方注释，或从上一台机器的打包件恢复）：
 #   env.sh               强制 DSH_HOME=/tmp/awf-dsh-probe；防呆禁止指向真实 home
 #   serve.sh             静默起停探针后台（--no-open）；start|stop|wait
 #   guard.sh            真实 ~/.dsh 配置面指纹（snapshot|check）——证明零副作用
@@ -137,24 +126,28 @@ mkdir -p .awf/probe/dsh/{patches,fixtures}
 
 ---
 
-## 6. 现在该做什么（P1 入口）
+## 6. 现在该做什么（P2 入口）
 
-**P0 状态**：T-P0-01～T-P0-14 全部收口，唯一 `in_progress` 是 **T-P0-12 的 U14 实机确认**（需要你在真实页面确认
-「执行中输入禁用 / 暂停 AWF 按钮 / 响应结束后介入」三条；不影响 P1）。
+**P0 状态**：T-P0-01～T-P0-14 全部收口，唯一遗留是 **T-P0-12 的 U14 实机确认**（需要你在真实页面确认
+「执行中输入禁用 / 暂停 AWF 按钮 / 响应结束后介入」三条；不影响 P2）。
 
-**P1 任务（执行记录 §2.3，全部 pending）**
+**P1 状态：已完成（2026-09-19，6 个提交）**
 
-| 编号 | 内容 | 关键约束 |
+| 编号 | 交付 | 提交 |
 |---|---|---|
-| T-P1-01 | `ports.cjs` 按项目解析 adapter；`ccShapes`→`shapes` 去 CLI 化 | **不改**调度算法 |
-| T-P1-02 | `ctx.tmux` → `ctx.host` 能力化；`ENTER_DELAY_MS` 下沉进 cc 实现 | 同批迁移消费者，不留双名 |
-| T-P1-03 | `cli/lib/session.cjs` 5 处 tmux 直连 + `attach.cjs` 收口；`session` 端口转正 | 现在 CLI 硬绑 tmux |
-| T-P1-04 | 编排模板迁入 server（模板与平台参数分离） | 技能/worker/决策资产保持单源 |
-| T-P1-05 | 测试分层：编排层 CLI 无关 + conformance + **契约自检（可执行必填方法名断言）** | 测试走「改」不走「加别名」 |
-| **T-P1-06** | **`run -r` 最小恢复修复**：把「查询活跃 run 并挂接」补进 `-r` 分支（与 `--attach` 同路径） | U3 已确认范围；**不**新增崩溃恢复、**不**自动重置 active |
+| T-P1-01 | 按项目解析平台（`resolveProjectAdapters` / `ADAPTER_PLATFORMS`）+ `shapes` 去 CLI 化 + 依赖检查下沉 | `093fea3` |
+| T-P1-02 | `ctx.host` 能力化 + `host.sendPrompt`（`ENTER_DELAY_MS` 下沉）+ 注入缝/替身同批改名 | `499b58e` |
+| T-P1-03 | `cc/session.cjs` + CLI 零 tmux 直连 + `session` 端口转正（7 端口全收口） | `499b58e` |
+| T-P1-04 | 编排模板迁入 `server/templates/prompts.json` + 插件 `platform-vars` + golden 守卫 | `ef1e286` |
+| T-P1-05 | `tests/conformance/` 一致性套件 + `REQUIRED_PORT_METHODS` 可执行自检 | `ec92a50` |
+| T-P1-06 | `run -r` 最小挂接（不重复提交、不新增崩溃恢复） | `e7074ec` |
 
-**P1 硬门槛**：每次改动后 `npm test` 全绿（除已知的 `init.test.js` 环境性 4 例）+ `npm run check:arch` 通过。
-P1 是**动 CC 生产代码**的阶段，务必小步提交、先保 CC 可用。
+**P1 出口状态（本机实测）**：`npm test` **110/110 文件、1043/1043 用例**；`check:capability` ✓；
+`check:arch` ✓；`lint` ✓；`build` ✓。（与 P0 记录不同：本机 PATH 上有 `claude`，无环境性失败。）
+
+**P2 任务（执行记录 §2.3）**：T-P2-01（`server/adapters/dsh/` + 插件 host 半侧：WS 指令下行 + HTTP 回传）、
+T-P2-02（init/plan/run 的 DSH 接线）。平台注册表里 `dsh` 仍是 `not-landed` —— 解析入口已经会
+**显式报错并点名 T-P2-01**，所以 P2 的第一件事就是把这个洞填上。
 
 **P2 已明确的接线项（来自 P0 结论，避免重复试错）**
 - 建会话：`sessionController.create` + `setup: installModelSelection + agentPresets.mount`（缺一即「裸 agent」，F19）。
@@ -165,6 +158,9 @@ P1 是**动 CC 生产代码**的阶段，务必小步提交、先保 CC 可用�
 - 上下文：**换新会话 + handoff 快照**（U17）；压缩需在 preset 同 realm 接线（F35）。
 - 返回体：`awf_read_state` 默认全量 346KB、`summary:true` **静默无效** → 必须做真摘要 + 未知参数报错（E-10）。
 - 资产：技能/命令属 **agent preset 平面**，不能假设全局根目录被发现（E-10 A）。
+- 适配器落点（P1 已备好）：实现 `server/adapters/dsh/` 的 `createDshAdapters(opts)` 并注册进
+  `ADAPTER_PLATFORMS.dsh`（status 转 `factory`、`impls`/`tools`/`checks` 齐备），
+  `tests/conformance/adapters.conformance.test.js` 会**自动**把 dsh 纳入同一套契约断言。
 
 ---
 
@@ -184,4 +180,5 @@ P1 是**动 CC 生产代码**的阶段，务必小步提交、先保 CC 可用�
 
 | 日期 | 变更 |
 |---|---|
+| 2026-09-19 | **P1 完成，接续信息切到 P2**：状态摘要/启动清单基线（110 文件、1043 用例）/§3（产出已全部提交，只差 `.awf/probe/`）/§6（P2 入口 + 适配器落点）全部按 P1 收口后的实际情况改写 |
 | 2026-09-18 | 建立本接续文件；P0 收尾；登记 U15/U16/U17 与 F01～F35；给出 P1 入口与 P2 接线清单 |

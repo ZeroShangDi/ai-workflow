@@ -72,7 +72,8 @@ plugin/
 │
 └── plugin-code/                # 编程层插件 ai-workflow-code
     ├── plugin.json             #   插件声明（无 hooks 字段）
-    ├── prompts.json            #   插件声明提示词模板（plan-start/resume/default + task-wrapup/settle + context-check + batch-*/subagent-dispatch）
+    ├── prompts.json            #   插件声明：plan 入口模板（start/resume/default）+ platform-vars（平台参数）
+    │                           #   （编排模板已随 server：server/templates/prompts.json，T-P1-04）
     ├── commands/               #   编程领域 slash commands
     │   ├── w-plan.md           #     主规划流程
     │   ├── w-plan-check.md     #     CLI plan 门禁检查
@@ -151,7 +152,7 @@ plugin/
 ### plugin-code — 编程层（ai-workflow-code）
 
 - **命令**：`w-plan*` 规划四连（plan/check/wbs/tasks）+ `w-dev` / `w-debug` / `w-review` / `w-test` / `w-doc` / `w-commit` / `w-ui-design` / `w-ui-code`
-- **提示词模板**：`prompts.json` 声明 plan 入口（start/resume/default）与任务收尾 wrapup/settle、context-check、subagent-dispatch，runtime 指令由插件声明
+- **提示词**：`prompts.json` 保留 plan 入口模板（start/resume/default）与 `platform-vars`（worker 子 Agent 类型 / dev 命令 / 技能名）；**编排协议模板**（task-wrapup/settle、context-check、batch-*、subagent-*、gate-fix）已随 server 走 `server/templates/prompts.json`（T-P1-04：模板与平台参数分离）
 - **技能**：`awf-plan-*` 规划技能 + `code-dev-*` 开发技能 + `code-architecture` 架构决策 + `code-review-*` 多维审查（含架构审查）+ `code-test-case` + 通用上下文/提交/文档技能
 
 ### decision — 决策层（ai-workflow-decision）
@@ -182,4 +183,4 @@ plugin/
 - **本地注入**：读 `plugin/settings.json`（含 core + decision + plugin-code）注入到项目 `.claude/settings.json`
 - **全局安装**：`awf plugin install --scope global` 按 `settings.json.plugins` 声明的 `ai-workflow-core@ai-workflow-dev` / `ai-workflow-decision@ai-workflow-dev` / `ai-workflow-code@ai-workflow-dev` 执行 `claude plugin install`
 
-> 架构原则：插件改动，CLI 零感知。CLI 只通过 `server/shared/prompts.js` 读插件 `prompts.json` 填充提示词，不写死任何插件命令字符串。
+> 架构原则：插件改动，CLI 零感知。CLI 只通过 `server/shared/prompts.js` 取提示词（编排模板在 server、平台参数由插件 `platform-vars` 声明），不写死任何插件命令字符串。

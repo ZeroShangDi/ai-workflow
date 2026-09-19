@@ -51,9 +51,9 @@ function writeNeedsProject(method, pathname) {
   return !PROJECT_AGNOSTIC_WRITES.has(pathname);
 }
 
-/** tmux 缺席时的统一响应（503 —— 服务在但外部依赖不在，不是 404/500） */
+/** 会话缺席时的统一响应（503 —— 服务在但外部依赖不在，不是 404/500） */
 function noSession(res, rt) {
-  return send(res, 503, { ok: false, error: `tmux session '${rt.ctx.tmux.sessionName}' not found; run bootstrap.sh` });
+  return send(res, 503, { ok: false, error: `session '${rt.ctx.host.sessionName}' not found; run bootstrap.sh` });
 }
 
 module.exports = { readJson, send, requirePaused, writeNeedsProject, noSession };

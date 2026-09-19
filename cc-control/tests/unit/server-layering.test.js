@@ -58,10 +58,10 @@ describe('server 分层 · 会话态（Session）', () => {
 describe('server 分层 · 项目上下文与 runtime 的边界', () => {
   it('ctx 只装身份/路径/出口，不再承载运行态', () => {
     const root = makeRoot();
-    const rt = createProjectRuntime({ projectRoot: root, tmuxFactory: () => createMockTmux() });
+    const rt = createProjectRuntime({ projectRoot: root, hostFactory: () => createMockTmux() });
 
     // 出口在位
-    expect(typeof rt.ctx.tmux.hasSession).toBe('function');
+    expect(typeof rt.ctx.host.hasSession).toBe('function');
     expect(typeof rt.ctx.stores.state.readSync).toBe('function');
     expect(typeof rt.ctx.logger.logPrompt).toBe('function');
 
@@ -79,7 +79,7 @@ describe('server 分层 · 项目上下文与 runtime 的边界', () => {
 
   it('每个 sid 一个独立会话槽（原 run-slot 职责）', () => {
     const root = makeRoot();
-    const rt = createProjectRuntime({ projectRoot: root, tmuxFactory: () => createMockTmux() });
+    const rt = createProjectRuntime({ projectRoot: root, hostFactory: () => createMockTmux() });
     const a = rt.sessionFor('sid-a');
     const b = rt.sessionFor('sid-b');
     a.setBusy();
@@ -92,7 +92,7 @@ describe('server 分层 · 项目上下文与 runtime 的边界', () => {
 
   it('reset 把运行态收干净', () => {
     const root = makeRoot();
-    const rt = createProjectRuntime({ projectRoot: root, tmuxFactory: () => createMockTmux() });
+    const rt = createProjectRuntime({ projectRoot: root, hostFactory: () => createMockTmux() });
     rt.session.setBusy();
     rt.sessionFor('sid-x').setBusy();
     rt.observability.trackAgent('a1', { status: 'running' });

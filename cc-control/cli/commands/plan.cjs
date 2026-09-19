@@ -11,10 +11,12 @@
  * 故用动态 import（与 `server/runtime/index.cjs` 同一手法）。
  */
 
-const { interactive } = require('../../server/adapters/ports.cjs');
+const { resolveProjectAdapters } = require('../../server/adapters/ports.cjs');
 
 async function planCommand(description, options = {}) {
   const projectRoot = process.cwd();
+  // 平台按项目解析（T-P1-01）：plan 的交互入口由本项目声明的平台提供
+  const { interactive } = resolveProjectAdapters(projectRoot).ports;
 
   if (!options.resume) {
     const { archiveOldStateForPlan } = await import('../../server/shared/state.js');

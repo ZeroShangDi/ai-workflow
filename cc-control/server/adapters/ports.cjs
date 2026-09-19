@@ -1,14 +1,13 @@
 'use strict';
 /**
- * ports.cjs — adapters 端口契约（7 端口名册 + 非端口工具 + 未收口登记）
+ * ports.cjs — adapters 端口契约（7 端口名册 + 非端口工具 + 平台解析）
  *
- * **目标（纪律 R-cc）**：cc（Claude Code）的一切接入经 adapter 端口收敛，外部源码零 `claude` 命令字面。
+ * **目标（纪律 R-cc）**：cc（Claude Code）的一切接入经 adapter 端口收敛，外部源码零 `claude` / `tmux` 命令字面。
  *
- * 现状**尚未达成**，别把上面那句读成既成事实（issue 004-4）：`session` 端口仍 `not-landed`（live 走
- * `scripts/bootstrap.sh`），命令字面仍在 adapters 之外 —— `claude` 在 `scripts/bootstrap.sh:11,42`，
- * `tmux` 在 `server/adapters/cc/host.cjs`（**已收口**：旧树 `src/server/tmux.cjs` 随收口删除，
- * 现在只有这一个实现，字面在本 adapter 内）。
- * 本文件记的是**目标形态 + 未收口的结构化登记**，不是「已经收口了」的完工声明。
+ * **7 端口已全部收口**（T-P1-03 起 `session` 由 `not-landed` 转正）：`tmux` 字面只在
+ * `server/adapters/cc/{host,session}.cjs`（session 经 `scripts/bootstrap.sh` 起会话）；
+ * `claude` 字面在 `cc/{tooling,oneshot,interactive}.cjs` 与 `scripts/bootstrap.sh` 自身
+ * （脚本是被 adapter 调用的资产，不是上层源码）。
  *
  * ## 这个目录为什么长这样（六边形架构 / Ports & Adapters）
  * `server/adapters/` 是**多 CLI 适配层**：每个 CLI 一个子目录（`cc/` 是当前唯一真实实现；
@@ -18,7 +17,12 @@
  *
  * **本文件是外部进入 `adapters/` 的唯一门**：外部源码只许 `require('.../adapters/ports.cjs')`
  * 取句柄，不许直连 `cc/xxx.cjs`。破坏这条，端口就退化成硬编码，换 CLI 要满仓库改（这条纪律叫 R-cc）。
- * 注意边界是**整个 adapters 目录**而非「只在 7 端口名册里的才准出」——`ccShapes` / `extract` 不在名册但同样经这门出。
+ * 注意边界是**整个 adapters 目录**而非「只在 7 端口名册里的才准出」——`shapes` / `extract` 不在名册但同样经这门出。
+ *
+ * ## 按项目解析平台（T-P1-01 / C01）
+ * `resolveProjectAdapters(projectRoot, opts)` 是「这个项目用哪个 CLI」的唯一判定点：读
+ * `<projectRoot>/.awf/config.json` 的 `runtime.adapter`（env `CC_ADAPTER` 可覆盖），缺省 `cc`。
+ * 未落地的平台（当前 `dsh`）**显式抛错**，不静默回落到 cc（U6「明确失败」）；运行中不热切换。
  *
  * ## 契约形状
  * 每端口 = `{ name, status, role, methods[] }`：
@@ -48,7 +52,7 @@
 // 外部源码不要照抄这些路径去直连 —— 那是绕过唯一门。
 const oneshot = require('./cc/oneshot.cjs');
 const tooling = require('./cc/tooling.cjs');
-const ccShapes = require('./cc/shapes.cjs');
+const shapes = require('./cc/shapes.cjs');
 const extract = require('./cc/extract.cjs');
 const settings = require('./cc/settings.cjs');
 const profile = require('./cc/profile.cjs');
@@ -56,6 +60,10 @@ const { createHost } = require('./cc/host.cjs');
 const { createHookAdapter } = require('./cc/hook.cjs');
 const { launchInteractiveClaude } = require('./cc/interactive.cjs');
 const { createProbe } = require('./cc/probe.cjs');
+const { createSessionPort } = require('./cc/session.cjs');
+const { checkPrerequisites: ccCheckPrerequisites } = require('./cc/checks.cjs');
+const { readJsonFile } = require('../shared/config-loader.cjs'); // .awf/config.json 的读取形状（路径 + 容错语义）
+const { configFilePath } = require('../shared/project-paths.cjs'); // .awf 布局单源
 
 /**
  * 7 端口契约。`methods` 写的是**端口对象上真实存在的方法**（不是愿望清单）——
@@ -68,8 +76,8 @@ const PORT_CONTRACT = [
     // 实现：cc/host.cjs —— createHost（工厂；会话名参数化，支持 cc-<sid>）
     name: 'host',
     status: 'factory',
-    role: 'tmux 会话原语（会话名参数化 cc-<sid>）',
-    methods: ['sessionName', 'hasSession()', 'sendText(text)', 'sendEnter()', 'sendCtrlC()', 'capture()'],
+    role: 'tmux 会话原语 + 派发节奏（会话名参数化 cc-<sid>）',
+    methods: ['sessionName', 'hasSession()', 'sendText(text)', 'sendPrompt(text)', 'sendEnter()', 'sendCtrlC()', 'capture()'],
   },
   {
     // 实现：cc/hook.cjs —— createHookAdapter（工厂；需注入 emit 事件总线）
@@ -111,30 +119,28 @@ const PORT_CONTRACT = [
     methods: ['inspect()'],
   },
   {
-    // 唯一未收口端口：无实现文件，只有下面这行登记（note + responsible 必填，assertPortContract 会校验）
+    // 实现：cc/session.cjs —— createSessionPort（T-P1-03 收口：原先 live 走 cli/lib/session.cjs 的 tmux 直连）
     name: 'session',
-    status: 'not-landed',
-    role: 'claude 会话启动 / 收口',
-    methods: ['start({ projectRoot, sid })', 'stop()'],
-    note: 'live 走 cli/run.js → scripts/bootstrap.sh（shell 里拼 tmux + claude），适配器版从未接线',
-    responsible: 'T1-113',
+    status: 'factory',
+    role: '会话启动 / 复用探测 / 停止 / 接入观看',
+    methods: ['sessionName', 'exists()', 'cwd()', 'start({ projectRoot, env })', 'kill()', 'nudge()', 'attach({ stdio })'],
   },
 ];
 
 /**
  * 非端口工具 —— 明确**不在** 7 端口名册内，并给出裁决理由（T1-116）。
  *
- * `cc-shapes.cjs`：cc 回写**形状**构造（Stop block / permissionDecision deny）。
- *   裁决：**不是端口**。端口 = 可替换的 cc 能力面（带会话/进程/外部依赖，换实现要动接线）；
- *   cc-shapes 是纯数据形状函数（无副作用、无可替换性诉求），且已由领域代码直接消费
+ * `shapes.cjs`：回写**形状**构造（Stop block / permissionDecision deny）。
+ *   裁决：**不是端口**。端口 = 可替换的平台能力面（带会话/进程/外部依赖，换实现要动接线）；
+ *   shapes 是纯数据形状函数（无副作用、无可替换性诉求），且已由领域代码直接消费
  *   （server.cjs / decision-gate.cjs）。塞进名册只会让「7 端口」这个口径失真，
  *   而口径一旦失真，「哪些能力面还没收口」就再也数不清了。
  */
 const NON_PORT_TOOLS = [
-  { name: 'cc-shapes', file: 'adapters/cc/shapes.cjs', reason: 'cc 回写形状构造，纯数据函数、无可替换性诉求，不构成能力面' },
-  { name: 'extract', file: 'adapters/cc/extract.cjs', reason: 'cc 输出解析（subagent RESULT / transcript 渲染），与 cc-shapes 一读一写对称：纯函数、无可替换性诉求' },
-  { name: 'settings', file: 'adapters/cc/settings.cjs', reason: 'cc 格式 settings 产物构造（statusLine 等），纯数据构造、无会话/进程依赖' },
-  { name: 'profile', file: 'adapters/cc/profile.cjs', reason: 'cc 项目配置注入（.claude/settings.json + 项目 .mcp.json），形状全由 cc 决定、不调 cc 命令' },
+  { name: 'shapes', file: 'adapters/cc/shapes.cjs', reason: '回写形状构造，纯数据函数、无可替换性诉求，不构成能力面' },
+  { name: 'extract', file: 'adapters/cc/extract.cjs', reason: '输出解析（subagent RESULT / transcript 渲染），与 shapes 一读一写对称：纯函数、无可替换性诉求' },
+  { name: 'settings', file: 'adapters/cc/settings.cjs', reason: '平台格式 settings 产物构造（statusLine 等），纯数据构造、无会话/进程依赖' },
+  { name: 'profile', file: 'adapters/cc/profile.cjs', reason: '项目配置注入（.claude/settings.json + 项目 .mcp.json），形状全由平台决定、不调外部命令' },
 ];
 
 /**
@@ -162,6 +168,48 @@ assertPortContract();
 const PORT_NAMES = PORT_CONTRACT.map((p) => p.name);
 
 /**
+ * 编排层**实际消费**的最小端口方法面（T-P1-05 契约自检的可执行断言项）。
+ *
+ * 与 `PORT_CONTRACT.methods` 的差别：那份是「端口上真实存在什么」（能力面全量），
+ * 这份是「上层真的会调什么」（消费面）。新增/替换平台时，`methods` 允许有平台特有项，
+ * 但**这些方法必须有**，否则上层会以 undefined is not a function 在运行时炸掉。
+ *
+ * 一致性由 `assertRequiredMethods()` 守着（模块加载即执行）：必填项必须出现在
+ * 对应端口的 `PORT_CONTRACT.methods` 里 —— 防止两份声明各自漂移。
+ */
+const REQUIRED_PORT_METHODS = {
+  host: ['hasSession', 'sendText', 'sendPrompt', 'sendCtrlC', 'capture'],
+  hook: ['hook'],
+  oneshot: ['runOneShot', 'spawnClaudeP', 'claudePArgs'],
+  tooling: ['install', 'uninstall', 'claudeAvailable', 'buildMarketplaceAdd', 'buildInstall', 'buildUninstall'],
+  interactive: ['launchDialog'],
+  probe: ['inspect'],
+  session: ['exists', 'cwd', 'start', 'kill', 'nudge', 'attach'],
+};
+
+/**
+ * 必填方法自检：每个必填方法都必须在对应端口的契约里声明过（T-P1-05）。
+ * @param {object} required 必填映射（缺省 REQUIRED_PORT_METHODS）
+ * @param {Array} contract 端口契约（缺省 PORT_CONTRACT）
+ * @returns {true}
+ * @throws {Error} 必填方法未在契约里声明 / 引用了不存在的端口
+ */
+function assertRequiredMethods(required = REQUIRED_PORT_METHODS, contract = PORT_CONTRACT) {
+  const byName = new Map(contract.map((p) => [p.name, p]));
+  for (const [portName, methods] of Object.entries(required)) {
+    const port = byName.get(portName);
+    if (!port) throw new Error(`ports: 必填方法引用了不存在的端口 ${portName}`);
+    const declared = new Set(port.methods.map((m) => m.replace(/\(.*$/, '').trim()));
+    for (const m of methods) {
+      if (!declared.has(m)) throw new Error(`ports: 必填方法 ${portName}.${m} 未在 PORT_CONTRACT.methods 里声明`);
+    }
+  }
+  return true;
+}
+
+assertRequiredMethods();
+
+/**
  * 端口实现句柄 —— **生产侧进入 adapters 的唯一门**（T1-117）。
  *
  * 目的：`cli/` / `server/` 各层不再 `require('./xxx.cjs')` 具体实现文件，
@@ -170,7 +218,7 @@ const PORT_NAMES = PORT_CONTRACT.map((p) => p.name);
  *
  * `interactive` 在本仓库是「包装」而非同名模块导出（模块导出 `launchInteractiveClaude`，
  * 端口面叫 `launchDialog`）；`probe` 需 host 注入，故是工厂。
- * `ccShapes` / `extract` **不在 7 端口名册**（见 NON_PORT_TOOLS），但同样经这道门出 ——
+ * `shapes` / `extract` **不在 7 端口名册**（见 NON_PORT_TOOLS），但同样经这道门出 ——
  * 界线是「adapters 边界」，不是「只在名册里的才准出」。
  */
 const PORT_IMPLS = {
@@ -180,26 +228,27 @@ const PORT_IMPLS = {
   tooling,
   interactive: { launchDialog: (opts) => launchInteractiveClaude(opts) },
   probe: createProbe,
-  ccShapes,
+  shapes,
   extract,
   settings,
   profile,
 };
 
 /**
- * 绑定 cc adapter 端口。**七个端口里，能绑的都在这里绑**（T1-116 起含 oneshot/tooling）——
- * 此前只有 4 个在工厂内，生产改为逐个直接 require 实现文件，契约层因此形同虚设
- * （`.awf/reports/architecture-discipline-audit.md` F3 / `ports.cjs` 零生产引用）。
- * `session` 未收口，故不在返回对象里；调用方经 `PORT_CONTRACT` 可查它的状态与责任人。
+ * 绑定 cc adapter 端口。**七个端口全部在这里绑**（T1-116 起含 oneshot/tooling；
+ * T-P1-03 起 `session` 也收口进来）—— 此前只有 4 个在工厂内、生产逐个直接 require 实现文件，
+ * 契约层因此形同虚设（`.awf/reports/architecture-discipline-audit.md` F3 / `ports.cjs` 零生产引用）。
  *
- * @param {{ sessionName?: string, bus?: { emit: Function }, execFileSync?: Function, status?: Function }} opts
- *   sessionName  传给 createHost 的 tmux 会话名（多 run 传 cc-<sid>，缺省 'cc'）
- *   bus          事件总线，取 bus.emit 注入 hook 适配器（缺省空 emit，事件丢弃但不报错）
- *   execFileSync 注入给 host 的 exec（测试用；生产走系统 tmux）
- *   status       注入给 probe 的状态查询函数（生产经 server /status）
- * @returns host/hook/oneshot/tooling/interactive/probe 六个端口句柄（**不含 session**，原因见上）
+ * @param {{ sessionName?: string, bus?: { emit: Function }, execFileSync?: Function, status?: Function,
+ *           bootstrapScriptPath?: string }} opts
+ *   sessionName          会话名（多 run 传 cc-<sid>，缺省 'cc'）；host 与 session 端口共用
+ *   bus                  事件总线，取 bus.emit 注入 hook 适配器（缺省空 emit，事件丢弃但不报错）
+ *   execFileSync         注入给 host / session 的 exec（测试用；生产走系统 tmux）
+ *   status               注入给 probe 的状态查询函数（生产经 server /status）
+ *   bootstrapScriptPath  起会话的脚本路径（session.start 必需；装配期由 run-context 注入）
+ * @returns host/hook/oneshot/tooling/interactive/probe/session 七个端口句柄
  */
-function createCcAdapters({ sessionName = 'cc', bus, execFileSync, status } = {}) {
+function createCcAdapters({ sessionName = 'cc', bus, execFileSync, status, bootstrapScriptPath } = {}) {
   // 无总线时给空 emit：hook 事件被丢弃但调用方不会因缺依赖报错（测试/早启场景友好）
   const emit = bus?.emit || (() => 0);
   const host = createHost({ sessionName, execFileSync });
@@ -212,7 +261,112 @@ function createCcAdapters({ sessionName = 'cc', bus, execFileSync, status } = {}
     interactive: PORT_IMPLS.interactive,
     // probe 依赖 host（侦查本会话）与 status（查 server /status），故最后组装
     probe: createProbe({ host, status }),
+    // 会话生命周期（T-P1-03）：与 host 共用会话名与 exec 注入
+    session: createSessionPort({ sessionName, bootstrapScriptPath, execFileSync }),
   };
+}
+
+/**
+ * 平台注册表（T-P1-01 / C01）—— 「有哪些平台、各自落没落地」的唯一登记。
+ *
+ * 结构 `{ <平台名>: { status, role, tools, create, note?, responsible? } }`：
+ *   - `status: 'factory'`    有生产实现，`create(opts)` 返回该平台的 7 个已绑定端口句柄
+ *   - `status: 'not-landed'` 尚未落地 —— **必须**带 `note` + `responsible`（同端口契约的纪律）
+ *
+ * 刻意**不用 `name:` 字段**（平台名是对象键）：`scripts/check-capability.mjs` 用
+ * `name: '...'` 正则从本文件抓端口名册，多一批非端口名字会让那份对账失真。
+ */
+const ADAPTER_DEFAULT = 'cc';
+const ADAPTER_ENV = 'CC_ADAPTER';
+
+/** cc 平台的非端口工具（形状/资产构造），随平台解析一并给出 */
+const CC_TOOLS = { shapes, extract, settings, profile };
+
+const ADAPTER_PLATFORMS = {
+  cc: {
+    status: 'factory',
+    role: 'Claude Code（tmux 会话 + hooks 回调）',
+    tools: CC_TOOLS,
+    impls: PORT_IMPLS,
+    checks: ccCheckPrerequisites,
+    create: (opts) => createCcAdapters(opts),
+  },
+  dsh: {
+    status: 'not-landed',
+    role: 'DeepSeek Harness（插件 host 半侧 + 会话控制器）',
+    tools: null,
+    impls: null,
+    checks: null,
+    create: null,
+    note: 'P0 已实测机制（会话级 MCP / prompt(request,signal) / cancel+whenIdle，见 F25/F26/E-03/E-04）；'
+      + '生产适配器 server/adapters/dsh/ 尚未建立，P1 只做解析入口',
+    responsible: 'T-P2-01',
+  },
+};
+
+const ADAPTER_NAMES = Object.keys(ADAPTER_PLATFORMS);
+
+/**
+ * 平台注册表自检：未落地的平台必须写明原因与责任任务（与 assertPortContract 同一纪律）。
+ * @param {object} platforms 待校验注册表（缺省真实注册表；单测传自造表）
+ * @returns {true} 合规
+ * @throws {Error} not-landed 平台缺 note 或 responsible
+ */
+function assertAdapterRegistry(platforms = ADAPTER_PLATFORMS) {
+  for (const [name, p] of Object.entries(platforms)) {
+    if (p.status === 'factory') {
+      if (typeof p.create !== 'function') throw new Error(`adapters: 平台 ${name} 标为 factory 但没有 create()`);
+      continue;
+    }
+    if (!p.note || !p.responsible) {
+      throw new Error(`adapters: 平台 ${name} 状态为 ${p.status}，必须带 note + responsible（不允许沉默的未收口）`);
+    }
+  }
+  return true;
+}
+
+assertAdapterRegistry();
+
+/**
+ * 解析本项目使用的平台名（不装配实现，纯判定）。优先级：env `CC_ADAPTER` > `.awf/config.json`
+ * 的 `runtime.adapter` > 缺省 `cc`。未知平台名**立即抛错**（不静默回落）。
+ *
+ * @param {string} projectRoot 项目根（.awf 宿主）
+ * @param {{ env?: object }} [opts] env 缺省 process.env
+ * @returns {string} 平台名（当前 `cc` 或 `dsh`）
+ * @throws {Error} 平台名不在注册表里
+ */
+function resolveAdapterName(projectRoot, { env = process.env } = {}) {
+  const raw = env[ADAPTER_ENV]
+    ?? readJsonFile(configFilePath(projectRoot), { optional: true })?.runtime?.adapter
+    ?? ADAPTER_DEFAULT;
+  const name = String(raw).trim();
+  if (!Object.prototype.hasOwnProperty.call(ADAPTER_PLATFORMS, name)) {
+    throw new Error(
+      `adapters: 未知平台 "${name}"（可选：${ADAPTER_NAMES.join(' | ')}）——`
+      + ` 检查 .awf/config.json 的 runtime.adapter 或环境变量 ${ADAPTER_ENV}`,
+    );
+  }
+  return name;
+}
+
+/**
+ * 按项目解析并绑定平台适配器 —— 「这个项目用哪个 CLI」的唯一入口（T-P1-01 / C01）。
+ *
+ * @param {string} projectRoot 项目根（.awf 宿主）
+ * @param {object} [opts] 透传给平台 `create(opts)` 的装配选项（sessionName / bus / execFileSync / status …）
+ * @returns {{ name: string, ports: object, tools: object, impls: object, checks: Function|null }}
+ *   name   平台名；ports 7 个已绑定端口句柄；tools 该平台的非端口工具；
+ *   impls  平台原始实现（需自注入依赖的调用方经此取）；checks 前置依赖检查（C02，缺省 null）
+ * @throws {Error} 平台未落地（带责任 task id）或装配失败
+ */
+function resolveProjectAdapters(projectRoot, opts = {}) {
+  const name = resolveAdapterName(projectRoot, opts);
+  const platform = ADAPTER_PLATFORMS[name];
+  if (platform.status !== 'factory') {
+    throw new Error(`adapters: 平台 "${name}" 尚未落地（责任 ${platform.responsible}）：${platform.note}`);
+  }
+  return { name, ports: platform.create(opts), tools: platform.tools, impls: platform.impls, checks: platform.checks };
 }
 
 /**
@@ -229,17 +383,23 @@ const interactive = PORT_IMPLS.interactive;                 // 包装出的端�
 /**
  * 导出分两类：
  *   1. 契约元数据 + 工厂 —— PORT_CONTRACT/PORT_NAMES/NON_PORT_TOOLS/PORT_IMPLS/assertPortContract
+ *      + 平台解析（ADAPTER_PLATFORMS/assertAdapterRegistry/resolveAdapterName/resolveProjectAdapters）；
  *      供审计、单测与 `createCcAdapters` 组装；createHost/createHookAdapter 是工厂原样透出。
- *   2. 单端口句柄 —— `host` / `hook` / `oneshot` / `tooling` / `interactive` / `probe` / `ccShapes` / `extract`，
+ *   2. 单端口句柄 —— `host` / `hook` / `oneshot` / `tooling` / `interactive` / `probe` / `shapes` / `extract`，
  *      这是生产源码唯一的取用入口（T1-117）。注意 `host`/`hook` 同时以上面两种形态出现：
  *      `createHost`/`createHookAdapter` 是「能造多个实例的工厂」，`host`/`hook` 是「默认句柄」，
  *      二者是同一个函数引用，只是命名区分用法。
- * `ccShapes` / `extract` 一并从这门出，尽管它们不在 7 端口名册（裁决见 NON_PORT_TOOLS）。
+ * **按项目的平台解析走 `resolveProjectAdapters()`**（T-P1-01）；上面这批 cc 单端口句柄只供
+ * 「平台无关的纯工具/默认 cc」场景，新代码优先用解析结果。
+ * `shapes` / `extract` 一并从这门出，尽管它们不在 7 端口名册（裁决见 NON_PORT_TOOLS）。
  */
 module.exports = {
-  // 契约元数据 + 工厂
+  // 契约元数据 + 工厂 + 平台解析
   PORT_CONTRACT, PORT_NAMES, NON_PORT_TOOLS, PORT_IMPLS, assertPortContract,
+  REQUIRED_PORT_METHODS, assertRequiredMethods,
   createCcAdapters, createHost, createHookAdapter,
+  ADAPTER_PLATFORMS, ADAPTER_NAMES, ADAPTER_ENV, ADAPTER_DEFAULT,
+  assertAdapterRegistry, resolveAdapterName, resolveProjectAdapters,
   // 单端口句柄
   host: createHost,
   hook: createHookAdapter,
@@ -247,7 +407,7 @@ module.exports = {
   tooling,
   interactive,
   probe,
-  ccShapes,
+  shapes,
   extract,
   settings,
   profile,

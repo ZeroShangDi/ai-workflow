@@ -40,16 +40,18 @@ function settleFromPrompt(text) {
 let setReadyFn = null;
 
 const sent = [];
-global.__CC_TMUX__ = {
+// T-P1-02：注入面是 host，能力方法 sendPrompt（派发文本 + 模拟回合并置 ready）
+global.__CC_HOST__ = {
   hasSession: () => true,
-  sendText: (text) => {
+  sendText: () => {},
+  sendPrompt: async (text) => {
     sent.push(text);
     queueMicrotask(() => { settleFromPrompt(text); setReadyFn?.(); });
   },
   sendEnter: () => {},
   sendCtrlC: () => {},
   capture: () => 'pane',
-  SESSION: 'cc',
+  sessionName: 'cc',
 };
 global.__CC_RUNLOGGER__ = { RunLogger: class { constructor() {} get enabled() { return false; } resetTranscript() {} captureFromTranscript() {} logPrompt() {} logChoice() {} logDecision() {} } };
 
@@ -73,7 +75,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.stop();
-  delete global.__CC_TMUX__;
+  delete global.__CC_HOST__;
   delete global.__CC_RUNLOGGER__;
   for (const k of ['CC_PROJECT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_BATCH_IDLE_TIMEOUT_MS']) delete process.env[k];
   fs.rmSync(TMP, { recursive: true, force: true });

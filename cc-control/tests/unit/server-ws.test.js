@@ -38,7 +38,7 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(root, '.awf'), { recursive: true });
   fs.writeFileSync(path.join(root, '.awf', 'state.json'), JSON.stringify(BASE_STATE));
   tmux = createMockTmux({ hasSession: false });
-  rt = createProjectRuntime({ projectRoot: root, tmuxFactory: () => tmux });
+  rt = createProjectRuntime({ projectRoot: root, hostFactory: () => tmux });
   const registry = { bootRoot: root, resolveRuntime: () => rt, runtimeFor: () => rt, list: () => [], all: () => [rt] };
   const api = createApi({ registry, stopServer: async () => {} });
   server = http.createServer(api.handle);

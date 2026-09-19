@@ -15,7 +15,7 @@
 const gateRules = require('./gate.cjs');
 const { parseDecisionResult } = require('./core.cjs');
 const decisionInstruction = require('./instruction.cjs');
-const { ccShapes } = require('../../adapters/ports.cjs');
+const { shapes } = require('../../adapters/ports.cjs');
 
 /**
  * @param {object} deps
@@ -158,7 +158,7 @@ function createDecisionHandler({
         // 指令文件缺失（如部署布局里没有 decision 插件）不能让闸门卡死：用一句话兜底文案继续。
         instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
       }
-      return ccShapes.blockDecision(instruction);
+      return shapes.blockDecision(instruction);
     }
 
     if (branch.branch === 'resolve') {

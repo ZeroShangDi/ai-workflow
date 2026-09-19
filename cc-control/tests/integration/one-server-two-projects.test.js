@@ -24,7 +24,8 @@ fs.writeFileSync(path.join(A, '.awf', 'config.json'), JSON.stringify({ run: { ag
 
 // ── mocks（须在 import server.cjs 前注入）──
 const m = {
-  tmux: { hasSession: vi.fn(() => true), sendText: vi.fn(), sendEnter: vi.fn(), sendCtrlC: vi.fn(), capture: vi.fn(() => 'pane'), SESSION: 'cc' },
+  host: { hasSession: vi.fn(() => true), sendText: vi.fn(),
+ sendPrompt: vi.fn(), sendEnter: vi.fn(), sendCtrlC: vi.fn(), capture: vi.fn(() => 'pane'), sessionName: 'cc' },
 };
 class MockRunLogger {
   constructor() {}
@@ -39,7 +40,7 @@ class MockRunLogger {
 process.env.CC_PROJECT = A;
 process.env.CC_READY_TIMEOUT_MS = '300';
 process.env.CC_ENTER_DELAY_MS = '0';
-global.__CC_TMUX__ = m.tmux;
+global.__CC_HOST__ = m.host;
 global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
 
 const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
@@ -64,7 +65,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mod.stop();
-  for (const g of ['__CC_TMUX__', '__CC_RUNLOGGER__']) delete global[g];
+  for (const g of ['__CC_HOST__', '__CC_RUNLOGGER__']) delete global[g];
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 

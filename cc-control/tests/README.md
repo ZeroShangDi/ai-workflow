@@ -4,7 +4,7 @@
 
 | 入口 | 跑什么 | 问的问题 | 成本 | 何时跑 |
 |------|--------|---------|------|--------|
-| `npm test` | `tests/{unit,integration,e2e}/*.test.js`（vitest） | 代码写得对不对 | 秒级、确定、无外部依赖 | 每次改动 |
+| `npm test` | `tests/{unit,integration,conformance,e2e}/*.test.js`（vitest） | 代码写得对不对 / 每个平台是否满足同一份契约 | 秒级、确定、无外部依赖 | 每次改动 |
 | `npm run test:real -- --fast` | 机制类里**不派模型**的 5 个 | 编排机械在边界上还活着吗 | 分钟级、确定 | 每次改动（可进提交前） |
 | `npm run test:real -- --case all` | 全部 10 个机制类 case | 同上（含真 tmux + 真 claude 的异常路径） | **分钟级 + 烧 token** | 提交前 / 里程碑 |
 | `npm run test:eval` | 10 个语义类 case | **AI 干得对不对** | **烧 token（昨天一轮约 2 千万）** | 里程碑 / 版本收尾 |
@@ -31,6 +31,8 @@
 
 ```
 tests/
+  conformance/    （T-P1-05）适配器一致性：对**每个已落地平台**跑同一套端口契约断言
+                  adapters.conformance.test.js；平台转正自动进入覆盖，无需新写用例
   harness/        两边共用的原语（按需抽，不为抽而抽）
                   session-env.mjs  读 run 会话里 claude 进程的 CC_* env
   e2e/            语义类：cases/<id>/case.json（+ 可选 hooks.mjs 处理"运行中发生的事"）
@@ -38,6 +40,13 @@ tests/
   regression/     机制类：fullflow-regression.mjs（单文件注册表 + case 函数）
                   case 上的 `model: false` 标记它不派模型会话 → `--fast` 只跑这些
 ```
+
+## 编排层测试不看 CLI（T-P1-05）
+
+编排层（`server/runtime`、`server/run`、`server/features`）的测试一律经 `hostFactory` / mock
+适配器注入，**不依赖真 tmux、不依赖 CLI**：`tests/conformance/adapters.conformance.test.js` 里
+「编排层脱离 CLI 装配」那组就是这个分层的守卫。平台专属行为（真 tmux、真 claude）只在
+`tests/regression` / `tests/e2e` 的真机档验证 —— 三档结论不要互相替代。
 
 ## 两个入口的公共约定
 

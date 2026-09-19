@@ -256,7 +256,8 @@ while (true):
 | `server/runtime/project.cjs / registry.cjs` | 每项目 `ProjectCtx`（含 `runHost` 装配位、`subagent*Path`） | project-context.cjs |
 | `server/runtime/session.cjs` | per-sid 内存槽（ready/busy/decision 隔离） | run-slot.cjs |
 | `plugin/core/agents/awf-worker.md` | 子 Agent 身份/输出协议（RESULT / NEEDS_INPUT / verdict） | awf-worker.md |
-| `plugin/plugin-code/prompts.json` | 派发/收尾/门禁提示词模板的声明源 | prompts.json |
+| `server/templates/prompts.json` | 派发/收尾/门禁**编排模板**的声明源（T-P1-04 由插件迁入） | prompts.json |
+| `plugin/plugin-code/prompts.json` | plan 入口模板 + `platform-vars`（worker 类型 / dev 命令 / 技能名） | prompts.json |
 
 ## 验收标准
 

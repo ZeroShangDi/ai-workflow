@@ -25,6 +25,14 @@
   - **删除优于标注**：删掉无人生产引用的聚合桶 `server/features/index.js`（由门禁报出）。
   - **未搬能力已登记而非静默丢弃（issue 017）**：TTY 表现层 `src/lib/ui/*`（边界＝内容由 server 提供、CLI 只管输出/UI）、`auto` 路由的多选应答、交互式版本选择器、以及 `decisionResume` 消费者存疑。
   - 收口期间 `web/` 正被另一个模型重构，本轮**未触碰任何 `web/` 文件**。
+- **DSH 接入 P1：CC 基线契约收口（T-P1-01～06）** —— 为「同一 AWF 服务 CC 与 DSH 两个平台」先让共同语义在现有平台上长齐（设计见 `docs/discuss/dsh-adapter-design-codex.md`，执行见 `docs/discuss/dsh-adapter-execution.md` §2.4）。
+  - **按项目解析平台（C01/C02）**：`ports.cjs` 新增 `ADAPTER_PLATFORMS` 注册表与 `resolveAdapterName` / `resolveProjectAdapters`（读 `.awf/config.json` 的 `runtime.adapter`，`CC_ADAPTER` 可覆盖，缺省 `cc`）；未知或未落地平台**显式抛错并点名责任任务**，不静默回落。cc 的依赖检查清单从 CLI 下沉到 `cc/checks.cjs`，`awf init` 不再写死 tmux/claude/node。
+  - **7 端口全部收口（T1-113 的旧债）**：`session` 由 `not-landed` 转正 —— 新增 `cc/session.cjs`（exists/cwd/start/kill/nudge/attach），`cli/lib/session.cjs` 与 `attach.cjs` 的 5 处 tmux 直连清零，CLI 侧零 `tmux` 字面。
+  - **能力面命名去机制化**：`ctx.tmux` → `ctx.host`（含注入缝 `__CC_HOST__`、参数 `hostFactory`、测试替身与断言同批迁移）；`ccShapes` → `shapes`；`ENTER_DELAY_MS` 下沉进 `cc/host.cjs` 的 `sendPrompt(text)` —— 上层只说「提交一段输入」，不再知道 tmux 分两次发。
+  - **编排模板迁入 server（T-P1-04）**：`server/templates/prompts.json` 持有 9 条编排协议模板，插件的 `prompts.json` 只保留 plan 入口模板与 `platform-vars`（worker 类型 / dev 命令 / 技能名）。迁移用冻结渲染产物的 golden fixture 守卫（逐字节一致）。
+  - **`run -r` 最小恢复（T-P1-06）**：`-r` 先查活跃 run → 有则挂接（与 `--attach` 同路径），无则照常提交；修复了帮助文案承诺而代码从未实现的「活跃 run 挂接续观」（此前会 409）。不新增通用崩溃恢复、不自动重置 active。
+  - **适配器一致性与测试分层（T-P1-05）**：新增 `tests/conformance/adapters.conformance.test.js`（对每个已落地平台跑同一套端口契约断言，`dsh` 转正后自动纳入）+ `REQUIRED_PORT_METHODS` / `assertRequiredMethods()` 加载即自检。
+  - 出口状态：`npm test` 110/110 文件、1043/1043 用例；`check:capability` / `check:arch` / `lint` / `build` 全绿。**未改任何调度算法**；DSH 适配器本体（`server/adapters/dsh/`）属 P2。
 
 ## [0.2.0] - 2026-09-11
 

@@ -9,9 +9,9 @@
  */
 
 /**
- * tmux 替身：记录所有注入调用，可注入 hasSession 结果。
+ * host 替身（原 createMockTmux）：记录所有注入调用，可注入 hasSession 结果。
  * @param {{ session?: string, hasSession?: boolean }} [opts] 会话名 / 初始存活状态
- * @returns tmux 原语集：calls 顺序记录注入操作；setAlive 可动态改存活（模拟会话中途死掉）
+ * @returns host 原语集：calls 顺序记录注入操作；setAlive 可动态改存活（模拟会话中途死掉）
  */
 function createMockTmux({ session = 'cc-mock', hasSession = true } = {}) {
   const calls = [];
@@ -22,6 +22,8 @@ function createMockTmux({ session = 'cc-mock', hasSession = true } = {}) {
     hasSession: () => alive,
     setAlive: (v) => { alive = !!v; },
     sendText: (text) => calls.push({ op: 'sendText', text }),
+    // 能力方法：替身只记一次 sendPrompt（不模拟文本+回车的两次机制），与 host 契约对齐（T-P1-02）
+    sendPrompt: (text) => calls.push({ op: 'sendPrompt', text }),
     sendEnter: () => calls.push({ op: 'sendEnter' }),
     sendCtrlC: () => calls.push({ op: 'sendCtrlC' }),
     capture: () => '',

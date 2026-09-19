@@ -4,7 +4,7 @@
  *
  * 收缩动机：原 `project-context.cjs` 把三类完全不同的东西塞进一个返回对象 ——
  *   ① 身份（projectRoot / sid / 会话名）② 路径（logsDir / 各 jsonl / runStateFile）
- *   ③ 出口（tmux 注入 / stores 落盘 / logger 日志）**以及** ④ 一堆**运行态**
+ *   ③ 出口（host 会话注入 / stores 落盘 / logger 日志）**以及** ④ 一堆**运行态**
  *   （state / decisionPending / waiters / decisionGate / runHost / runStateApi / …）。
  * 因为运行态寄存在这个共享对象上，`server.cjs` 满篇 `pcx.state = 'busy'` 这类写，
  * 模块边界永远立不起来。
@@ -25,20 +25,21 @@ const { createRunStores } = require('../shared/store.cjs');
 const storeCore = require('../shared/store-core.cjs');
 const { RunLogger: RealRunLogger } = require('../observability/run-logger.cjs');
 const projectPaths = require('../shared/project-paths.cjs'); // .awf 布局单源
-const { host: createHostPort } = require('../adapters/ports.cjs'); // 经唯一门（不在 adapters 外直连 cc/xxx.cjs）
+const { resolveProjectAdapters } = require('../adapters/ports.cjs'); // 经唯一门（不在 adapters 外直连 cc/xxx.cjs）
 const { isDecisionEnabled } = require('../features/decision/config.cjs');
 const { DecisionStore } = require('../features/decision/store.cjs');
 
 /**
- * @param {{ projectRoot: string, env?: object, sid?: string, tmuxFactory?: Function, RunLogger?: Function }} input
+ * @param {{ projectRoot: string, env?: object, sid?: string, hostFactory?: Function, RunLogger?: Function }} input
  *   projectRoot  run 项目根（.awf 宿主）
  *   env          环境（缺省 process.env；会话名/端口经 runtime-config）
  *   sid          显式 run 标签；缺省用确定性 projectSid(projectRoot)
- *   tmuxFactory  (sessionName) => tmux 原语集；缺省 host 端口（测试可注入 mock）
+ *   hostFactory  (sessionName) => host 端口集；缺省用本项目解析出的 host 端口（测试可注入 mock）
  *   RunLogger    RunLogger 类；缺省真实实现（测试注入 mock）
  * @returns 一个**纯容器**：身份 + 路径 + 出口（见文件头），构造过程不读写业务文件
+ * @throws {Error} 项目配置声明的平台未落地/未知（见 adapters/ports.cjs 的 resolveProjectAdapters）
  */
-function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory, RunLogger = RealRunLogger } = {}) {
+function createProjectContext({ projectRoot, env = process.env, sid, hostFactory, RunLogger = RealRunLogger } = {}) {
   const root = path.resolve(projectRoot || env.CC_PROJECT || process.cwd());
   const runSid = sid || projectSid(root);
   // 命名 ctx：带 sid 标签（tmux 会话名 cc-<sid>）；磁盘 ctx：无 sid（.awf/state.json 现行布局）
@@ -47,9 +48,15 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
   const storeCtx = buildRunContext({ projectRoot: root, env });
   const logger = new RunLogger(root);
   const stores = createRunStores(storeCtx);
-  const tmux = typeof tmuxFactory === 'function'
-    ? tmuxFactory(nameCtx.runSessionName)
-    : createHostPort({ sessionName: nameCtx.runSessionName });
+  // 平台在装配期按项目定一次（T-P1-01 / C01）：未落地平台在此显式抛错，不静默回落 cc
+  const adapters = resolveProjectAdapters(root, {
+    sessionName: nameCtx.runSessionName,
+    bootstrapScriptPath: nameCtx.bootstrapScriptPath, // session 端口起会话用（T-P1-03）
+    env,
+  });
+  const host = typeof hostFactory === 'function'
+    ? hostFactory(nameCtx.runSessionName)
+    : adapters.ports.host;
 
   // ── 路径 ──
   /** sid 落盘路径（软边界，仅 ?sid= 显式路径用；根锚本项目） */
@@ -80,6 +87,8 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
     port: nameCtx.port,
     nameCtx,
     storeCtx,
+    adapter: adapters.name, // 本项目使用的平台（cc / dsh …；T-P1-01）
+    adapters,              // 已解析的平台适配器包 { name, ports, tools, impls }
 
     // ── 路径 ──
     logsDir: storeCtx.logsDir,
@@ -91,7 +100,7 @@ function createProjectContext({ projectRoot, env = process.env, sid, tmuxFactory
     writeRunStateSid,
 
     // ── 出口（对外部世界的全部副作用，就这四个）──
-    tmux,                                     // ① 会话注入
+    host,                                     // ① 会话注入（平台能力面，不再是 tmux 机制名 —— T-P1-02）
     stores,                                   // ② 落盘
     storeCore,
     logger,                                   // ③ 日志

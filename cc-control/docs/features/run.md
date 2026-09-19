@@ -13,7 +13,7 @@
 
 - **run.js 不再挑选任务、不推进阶段链、不做多 agent 调度**（见文件头注释 L16-42）。
 - **多 agent 与单 agent 一律经 server run host 驱动**：`--multi-agent` 或 `cfg.agents.max>1` 由宿主 `driveBatch → runScheduler` 调度，CLI 只把 `mode:'batch'` 提交上去（`run.js:104-119`）。
-- **提示词由插件声明，CLI 零感知**：插件改名/改命令，CLI 无需改动（`server/shared/prompts.js` 文件头注释；提示词模板见 `plugin/plugin-code/prompts.json`）。
+- **提示词归属分离（T-P1-04）**：编排协议模板随 server（`server/templates/prompts.json`），插件只声明 plan 入口模板与 `platform-vars`（worker 类型 / dev 命令 / 技能名）；解析与填充统一在 `server/shared/prompts.js`，CLI 零感知。
 - **写收口 server 单写者**：mode run/idle 复位走 `client.setRunMode`（`POST /run/state/mode`），本文件不直写 state（`run.js:602-619`）。读路径只经 `loadState` 只读校验 + `client` 快照（`run.js:56-58`）。
 
 ## 执行流程
@@ -170,7 +170,8 @@ runCommand(task, options)                                  cli/commands/run.cjs:
 | `（已删除：TTY 表现层，见 .awf/issues/017）`（`logSection`/`logStep`）| 结构化输出 |
 | `node:child_process`（`spawn`/`execSync`） | tmux 会话管理（display-message/kill-session/attach）、bootstrap、补 Enter |
 | `node:readline` | 交互式决策输入（choice/text） |
-| `plugin/plugin-code/prompts.json` | 运行期提示词模板（经 `plugin-bridge.js` 读取；CLI 零感知） |
+| `server/templates/prompts.json` | 编排协议提示词模板（T-P1-04 迁入；server 侧持有） |
+| `plugin/plugin-code/prompts.json` | plan 入口模板 + `platform-vars` 平台参数（经 `server/shared/prompts.js` 读取；CLI 零感知） |
 
 ## 验收标准
 

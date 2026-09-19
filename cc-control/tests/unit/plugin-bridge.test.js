@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -11,24 +12,43 @@ import {
 } from '../../server/shared/prompts.js';
 
 /**
- * plugin-bridge（server 侧 prompts.js）— 「取插件模板 + 填占位符」
+ * plugin-bridge（server 侧 prompts.js）— 「取模板 + 填占位符」
  *
  * 随旧树退役重写。旧版在临时目录伪造一份 prompts.json、再 mock 根路径去读它 —— 那套 fixture
  * 已经不成立：模板**随包分发**，根由 shared/plugin-assets.cjs 单源推导（不再由调用方传根）。
  *
- * 现在改为**以 prompts.json 本身为期望值**：断言「产出 = 模板原文 + 占位符被替换」。
+ * 现在改为**以模板文件本身为期望值**：断言「产出 = 模板原文 + 占位符被替换」。
  * 这样提示词改文案不会误伤测试（旧版硬编码文案，一改就红），而 bridge 的职责（读哪一份、
  * 填哪些键）仍被钉住 —— 正是 `.awf/issues/008`「手抄提示词漂移」要防的那类。
+ *
+ * T-P1-04 起分两份来源：编排模板在 `server/templates/prompts.json`（并自动并入插件的
+ * `platform-vars`），入口模板仍在插件 `prompts.json`。下面的 `fill()` 按同一规则复算期望值。
  */
 
-const registry = JSON.parse(fs.readFileSync(
+const pluginRegistry = JSON.parse(fs.readFileSync(
   pluginAssets.pluginAssetPath('ai-workflow-code', 'prompts.json'), 'utf-8',
 ));
+const orchestrationRegistry = JSON.parse(fs.readFileSync(
+  path.join(pluginAssets.pkgRoot(), 'server', 'templates', 'prompts.json'), 'utf-8',
+));
+const ORCHESTRATION_KEYS = new Set([
+  'task-wrapup', 'task-settle', 'context-check', 'batch-dispatch', 'batch-reconcile',
+  'subagent-dispatch', 'subagent-resend', 'subagent-redispatch', 'gate-fix',
+]);
+
+/** bridge 声明的平台参数（kebab → camel），供期望值复算 */
+function platformVars() {
+  return Object.fromEntries(Object.entries(pluginRegistry['platform-vars'])
+    .map(([k, v]) => [k.replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v]));
+}
 
 /** 按 bridge 的同一规则填占位符（split/join，非正则） */
 function fill(key, vars = {}) {
-  let text = registry[key].prompt;
-  for (const [k, v] of Object.entries(vars)) text = text.split(`{${k}}`).join(v ?? '');
+  const orchestration = ORCHESTRATION_KEYS.has(key);
+  const template = (orchestration ? orchestrationRegistry : pluginRegistry)[key].prompt;
+  const all = orchestration ? { ...platformVars(), ...vars } : vars;
+  let text = template;
+  for (const [k, v] of Object.entries(all)) text = text.split(`{${k}}`).join(v ?? '');
   return text;
 }
 

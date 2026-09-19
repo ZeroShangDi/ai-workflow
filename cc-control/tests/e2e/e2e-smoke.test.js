@@ -10,13 +10,14 @@ const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta
 const AWF_STATE_MCP_PATH = fileURLToPath(new URL('../../plugin/core/mcp/awf-state/server.cjs', import.meta.url));
 const FIXTURE_STATE = fileURLToPath(new URL('../fixtures/minimal-state.json', import.meta.url));
 
-// ── mock tmux：只 mock tmux。E2E 用「真实 RunLogger」验证 .awf/logs 输出 ──
+// ── mock host：只 mock host。E2E 用「真实 RunLogger」验证 .awf/logs 输出 ──
 const mockTmux = {
   hasSession: vi.fn(() => true),
   sendText: vi.fn(),
+  sendPrompt: vi.fn(), // T-P1-02：派发能力方法（文本+节奏+回车由平台实现）
   sendEnter: vi.fn(),
   capture: vi.fn(() => ''),
-  SESSION: 'cc',
+  sessionName: 'cc',
 };
 
 // ── 临时项目：用 fixtures 最小 state.json ──
@@ -30,7 +31,7 @@ process.env.CC_READY_TIMEOUT_MS = '2000';
 process.env.CC_ENTER_DELAY_MS = '0';
 process.env.CC_LOCAL_CMD_MS = '500';
 
-global.__CC_TMUX__ = mockTmux;
+global.__CC_HOST__ = mockTmux;
 // 注意：不注入 global.__CC_RUNLOGGER__ → server 使用真实 RunLogger
 
 // ── awf-state MCP 子进程客户端（模拟 AI 通过 MCP tools 更新任务状态）──
@@ -109,7 +110,7 @@ beforeAll(async () => {
 afterAll(async () => {
   client?.close();
   await server?.stop();
-  delete global.__CC_TMUX__;
+  delete global.__CC_HOST__;
   delete process.env.CC_PROJECT;
   delete process.env.CC_READY_TIMEOUT_MS;
   delete process.env.CC_ENTER_DELAY_MS;
@@ -129,12 +130,11 @@ describe('E2E 冒烟测试 — awf run 完整链路', () => {
     expect(st1.body.state).toBe('ready');
     expect(st1.body.session).toBe(true);
 
-    // 3. /send 发送任务 prompt → server busy + tmux 收到
+    // 3. /send 发送任务 prompt → server busy + host 收到
     const send = await api('POST', '/send', { text: 'Do something simple' });
     expect(send.status).toBe(200);
     expect(send.body.sent).toBe('Do something simple');
-    expect(mockTmux.sendText).toHaveBeenCalledWith('Do something simple');
-    expect(mockTmux.sendEnter).toHaveBeenCalled();
+    expect(mockTmux.sendPrompt).toHaveBeenCalledWith('Do something simple');
 
     const st2 = await api('GET', '/status');
     expect(st2.body.state).toBe('busy');

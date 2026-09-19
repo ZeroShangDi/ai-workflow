@@ -27,13 +27,12 @@ const { createDecisionHandler } = require('../features/decision/handler.cjs');
 const gateRules = require('../features/decision/gate.cjs');
 const replanning = require('../features/replanning/index.cjs');
 const { createMonitor } = require('../features/monitor/index.cjs');
-const { probe: createProbePort } = require('../adapters/ports.cjs');
 
 /**
- * @param {{ projectRoot: string, env?: object, sid?: string, tmuxFactory?: Function, RunLogger?: Function }} input
+ * @param {{ projectRoot: string, env?: object, sid?: string, hostFactory?: Function, RunLogger?: Function }} input
  * @returns runtime：ctx（纯上下文）+ 各能力实例 + 惰性装配入口（ensureRunHost / ensureRunStateApi / dynamicPlanning）
  */
-function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } = {}) {
+function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger } = {}) {
   // 装配顺序（有依赖，别乱动）：
   //   ① ctx（纯上下文）先建 —— 后面所有成员都从这里取出口
   //   ② session（会话态）—— decision/subagent/observability/channel 都依赖它
@@ -41,7 +40,7 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
   //   ④ decision —— 依赖 session + ctx 出口 + publishEvent
   //   ⑤ channel（通道）—— 依赖 ctx + session + observability
   //   ⑥ runHost / runStateApi / dynamicPlanning —— 惰性（首次用到才建），见各自 ensure*
-  const ctx = createProjectContext({ projectRoot, env, sid, tmuxFactory, RunLogger });
+  const ctx = createProjectContext({ projectRoot, env, sid, hostFactory, RunLogger });
 
   // ── 会话态：主槽一个 Session；每个 sid 一个（承接原 run-slot 的职责）──
   // 主槽 sid = ctx.sid；sid 槽按需懒建并缓存。decisionSeqGen 由 gate 规则提供，保证决策序号单调。
@@ -104,15 +103,17 @@ function createProjectRuntime({ projectRoot, env, sid, tmuxFactory, RunLogger } 
   // 「会话在不在 + ready/busy + 抓取时刻」。server 内部不用它 —— 内部守卫要的是
   // 「会话没了就 503」的动作语义，那属于 host 端口；probe 是只读观测，且没有失败态。
   // status 注入进程内读会话态：不给自己的 /status 打回环 HTTP。
-  const probe = createProbePort({
-    host: ctx.tmux,
+  // probe 工厂取自**本项目解析出的平台适配器**（T-P1-01）：dsh 的 probe 与 cc 不同实现，
+  // 不能在这里写死 cc 的工厂。
+  const probe = ctx.adapters.impls.probe({
+    host: ctx.host,
     status: () => ({ state: session.state }),
   });
 
   // ── 介入（monitor.features）──
   // 诊断：编排异常时拉起一次隔离的 claude -p 分析现场（协议见 features/monitor/index.cjs）。
   // 它的「检测」一半不在这里：会话现场走上面的 probe 端口，工作流进展走 observability。
-  monitor = createMonitor({ ctx, session, observability });
+  monitor = createMonitor({ ctx, session, observability, oneshot: ctx.adapters.ports.oneshot });
 
   // ── state 写原语（惰性装载；测试可经 __CC_RUN_HOST_DEPS__.stateApi 覆盖）──
   // 用「ready promise + 结果变量」双重缓存：-Ready 防并发重复装载，-Api 是可用引用（失败时置 null）
