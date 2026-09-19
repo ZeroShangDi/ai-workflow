@@ -28,16 +28,36 @@ function openUrl(url, browser = process.env.AWF_BROWSER || 'open') {
  *   - 否则（cc）：交互式对话要占住用户终端 → 在**本进程**直开。
  * 服务端没起时明确失败（不静默回落成「启动成功」）。
  */
-async function launchPlan(projectRoot, prompt, interactive, port) {
+/**
+ * 规划会话的**标题**（给人看的，不是给模型的）。
+ *
+ * 为什么由 CLI 给：DSH 的会话标题默认取**首条用户消息**，而注入的是命令正文（w-plan.md 全文），
+ * 于是侧栏里一排会话全叫「# w-plan 主规划流程。从一句话」。只有这一层知道用户的需求原文。
+ * 没描述时返回 undefined —— 让插件用它自己的兜底（项目名），而不是把「AWF 规划」这种空标题写死。
+ * @param {string} [desc] 规范化后的需求描述
+ * @returns {string|undefined}
+ */
+function planTitle(desc) {
+  const text = String(desc ?? '').replace(/\s+/g, ' ').trim();
+  return text === '' ? undefined : `AWF 规划 · ${text.slice(0, 60)}`;
+}
+
+async function launchPlan(projectRoot, prompt, interactive, port, title) {
   if (interactive.detached !== true) {
-    await interactive.launchDialog({ cwd: projectRoot, prompt });
+    await interactive.launchDialog({ cwd: projectRoot, prompt, title });
     return;
   }
   const { createClient } = require('../lib/client.cjs');
   const client = createClient({ port, project: projectRoot });
-  const r = await client.call('planLaunch', { body: { prompt } });
+  const r = await client.call('planLaunch', { body: { prompt, title } });
   if (r?.ok === false) {
-    throw new Error(`${r.error || '未知错误'}（规划入口由常驻 server 代执行：先 \`awf server start\`）`);
+    const raw = r.error || '未知错误';
+    // 两种「发不出去」的处置完全不同，提示不能混：
+    //   通道断了（server 在跑、插件没连上）→ 提示 awf server start 是误导，它已经在跑了
+    const hint = /指令通道|未连接|ws closed/i.test(raw)
+      ? '（常驻 server 在跑，是 dsh 里的插件没连上：重启 dsh 后台，或确认插件已安装并加载）'
+      : '（规划入口由常驻 server 代执行：先 `awf server start`）';
+    throw new Error(`${raw}${hint}`);
   }
   if (r?.url) {
     openUrl(r.url);
@@ -88,7 +108,15 @@ async function planCommand(description, options = {}) {
   const prompt = await planEntry(desc, options.resume, { adapter: ctx.adapter });
 
   console.log('启动规划会话…');
-  await launchPlan(projectRoot, prompt, interactive, ctx.port);
+  // detached 平台（DSH）：规划入口是「平台侧开会话 + 注入指令」，两样前置都得在 ——
+  // 常驻 AWF server（plan 经它代触发）与 dsh 网页后台（会话活在它里面）。不存在则起，存在则复用。
+  if (interactive.detached === true) {
+    const session = await import('../lib/session.cjs');
+    const srv = await session.ensureServer(ctx);
+    if (srv.started) console.log(`  常驻 server 已启动（端口 ${ctx.port}）`);
+    await session.ensureDshWeb(ctx);
+  }
+  await launchPlan(projectRoot, prompt, interactive, ctx.port, planTitle(desc));
   if (interactive.detached === true) console.log('规划会话已在平台侧开始（网页里接着聊）');
   else console.log('规划会话结束');
 }

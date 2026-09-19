@@ -326,8 +326,8 @@ function createDshAdapters({ bridge, sessionName = 'dsh', bus, projectRoot } = {
      * 与 cc 的「直开终端」不是同一形态，但对上层是同一个能力。
      * @param {{cwd: string, prompt: string}} opts
      */
-    async launchDialog({ cwd, prompt } = {}) {
-      const r = await must('plan.launch', { cwd, prompt });
+    async launchDialog({ cwd, prompt, title } = {}) {
+      const r = await must('plan.launch', { cwd, prompt, title });
       return { ok: true, url: r?.url ?? null, sessionId: r?.sessionId ?? null };
     },
   };

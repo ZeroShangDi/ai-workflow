@@ -302,6 +302,9 @@ const DSH_TOOLS = {
   // 注意参数形状与 cc 的 `profile.installProfile(projectRoot)` **不同**：DSH 是
   // `installProfile({ dshHome, profile, webPort })` —— CLI 按平台分支调用（见 cli/commands/plugin.cjs）。
   profile: require('./dsh/install.cjs'),
+  // 网页后台的生命周期（不在则拉起并等就绪，在则复用）—— DSH 模式下它是必需前置，
+  // 由 awf plan / awf run 在起环境时确保（与 cc 侧的 ensureServer 同口径）
+  serve: require('./dsh/serve.cjs'),
   // cc 形状的项目资产在这里**显式抛错**：DSH 没有 `.claude/settings.json` / `.mcp.json` 这套
   settings: { generateRunSettings: dshUnsupportedAsset('settings.generateRunSettings') },
   shapes: null,   // 形状构造属 cc 机制（Stop block / permissionDecision）

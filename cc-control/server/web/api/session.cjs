@@ -110,7 +110,7 @@ async function handle(req, res, url, rt, deps) {
       return true;
     }
     try {
-      const r = await interactive.launchDialog({ cwd: body.cwd || rt.ctx.projectRoot, prompt: body.prompt });
+      const r = await interactive.launchDialog({ cwd: body.cwd || rt.ctx.projectRoot, prompt: body.prompt, title: body.title });
       if (r?.ok === false) { send(res, 502, { ok: false, error: r.error || '计划会话启动失败' }); return true; }
       send(res, 200, { ok: true, url: r?.url ?? null, sessionId: r?.sessionId ?? null });
     } catch (err) {

@@ -79,6 +79,19 @@ async function ensureServer(ctx) {
   throw new Error(`server 启动超时（日志：${log.path}）`);
 }
 
+/**
+ * 确保 DSH 网页后台在跑（不在则拉起并等就绪，在则复用）。
+ * 只看**声明**的平台能力：装配里没有 serve 就不假装做过（返回 null，不静默成功）。
+ * @returns {Promise<object|null>}
+ */
+async function ensureDshWeb(ctx) {
+  const serve = ctx.adapters?.tools?.serve;
+  if (typeof serve?.ensureWeb !== 'function') return null;
+  const r = await serve.ensureWeb({ logDir: ctx.logsDir });
+  if (r.started) console.log(`  dsh 网页后台已启动（端口 ${r.port}${r.logPath ? `，日志 ${r.logPath}` : ''}）`);
+  return r;
+}
+
 // ── tmux 会话 ──
 
 /**
@@ -161,6 +174,9 @@ async function bringUp(ctx, { reuseExisting = false } = {}) {
     ctx.adapters.tools.profile.installProjectMcp(ctx.projectRoot, ctx.port);
   }
   const server = await ensureServer(ctx);
+  // DSH：网页后台是**必需前置**（AWF 建的会话活在它里面）。不在则拉起并等就绪，在则复用跳过 ——
+  // 与 server 同口径。缺了它后面建会话会以「未连接」失败，而根因离现场很远。
+  if (ctx.adapter === 'dsh') await ensureDshWeb(ctx);
   if (ctx.adapter === 'cc') writeRunSettings(ctx);
   const seqBefore = await sessionSeqOf(ctx); // 基准须在建会话**之前**取
   const created = ensureSession(ctx, { reuseExisting });
@@ -175,5 +191,5 @@ function stopSession(ctx) {
 }
 
 module.exports = {
-  writeRunSettings, ensureServer, ensureSession, sessionSeqOf, waitSessionStarted, bringUp, stopSession,
+  writeRunSettings, ensureServer, ensureDshWeb, ensureSession, sessionSeqOf, waitSessionStarted, bringUp, stopSession,
 };
