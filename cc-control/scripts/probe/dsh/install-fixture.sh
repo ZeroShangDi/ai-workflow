@@ -68,17 +68,23 @@ YML
   echo "[install-fixture] 已写入 patch：$PROFILE_DIR/cordis.patch.yml"
 fi
 
-# ⑤ 插件自己的依赖：生产插件 import 平台的 dsh-mcp-client（会话级挂 MCP 用，P2-5d）。
-#    本机无 pnpm，故把它从真实 home 的 hoisted node_modules **符号链接**进插件 node_modules
-#    （已被 .gitignore 的 node_modules/ 覆盖）。缺它时插件会**明确报错**而不是静默不挂 MCP。
+# ⑤ 插件自己的依赖：生产插件 import 平台的 dsh-mcp-client（会话级挂 MCP）、dsh-llm（注入消息）、
+#    dsh-agent（模型选择）、dsh-tool-subagent（命名子 Agent，C3）。
+#    本机无 pnpm，故把它们从真实 home 的 hoisted node_modules **符号链接**进插件 node_modules
+#    （已被 .gitignore 的 node_modules/ 覆盖）。缺它时插件会**明确报错**而不是静默不挂。
+#
+#    注意：这一步只服务**探针**（夹具把插件连同源码目录一起用符号链接装进 profile，所以插件的
+#    裸 import 从仓库往上找，必须在这里有）。生产安装（`awf plugin install`）不用这套 ——
+#    它把插件**整目录拷进** profile 的 node_modules，依赖经 profile 的 node_modules 解析
+#    （为什么不能软链，见 docs/discuss/dsh-plugin-structure.md §4）。
 PLUGIN_DEPS="$AWF_DSH_PLUGIN_SRC/node_modules/@deepseek-ai"
 REAL_DEPS="$HOME/.dsh/profiles/node_modules/@deepseek-ai"
 mkdir -p "$PLUGIN_DEPS"
-for pkg in dsh-mcp-client dsh-agent dsh-llm; do
+for pkg in dsh-mcp-client dsh-agent dsh-llm dsh-tool-subagent; do
   if [[ -d "$REAL_DEPS/$pkg" ]]; then
     ln -sfn "$REAL_DEPS/$pkg" "$PLUGIN_DEPS/$pkg"
   else
-    echo "[install-fixture] ⚠ 找不到 $REAL_DEPS/$pkg —— 会话级挂 MCP 会明确失败（不是静默跳过）" >&2
+    echo "[install-fixture] ⚠ 找不到 $REAL_DEPS/$pkg —— 依赖它的能力会明确失败（不是静默跳过）" >&2
   fi
 done
 

@@ -74,16 +74,29 @@ DSH 与 cc 的机制不同（会话控制器 + 平台事件，而非 tmux + hook
 server/adapters/dsh/
   bridge.cjs   指令通道（传输无关）：三种送达结论 + ack/result 两段窗口 + 事件上行 + 平台事实
   index.cjs    createDshAdapters({ bridge, bus, sessionName }) → 7 端口 + checkPrerequisites()
+  install.cjs  profile 装配：标记块 + 一次备份 + **整目录拷贝**插件包 —— `awf plugin install` 走这条
+  serve.cjs    网页后台的生命周期：不在则拉起并等就绪，在则复用跳过（awf plan / awf run 起环境时确保）
 server/web/
   bridge-channel.cjs  传输侧单例：WS 升级 /bridge/dsh（插件连上即 attach）
                       + POST /bridge/dsh/callback（accepted/result/event 回传）
-dsh-plugin/            对侧：AWF 的 DSH host 半侧（Cordis ESM 插件）
-  index.js             装配：读 awfBase（config 或 AWF_DSH_BASE）→ 起指令通道；ctx.effect 管生命周期
+server/adapters/dsh/plugin/   ★ 唯一被安装的单元：一个**自包含**的 Cordis 包
+                            （不引用目录以外任何东西；形态与理由见 docs/discuss/dsh-plugin-structure.md）
+  index.js             装配根：hooks 接线 + 命令注册 + 起指令通道（ctx.effect 管生命周期）
   lib/bridge-client.js 连 WS / 收指令 → **先回 accepted 再回 result**；断线退避重连不重放；事件上行
   lib/ops.js           指令实现表：session.facts/nudge/open/create/interrupt/stop/prompt/snapshot/
                        tools/children、plan.launch、llm.oneshot；未实现的 op **显式失败**
-  install.cjs          profile 装配（标记块 + 一次备份 + 链接插件包）—— `awf plugin install` 走这条
+  lib/{assets,commands,skills,agents,mcp}.js  包内资产 → 平台注册口的翻译层
+  hooks/{hooks.json,index.js,turn-reporter.js,approval.js}  cc hook 点的等价订阅（声明表 + 实现）
+  commands/*.md        16 条命令（+description/hint frontmatter，DSH 强校验）
+  skills/<n>/SKILL.md  36 个技能（真实文件，非链接）
+  agents/*.md          3 个子 Agent 身份 → 三个 tool-subagent 实例（awf_worker / awf_monitor_*）
+  mcp.json + mcp/      随包携带的 MCP server（含 mcp/_lib/ 的叶子依赖）
 ```
+
+**前置自动就位（D1 落地）**：DSH 模式下网页后台是必需前置（会话活在它里面）。`awf plan` 与 `awf run`
+起环境时都会调 `serve.cjs` 的 `ensureWeb`：**已在跑则复用、不在则拉起并等就绪、端口被别的服务占着则显式报错**
+（判据是 `GET /` 返 401/403，见该文件头；起法避开 F37 的 `dsh web` 别名坑）。`awf plan` 还会一并确保常驻
+AWF server —— 它的规划入口是经 server 代触发的。
 
 | 面 | DSH 侧口径 |
 |---|---|

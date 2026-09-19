@@ -82,6 +82,41 @@ function readPluginAsset(name, ...parts) {
 
 const CORE_PLUGIN = 'ai-workflow-core';
 
+/**
+ * 适配器插件的包根 —— 每个平台一个**自包含**包（`server/adapters/<平台>/plugin/`）。
+ *
+ * 为什么要有这条：cc 的资产按 marketplace 注册表分插件目录，DSH 的资产平铺在一个包里
+ * （安装单元 = 一个目录）。形状不同，但「某平台的资产在哪」这个问题的答案都归这里，
+ * 不由调用方各自拼路径。
+ * @param {string} adapter 平台名（cc / dsh）
+ * @param {string} [root] 包根；缺省由模块位置推导
+ * @returns {string}
+ */
+function adapterPluginRoot(adapter, root = pkgRoot()) {
+  return path.join(root, 'server', 'adapters', adapter, 'plugin');
+}
+
+/**
+ * 适配器插件包内资产的绝对路径。
+ * @param {string} adapter 平台名
+ * @param {...string} parts 包内相对路径分段
+ * @returns {string}
+ */
+function adapterAssetPath(adapter, ...parts) {
+  return path.join(adapterPluginRoot(adapter), ...parts);
+}
+
+/**
+ * 读适配器插件包内的文本资产（UTF-8）。
+ * @param {string} adapter 平台名
+ * @param {...string} parts 包内相对路径分段
+ * @returns {string}
+ * @throws {Error} 文件读不到（不静默给空串 —— 上游会据此发出残缺指令）
+ */
+function readAdapterAsset(adapter, ...parts) {
+  return fs.readFileSync(adapterAssetPath(adapter, ...parts), 'utf-8');
+}
+
 /** state 模板（插件资产）：awf init 播种 .awf/state.json 用 */
 function stateTemplatePath() {
   return pluginAssetPath(CORE_PLUGIN, 'mcp', 'awf-state', 'state.template.json');
@@ -94,5 +129,8 @@ module.exports = {
   pluginDir,
   pluginAssetPath,
   readPluginAsset,
+  adapterPluginRoot,
+  adapterAssetPath,
+  readAdapterAsset,
   stateTemplatePath,
 };

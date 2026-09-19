@@ -27,7 +27,10 @@ node "$ROOT/scripts/build-web.mjs"
 
 echo ""
 echo "=== npm pack dry-run ==="
-cd "$ROOT" && npm pack --dry-run 2>&1 | head -20
+# 先整段收进变量再截断打印：`npm pack ... | head -20` 在 set -o pipefail 下会因 SIGPIPE 判失败
+# —— 只有当输出恰好 ≤20 行时才看不出来；加了插件构造日志一多就暴露。
+PACK_OUT="$(cd "$ROOT" && npm pack --dry-run 2>&1)"
+printf '%s\n' "$PACK_OUT" | head -20
 
 echo ""
 echo "=== Build verified ==="

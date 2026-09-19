@@ -9,8 +9,9 @@ import pluginAssets from './plugin-assets.cjs';
  * | 类别 | 例子 | 模板放哪 | 为什么 |
  * |---|---|---|---|
  * | **编排模板** | task-wrapup / task-settle / context-check / batch-* / subagent-* / gate-fix | `server/templates/prompts.json` | 它们是 AWF 编排协议的正文，随 server 走；换平台要改的是**参数**，不是协议 |
- * | **入口模板** | plan-start / plan-resume / plan-default | `plugin/plugin-code/prompts.json` | 它们直接引用插件的 slash 命令命名空间，属插件资产 |
- * | **平台参数** | worker-agent-type / worker-spawn / \*skill 名 | `plugin/plugin-code/prompts.json` 的 `platform-vars`（+ `platform-vars-<平台>` 按平台覆盖） | 名称与**工具措辞**都由插件/市场决定（换平台可能变），作为变量填进编排模板 |
+ * | **入口模板** | plan-start / plan-resume / plan-default（cc）；plan-entry（dsh） | 各平台**自己的插件包**的 `prompts.json` | 它们直接引用该平台的命令命名空间与措辞，属插件资产 |
+ * | **平台参数** | worker-agent-type / worker-spawn / \*skill 名 | 各平台**自己的插件包**的 `prompts.json` 的 `platform-vars` | 名称与**工具措辞**由各平台插件决定；缺项报错，不回落 cc |
+ * | **命令正文** | `commands/*.md` | 各平台**自己的插件包** | expand-command 模式下入口正文直接取自这里，本模块不内联 |
  *
  * 因此：「插件改动，本模块零感知」仍然成立 —— 插件改**参数**不用动 server 模板；
  * 而编排协议正文的修订不再散在插件里。两条边界各自单源。
@@ -70,26 +71,48 @@ function fill(text, vars) {
 }
 
 /**
- * 读插件声明的平台参数（kebab-case → camelCase，供 `{camelCase}` 占位符使用）。
+ * 读某平台的平台参数表（kebab-case → camelCase，供 `{camelCase}` 占位符使用）。
  *
- * **按平台**：缺省表 `platform-vars` 是 cc 的值；`platform-vars-<平台>`（如 `platform-vars-dsh`）
- * 覆盖其中同名项。为什么要这样：编排模板里含**平台工具措辞**（派生工具名与参数、提问工具、
- * 回话工具），cc 是 `Agent 工具（subagent_type…）`/`AskUserQuestion`，DSH 是 `subagent 工具`/
- * `ask_user_question` —— 同一份模板填上各自的措辞，才不用把模板按平台分叉（模板仍然只有一份）。
- * @param {string} [adapter] 平台名（缺省 'cc'）；未知平台取缺省表（解析错误在别处显式报）
+ * **住在哪**：**各平台自己的插件包里** —— cc 在 `cc/plugin/plugin-code/prompts.json`
+ * 的 `platform-vars`，DSH 在 `dsh/plugin/prompts.json` 的同名段。位置对称，内容各写各的。
+ *
+ * 为什么不再用「cc 表 + `platform-vars-<平台>` 覆盖」：那让 DSH 的工具措辞住在 cc 的目录里
+ * （包不自包含），且缺项会**静默回落成 cc 口径**（发出 `Agent 工具` 这种 DSH 没有的东西）。
+ * 现在缺项直接报错，列出缺了哪些键。
+ * @param {string} [adapter] 平台名（缺省 'cc'）
  * @returns {Promise<Record<string,string>>}
- * @throws {Error} 插件未声明 platform-vars（编排模板会因此发不出去，明确失败优于静默残缺）
+ * @throws {Error} 该平台未声明 platform-vars，或比 cc 的键集少了项
  */
 async function platformVars(adapter = ADAPTER_DEFAULT) {
-  const registry = await readRegistry(promptsPath());
-  const raw = registry['platform-vars'];
-  if (!raw || typeof raw !== 'object' || Object.keys(raw).length === 0) {
-    throw new Error('prompts: 插件未声明 platform-vars（编排模板的平台参数单一来源）');
-  }
-  const overrides = registry[`platform-vars-${adapter}`];
-  const merged = overrides && typeof overrides === 'object' ? { ...raw, ...overrides } : raw;
+  const raw = await platformVarsTable(adapter);
   const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-  return Object.fromEntries(Object.entries(merged).map(([k, v]) => [camel(k), String(v)]));
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [camel(k), String(v)]));
+}
+
+/** 原始（未 camel 化）平台参数表 —— 供需要按 kebab 键读的地方（如 plan-entry-mode）复用 */
+async function platformVarsTable(adapter) {
+  const base = (await readRegistry(promptsPath()))['platform-vars'];
+  if (!base || typeof base !== 'object' || Object.keys(base).length === 0) {
+    throw new Error('prompts: cc 插件未声明 platform-vars（编排模板的平台参数单一来源）');
+  }
+  if (adapter === ADAPTER_DEFAULT) return base;
+
+  // 非 cc：读该平台自己插件包里的那份，**不回落** cc
+  let own;
+  try {
+    own = await readRegistry(pluginAssets.adapterAssetPath(adapter, 'prompts.json'));
+  } catch (err) {
+    throw new Error(`prompts: 适配器 ${adapter} 的插件包里没有 prompts.json（${pluginAssets.adapterAssetPath(adapter, 'prompts.json')}）：${err.message}`);
+  }
+  const table = own['platform-vars'];
+  if (!table || typeof table !== 'object' || Object.keys(table).length === 0) {
+    throw new Error(`prompts: 适配器 ${adapter} 未声明 platform-vars（平台参数必须自带完整一份，不回落 cc）`);
+  }
+  const missing = Object.keys(base).filter((k) => !(k in table));
+  if (missing.length > 0) {
+    throw new Error(`prompts: 适配器 ${adapter} 的 platform-vars 缺项：${missing.join(', ')}（不回落 cc —— 回落会发出 cc 口径的指令）`);
+  }
+  return table;
 }
 
 /**
@@ -112,48 +135,56 @@ export async function resolvePrompt(key, vars = {}, { adapter = ADAPTER_DEFAULT 
 }
 
 /**
- * awf plan 入口提示词 — 由插件的 prompts.json 模板 + 场景选 key 组装
- * 场景优先级：resume 优先于 description（恢复会话时忽略新描述），两者都无 → plan-default。
+ * 去掉 markdown 的 frontmatter —— 入口注入的是**正文**，YAML 头对模型是噪音。
+ * 只做最朴素的切分（与本仓资产的实际写法一致）；没有 frontmatter 就原样返回。
+ */
+function stripFrontmatter(text) {
+  if (!text.startsWith('---\n')) return text;
+  const end = text.indexOf('\n---', 3);
+  if (end === -1) return text;
+  const afterClose = text.indexOf('\n', end + 1);
+  return afterClose === -1 ? '' : text.slice(afterClose + 1).replace(/^\n+/, '');
+}
+
+/** 读某平台的 plan 入口模板（`plan-entry` 段：命令名 + 恢复/缺描述/输入框三段措辞） */
+async function planEntryTemplate(adapter) {
+  const cfg = await readRegistry(pluginAssets.adapterAssetPath(adapter, 'prompts.json'));
+  const entry = cfg['plan-entry'];
+  if (!entry?.command) {
+    throw new Error(`prompts: 适配器 ${adapter} 的 prompts.json 缺 plan-entry.command（expand-command 模式下入口正文取自该命令的 md）`);
+  }
+  return entry;
+}
+
+/**
+ * awf plan 入口提示词。
+ *
+ * 两种平台：
+ *   - `plan-entry-mode: 'command'`（cc）：平台自己能展开斜杠命令，发 `/<命名空间>:w-plan {desc}` 即可，
+ *     用插件 prompts.json 的 plan-start / plan-resume / plan-default 模板。
+ *   - `plan-entry-mode: 'expand-command'`（DSH）：平台的 commands.execute **只在网页输入框触发**，
+ *     API 注入的 prompt 不走 handler（实测），发命令字面量只会让模型把需求当成「被截断的参数」。
+ *     这时把**插件命令 md 的正文**展开注入 —— 正文是单源，本模块**不内联**一份缩水版
+ *     （内联的那份命令改了不会跟着变，就是两份真值）。
  * @param {string} [description] - 需求描述
  * @param {boolean} [resume] - 是否恢复上次规划会话
+ * @param {{adapter?: string}} [opts]
  * @returns {Promise<string>}
  */
 export async function planEntry(description, resume, { adapter = ADAPTER_DEFAULT } = {}) {
-  // 平台没有斜杠命令注册机制时（DSH 未注册插件命令，C29），发 `/ai-workflow-code:w-plan …`
-  // 只会让模型看到一串它无法解释的命令字面量（实测：模型把整个需求当成「命令的参数被截断」）。
-  // 这时把**命令正文**展开成指令，需求原文附在后面 —— 对平台零假设。
-  const inline = (await platformVars(adapter)).planEntryMode === 'inline';
-  if (inline) {
-    // DSH 没有斜杠命令执行（slash command 只在网页输入框触发，`awf plan` 走 API 注入，平台不调 handler）。
-    // 但 DSH 有**技能系统**（`skill` 工具 + <available_skills> 目录）：`awf plugin install` 已把
-    // plugin 里的 SKILL.md 链接进 `$DSH_HOME/skills/`，所以入口只需点名叫模型加载，不必内联 18KB。
-    const head = resume
-      ? '这是**恢复**上次规划会话：先问用户上次进行到哪一步，再从中断处继续；不要从头重问一遍。'
-      : '';
-    const ask = description
-      ? description
-      : '(用户未提供描述：先用 ask_user_question 问清「要做什么、给谁用、核心功能期望」，拿到完整需求再开始)';
-    return [
-      '这是 AWF 的规划任务：把一句需求转成「范围 + WBS + 任务列表」，最后用 awf-state 工具**一次性**写入 state.json。',
-      '',
-      '## 硬性产出',
-      '1. 范围：inScope / outOfScope 都显式列出，100% 敲定，不留 openQuestions。',
-      '2. WBS：逐级拆到叶子，每个叶子有可独立验证的 done 条件；id 用「前缀+序号」。',
-      '3. tasks：每个任务带 wbsRef / deps / acceptance / prompt；在 dev 任务后插入 review、test 门禁任务。',
-      '',
-      '## 流程约束',
-      '- 规划过程中只写临时文件，**最后一步**才用 awf-state 写 state.json。',
-      '- 技术选型在 plan 阶段只定到 60-70%（方向、关键约束），实现细节不强求。',
-      '- 若本平台有 `skill` 工具且能加载 awf-plan-*（norm/wbs/tasks/prompt）或 code-context-onboard，先加载它们获取更细规范再开始；加载不到就按本指令执行。',
-      head ? `\n${head}\n` : '',
-      '## 需求原文（必须完整使用，不得截断或改写）',
-      '',
-      ask,
-    ].join('\n');
+  const mode = (await platformVarsTable(adapter))['plan-entry-mode'];
+  if (mode !== 'expand-command') {
+    if (resume) return resolvePrompt('plan-resume', {}, { adapter });
+    if (description) return resolvePrompt('plan-start', { desc: description }, { adapter });
+    return resolvePrompt('plan-default', {}, { adapter });
   }
-  if (resume) return resolvePrompt('plan-resume', {}, { adapter });
-  if (description) return resolvePrompt('plan-start', { desc: description }, { adapter });
-  return resolvePrompt('plan-default', {}, { adapter });
+
+  const entry = await planEntryTemplate(adapter);
+  const body = stripFrontmatter(pluginAssets.readAdapterAsset(adapter, 'commands', `${entry.command}.md`)).trim();
+  const parts = [body];
+  if (resume) parts.push('', entry.resume);
+  parts.push('', entry.inputHeader, '', description ? String(description) : entry.missingDesc);
+  return parts.join('\n');
 }
 
 /**

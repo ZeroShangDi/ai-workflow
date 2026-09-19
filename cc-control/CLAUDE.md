@@ -18,6 +18,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 cc-control/
   package.json             # npm 包
 
+  plugin/                  # ★ 中性源（唯一手写 md 的家）：保持三插件包结构
+                           #   <包>/{commands,skills,agents,mcp}/ —— 平台中性的命令/技能/代理/MCP server
+                           #   清单类（plugin.json/.mcp.json/hooks）不在源里，由 render-config.mjs 渲染
+                           #   ⚠️ server/adapters/{cc,dsh}/plugin/ 下的同名目录是**构造产物**（gitignore，像 dist）：
+                           #   改内容改这里，别改产物。构造：npm run build:plugin（test/build/pack 都会先跑）
+
   server/adapters/cc/plugin/   # ★ CC 平台插件（.claude-plugin/marketplace.json 注册，三插件；含中性 md）
     config.json            #   ★ 唯一配置源：engineDir / port / marketplace / mcpServers / hooks
                            #     （render-config.mjs 据此生成下方各注册文件）
@@ -54,7 +60,9 @@ cc-control/
     mock/                  #   测试脚手架（tmux/日志/state 替身；不进生产装配）
     templates/             #   awf init 的工作区模板（README/config/architecture）
 
-  server/adapters/dsh/plugin/  # ★ DSH 平台插件（host 半侧 Cordis 包 + 技能/命令）：接 AWF 指令通道
+  server/adapters/dsh/plugin/  # ★ DSH 平台插件：一个**自包含**的 Cordis 包 = 唯一安装单元
+                           #   （commands/skills/agents/mcp/hooks 全在包内，装配时自己读；
+                           #    形态与理由见 docs/discuss/dsh-plugin-structure.md）
   scripts/                 # 开发命令（bootstrap, render-config, test, lint, build, eval）
                            #   probe/dsh = DSH 隔离实验夹具（不进产品装配；见其 README）
   tests/                   # unit / integration / e2e / regression / fixtures
@@ -281,7 +289,9 @@ awf init                  # 本地注入 server/adapters/cc/plugin/settings.json
 awf plugin install --scope global   # 全局安装 settings.json.plugins 声明的插件（claude plugin install）
 
 # 插件配置（集中化）
-npm run build             # 从 server/adapters/cc/plugin/config.json 渲染 marketplace/.mcp.json/hooks/plugin.json
+npm run build:plugin      # 插件构造：plugin/ 中性源 → server/adapters/{cc,dsh}/plugin/ 两棵树
+                          #   （test / build / pack 都会先跑；产物像 dist 一样 gitignore，别手改）
+npm run build             # 从 server/adapters/cc/plugin/config.json 渲染 marketplace/.mcp.json/hooks/plugin.json（内含上面的构造）
 node scripts/render-config.mjs   # 仅渲染（build 的子集）
 ```
 
@@ -310,6 +320,9 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `server/server.cjs` | HTTP Session Server 装配根（/send, /cmd, /hook, /status, /run/*）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
 | `scripts/render-config.mjs` | 按 config.json marketplace.plugins 遍历生成各插件 plugin.json + marketplace + 引擎插件 mcp/hooks（单源），+ 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
+| `plugin/` | ★ 插件内容的**中性源**（命令/技能/代理/MCP server，三插件包结构）。下两棵树的同名目录是构造产物，别手改 |
+| `server/adapters/cc/build.cjs` | cc 侧构造器：`plugin/` → `server/adapters/cc/plugin/<包>/<内容目录>`（纯拷贝，一个字段不删） |
+| `server/adapters/dsh/build.cjs` | dsh 侧构造器：`plugin/` 三包拍平成一包 + 平台变换（`BODY_RULES`，临时规则待变量机制接管） |
 | `server/adapters/cc/plugin/config.json` | ★ 唯一配置源（engineDir / port / marketplace / mcpServers / hooks） |
 | `server/adapters/cc/plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
 | `server/adapters/cc/plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |

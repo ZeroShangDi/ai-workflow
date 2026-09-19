@@ -275,12 +275,22 @@ function main() {
       fail('webPort 不是 DSH 网页端口（缺省 3080）—— 会话观看地址会指向错的服务', patchText);
       return;
     }
-    // awfRepo：插件挂项目 MCP 要用它定位包内 MCP server；漏了 session.create 直接失败（F43）
-    if (!/awfRepo: '\//.test(patchText)) {
-      fail('装配块没写 awfRepo —— session.create 会以「未配置 awfRepo」失败（规划/执行入口全断）', patchText);
+    // 自包含：MCP server 随插件目录携带（旧的 awfRepo 指向 cc 插件树的写法已删除）。
+    // 装机后从**拷贝出来的副本**里找入口 —— 这才是插件运行时真正会用的路径。
+    const pluginDir = path.join(profileDir, 'node_modules', 'awf-dsh-plugin');
+    if (!fs.existsSync(path.join(pluginDir, 'mcp', 'awf-state', 'server.cjs'))) {
+      fail('插件副本里没有 mcp/awf-state/server.cjs —— session.create 挂不上 MCP（规划/执行入口全断）', patchText);
       return;
     }
-    console.log('[cli-install] ✓ 装配块含 awfBase（AWF server）、awfRepo（包根）与 webPort=3080（DSH 网页端口）');
+    if (fs.existsSync(path.join(pluginDir, '.git'))) {
+      fail('插件副本里带着 .git —— 拷贝过滤有问题', patchText);
+      return;
+    }
+    if (/awfRepo:/.test(patchText)) {
+      fail('装配块仍写着 awfRepo —— 该配置项已删除（MCP 入口随包携带）', patchText);
+      return;
+    }
+    console.log('[cli-install] ✓ 装配块含 awfBase（AWF server）与 webPort=3080（DSH 网页端口），且插件副本自包含（含 mcp/ 与 skills/）');
     console.log('  提示：DSH 不在 3080 时用 AWF_DSH_WEB_PORT 声明后重新装配');
 
     // 用户的注释应当还在

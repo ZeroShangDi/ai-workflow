@@ -1,0 +1,17 @@
+{
+  "$comment": "AWF 的 DSH 插件随包携带的 MCP server 清单。入口是相对本包的路径（绝对路径在 lib/mcp.js 里拼），所以换机器/换安装位置都不影响 —— 这是对旧 awfRepo（指向 cc 插件树）的替代。",
+  "servers": [
+    {
+      "name": "awf-state",
+      "entry": "mcp/awf-state/server.cjs",
+      "mountByDefault": true,
+      "role": "state.json 的读写工具面（awf run 的落账通道）"
+    },
+    {
+      "name": "awf-session",
+      "entry": "mcp/awf-session/server.cjs",
+      "mountByDefault": false,
+      "role": "tmux/session 生命周期观测与人工介入（默认不挂；见 docs/discuss/dsh-plugin-structure.md 的待办）"
+    }
+  ]
+}

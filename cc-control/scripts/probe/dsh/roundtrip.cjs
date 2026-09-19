@@ -190,6 +190,8 @@ async function main() {
     // **配置优先于环境变量** —— 残留的旧端口会让本次运行连到上次的端口上（实测踩到：
     // 日志里地址是上一次的端口，本次 AWF_DSH_BASE 被无视，插件一直连不上）。
     const patchPath = path.join(DSH_HOME, 'profiles', PROFILE, 'cordis.patch.yml');
+    // 过滤掉上一次留下的注入行（含历史安装可能写过的 awfRepo —— 该配置项已从托管块删除，
+    // 这里的过滤只是把旧现场清干净，避免配置优先于环境变量造成「连到上次的端口」）
     const lines = fs.readFileSync(patchPath, 'utf8').split('\n')
       .filter((l) => !l.includes('awfBase:') && !l.includes('awfRepo:'));
     if (viaConfig) {
@@ -198,20 +200,18 @@ async function main() {
         console.error('[roundtrip] ✗ AWF_PROBE_BASE_VIA=config 但 profile patch 里找不到 awf-dsh 的 webPort 行');
         return 2;
       }
-      // 生产安装形态：**两个**必需配置项都只从 profile 配置读（awfBase + awfRepo），不传环境变量
-      lines.splice(idx, 0, `        awfBase: '${awfBase}'`, `        awfRepo: '${REPO}'`);
-      console.log(`[roundtrip] 地址与包根改由 profile 配置提供（awfBase=${awfBase}, awfRepo=${REPO}），不传环境变量`);
+      // 生产安装形态：配置项只从 profile 配置读，不传环境变量
+      lines.splice(idx, 0, `        awfBase: '${awfBase}'`);
+      console.log(`[roundtrip] 地址改由 profile 配置提供（awfBase=${awfBase}），不传环境变量`);
     } else if (lines.length !== fs.readFileSync(patchPath, 'utf8').split('\n').length) {
       console.log('[roundtrip] 已清掉 profile 里上一次的 awfBase/awfRepo（本次走环境变量）');
     }
     fs.writeFileSync(patchPath, lines.join('\n'));
   }
   const dshLog = [];
-  const childEnv = { ...process.env, DSH_HOME, AWF_DSH_REPO: REPO };
-  if (viaConfig) {
-    delete childEnv.AWF_DSH_BASE;
-    delete childEnv.AWF_DSH_REPO; // 少了这一条，awfRepo 就只能来自 profile 配置 —— 这才是要证的
-  } else childEnv.AWF_DSH_BASE = awfBase;
+  const childEnv = { ...process.env, DSH_HOME };
+  if (viaConfig) delete childEnv.AWF_DSH_BASE;
+  else childEnv.AWF_DSH_BASE = awfBase;
   /** 起一个隔离 DSH 子进程（重启重连场景要起两次，故抽成函数） */
   const spawnDsh = () => {
     const c = spawn('dsh', ['--profile', PROFILE, '--port', String(DSH_PORT), '--no-open'], {

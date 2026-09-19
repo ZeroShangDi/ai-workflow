@@ -70,27 +70,62 @@ describe('提示词渲染 golden（T-P1-04 迁移守卫）', () => {
 });
 
 /**
- * 平台措辞（T-P3-01）：同一份模板，按 `platform-vars-<平台>` 填各自的**工具名与参数**。
+ * 平台措辞（T-P3-01）：同一份编排模板，按**各平台插件包自己声明的** platform-vars
+ * 填各自的工具名与参数。
  * cc：`Agent 工具（subagent_type: …）` / `AskUserQuestion` / `SendMessage`；
- * DSH：`subagent 工具`（平台没有 subagent_type，改成 description+prompt）/
- *      `ask_user_question` / `send_message`；并且把输出协议写进任务正文（DSH 没有 awf-worker 身份）。
+ * DSH：`awf_worker 工具`（平台没有 subagent_type，命名身份靠专用工具实例）/
+ *      `ask_user_question` / `send_message`；输出协议固化在 awf_worker 身份里，不重复写进正文。
  * 这里**不冻结 DSH 全文**（它是新文案，会随实测调整），只钉住「换平台确实换了措辞」这条结构断言。
  */
+describe('平台参数住在各自的插件包（不再交叉）', () => {
+  const ccVars = JSON.parse(fs.readFileSync(path.join(ROOT, 'server/adapters/cc/plugin/plugin-code/prompts.json'), 'utf8'));
+  const dshVars = JSON.parse(fs.readFileSync(path.join(ROOT, 'server/adapters/dsh/plugin/prompts.json'), 'utf8'));
+
+  it('cc 的 prompts.json 里不再有 dsh 的口径（不交叉）', () => {
+    expect(ccVars['platform-vars-dsh']).toBeUndefined();
+    expect(JSON.stringify(ccVars)).not.toContain('awf_worker');
+  });
+
+  it('dsh 的插件包自带一份完整 platform-vars（缺项会报错，不回落 cc）', () => {
+    const cc = Object.keys(ccVars['platform-vars']).sort();
+    const dsh = Object.keys(dshVars['platform-vars']).sort();
+    expect(dsh).toEqual(cc); // 键集必须一致：少一个就是漏配，多一个说明模板不再需要它
+  });
+
+  it('dsh 的 plan 入口模板声明了取哪条命令的正文', () => {
+    expect(dshVars['plan-entry'].command).toBe('w-plan');
+    expect(dshVars['platform-vars']['plan-entry-mode']).toBe('expand-command');
+    expect(ccVars['platform-vars']['plan-entry-mode']).toBe('command');
+  });
+});
+
 describe('plan 入口按平台选形态（cc 斜杠命令 vs dsh 展开指令）', () => {
   it('cc：入口仍是斜杠命令（行为不变）', async () => {
     const t = await planEntry('需求D', false, { adapter: 'cc' });
     expect(t).toBe('/ai-workflow-code:w-plan 需求D');
   });
 
-  it('dsh：不发斜杠命令，改为**自足的浓缩规划指令** + 需求原文（技能可作为补充加载）', async () => {
+  // 以前这里内联过一份「浓缩规划指令」—— 那是 commands/w-plan.md 的缩水副本，
+  // 命令改了它不会跟着变（两份真值）。现在入口**直接展开插件命令 md 的正文**。
+  it('dsh：入口 = 插件 w-plan.md 的正文（单源）+ 需求原文；不发命令字面量', async () => {
     const t = await planEntry('设计一个 Prompt 模板系统', false, { adapter: 'dsh' });
-    expect(t).not.toContain('/ai-workflow-code:w-plan'); // 平台没有命令执行，发命令字面量＝让模型猜
-    expect(t).toContain('这是 AWF 的规划任务');            // 自足指令（不依赖技能也能规划）
-    expect(t).toContain('## 硬性产出');                    // 核心协议（范围/WBS/tasks）
+    const md = fs.readFileSync(path.join(ROOT, 'server/adapters/dsh/plugin/commands/w-plan.md'), 'utf8');
+    const body = md.slice(md.indexOf('\n---\n') + 5).trim(); // 去掉 frontmatter
+
+    expect(t).not.toContain('/ai-workflow-code:w-plan'); // 平台不执行命令字面量，发了＝让模型猜
+    expect(t).toContain(body);                            // 正文原样来自 md（单源，不是代码里的副本）
+    expect(t.startsWith('---')).toBe(false);              // frontmatter 不该进提示词
+    expect(t).not.toContain('empty-input:');
     expect(t).toContain('设计一个 Prompt 模板系统');        // 需求原文完整带上
     expect(t).toContain('不得截断');
-    expect(t).toContain('awf-plan-*');                     // 技能作为可选补充（能加载就加载）
-    expect(t.length).toBeLessThan(1500);                   // 不再是 18KB 内联
+  });
+
+  it('dsh：入口正文随 md 变，不随代码变', async () => {
+    // 断言「读的是文件」而不是「代码里有一份」：把 md 的首行当作指纹比一下
+    const md = fs.readFileSync(path.join(ROOT, 'server/adapters/dsh/plugin/commands/w-plan.md'), 'utf8');
+    const firstHeading = md.split('\n').find((l) => l.startsWith('# '));
+    const t = await planEntry('X', false, { adapter: 'dsh' });
+    expect(t).toContain(firstHeading);
   });
 
   it('dsh 无描述：明确要求先问清需求，而不是硬猜', async () => {
@@ -114,18 +149,20 @@ describe('平台措辞按平台填（cc vs dsh）', () => {
     expect(t).toContain('用 SendMessage 恢复该子 Agent');
   });
 
-  it('dsh：用 subagent 工具（无 subagent_type）+ ask_user_question/send_message + 协议写进正文', async () => {
+  // DSH 侧原先「没有 awf-worker 身份」是事实错误：命名身份靠一个独立的 tool-subagent 实例表达
+  // （toolName=awf_worker + persona + toolFilter），协议正文同样固化在身份里，不再塞进任务正文。
+  it('dsh：用 awf_worker 专用工具（无 subagent_type）+ ask_user_question/send_message + 协议走身份', async () => {
     const t = await subagentDispatch({ taskId: 'T1', taskPrompt: '做A', adapter: 'dsh' });
-    expect(t).toContain('用 subagent 工具');
+    expect(t).toContain('用 awf_worker 工具');
     expect(t).toContain('run_in_background: true');
     expect(t).not.toContain('subagent_type');
     expect(t).toContain('用 ask_user_question 问用户');
     expect(t).toContain('用 send_message 恢复该子 Agent');
-    expect(t).toContain('DSH 没有 awf-worker 身份'); // 输出协议必须随任务正文下发，不能靠身份
-    expect(t).toContain('RESULT: {"taskId":"T1"');
+    expect(t).toContain('输出格式已固化在 awf_worker 身份'); // 身份承载协议，正文不再重复一份
+    expect(t).not.toContain('输出协议必须写进任务正文');
 
     const re = await subagentRedispatch({ taskId: 'T1', taskPrompt: '做A', adapter: 'dsh' });
-    expect(re).toContain('用 subagent 工具');
+    expect(re).toContain('用 awf_worker 工具');
     expect(re).not.toContain('subagent_type');
 
     const re2 = await subagentResend({ agentId: 'c1', reason: 'no valid RESULT', adapter: 'dsh' });

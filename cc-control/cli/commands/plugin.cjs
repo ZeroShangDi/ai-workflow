@@ -35,8 +35,6 @@ function localPluginDsh(action, ctx) {
     profile: process.env.AWF_DSH_PROFILE || 'web',
     // 插件要连的**常驻 AWF server**（本项目端口）
     awfBase: `http://127.0.0.1:${ctx.port}`,
-    // AWF **包根**：插件据此定位 plugin/core/mcp/*/server.cjs 来挂项目 MCP（缺了 session.create 直接失败）
-    awfRepo: ctx.infraRoot,
     // **DSH 网页**端口（会话观看地址用）：DSH 自己的端口，不是 AWF 端口。
     // 缺省 3080 与 DSH 缺省一致；DSH 跑在别的端口时用 AWF_DSH_WEB_PORT 声明。
     webPort: Number(process.env.AWF_DSH_WEB_PORT) || 3080,
@@ -48,13 +46,11 @@ function localPluginDsh(action, ctx) {
       process.exit(1);
     }
     console.log(`${r.written ? '已装配' : '已是装配态'} DSH profile ${opts.profile} → ${r.path}`);
-    console.log(`  插件拷贝 → ${r.pluginPath}`);
+    console.log(`  插件目录（整目录）→ ${r.pluginPath}`);
     if (r.backupPath) console.log(`  原 patch 已备份 → ${r.backupPath}`);
-    // 技能：把 plugin 里的中性 SKILL.md **链接**进 DSH 技能根（$DSH_HOME/skills/），
-    // 编辑源 md 即时生效，不用重装（C29 技能发现；链接失败退化为复制）
-    const sk = dsh.installSkills({ dshHome: opts.dshHome });
-    console.log(`  技能 → ${sk.root}：${sk.installed.length} 个已装${sk.skipped.length ? `、${sk.skipped.length} 个跳过` : ''}${sk.failed.length ? `、${sk.failed.length} 个失败` : ''}`);
-    if (sk.failed.length) console.log(`    失败：${sk.failed.join('；')}`);
+    // 技能不再铺到 $DSH_HOME/skills：随插件目录走，由插件在会话建立时按会话作用域注册
+    // （全局技能根会污染用户自己的 DSH 会话，且 preset 平面下本来就不保证被发现）
+    console.log(`  技能 → ${dsh.listSkills().length} 个随插件目录携带，会话建立时注册（$DSH_HOME/skills 不再动）`);
     console.log(`  提示：装配写在 DSH_HOME=${dsh.resolveDshHome()}；改的是运行中 profile，重启 dsh 后台后生效`);
     return;
   }
@@ -65,8 +61,9 @@ function localPluginDsh(action, ctx) {
       process.exit(1);
     }
     console.log(r.written ? `已卸载 DSH 装配 → ${r.path}` : '无可卸载内容');
+    // 清历史安装留下的技能链接（旧口径往 $DSH_HOME/skills 铺过一份；只摘我们清单里的）
     const sk = dsh.uninstallSkills({ dshHome: opts.dshHome });
-    if (sk.removed.length) console.log(`  已摘技能链接：${sk.removed.join(', ')}`);
+    if (sk.removed.length) console.log(`  已摘历史技能链接：${sk.removed.join(', ')}`);
     return;
   }
   console.error(`未知操作：${action}（可用 install | uninstall）`);

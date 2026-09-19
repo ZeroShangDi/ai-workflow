@@ -16,12 +16,16 @@
     "lint": "bash scripts/lint.sh",
     "build": "bash scripts/build.sh",
     "build:web": "node scripts/build-web.mjs",
-    "prepack": "node scripts/build-web.mjs --required",
+    "prepack": "npm run build:plugin && node scripts/build-web.mjs --required",
     "test:eval": "bash scripts/test-eval.sh",
     "test:coverage": "vitest run --coverage",
     "test:real": "node tests/regression/fullflow-regression.mjs",
     "check:arch": "node scripts/check-architecture.mjs",
-    "check:capability": "node scripts/check-capability.mjs"
+    "check:capability": "node scripts/check-capability.mjs",
+    "build:plugin": "node server/adapters/cc/build.cjs && node server/adapters/dsh/build.cjs",
+    "prepare": "npm run build:plugin",
+    "pretest": "npm run build:plugin",
+    "prebuild": "npm run build:plugin"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",

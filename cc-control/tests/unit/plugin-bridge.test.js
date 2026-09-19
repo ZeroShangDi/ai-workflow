@@ -38,14 +38,16 @@ const ORCHESTRATION_KEYS = new Set([
 
 /**
  * bridge 声明的平台参数（kebab → camel），供期望值复算。
- * 与 `server/shared/prompts.js` 同规则：缺省表 + `platform-vars-<平台>` 覆盖（这里用缺省平台 cc）。
- * @param {string} [adapter]
+ *
+ * 这里**只复算 cc 的取法**（读 `plugin/plugin-code/prompts.json` 的 `platform-vars`）——
+ * 刻意另写一份而不是调 `server/shared/prompts.js` 的实现，否则期望值由被测代码算出来，测不出东西。
+ * 非 cc 平台的取法（读该平台自己插件包里的 `prompts.json`，缺项报错、不回落 cc）
+ * 由 `tests/unit/prompts-golden.test.js` 覆盖。
+ * @param {string} [adapter] 仅支持缺省平台
  */
 function platformVars(adapter = 'cc') {
-  const base = pluginRegistry['platform-vars'];
-  const overrides = pluginRegistry[`platform-vars-${adapter}`];
-  const merged = overrides ? { ...base, ...overrides } : base;
-  return Object.fromEntries(Object.entries(merged)
+  if (adapter !== 'cc') throw new Error(`本文件的复算只覆盖 cc（收到 ${adapter}）`);
+  return Object.fromEntries(Object.entries(pluginRegistry['platform-vars'])
     .map(([k, v]) => [k.replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v]));
 }
 

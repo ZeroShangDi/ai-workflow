@@ -23,13 +23,5 @@
     "architecture-skill": "code-architecture",
     "review-architecture-skill": "code-review-architecture",
     "plan-entry-mode": "command"
-  },
-  "platform-vars-dsh": {
-    "worker-spawn": "用 subagent 工具（description 写任务标题、prompt 写任务正文；run_in_background: true）",
-    "agent-tool": "subagent 工具",
-    "ask-user-tool": "ask_user_question",
-    "agent-message-tool": "send_message",
-    "worker-prompt-note": "（必须在开头声明『你的任务 ID 是 {taskId}』；**DSH 没有 awf-worker 身份，输出协议必须写进任务正文**：要求它最后一行输出 `RESULT: {\"taskId\":\"{taskId}\",\"status\":\"done|blocked\",\"result\":\"…\",\"files\":[…],\"commits\":[…]}`，需要人工决策时最后一行输出 `NEEDS_INPUT: {\"taskId\":\"{taskId}\",\"question\":\"…\"}`，不要调用任务状态 MCP 写接口；dev 必须应用 {architectureSkill}，review 必须应用 {reviewArchitectureSkill}）",
-    "plan-entry-mode": "inline"
   }
 }

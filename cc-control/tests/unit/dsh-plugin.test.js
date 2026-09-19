@@ -251,7 +251,7 @@ describe('插件 host 半侧 — op 表', () => {
     const events = [];
     const { dispatch, createdByAwf } = createOps({
       ctx,
-      config: { awfRepo: '/repo', mcpServers: ['awf-state'] },
+      config: { mcpServers: ['awf-state'] },
       loadMcpClient: async () => ({ default: { name: 'fake-mcp-client' } }),
       loadAgent: async () => ({ installModelSelection: () => {} }),
       onEvent: (e) => events.push(e),
@@ -263,11 +263,47 @@ describe('插件 host 半侧 — op 表', () => {
     expect(calls[0].cfg).toMatchObject({
       transport: 'stdio',
       serverName: 'awf-state',
-      args: ['/repo/plugin/core/mcp/awf-state/server.cjs'],
       env: { AWF_PROJECT_ROOT: '/proj' },
     });
+    // MCP 入口必须是**本包内**的路径（旧实现经 awfRepo 指到 cc 插件树，拷到别处就断）
+    const entry = calls[0].cfg.args[0];
+    expect(entry.endsWith(path.join('mcp', 'awf-state', 'server.cjs'))).toBe(true);
+    expect(fs.existsSync(entry)).toBe(true);
     expect(createdByAwf.has('s-new')).toBe(true);
     expect(events[0]).toMatchObject({ type: 'session.started', sessionId: 's-new' });
+  });
+
+  it('session.create：把会话**登记进工作区**（只建工作区不登记 → 网页里掉「未分组」）', async () => {
+    const attached = [];
+    const agentCtx = { plugin: async () => {} };
+    const ctx = {
+      get: (n) => {
+        if (n === 'agents') return { create: async (o) => { await o.setup(agentCtx); return { agent: { session: { header: { id: 's-ws' } } } }; } };
+        if (n === 'agentPresets') return { mount: async () => {} };
+        if (n === 'workspaceRegistry') {
+          return {
+            list: () => [],
+            create: async (p, title) => ({ id: 'ws-1', path: p, title, attachSession: async (sid) => { attached.push({ p, sid }); } }),
+          };
+        }
+        return undefined;
+      },
+    };
+    const { dispatch } = createOps({
+      ctx,
+      config: { mcpServers: [] },
+      loadMcpClient: async () => ({ default: {} }),
+      loadAgent: async () => ({ installModelSelection: () => {} }),
+      loadToolSubagent: async () => ({ name: 'tool-subagent' }),
+    });
+    const r = await dispatch({ op: 'session.create', args: { projectRoot: '/proj' } });
+
+    expect(r.ok).toBe(true);
+    // 关键：建完工作区必须再 attachSession —— 归属靠 workspace.sessionIds，不是靠 cwd 前缀猜
+    expect(attached).toHaveLength(1);
+    expect(attached[0].sid).toBe('s-ws');
+    expect(attached[0].p).toBe('/proj'); // 工作区路径与会话 cwd 用同一个规范化值
+    expect(r.result.workspace).toMatchObject({ id: 'ws-1', attached: true });
   });
 
   it('plugin.* → 明确回「不属于插件侧」（DSH 装配归 CLI 的 T-P2-02，不是「没做完」）', async () => {
@@ -294,7 +330,7 @@ describe('插件 host 半侧 — op 表', () => {
     const events = [];
     const { dispatch } = createOps({
       ctx,
-      config: { awfRepo: '/repo', mcpServers: ['awf-state'], webPort: 39081 },
+      config: { mcpServers: ['awf-state'], webPort: 39081 },
       loadMcpClient: async () => ({ default: {} }),
       loadAgent: async () => ({ installModelSelection: () => {} }),
       onEvent: (e) => events.push(e),
@@ -355,19 +391,60 @@ describe('插件 host 半侧 — op 表', () => {
     expect((await noHeader.dispatch({ op: 'session.tools', args: { projectRoot: '/p' } })).result.count).toBe(0);
   });
 
-  it('session.create：缺 awfRepo / agents 服务缺失 / 平台抛错 → 显式失败', async () => {
-    const { ctx } = makeCreateCtx();
-    const noRepo = createOps({ ctx, config: {}, loadMcpClient: async () => ({ default: {} }), loadAgent: async () => ({ installModelSelection: () => {} }) });
-    expect((await noRepo.dispatch({ op: 'session.create', args: { projectRoot: '/p' } })).error).toContain('awfRepo');
+  it('session.create：agent 作用域不可用 / agents 服务缺失 / 平台抛错 → 显式失败', async () => {
+    // 旧实现靠 awfRepo 定位 MCP 入口，缺了直接失败；现在入口随包，失败面变成「作用域不对」
+    const noScope = createOps({
+      ctx: { get: (n) => (n === 'agents' ? { create: async (o) => { await o.setup({}); return { agent: { session: { header: { id: 's' } } } }; } } : (n === 'agentPresets' ? { mount: async () => {} } : undefined)) },
+      loadMcpClient: async () => ({ default: {} }),
+      loadAgent: async () => ({ installModelSelection: () => {} }),
+    });
+    expect((await noScope.dispatch({ op: 'session.create', args: { projectRoot: '/p' } })).error)
+      .toContain('agent 作用域');
 
     const noAgents = createOps({ ctx: { get: () => undefined } });
     expect((await noAgents.dispatch({ op: 'session.create', args: { projectRoot: '/p' } })).ok).toBe(false);
 
     const { ctx: boomCtx } = makeCreateCtx({ createImpl: async () => { throw new Error('preset conflict'); } });
-    const boom = createOps({ ctx: boomCtx, config: { awfRepo: '/r' }, loadMcpClient: async () => ({ default: {} }), loadAgent: async () => ({ installModelSelection: () => {} }) });
+    const boom = createOps({ ctx: boomCtx, loadMcpClient: async () => ({ default: {} }), loadAgent: async () => ({ installModelSelection: () => {} }) });
     const r = await boom.dispatch({ op: 'session.create', args: { projectRoot: '/p' } });
     expect(r.ok).toBe(false);
     expect(r.error).toContain('preset conflict');
+  });
+
+  it('session.create：技能与命名子 Agent 在会话作用域装配，结果如实回报', async () => {
+    const skills = [];
+    const mounted = [];
+    const fakeToolSubagent = { name: 'tool-subagent' };
+    const agentCtx = {
+      plugin: async (mod, cfg) => { if (mod === fakeToolSubagent) mounted.push(cfg.toolName); },
+      get: (n) => (n === 'skills' ? { register: (s) => { skills.push(s.name); return () => {}; } } : undefined),
+      effect: () => () => {},
+      // 工具面里只有 read/write（含平台内置名映射的结果），白名单核验会据此剔除非存在项
+      tools: { restrict: ({ allow }) => { if (allow.includes('read') || allow.includes('write')) return () => {}; throw new Error(`tools.restrict() names unknown global tool "${allow[0]}"`); } },
+    };
+    const ctx = {
+      get: (n) => {
+        if (n === 'agents') return { create: async (o) => { await o.setup(agentCtx); return { agent: { session: { header: { id: 's' } } } }; } };
+        if (n === 'agentPresets') return { mount: async () => {} };
+        return undefined;
+      },
+    };
+    const { dispatch } = createOps({
+      ctx,
+      config: { mcpServers: [] },
+      loadMcpClient: async () => ({ default: {} }),
+      loadAgent: async () => ({ installModelSelection: () => {} }),
+      loadToolSubagent: async () => fakeToolSubagent,
+    });
+    const r = await dispatch({ op: 'session.create', args: { projectRoot: '/p' } });
+
+    expect(r.ok).toBe(true);
+    expect(r.result.skills.length).toBe(36);          // 36 个技能全部注册进本会话
+    expect(skills).toContain('awf-plan-norm');
+    // 三个 cc 侧 agents/*.md 各自变成一个命名工具（文件名排序决定装配顺序）
+    const expected = ['awf_monitor_probe', 'awf_monitor_repair', 'awf_worker'];
+    expect(r.result.subagents).toEqual(expected);
+    expect(mounted).toEqual(expected);
   });
 
   it('session.interrupt：调 cancel（平台回执 ≠ 已停，keepInbox=true）', async () => {

@@ -18,3 +18,15 @@ docs/discuss/all_claude_prompts.md
 # **不入库**（产物随代码生成，不手改）。注意：npm 打包以 package.json 的 `files` 为准，
 # 本忽略规则不影响它入包（server/ 已在 files 里）。
 server/web/public/
+
+# 插件构造产物 —— 源在包根 plugin/，由 `npm run build:plugin` 生成（npm test / build / pack 都会先跑）。
+# 别手改这些目录：改了会在下次构造时被覆盖。清单类（plugin.json / .mcp.json / hooks/）不在此列，
+# 它们由 scripts/render-config.mjs 渲染，仍入库。
+/server/adapters/cc/plugin/*/commands/
+/server/adapters/cc/plugin/*/skills/
+/server/adapters/cc/plugin/*/agents/
+/server/adapters/cc/plugin/*/mcp/
+/server/adapters/dsh/plugin/commands/
+/server/adapters/dsh/plugin/skills/
+/server/adapters/dsh/plugin/agents/
+/server/adapters/dsh/plugin/mcp/

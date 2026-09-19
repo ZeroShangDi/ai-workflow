@@ -103,6 +103,8 @@ export const ENTRY_ALLOWLIST = [
   { file: 'server/server.cjs', reason: '常驻 server 进程：由 cli/lib/session.cjs ensureServer 与 awf server start 以 spawn 拉起，不经 import' },
   { file: 'server/adapters/mock.cjs', reason: '测试夹具：只被 tests/ 引入（server/mock 的替身），生产路径不应引用它' },
   { file: 'server/mock/index.cjs', reason: '测试脚手架：自述「不参与生产装配、不进 ports 名册」，只被 tests/ 引入；被替换的是 server 的出口（tmux/日志/state 落盘）' },
+  { file: 'server/adapters/cc/build.cjs', reason: '插件构造器：由 npm 脚本直接执行（build:plugin / pretest / prepack），不经 import —— 与 cli/awf.cjs 同类' },
+  { file: 'server/adapters/dsh/build.cjs', reason: '插件构造器：由 npm 脚本直接执行（build:plugin / pretest / prepack），不经 import —— 与 cli/awf.cjs 同类' },
 ];
 
 /**

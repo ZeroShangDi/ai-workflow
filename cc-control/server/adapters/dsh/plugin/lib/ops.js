@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { mountMcpServers } from './mcp.js';
+import { registerSkills } from './skills.js';
+import { mountSubagentTools } from './agents.js';
 
 /**
  * ops.js — 指令实现表（插件 host 半侧）
@@ -103,7 +106,16 @@ export function lastAssistantText(session, maxChars = 8000) {
   return { text: null, truncated: false, turn: null, seq: null, at: null };
 }
 
-export function createOps({ ctx, config = {}, log = () => {}, onEvent = () => {}, loadMcpClient = loadMcpClientReal, loadAgent = loadAgentBits, loadLlm = loadLlmBits }) {
+export function createOps({
+  ctx,
+  config = {},
+  log = () => {},
+  onEvent = () => {},
+  loadMcpClient = loadMcpClientReal,
+  loadAgent = loadAgentBits,
+  loadLlm = loadLlmBits,
+  loadToolSubagent, // 缺省交给 lib/agents.js 自己 import；测试注入用
+}) {
   /** 有回合在跑的会话 id（prompt 置位、turn 结束清除）—— 供 ready 判定 */
   const inFlight = new Set();
   /** **AWF 自己创建的**会话 id（批准应答者据此判断「这是不是我们的会话」，U16） */
@@ -141,67 +153,100 @@ export function createOps({ ctx, config = {}, log = () => {}, onEvent = () => {}
 
   /**
    * 给某个会话挂项目 MCP（**会话/agent 作用域**，spec C30）。
-   * 手法与平台自身一致：`agentCtx.plugin(McpClient, {transport:'stdio', serverName, command, args, env})`
-   * （`dsh-acp` 的 mountAcpMcpServers 就是这么做的）。项目隔离靠 **每个项目各起一份 MCP server 进程**
-   * 并把自己的 `AWF_PROJECT_ROOT` 传给它 —— 不把项目变量放共享全局配置。
+   * 实现落在 `lib/mcp.js`：入口一律本包内的 `mcp/<name>/server.cjs`，不再经 `awfRepo`
+   * 去 cc 插件树取。这里只做 DI 透传，保持 ops 的可测性。
    * @param {string} sessionId
    * @param {string} cwd 项目根
    * @returns {Promise<{mounted: string[], tools: number}}>
    */
   async function mountMcpInto(agentCtx, cwd) {
-    const repo = config.awfRepo || process.env.AWF_DSH_REPO;
-    if (!repo) throw new Error('未配置 awfRepo（AWF 包根，用于定位 plugin/core/mcp/*/server.cjs）；可用 config.awfRepo 或 AWF_DSH_REPO');
-    if (!agentCtx?.plugin) throw new Error('缺少 agent 作用域 ctx（setup 回调的第一个参数）');
-    const McpClient = await loadMcpClient();
-    const names = config.mcpServers ?? ['awf-state'];
-    for (const name of names) {
-      await agentCtx.plugin(McpClient, {
-        transport: 'stdio',
-        serverName: name,
-        command: process.execPath,
-        args: [path.join(repo, 'plugin', 'core', 'mcp', name, 'server.cjs')],
-        env: { AWF_PROJECT_ROOT: cwd, ...(config.mcpEnv ?? {}) },
-      });
-    }
+    const names = await mountMcpServers(agentCtx, cwd, { config, log, loadMcpClient });
     return names;
   }
 
   /**
-   * 把项目目录登记成 DSH 的**工作区**（幂等）。
+   * 把项目目录登记成 DSH 的**工作区**，并**把会话登记进该工作区**（都幂等）。
    *
-   * 为什么必须做：DSH 网页按「工作区」分组会话，判据是**会话的规范 cwd === 工作区注册路径**；
-   * 目录没注册过，AWF 建的会话就落进「未分组」（真机踩到：会话明明在项目目录里，网页显示未分组）。
-   * `workspaceRegistry.create(path, title)` 对同一路径是「创建或复用」，所以重复调用安全。
-   * @param {string} cwd 项目根
-   * @returns {Promise<{ok: boolean, id?: string|null, title?: string|null, created?: boolean, reason?: string}>}
+   * 真机踩到过两次，是两个不同的坑：
+   *   ① 只建工作区、不登记会话 → 网页里会话掉进「未分组」。
+   *      `dsh-client-ui-workspace` 的 `groupByWorkspace` 按 **`workspace.sessionIds`** 归属，
+   *      不是按 cwd 前缀猜的 —— 必须 `workspace.attachSession(sessionId)` 才会有归属。
+   *   ② `Workspace.sessionIds` 的 getter 会按 `host.sessionPath(id) === workspace.path` **再过一遍**：
+   *      会话的 cwd 与工作区路径必须**逐字相等**。所以两边都用同一个规范化路径（`canonPath`），
+   *      否则 macOS 上 `/tmp/x` 与 `/private/tmp/x` 这类差异会让登记静默失效。
+   * @param {string} cwd 项目根（已规范化）
+   * @param {string} sessionId 要登记进工作区的会话
+   * @returns {Promise<{ok: boolean, id?: string|null, title?: string|null, created?: boolean, attached?: boolean, reason?: string}>}
    */
-  async function ensureWorkspace(cwd) {
+  async function ensureWorkspace(cwd, sessionId) {
     const registry = service('workspaceRegistry');
     if (!registry?.create) return { ok: false, reason: 'workspaceRegistry 服务不可用（ctx.get 为空）' };
     let existed = false;
     try { existed = (registry.list?.() ?? []).some((w) => samePath(w?.path, cwd)); } catch { /* 列表读不到不影响创建 */ }
     const ws = await registry.create(cwd, path.basename(cwd) || cwd);
-    return { ok: true, id: ws?.id ?? null, title: ws?.title ?? null, created: !existed };
+    // 建了工作区不等于会话归属它 —— 少这一步网页里就是「未分组」
+    let attached = false;
+    if (sessionId && typeof ws?.attachSession === 'function') {
+      await ws.attachSession(sessionId);
+      attached = true;
+    }
+    return { ok: true, id: ws?.id ?? null, title: ws?.title ?? null, created: !existed, attached };
+  }
+
+  /**
+   * 给会话设一个**人可读的标题**（失败只告警，不阻断建会话 —— 标题是展示面）。
+   *
+   * 为什么必须显式设：DSH 的会话标题默认取**首条用户消息**。AWF 注入的是命令正文（w-plan.md
+   * 全文，9.4KB），于是侧栏里一排会话全叫「# w-plan 主规划流程。从一句话」—— 真机踩到。
+   * @param {object} agent `agents.create` 回的 agent
+   * @param {string} title 标题
+   */
+  async function setSessionTitle(agent, title) {
+    const clean = String(title ?? '').trim();
+    if (clean === '') return false;
+    const titles = service('sessionTitle');
+    if (!titles?.rename || !agent?.session) {
+      log('warn', 'sessionTitle 服务不可用 —— 会话标题会是首条消息的第一行（注入正文时很难看）');
+      return false;
+    }
+    try {
+      titles.rename(agent.session, clean.slice(0, 120));
+      return true;
+    } catch (err) {
+      log('warn', `会话标题设置失败：${err.message}`);
+      return false;
+    }
+  }
+
+  /** 兜底标题：`AWF · <项目目录名>`（AWF 没给标题时用，至少不是一坨正文） */
+  function defaultTitle(cwd, purpose) {
+    const name = path.basename(cwd) || cwd;
+    return purpose === 'plan' ? `AWF 规划 · ${name}` : `AWF · ${name}`;
   }
 
   /**
    * 建一个「完整配方」的会话（execution / planning 共用）：
    * 在 **agent 发布前**的 setup 窗口里依次 ① installModelSelection ② agentPresets.mount ③（可选）挂项目 MCP。
    * 为什么不用 `sessionController.create`：它没有 setup 窗口，挂上去的 MCP 工具进不了会话工具表（实测 0 个工具）。
-   * @param {{cwd: string, mountMcp?: boolean}} opts
+   * @param {{cwd: string, mountMcp?: boolean, title?: string, purpose?: string}} opts
    * @returns {Promise<{ok: boolean, sessionId?: string, agent?: object, mounted?: string[], error?: string}>}
    */
-  async function createSession({ cwd, mountMcp = true } = {}) {
+  async function createSession({ cwd, mountMcp = true, title, purpose } = {}) {
     const agents = service('agents');
     if (!agents?.create) return { ok: false, error: 'agents 服务不可用（ctx.get("agents") 为空）' };
     const defaultModel = service('agentDefaultModel');
     const selection = defaultModel?.currentSelection?.();
+    // 规范化路径在**会话 cwd 与工作区路径上用同一个值** —— `Workspace.sessionIds` 的 getter
+    // 会按 `sessionPath(id) === workspace.path` 过滤，两边不一致会让归属静默失效（见 ensureWorkspace）
+    const projectCwd = canonPath(cwd) || cwd;
     let mounted = [];
+    let skills = [];
+    let subagents = [];
     try {
       const sessionIdAsked = `session-${randomUUID()}`;
       const created = await agents.create({
         sessionId: sessionIdAsked,
-        meta: { cwd },
+        meta: { cwd: projectCwd },
         ...(selection ? { agentOptions: { provider: selection.provider, model: selection.model } } : {}),
         setup: async (agentCtx) => {
           const agentBits = await loadAgent();
@@ -209,24 +254,34 @@ export function createOps({ ctx, config = {}, log = () => {}, onEvent = () => {}
           const presets = service('agentPresets');
           if (!presets?.mount) throw new Error('agentPresets 服务不可用（ctx.get("agentPresets") 无 mount）');
           await presets.mount(agentCtx, config.agentPreset ?? 'standard');
-          if (mountMcp) mounted = await mountMcpInto(agentCtx, cwd);
+          // 顺序有讲究：MCP 先挂（工具面齐了），子 Agent 的白名单核验才拿得到真实工具名
+          if (mountMcp) mounted = await mountMcpInto(agentCtx, projectCwd);
+          // 会话级资产：技能（36 个）与命名子 Agent（awf_worker / awf_monitor_*）。
+          // 落在本 agent 作用域 → 只有 AWF 建的会话看得到，不污染用户自己的 DSH 会话。
+          skills = registerSkills(agentCtx, { log }).registered;
+          subagents = (await mountSubagentTools(agentCtx, {
+            log,
+            ...(loadToolSubagent ? { loadToolSubagent } : {}),
+          })).mounted;
         },
       });
       const agent = created?.agent;
       const sessionId = agent?.session?.header?.id ?? sessionIdAsked;
       if (!sessionId) return { ok: false, error: 'agents.create 未回可用的会话 id' };
       createdByAwf.add(sessionId);
+      // 标题：优先用调用方给的（AWF 知道需求原文），否则退到项目名 —— 都不要让侧栏显示注入正文的第一行
+      const titled = await setSessionTitle(agent, title || defaultTitle(projectCwd, purpose));
       // 工作区登记失败**不阻断建会话**（分组是展示面），但必须留痕、不静默（U6）
       let workspace = null;
       try {
-        workspace = await ensureWorkspace(cwd);
+        workspace = await ensureWorkspace(projectCwd, sessionId);
         if (workspace.ok !== true) log('warn', `工作区登记未生效：${workspace.reason}（网页里这个会话会显示在「未分组」）`);
         else log('info', `工作区${workspace.created ? '已登记' : '已存在'}：${workspace.title ?? cwd}`);
       } catch (err) {
         workspace = { ok: false, reason: err.message };
         log('warn', `工作区登记失败：${err.message}（网页里这个会话会显示在「未分组」）`);
       }
-      return { ok: true, sessionId, agent, mounted, workspace };
+      return { ok: true, sessionId, agent, mounted, skills, subagents, titled, workspace };
     } catch (err) {
       return { ok: false, error: `agents.create 失败：${err.message}` };
     }
@@ -333,7 +388,7 @@ export function createOps({ ctx, config = {}, log = () => {}, onEvent = () => {}
     async 'session.create'(args = {}) {
       const cwd = args.projectRoot;
       if (typeof cwd !== 'string' || cwd === '') return { ok: false, error: 'projectRoot 必须是非空字符串' };
-      const created = await createSession({ cwd, mountMcp: true });
+      const created = await createSession({ cwd, mountMcp: true, title: args.title });
       if (!created.ok) return { ok: false, error: created.error };
       // 注意：**不能**在 create 时用 `session.requestHeader().tools` 判「工具注册好了」——
       // 它是 `request/header` 事件的折叠，**首次模型请求之前恒为 undefined**（实测 0 个工具）。
@@ -347,6 +402,11 @@ export function createOps({ ctx, config = {}, log = () => {}, onEvent = () => {}
           agentPreset: config.agentPreset ?? 'default',
           cwd,
           mcp: { mounted: created.mounted, toolsAtCreate: null },
+          // 会话级资产的实际装配结果（技能数 / 命名子 Agent 工具名）——供 AWF 与探针核对，
+          // 避免「装上了但没生效」只能靠翻日志判断
+          skills: created.skills ?? [],
+          subagents: created.subagents ?? [],
+          titled: created.titled === true,
           workspace: created.workspace ?? null, // 网页分组依据（未登记 → DSH 显示「未分组」）
         },
       };
@@ -411,7 +471,7 @@ export function createOps({ ctx, config = {}, log = () => {}, onEvent = () => {}
       const controller = service('sessionController');
       if (!controller?.prompt) return { ok: false, error: 'sessionController.prompt 不可用' };
 
-      const created = await createSession({ cwd, mountMcp: true });
+      const created = await createSession({ cwd, mountMcp: true, title: args.title, purpose: 'plan' });
       if (!created.ok) return { ok: false, error: created.error };
       const sessionId = created.sessionId;
       try {
@@ -427,6 +487,7 @@ export function createOps({ ctx, config = {}, log = () => {}, onEvent = () => {}
             accepted: r?.accepted === true,
             url: sessionUrl(sessionId),
             mcp: { mounted: created.mounted },
+          titled: created.titled === true,
             workspace: created.workspace ?? null,
           },
         };

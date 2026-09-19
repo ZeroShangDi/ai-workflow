@@ -279,7 +279,8 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
       },
       prompts: {
         // 平台名在这里补：派发/重派/补发三条模板含**平台工具措辞**（派生工具与参数、回话工具），
-        // 由插件按平台声明（`platform-vars-<平台>`），模板本身只有一份（T-P3-01）
+        // 由**各平台自己的插件包**声明（`<平台>/plugin/prompts.json` 的 platform-vars），
+        // 模板本身只有一份（T-P3-01）
         subagentDispatch: (a) => bridge.subagentDispatch({ ...a, adapter: ctx.adapter }),
         subagentRedispatch: (a) => bridge.subagentRedispatch({ ...a, adapter: ctx.adapter }),
         resend: (a) => bridge.subagentResend({ ...a, adapter: ctx.adapter }),

@@ -1,0 +1,22 @@
+{
+  "$comment": "DSH 插件自己的声明：平台参数 + plan 入口模板。与 CC 的对等物（cc/plugin/plugin-code/prompts.json 的 platform-vars + plan-* 模板）**位置对称、内容各写各的** —— 每个平台的工具措辞住在这个平台自己的插件包里，不交叉。server/shared/prompts.js 按 adapter 读对应那一份；缺项直接报错，不回落 CC 的值（回落 = 悄悄发出 cc 口径的指令）。",
+  "platform-vars": {
+    "worker-agent-type": "awf_worker",
+    "worker-spawn": "用 awf_worker 工具（description 写任务标题、prompt 写任务正文；run_in_background: true）",
+    "agent-tool": "awf_worker 工具",
+    "ask-user-tool": "ask_user_question",
+    "agent-message-tool": "send_message",
+    "worker-prompt-note": "（必须在开头声明『你的任务 ID 是 {taskId}』；RESULT / NEEDS_INPUT 输出格式已固化在 awf_worker 身份；dev 必须应用 {architectureSkill}，review 必须应用 {reviewArchitectureSkill}）",
+    "dev-command": "/w-dev",
+    "context-skill": "code-context-onboard",
+    "architecture-skill": "code-architecture",
+    "review-architecture-skill": "code-review-architecture",
+    "plan-entry-mode": "expand-command"
+  },
+  "plan-entry": {
+    "command": "w-plan",
+    "resume": "这是**恢复**上次规划会话：先问用户上次进行到哪一步，再从中断处继续；不要从头重问一遍。",
+    "missingDesc": "(用户未提供描述：先用 ask_user_question 问清「要做什么、给谁用、核心功能期望」，拿到完整需求再开始)",
+    "inputHeader": "## 需求原文（必须完整使用，不得截断或改写）"
+  }
+}

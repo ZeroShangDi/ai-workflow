@@ -115,12 +115,12 @@ describe('DSH 装配：installProfile', () => {
     expect(fs.readFileSync(PATCH, 'utf8')).not.toContain('awfBase');
   });
 
-  // F43：插件挂项目 MCP 要靠 awfRepo 定位包内的 MCP server 入口；
-  // 真实安装漏了它 → session.create 直接失败（探针走环境变量，所以一直没暴露）。
-  it('awfRepo 写进配置（插件据此定位包内 MCP server）', () => {
+  // 自包含契约：插件目录**不允许引用目录以外的任何东西**（尤其不引用 cc 侧插件树）。
+  // 旧实现的 awfRepo 就是为了让插件去 cc 插件树取 MCP 入口 —— 已删除，改为随包携带。
+  it('托管块不含 awfRepo（MCP server 随包携带，不再指外部目录）', () => {
     makeHome();
-    dshInstall.installProfile({ dshHome: HOME, awfRepo: '/opt/ai-workflow' });
-    expect(fs.readFileSync(PATCH, 'utf8')).toContain("awfRepo: '/opt/ai-workflow'");
+    dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787' });
+    expect(fs.readFileSync(PATCH, 'utf8')).not.toContain('awfRepo');
   });
 
   // 升级场景：配置项变了必须**原地更新**托管块，否则「重新安装」修不好任何东西
@@ -129,18 +129,18 @@ describe('DSH 装配：installProfile', () => {
     const first = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', webPort: 3080 });
     expect(first.written).toBe(true);
     const before = fs.readFileSync(PATCH, 'utf8');
-    expect(before).not.toContain('awfRepo');
+    expect(before).toContain('webPort: 3080');
 
-    const again = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', awfRepo: '/opt/ai-workflow', webPort: 3080 });
+    const again = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', webPort: 39081 });
     expect(again.written).toBe(true);
     expect(again.reason).toContain('更新');
     const after = fs.readFileSync(PATCH, 'utf8');
-    expect(after).toContain("awfRepo: '/opt/ai-workflow'");
+    expect(after).toContain('webPort: 39081');
     expect(after).toContain('# 用户自己的注释');
     expect(after.match(/>>> awf-dsh/g)).toHaveLength(1); // 不重复插块
 
     // 内容一致时仍幂等（不写文件）
-    const third = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', awfRepo: '/opt/ai-workflow', webPort: 3080 });
+    const third = dshInstall.installProfile({ dshHome: HOME, awfBase: 'http://127.0.0.1:8787', webPort: 39081 });
     expect(third.written).toBe(false);
     expect(fs.readFileSync(PATCH, 'utf8')).toBe(after);
   });
@@ -192,40 +192,100 @@ describe('DSH 装配：环境解析与状态', () => {
   });
 });
 
-describe('DSH 装配：技能 installSkills / uninstallSkills', () => {
-  it('技能链接进 $DSH_HOME/skills（符号链接，指向 plugin 里的 SKILL.md 目录）', () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-skills-'));
-    const r = dshInstall.installSkills({ dshHome: home });
-    expect(r.installed).toContain('awf-plan-norm');
-    expect(r.installed.length).toBeGreaterThan(3);
-    const link = path.join(home, 'skills', 'awf-plan-norm');
-    expect(fs.existsSync(link)).toBe(true);
-    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true); // 设计目标：安装 = 链接，改源即生效
-    expect(fs.existsSync(path.join(link, 'SKILL.md'))).toBe(true);
-    fs.rmSync(home, { recursive: true, force: true });
+describe('DSH 装配：技能（已改为随包携带 + 会话级注册）', () => {
+  // 旧口径把 36 个技能符号链接进 $DSH_HOME/skills —— 那是**全局可见**的技能根，
+  // 会污染用户自己的 DSH 会话、还会 first-wins 抢用户同名技能。现在安装期不碰那里。
+  it('安装不往 $DSH_HOME/skills 铺任何东西', () => {
+    const home = makeHome();
+    dshInstall.installProfile({ dshHome: home, awfBase: 'http://127.0.0.1:8787' });
+    expect(fs.existsSync(path.join(home, 'skills'))).toBe(false);
   });
 
-  it('目标已有同名技能且非 AWF 所装 → 跳过，不动用户的东西', () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-skills-'));
-    const mine = path.join(home, 'skills', 'awf-plan-norm');
-    fs.mkdirSync(mine, { recursive: true });
-    fs.writeFileSync(path.join(mine, 'SKILL.md'), '用户自己的');
-    const r = dshInstall.installSkills({ dshHome: home });
-    expect(r.skipped.some((x) => x.includes('awf-plan-norm'))).toBe(true);
-    expect(fs.readFileSync(path.join(mine, 'SKILL.md'), 'utf8')).toBe('用户自己的'); // 没被覆盖
-    fs.rmSync(home, { recursive: true, force: true });
+  it('清单里的技能数量 = 插件目录里的技能数（不再是链接森林）', () => {
+    const skills = dshInstall.listSkills();
+    expect(skills.length).toBeGreaterThan(30);
+    expect(skills.some((s) => s.name === 'awf-plan-norm')).toBe(true);
+    // 每个技能都必须是插件目录里的**真实文件**，不是指向别处的链接
+    for (const s of skills) {
+      expect(fs.existsSync(path.join(s.sourceDir, 'SKILL.md'))).toBe(true);
+      expect(fs.lstatSync(path.join(s.sourceDir, 'SKILL.md')).isSymbolicLink()).toBe(false);
+    }
   });
 
-  it('卸载只摘清单里 AWF 装的，用户自建的技能一个不动', () => {
+  // 卸载仍要能清掉历史安装留下的链接（用户机器上可能还留着旧布局）
+  it('uninstallSkills 只摘清单里 AWF 装的，用户自建的技能一个不动', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-skills-'));
-    const userSkill = path.join(home, 'skills', 'user-skill');
+    const root = path.join(home, 'skills');
+    const userSkill = path.join(root, 'user-skill');
     fs.mkdirSync(userSkill, { recursive: true });
     fs.writeFileSync(path.join(userSkill, 'SKILL.md'), '用户的');
-    dshInstall.installSkills({ dshHome: home });
+    // 模拟旧安装留下的现场：一个技能 + 一份清单
+    const ours = path.join(root, 'awf-plan-norm');
+    fs.mkdirSync(ours, { recursive: true });
+    fs.writeFileSync(path.join(ours, 'SKILL.md'), '旧的');
+    fs.writeFileSync(path.join(root, '.awf-skills.json'), JSON.stringify({ entries: { 'awf-plan-norm': { linked: true } } }));
+
     const r = dshInstall.uninstallSkills({ dshHome: home });
     expect(r.removed).toContain('awf-plan-norm');
-    expect(fs.existsSync(path.join(home, 'skills', 'awf-plan-norm'))).toBe(false);
+    expect(fs.existsSync(ours)).toBe(false);
     expect(fs.existsSync(userSkill)).toBe(true); // 用户的还在
     fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe('DSH 插件目录：自包含', () => {
+  // 这条是「安装 = 一个文件夹」的地基：目录里引用了外面的东西，拷到别处就会断。
+  const PLUGIN = dshInstall.pluginSourceDir();
+
+  function walk(dir, out = []) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules') continue; // 开发期依赖软链，不入包（拷贝时排除）
+      const p = path.join(dir, e.name);
+      if (e.isSymbolicLink()) out.push(p);
+      else if (e.isDirectory()) walk(p, out);
+    }
+    return out;
+  }
+
+  it('目录里没有一个符号链接（技能/命令/代理/MCP 全是真实文件）', () => {
+    expect(walk(PLUGIN)).toEqual([]);
+  });
+
+  it('五类资产都在目录里：命令 / 技能 / 代理 / MCP / hooks', () => {
+    expect(fs.readdirSync(path.join(PLUGIN, 'commands')).filter((f) => f.endsWith('.md')).length).toBe(16);
+    expect(fs.readdirSync(path.join(PLUGIN, 'skills')).length).toBe(36);
+    expect(fs.readdirSync(path.join(PLUGIN, 'agents')).filter((f) => f.endsWith('.md')).length).toBe(3);
+    expect(fs.existsSync(path.join(PLUGIN, 'mcp.json'))).toBe(true);
+    expect(fs.existsSync(path.join(PLUGIN, 'hooks', 'hooks.json'))).toBe(true);
+  });
+
+  it('mcp.json 声明的每个入口都真实存在（且都在包内）', () => {
+    const cfg = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'mcp.json'), 'utf8'));
+    expect(cfg.servers.length).toBeGreaterThan(0);
+    for (const s of cfg.servers) {
+      const entry = path.join(PLUGIN, s.entry);
+      expect(fs.existsSync(entry)).toBe(true);
+      expect(path.relative(PLUGIN, entry).startsWith('..')).toBe(false);
+    }
+  });
+
+  it('源码里不出现指向包外的路径引用（cc 插件树 / 上跳三级以上）', () => {
+    const offenders = [];
+    const scan = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === 'node_modules') continue;
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { scan(p); continue; }
+        if (!/\.(js|cjs|json|md)$/.test(e.name)) continue;
+        const text = fs.readFileSync(p, 'utf8');
+        // 允许 ../ 与 ../../（lib/ → 包根、mcp/x/ → mcp/_lib）；不允许再往上，也不允许指名 cc 插件树。
+        // 只看**路径字面量**：注释里提「旧 awfRepo」是说明历史，不算引用。
+        if (/\.\.\/\.\.\/\.\./.test(text) || text.includes('adapters/cc/plugin')) {
+          offenders.push(path.relative(PLUGIN, p));
+        }
+      }
+    };
+    scan(PLUGIN);
+    expect(offenders).toEqual([]);
   });
 });
