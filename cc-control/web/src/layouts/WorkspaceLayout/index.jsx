@@ -7,10 +7,11 @@ export default function WorkspaceLayout({
   children,
   ...shell
 }) {
-  return (<div className="app-shell">
-    {shell.open && <Button className="sidebar-backdrop" aria-label="关闭项目列表" onClick={() => shell.setOpen(false)} />}
-    <Sidebar {...shell} />
-    <Topbar {...shell} />
+  const showChrome = shell.context?.mode !== 'dsh';
+  return (<div className="app-shell" style={showChrome ? undefined : { '--cc-layout-sidebar-width': '0px', '--cc-layout-topbar-height': '0px' }}>
+    {showChrome && shell.open && <Button className="sidebar-backdrop" aria-label="关闭项目列表" onClick={() => shell.setOpen(false)} />}
+    {showChrome && <Sidebar {...shell} />}
+    {showChrome && <Topbar {...shell} />}
     <ViewRail {...shell} />
     {children}
   </div>);

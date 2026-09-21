@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createApiClient } from '../../shared/lib/http.js';
 import { API } from '../../shared/api/index.js';
 import { usePolling } from '../../shared/hooks/usePolling.js';
-import { VIEWS } from '../routes.js';
+import { getViews } from '../routes.js';
 import { readRoute, routeUrl } from '../router.js';
+import { useHostContext, resolveProject } from '../../shared/context.js';
 
 export function useAppShell() {
+  const context = useHostContext();
+  const { refreshContext } = context;
+  const hostBound = context.mode === 'dsh';
   const [route, setRoute] = useState(() => readRoute(window.location));
   const [projects, setProjects] = useState([]), [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -17,8 +21,9 @@ export function useAppShell() {
     if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
       window.history[replace ? 'replaceState' : 'pushState'](null, '', url);
     }
-    setRoute(next);
-  }, []);
+    refreshContext();
+    setRoute(readRoute(window.location));
+  }, [refreshContext]);
   useEffect(() => {
     const sync = () => { setRoute(readRoute(window.location)); setOpen(false); };
     window.addEventListener('popstate', sync);
@@ -30,7 +35,7 @@ export function useAppShell() {
       if (signal.aborted) return;
       if (result.ok === false) throw new Error(result.error);
       setProjects(result.projects || (result.projectRoot ? [{ projectRoot: result.projectRoot }] : []));
-      if (!readRoute(window.location).project && result.projectRoot) navigate({ project: result.projectRoot }, true);
+      if (!hostBound && !context.pid && !readRoute(window.location).project && result.projectRoot) navigate({ project: result.projectRoot }, true);
       setError('');
     } catch (e) { if (!signal.aborted) setError(e.message); }
   }, { interval: 5000 });
@@ -40,9 +45,12 @@ export function useAppShell() {
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
   }, [open]);
-  return { ...route, projects, client, error, open, setOpen, views: VIEWS,
+  const project = resolveProject(context, projects);
+  const views = useMemo(() => getViews(context.mode), [context.mode]);
+  const contextError = !project && (hostBound || context.pid) ? '等待当前项目上下文' : '';
+  return { ...route, project, context, projects, client, error: contextError || error, open, setOpen, views,
     setView: view => navigate({ view }),
     setRunId: runId => navigate({ runId }),
-    setProject: (project, view) => { navigate({ project, runId: '', ...(view ? { view } : {}) }); setOpen(false); },
+    setProject: (project, view) => { if (hostBound) return; navigate({ project, runId: '', ...(view ? { view } : {}) }); setOpen(false); },
   };
 }

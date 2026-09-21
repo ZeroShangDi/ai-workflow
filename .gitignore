@@ -74,3 +74,4 @@ cc-control/.awf/context/usage.json
 cc-control/.awf/logs/*.json
 cc-control/.awf/run-settings.json
 cc-control/.awf/plan/
+/cc-control/.awf/probe/dsh

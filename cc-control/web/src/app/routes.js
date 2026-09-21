@@ -16,5 +16,15 @@ export const ROUTES = [
   { key: 'tree', label: '任务树', hidden: true, reads: [], placeholder: true, load: () => import('../pages/Placeholder/index.jsx') },
   { key: 'ui', label: '界面', hidden: true, reads: [], placeholder: true, load: () => import('../pages/Placeholder/index.jsx') },
 ];
-export const VIEWS = ROUTES.filter(route => !route.hidden);
-export const getRoute = key => ROUTES.find(route => route.key === key) || ROUTES[0];
+// Both platform route sets live here; the first page is the fallback route.
+export const MODE_ROUTES = {
+  cc: ROUTES,
+  dsh: ['tasks', 'decisions', 'reviews', 'logs'].map(key => ROUTES.find(route => route.key === key)),
+};
+export const getRoutes = mode => Object.hasOwn(MODE_ROUTES, mode) ? MODE_ROUTES[mode] : MODE_ROUTES.cc;
+export const getViews = mode => getRoutes(mode).filter(route => !route.hidden);
+export const VIEWS = getViews('cc');
+export const getRoute = (key, mode) => {
+  const routes = getRoutes(mode);
+  return routes.find(route => route.key === key) || routes[0];
+};
