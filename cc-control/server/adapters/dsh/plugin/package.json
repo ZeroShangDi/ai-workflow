@@ -4,8 +4,24 @@
   "private": true,
   "type": "module",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
   "description": "AWF 的 DSH 插件：自包含的 Cordis 包。接 AWF 指令通道（WS 下行 / HTTP 回传）驱动 DSH 会话，并把命令 / 技能 / 命名子 Agent / MCP server / hook 订阅一并携带，装配时由插件自己读。见同目录 README 段（docs/discuss/dsh-plugin-structure.md）",
   "dsh": {
-    "plugin": true
+    "plugin": true,
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "external": [
+        "react"
+      ]
+    }
   }
 }
