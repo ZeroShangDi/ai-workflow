@@ -225,24 +225,34 @@ small,.muted {
 .pane-tools input { width: 200px; }
 .pane-tools select { width: auto; max-width: none; }
 
-/* 行式紧凑任务条：ID 色块 · 标题（超出省略 + 原生 tip）· 状态 · 可选操作 */
+/* 行式任务条：左侧状态色条 · ID 色块 · 标题（超出省略 + 原生 tip）· 状态 pill · 可选操作 */
 .task-list { padding: var(--cc-spacing-10) var(--cc-spacing-18); }
 .record-row {
+  --row-accent: var(--cc-color-border-default);
   display: flex;
   align-items: center;
   gap: var(--cc-spacing-8);
   width: 100%;
-  min-height: var(--cc-layout-control-height);
-  padding: var(--cc-spacing-6) var(--cc-spacing-10);
-  margin-bottom: var(--cc-spacing-4);
+  min-height: 40px;
+  padding: var(--cc-spacing-10) var(--cc-spacing-12);
   background: var(--cc-color-bg-surface);
-  border: 1px solid var(--cc-color-border-default);
-  border-radius: var(--cc-radius-6);
+  box-shadow: inset 2px 0 0 var(--row-accent);
   text-align: left;
   cursor: pointer;
 }
+.record-row+.record-row { border-top: 1px solid var(--cc-color-border-default); }
 .record-row:hover { background: var(--cc-color-bg-hover); }
-.record-row.selected { border-color: var(--cc-color-status-warning); }
+.record-row:has(.badge.status-done),
+.record-row:has(.badge.status-applied),
+.record-row:has(.badge.status-reviewed) { --row-accent: var(--cc-color-status-success); }
+.record-row:has(.badge.status-active),
+.record-row:has(.badge.status-running) { --row-accent: var(--cc-color-status-info); }
+.record-row:has(.badge.status-blocked),
+.record-row:has(.badge.status-pending_review),
+.record-row:has(.badge.status-awaiting_human),
+.record-row:has(.badge.status-decision_required) { --row-accent: var(--cc-color-status-warning); }
+.record-row:has(.badge.status-error),
+.record-row:has(.badge.status-conflicted) { --row-accent: var(--cc-color-status-danger); }
 .record-id {
   flex: 0 0 auto;
   font: var(--cc-type-caption-size)/1 var(--cc-font-mono);
@@ -252,7 +262,23 @@ small,.muted {
 }
 :where(.record-id) { color: var(--cc-color-text-secondary); }
 .record-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.record-row .badge { flex: 0 0 auto; }
+.record-row .badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cc-spacing-6);
+  padding: 3px var(--cc-spacing-8);
+  border-radius: var(--cc-radius-999);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.record-row .badge::before {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--cc-radius-999);
+  background: currentColor;
+}
 .record-actions { flex: 0 0 auto; display: flex; gap: var(--cc-spacing-4); }
 .record-actions button { min-height: 24px; padding: 2px var(--cc-spacing-8); font-size: var(--cc-type-caption-size); }
 @media (max-width:767px) {
