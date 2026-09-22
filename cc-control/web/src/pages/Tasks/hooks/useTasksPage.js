@@ -9,6 +9,7 @@ export function useTasksPage(data) {
   const task = visible.find(t => t.id === selected) || visible[0];
   return {
     tasks,
+    done: tasks.filter(t => t.status === 'done').length,
     filter,
     setFilter,
     search,

@@ -201,3 +201,62 @@ small,.muted {
 .pane-header:has(.segmented-control) { flex-wrap: wrap; }
 .pane-header:has(.segmented-control)>div:first-child { flex-shrink: 0; }
 .pane-header:has(.segmented-control) h1 { white-space: nowrap; }
+
+/* 任务页：标题后缀内联进度 + 标题行右侧工具区（原 toolbar 独立一行已去掉） */
+.pane-title { display: flex; align-items: center; gap: var(--cc-spacing-8); min-width: 0; }
+.pane-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  color: var(--cc-color-text-tertiary);
+  font-size: var(--cc-type-caption-size);
+  font-weight: 400;
+  line-height: 1;
+}
+.pane-progress::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: var(--cc-radius-999);
+  background: currentColor;
+}
+.pane-tools { display: flex; align-items: center; gap: var(--cc-spacing-8); flex-shrink: 0; }
+.pane-tools input { width: 200px; }
+.pane-tools select { width: auto; max-width: none; }
+
+/* 行式紧凑任务条：ID 色块 · 标题（超出省略 + 原生 tip）· 状态 · 可选操作 */
+.task-list { padding: var(--cc-spacing-10) var(--cc-spacing-18); }
+.record-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  width: 100%;
+  min-height: var(--cc-layout-control-height);
+  padding: var(--cc-spacing-6) var(--cc-spacing-10);
+  margin-bottom: var(--cc-spacing-4);
+  background: var(--cc-color-bg-surface);
+  border: 1px solid var(--cc-color-border-default);
+  border-radius: var(--cc-radius-6);
+  text-align: left;
+  cursor: pointer;
+}
+.record-row:hover { background: var(--cc-color-bg-hover); }
+.record-row:focus-visible { border-color: var(--cc-color-status-info); }
+.record-row.selected { border-color: var(--cc-color-status-warning); }
+.record-id {
+  flex: 0 0 auto;
+  font: var(--cc-type-caption-size)/1 var(--cc-font-mono);
+  padding: 3px var(--cc-spacing-6);
+  border-radius: var(--cc-radius-4);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+:where(.record-id) { color: var(--cc-color-text-secondary); }
+.record-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-row .badge { flex: 0 0 auto; }
+.record-actions { flex: 0 0 auto; display: flex; gap: var(--cc-spacing-4); }
+.record-actions button { min-height: 24px; padding: 2px var(--cc-spacing-8); font-size: var(--cc-type-caption-size); }
+@media (max-width:767px) {
+.pane-tools input { width: 120px; }
+.task-list { padding: var(--cc-spacing-10) var(--cc-spacing-12); }
+}

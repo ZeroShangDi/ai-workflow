@@ -17,10 +17,20 @@ button,input,textarea,select {
   color: inherit;
 }
 button,input,textarea,select {
+  appearance: none;
   border: var(--cc-border-width) solid var(--cc-color-border-default);
   border-radius: var(--cc-radius-6);
   background: var(--cc-color-bg-surface);
   padding: var(--cc-spacing-6) var(--cc-spacing-10);
+}
+select {
+  padding-right: var(--cc-spacing-24);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
 }
 button {
   cursor: pointer;
@@ -34,8 +44,9 @@ button:disabled {
   cursor: default;
 }
 button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible {
-  outline: 2px solid var(--cc-color-status-info);
-  outline-offset: 2px;
+  outline: none;
+  border-color: var(--cc-color-status-info);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-color-status-info) 28%, transparent);
 }
 input,textarea {
   min-width: 0;

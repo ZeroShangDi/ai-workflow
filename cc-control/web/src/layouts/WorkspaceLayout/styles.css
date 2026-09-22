@@ -296,6 +296,8 @@
   height: 40px;
   min-height: 40px;
   padding: var(--cc-spacing-6);
+  display: grid;
+  place-items: center;
 }
 .view-rail {
   padding-top: var(--cc-spacing-12);

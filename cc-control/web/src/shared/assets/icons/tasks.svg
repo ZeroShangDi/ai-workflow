@@ -1,6 +1,10 @@
 <svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
 <g id="Icon/Tasks">
-<path id="Vector" d="M14 4H6C4.89543 4 4 4.89543 4 6V14C4 15.1046 4.89543 16 6 16H14C15.1046 16 16 15.1046 16 14V6C16 4.89543 15.1046 4 14 4Z" stroke="#9AA3AF" stroke-width="1.35"/>
-<path id="Vector_2" d="M7 10L9 12L13 7" stroke="#9AA3AF" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector" d="M3.6 5.3L4.9 6.6L7.3 4" stroke="#9AA3AF" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector_2" d="M10 5.3H16.4" stroke="#9AA3AF" stroke-width="1.25" stroke-linecap="round"/>
+<path id="Vector_3" d="M3.6 10L4.9 11.3L7.3 8.7" stroke="#9AA3AF" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector_4" d="M10 10H16.4" stroke="#9AA3AF" stroke-width="1.25" stroke-linecap="round"/>
+<path id="Vector_5" d="M3.6 14.7L4.9 16L7.3 13.4" stroke="#9AA3AF" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector_6" d="M10 14.7H16.4" stroke="#9AA3AF" stroke-width="1.25" stroke-linecap="round"/>
 </g>
 </svg>

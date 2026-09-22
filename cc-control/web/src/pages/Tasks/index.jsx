@@ -9,7 +9,7 @@ export default function TasksPage({
   const page = useTasksPage(data);
   return (<div className="split-view">
     <section className="primary-pane">
-      <TaskList {...page} />
+      <TaskList {...page} {...operation} />
     </section>
     <aside className="detail-pane">
       <TaskDetail task={page.task} {...operation} /><p role="status">{operation.message}</p>
