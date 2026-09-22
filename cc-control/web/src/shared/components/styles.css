@@ -242,17 +242,11 @@ small,.muted {
 }
 .record-row+.record-row { border-top: 1px solid var(--cc-color-border-default); }
 .record-row:hover { background: var(--cc-color-bg-hover); }
-.record-row:has(.badge.status-done),
-.record-row:has(.badge.status-applied),
-.record-row:has(.badge.status-reviewed) { --row-accent: var(--cc-color-status-success); }
-.record-row:has(.badge.status-active),
-.record-row:has(.badge.status-running) { --row-accent: var(--cc-color-status-info); }
-.record-row:has(.badge.status-blocked),
-.record-row:has(.badge.status-pending_review),
-.record-row:has(.badge.status-awaiting_human),
-.record-row:has(.badge.status-decision_required) { --row-accent: var(--cc-color-status-warning); }
-.record-row:has(.badge.status-error),
-.record-row:has(.badge.status-conflicted) { --row-accent: var(--cc-color-status-danger); }
+/* 任务状态共五种（pending 走默认中性灰）；此处只做任务状态到色条的映射 */
+.record-row:has(.badge.status-active) { --row-accent: var(--cc-color-status-info); }
+.record-row:has(.badge.status-blocked) { --row-accent: var(--cc-color-status-warning); }
+.record-row:has(.badge.status-error) { --row-accent: var(--cc-color-status-danger); }
+.record-row:has(.badge.status-done) { --row-accent: var(--cc-color-status-success); }
 .record-id {
   flex: 0 0 auto;
   font: var(--cc-type-caption-size)/1 var(--cc-font-mono);

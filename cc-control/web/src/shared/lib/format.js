@@ -1,4 +1,7 @@
 // Adapt current server records only; no product fields or persisted state are invented.
+// 任务状态只有这五个（`awf_task_status` 的 enum：pending|active|done|blocked，error 由前端先支持）。
+// 顺序即筛选下拉的展示顺序，与数据顺序无关。
+export const TASK_STATUSES = ['active', 'pending', 'blocked', 'error', 'done'];
 export const label = value => ({
   failed: '失败',
   cancelled: '已取消',
