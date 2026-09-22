@@ -18,24 +18,31 @@ export default function TaskList({
   action,
   busy
 }) {
-  // 已知值按固定顺序，server 新加的追加在后面（不静默吞掉）。
-  const presentStatuses = new Set(tasks.map(t => t.status));
-  const statusOptions = [...TASK_STATUSES.filter(s => presentStatuses.has(s)), ...[...presentStatuses].filter(s => !TASK_STATUSES.includes(s))];
-  const presentSources = new Set(tasks.map(sourceOf));
-  // 只有一种来源时这个筛选没有意义，直接不显示 —— 避免过渡期多一个空控件。
-  const sourceOptions = presentSources.size > 1 ? [...TASK_SOURCES.filter(s => presentSources.has(s)), ...[...presentSources].filter(s => !TASK_SOURCES.includes(s))] : [];
+  // 完整枚举，不按数据裁剪 —— 这是「分类法选择器」而不是「可用值选择器」：
+  // 没有动态任务时也要看得见「动态规划 (0)」，否则会以为是前端坏了。
+  // 计数按全部任务算（不受另一个筛选影响），0 也照实显示。
+  const count = keyOf => tasks.reduce((acc, t) => {
+    const key = keyOf(t);
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const statusCounts = count(t => t.status);
+  const sourceCounts = count(sourceOf);
+  // 已知值按固定顺序；server 新加的值追加在末尾（不静默吞掉）。
+  const statusOptions = [...TASK_STATUSES, ...Object.keys(statusCounts).filter(s => !TASK_STATUSES.includes(s))];
+  const sourceOptions = [...TASK_SOURCES, ...Object.keys(sourceCounts).filter(s => !TASK_SOURCES.includes(s))];
   return (<><header className="pane-header">
       <h1 className="pane-title">任务<span className="pane-progress">{done}/{tasks.length}</span></h1>
       <div className="pane-tools">
         <Input aria-label="搜索任务" placeholder="搜索任务…" value={search} onChange={e => setSearch(e.target.value)} />
         <Select aria-label="任务状态" value={filter} onChange={e => setFilter(e.target.value)}>
-          <option value="all">全部状态</option>
-          {statusOptions.map(s => <option key={s} value={s}>{label(s)}</option>)}
+          <option value="all">全部状态 ({tasks.length})</option>
+          {statusOptions.map(s => <option key={s} value={s}>{label(s)} ({statusCounts[s] || 0})</option>)}
         </Select>
-        {!!sourceOptions.length && <Select aria-label="任务来源" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
-          <option value="all">全部来源</option>
-          {sourceOptions.map(s => <option key={s} value={s}>{sourceShort(s)}</option>)}
-        </Select>}
+        <Select aria-label="任务来源" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
+          <option value="all">全部来源 ({tasks.length})</option>
+          {sourceOptions.map(s => <option key={s} value={s}>{sourceShort(s)} ({sourceCounts[s] || 0})</option>)}
+        </Select>
       </div>
     </header><div className="record-list task-list">{visible.map(t => {
       const title = t.title || t.name || t.id;

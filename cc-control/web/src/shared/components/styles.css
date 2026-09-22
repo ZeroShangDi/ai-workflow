@@ -183,6 +183,7 @@ small,.muted {
   min-height: 62px;
   padding: var(--cc-spacing-10) var(--cc-spacing-18);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .ui-icon { object-fit: contain; filter: var(--cc-icon-filter); flex-shrink: 0; }
@@ -223,7 +224,7 @@ small,.muted {
 }
 .pane-tools { display: flex; align-items: center; gap: var(--cc-spacing-8); flex-shrink: 0; }
 .pane-tools input { width: 200px; }
-.pane-tools select { width: auto; max-width: 150px; }
+.pane-tools select { width: auto; max-width: 168px; }
 
 /* 行式任务条：左侧状态色条 · ID 色块 · 标题（超出省略 + 原生 tip）· 状态 pill · 可选操作 */
 .task-list { padding: var(--cc-spacing-10) var(--cc-spacing-18); }
