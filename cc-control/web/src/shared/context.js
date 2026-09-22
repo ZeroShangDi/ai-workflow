@@ -45,7 +45,10 @@ export function useHostContext() {
     const identity = { mode, pid, sid, projectRoot: null };
     const receive = event => {
       const next = acceptHostMessage(event, { parent: window.parent, origin, context: identity });
-      if (next) setContext(previous => previous.projectRoot === next.projectRoot ? previous : next);
+      if (next && (event.data.theme === 'light' || event.data.theme === 'dark')) {
+        document.documentElement.dataset.theme = event.data.theme;
+        setContext(previous => previous.projectRoot === next.projectRoot ? previous : next);
+      }
     };
     window.addEventListener('message', receive);
     window.parent.postMessage({ type: 'awf:ready', mode, pid, sid }, origin);
