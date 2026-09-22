@@ -242,7 +242,6 @@ small,.muted {
   cursor: pointer;
 }
 .record-row:hover { background: var(--cc-color-bg-hover); }
-.record-row:focus-visible { border-color: var(--cc-color-status-info); }
 .record-row.selected { border-color: var(--cc-color-status-warning); }
 .record-id {
   flex: 0 0 auto;

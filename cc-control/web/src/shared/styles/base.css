@@ -43,10 +43,9 @@ button:disabled {
   opacity: .45;
   cursor: default;
 }
-button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible {
+/* 统一去掉焦点样式：不做任何 focus 视觉（含浏览器默认轮廓） */
+:focus-visible {
   outline: none;
-  border-color: var(--cc-color-status-info);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-color-status-info) 28%, transparent);
 }
 input,textarea {
   min-width: 0;
