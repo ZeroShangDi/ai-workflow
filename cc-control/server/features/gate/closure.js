@@ -4,7 +4,7 @@
  * ## 为什么在 features/gate，而不是 shared/state.js
  * 本文件每一条判据都是**门禁闭环自己定的规则** —— 非 review|test 不派生、verdict 缺失不派生、
  * verdict pass 不派生、recheck 达上限不派生；派生出来的任务长什么样（id `R1-F2`、kind=dev、
- * deps 继承、插在门禁之前）也全由门禁流程发明。换 CLI、改 state 布局都不动它，只有门禁流程改了才动。
+ * deps 继承、插在门禁之前、`source=gate_fix`）也全由门禁流程发明。换 CLI、改 state 布局都不动它，只有门禁流程改了才动。
  * `shared/state.js` 只留「锁哪个文件、锁内读改写、命中才原子写」这类**通用落账原语**（mutateState），
  * 领域规则由本文件自带。
  *
@@ -75,6 +75,9 @@ export function spawnGateFixTask(state, gateTask, prompt) {
     kind: 'dev',
     title: `修复 ${gateTask.title} 发现的问题（第 ${recheck} 轮）`,
     status: 'pending', // 必须 pending 才进 peekReadyTasks 就绪池
+    // 任务来源，与 planner 的 `dynamic_planning` 同一个字段（不另开第二个来源字段）：
+    // 缺省 = 来自初始规划，前端据此区分「原计划 / 门禁派生 / 动态规划」。
+    source: 'gate_fix',
     deps: [...(gateTask.deps || [])], // 复制原产物依赖，保证产物就绪后才修
     plannedFiles: [], // 保守串行：无文件声明不与其他任务并行
     constraints: [],

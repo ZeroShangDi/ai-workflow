@@ -131,6 +131,10 @@ state 字段模型见 [核心数据模型](#核心数据模型)；store 层本�
     "title": "",
     "kind": "dev",          // dev | debug | review | test | doc | commit | ui-design | ui-code（默认 dev）
     "status": "pending",    // pending | active | done | blocked
+    "source": "gate_fix",   // 可选。任务来源，缺失 = 来自初始规划
+                            //   gate_fix          门禁回退自动派生（server/features/gate/closure.js）
+                            //   dynamic_planning  运行期动态规划插入（server/features/replanning/planner.cjs）
+                            // 动态「编辑」不改这个字段：改过字段的任务来源仍是原计划
     "wbsRef": "W1",         // 可选
     "deps": [],             // 依赖任务 ID
     "acceptance": "",
