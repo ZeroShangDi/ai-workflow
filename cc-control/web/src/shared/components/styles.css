@@ -223,11 +223,21 @@ small,.muted {
   background: currentColor;
 }
 .pane-tools { display: flex; align-items: center; gap: var(--cc-spacing-8); flex-shrink: 0; }
-.pane-tools input { width: 200px; }
+/* 需求摘要：标题行里唯一可压缩的元素，超长在此截断（全文在 title），不挤右侧工具区。
+   搜索框同理 —— 工具栏整体 flex-shrink:0，窄了先缩它俩。 */
+.pane-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cc-color-text-secondary); font-size: var(--cc-type-caption-size); font-weight: 400; line-height: 1; }
+.pane-tools input { flex: 1 1 160px; width: auto; min-width: 88px; max-width: 200px; }
 .pane-tools select { width: auto; max-width: 168px; }
+/* 把「视图切换」和筛选控件分开：一个是视图，三个是筛选，不混在一排里 */
+.pane-divider { flex: 0 0 auto; width: 1px; height: 20px; background: var(--cc-color-border-default); }
+.pane-toggle { flex: 0 0 auto; width: var(--cc-layout-control-height); min-height: var(--cc-layout-control-height); padding: 0; display: grid; place-items: center; border-color: transparent; background: transparent; }
+.pane-toggle[aria-pressed='true'] { background: var(--cc-color-bg-selected); border-color: var(--cc-color-border-default); }
 
 /* 行式任务条：左侧状态色条 · ID 色块 · 标题（超出省略 + 原生 tip）· 状态 pill · 可选操作 */
 .task-list { padding: var(--cc-spacing-10) var(--cc-spacing-18); }
+/* 行内操作的结果提示挂在列表下方（不在 .record-list 滚动区里）——
+   右侧切到运行概览时也看得见，原来只挂在详情面板里。 */
+.task-status { flex-shrink: 0; margin: 0; padding: 0 var(--cc-spacing-18) var(--cc-spacing-10); color: var(--cc-color-text-secondary); font-size: var(--cc-type-caption-size); }
 .record-row {
   --row-accent: var(--cc-color-border-default);
   display: flex;

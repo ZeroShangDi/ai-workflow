@@ -62,7 +62,7 @@ test('remaining writes: start, reply, interrupt, override, resolve, diagnosis', 
   const conflict=createMockServer({scenario:'conflict'});
   assert.equal(post(conflict,API.approveProposal('P-001'),{reviewer:'test'}).body.proposal.status,'conflicted');
 });
-import { matrixCells } from '../../src/pages/Run/model.js';
+import { matrixCells } from '../../src/shared/components/business/Overview/model.js';
 test('matrix bounds cells and preserves all task counts including aggregates', () => {
   for (const tasks of [Array.from({length:30},(_,i)=>({id:i,status:'active'})),Array.from({length:30},(_,i)=>({id:i,status:i<8?'done':i<12?'active':'pending'}))]) {
     const cells=matrixCells(tasks); assert.ok(cells.length<=16);assert.equal(cells.reduce((sum,t)=>sum+t.count,0),tasks.length);

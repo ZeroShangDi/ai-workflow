@@ -1,4 +1,4 @@
-import Badge from '../../../../shared/components/business/StatusBadge/index.jsx';
+import Badge from '../StatusBadge/index.jsx';
 export default function ExecutionTasks({
   active
 }) {

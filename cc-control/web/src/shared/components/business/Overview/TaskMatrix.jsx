@@ -1,5 +1,5 @@
-import { matrixCells } from '../../model.js';
-import { label } from '../../../../shared/lib/format.js';
+import { matrixCells } from './model.js';
+import { label } from '../../../lib/format.js';
 export default function TaskMatrix({
   tasks
 }) {
