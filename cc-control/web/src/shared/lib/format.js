@@ -44,3 +44,22 @@ export function formatTime(value) {
         hour12: false,
       });
 }
+const pad2 = value => String(value).padStart(2, '0');
+/** 解析时间戳；解析不出来时返回 null（调用方决定退回原文还是留空） */
+function toDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+/** `2026-09-22 14:32` —— 弹窗等有充裕宽度的地方用完整形式 */
+export function formatDateTime(value) {
+  const date = toDate(value);
+  if (!date) return value ? String(value) : '';
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+/** `09-22 14:32` —— 详情面板里的行内元信息用短式，省掉不增信息的年份 */
+export function formatShortDateTime(value) {
+  const date = toDate(value);
+  if (!date) return value ? String(value) : '';
+  return `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}

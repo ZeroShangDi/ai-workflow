@@ -19,6 +19,8 @@ export function useTasksPage(data) {
   const task = visible.find(t => t.id === selected) || null;
   return {
     tasks,
+    // 详情里的「关联依赖 / 关联规划」要按 id 回表查：deps → tasks，wbsRef → wbs
+    wbs: data.state?.wbs,
     done: tasks.filter(t => t.status === 'done').length,
     active: tasks.filter(t => t.status === 'active'),
     planSummary: data.state?.plan?.summary || '',

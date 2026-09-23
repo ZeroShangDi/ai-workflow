@@ -23,7 +23,15 @@ export default function TasksPage({ data, client, refresh, run }) {
             data={data}
           />
         ) : (
-          <TaskDetail task={page.task} {...operation} />
+          // key 跟着任务走：换任务时详情整个重挂，页签与弹窗回到初始态，
+          // 不会把上一条任务的阅读现场带过来。
+          <TaskDetail
+            key={page.task?.id}
+            task={page.task}
+            tasks={page.tasks}
+            wbs={page.wbs}
+            {...operation}
+          />
         )
       }
     />

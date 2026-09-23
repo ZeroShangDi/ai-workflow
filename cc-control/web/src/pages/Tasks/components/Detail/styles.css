@@ -1,0 +1,283 @@
+/* 任务详情：固定头部 + 三页签 + 阅读弹窗。样式就近维护（与 Run 页同规矩）。 */
+
+/* 设计稿的内边距是 24，而 .detail-pane 是四个页面共用的（20/18）。只在本页内容存在时收口，
+   不动共享类 —— 否则决策页、日志页的边距会跟着变。 */
+.detail-pane:has(> .task-detail) {
+  padding: var(--cc-spacing-24);
+}
+
+.task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-24);
+}
+
+/* ── 固定头部 ── */
+.task-head {
+  display: flex;
+  flex-direction: column;
+  /* 标题与元信息是一组，间距紧一点；阻塞块另起一段，用它的 margin-top 补到 16 */
+  gap: var(--cc-spacing-8);
+}
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* 4px 是被最坏情况顶出来的：320px 面板（窄屏媒体查询的默认值）下，
+     最长的一条是门禁派生任务 `T3-010-F3 / dev 开发 · ● 已完成 · 门禁派生`，
+     可用 271px、需要 258px。间距再宽就折行 —— 折行本身不致命，但四项目高度不齐更难看。 */
+  gap: var(--cc-spacing-4);
+  margin: 0;
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+  color: var(--cc-color-text-secondary);
+}
+/* 分隔符只为断句，不再额外撑开间距（间距统一由上面的 gap 给） */
+.task-meta-sep {
+  color: var(--cc-color-text-tertiary);
+}
+/* `-status` 不能省：`.task-status` 是任务列表底部那条操作结果提示，撞名会被它的
+   padding/font-size 打中（实测症状是这一项比同行其它项高 10px）。 */
+.task-meta-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cc-spacing-6);
+}
+.task-meta-status-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--cc-radius-999);
+  background: currentColor;
+}
+.task-head-title {
+  margin: 0;
+  font-size: var(--cc-type-display-size);
+  line-height: var(--cc-type-display-line);
+  font-weight: 600;
+  color: var(--cc-color-text-primary);
+  overflow-wrap: anywhere;
+}
+.task-blocked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-8);
+  margin-top: var(--cc-spacing-8);
+  padding: var(--cc-spacing-16);
+  border-radius: var(--cc-radius-8);
+  background: var(--cc-color-bg-elevated);
+}
+.task-blocked-text {
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-status-warning);
+  overflow-wrap: anywhere;
+}
+.task-blocked-label {
+  display: block;
+}
+/* 两条动作各占一半：设计稿里「解除阻塞」不在最右，而在中线附近 */
+.task-blocked-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cc-spacing-8);
+}
+
+/* 详情里的文字型入口（查看完整原因 / 解除阻塞 / 查看 JSON / 查看原始 JSON） */
+.task-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cc-spacing-4);
+  color: var(--cc-color-status-info);
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+}
+.task-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+/* ── 页签：单行文字 + 细下划线，指示线宽度跟着文字走 ── */
+.task-tabs {
+  display: flex;
+  gap: var(--cc-spacing-32);
+}
+.task-tab {
+  padding: 0 0 var(--cc-spacing-12);
+  /* 透明底边常驻：激活时只换颜色，不然会多出 2px 的跳动 */
+  border-bottom: 2px solid transparent;
+  color: var(--cc-color-text-secondary);
+  font-size: var(--cc-type-body-medium-size);
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.task-tab.is-active {
+  color: var(--cc-color-status-info);
+  border-bottom-color: var(--cc-color-status-info);
+}
+
+/* ── 内容块 ── */
+.task-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-12);
+}
+.task-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  margin: 0;
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+  color: var(--cc-color-text-primary);
+}
+
+/* 长文本预览：截断到两行，末尾行内接「… 更多」 */
+.task-clamp-wrap {
+  position: relative;
+}
+.task-clamp {
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+/* 量尺：同宽同字体但不渲染，宽度由 JS 按容器宽写入 */
+.task-clamp-ruler {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.task-more {
+  color: var(--cc-color-text-tertiary);
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+}
+.task-more:hover {
+  color: var(--cc-color-text-secondary);
+}
+/* 文件列表的「更多」自己占一行 */
+.task-more.is-block {
+  display: block;
+}
+
+.task-file-list {
+  display: flex;
+  flex-direction: column;
+}
+.task-file {
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* 关联依赖：整行跟着依赖任务自己的状态上色（复用 .status-*） */
+.task-dep {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+}
+/* 标记 / id / 箭头不参与伸缩；标题**必须**排除在外 ——
+   `> span` 是 (0,1,1)，会压过 `.task-dep-title` (0,1,0) 的 flex，标题就再也压不下去，
+   一行撑出横向滚动条（实测 320px 下面板溢出 138px）。 */
+.task-dep > span:not(.task-dep-title) {
+  flex: 0 0 auto;
+}
+.task-dep-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-wbs {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-status-info);
+}
+.task-wbs > span:not(.task-wbs-title) {
+  flex: 0 0 auto;
+}
+.task-wbs-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-exec-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  margin: 0;
+  font-size: var(--cc-type-caption-size);
+  line-height: var(--cc-type-caption-line);
+  color: var(--cc-color-text-tertiary);
+}
+
+.task-commits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-8);
+}
+.task-commit {
+  display: flex;
+  gap: var(--cc-spacing-8);
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+}
+.task-commit-hash {
+  flex: 0 0 auto;
+  font-family: var(--cc-font-mono);
+  color: var(--cc-color-text-tertiary);
+}
+.task-commit-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── exec JSON：容器 + 把组件自己的色位映射到设计 token ── */
+.json-viewer {
+  height: 440px;
+  overflow: auto;
+  padding: var(--cc-spacing-16);
+  border-radius: var(--cc-radius-8);
+  background: var(--cc-color-bg-app);
+}
+/* `.json-viewer .json-view` 而不是单类：组件自带的样式表也声明在 .json-view 上，
+   同级就得靠打包顺序，这里直接把特异性抬一级，免得哪天顺序变了颜色被打回去。
+   它把六个色位暴露成 CSS 变量，所以不跟它的主题走、也不用引它的 dark.css。 */
+.json-viewer .json-view {
+  color: var(--cc-color-text-primary);
+  font-family: var(--cc-font-mono);
+  font-size: 13px;
+  line-height: 24px;
+  --json-property: var(--cc-color-status-info);
+  --json-index: var(--cc-color-text-tertiary);
+  --json-number: var(--cc-color-status-warning);
+  --json-string: var(--cc-color-status-success);
+  --json-boolean: var(--cc-color-status-warning);
+  --json-null: var(--cc-color-status-warning);
+}

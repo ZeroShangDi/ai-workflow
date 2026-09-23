@@ -21,3 +21,18 @@ export const gateOf = task => {
   const id = task?.id || '';
   return /-F\d+$/.test(id) ? id.replace(/-F\d+$/, '') : null;
 };
+
+// 任务类型（kind）：值域是 `awf_task_create` 的 enum，这里只做展示映射。
+// 与 `label()` 同一口径：未知值原样透出，不假装认识。
+const KIND_LABELS = {
+  dev: '开发',
+  debug: '调试',
+  review: '审查',
+  test: '测试',
+  doc: '文档',
+  commit: '提交',
+  'ui-design': '界面设计',
+  'ui-code': '界面实现',
+};
+/** `dev 开发`；未知类型只给原值 */
+export const kindText = kind => (KIND_LABELS[kind] ? `${kind} ${KIND_LABELS[kind]}` : kind || '');

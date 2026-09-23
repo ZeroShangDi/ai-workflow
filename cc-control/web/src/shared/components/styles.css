@@ -488,3 +488,164 @@ small,
     padding: var(--cc-spacing-10) var(--cc-spacing-12);
   }
 }
+
+/* ── 文字型按钮 ──
+   base.css 把所有 `button` 都当控件：min-height 32、圆角 6、边框、hover 底色。
+   下面这几处（页签、详情里的文字入口、弹窗关闭）要的是「一行文字」，
+   直接写 `background: none` 是盖不住的 —— 那些是元素选择器，`button:hover` 的
+   (0,1,1) 会压过单个类 (0,1,0)。所以统一给一个类做整套摘除，各组件再各自上色。 */
+.link-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.link-button:hover {
+  background: none;
+}
+
+/* 弹窗：遮罩 + 面板。面板 portal 到 body，所以 position 用 fixed 而不是绝对定位。 */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--cc-spacing-24);
+  background: rgb(0 0 0 / 55%);
+}
+.modal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-24);
+  width: min(var(--modal-width, 800px), 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--cc-spacing-24);
+  border-radius: var(--cc-radius-12);
+  background: var(--cc-color-bg-surface);
+}
+.modal-panel:focus-visible {
+  outline: none;
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cc-spacing-16);
+}
+.modal-title {
+  margin: 0;
+  font-size: var(--cc-type-display-size);
+  line-height: var(--cc-type-display-line);
+  font-weight: 600;
+  color: var(--cc-color-text-primary);
+}
+.modal-close {
+  flex: 0 0 auto;
+  color: var(--cc-color-text-secondary);
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+}
+.modal-close:hover {
+  color: var(--cc-color-text-primary);
+}
+.modal-subtitle {
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+}
+.modal-toolbar {
+  display: flex;
+  gap: var(--cc-spacing-24);
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+  color: var(--cc-color-text-secondary);
+}
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-24);
+}
+.modal-note {
+  margin: 0;
+  font-size: var(--cc-type-caption-size);
+  line-height: var(--cc-type-caption-line);
+  color: var(--cc-color-text-tertiary);
+}
+.modal-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+}
+.modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-12);
+}
+.modal-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--cc-spacing-16);
+  margin: 0;
+  font-size: var(--cc-type-heading-size);
+  line-height: var(--cc-type-heading-line);
+  font-weight: 600;
+  color: var(--cc-color-text-primary);
+}
+/* 设计示意、本次未接行为的那几处入口：保持设计里的位置与配色，但不做成可点控件 */
+.modal-tool {
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+  color: var(--cc-color-text-secondary);
+}
+/* 真接了行为的那一个（折叠全部）挂 .link-button，给它一个 hover 反馈 */
+.link-button.modal-tool:hover {
+  color: var(--cc-color-text-primary);
+}
+.modal-text {
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.modal-arch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-4);
+  margin: 0;
+}
+.modal-arch-row {
+  display: flex;
+  gap: var(--cc-spacing-16);
+}
+.modal-arch-row dt {
+  /* 64 + 16 的间距 = 设计稿里值列的起点（距标签列 80） */
+  flex: 0 0 64px;
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+}
+.modal-arch-row dd {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+  overflow-wrap: anywhere;
+}
