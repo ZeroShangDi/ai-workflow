@@ -1,0 +1,16 @@
+{
+  "plugins": [
+    "figma@claude-plugins-official"
+  ],
+  "enabledPlugins": {
+    "figma@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "ai-workflow-dev": {
+      "source": {
+        "source": "directory",
+        "path": "<pkg>/plugin"
+      }
+    }
+  }
+}

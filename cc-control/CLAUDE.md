@@ -20,12 +20,12 @@ cc-control/
 
   plugin/                  # ★ 中性源（唯一手写 md 的家）：按插件包分目录
                            #   <包>/{commands,skills,agents,mcp}/ —— 平台中性的命令/技能/代理/MCP server
-                           #   清单类（plugin.json/.mcp.json/hooks）不在源里，由 render-config.mjs 渲染
+                           #   每包 plugin.json 是自描述元数据；平台清单由 render-config.mjs 渲染
                            #   ⚠️ server/adapters/{cc,dsh}/plugin/ 下的同名目录是**构造产物**（gitignore，像 dist）：
                            #   改内容改这里，别改产物。构造：npm run build:plugin（test/build/pack 都会先跑）
 
   server/adapters/cc/plugin/   # ★ CC 平台插件（由 .claude-plugin/marketplace.json 注册；含中性 md）
-    config.json            #   ★ 唯一配置源：engineDir / port / marketplace / mcpServers / hooks
+    config.json            #   ★ 运行时/市场配置源：engineDir / port / marketplace / mcpServers / hooks
                            #     （render-config.mjs 据此生成下方各注册文件）
     settings.json          #   安装清单（本地注入源 / 全局安装源）
     core/                  #   引擎层插件 ai-workflow-core：MCP + hooks + 运行态命令技能（跨领域通用）
@@ -319,7 +319,7 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `.awf/config.json` | 运行期配置 — 用户可调 run.agents 配额 + run.decision.mode 决策策略（manual/ai/auto，缺省 auto），awf run 读取（init 从模板生成） |
 | `server/server.cjs` | HTTP Session Server 装配根（/send, /cmd, /hook, /status, /run/*）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
-| `scripts/render-config.mjs` | 按 config.json marketplace.plugins 遍历生成各插件 plugin.json + marketplace + 引擎插件 mcp/hooks（单源），+ 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
+| `scripts/render-config.mjs` | 自动发现 `plugin/*/plugin.json`，生成 marketplace、安装清单、CC manifest 与引擎 mcp/hooks；`--workdir` 模式供独立沙箱渲染 |
 | `plugin/` | ★ 插件内容的**中性源**（命令/技能/代理/MCP server，按插件包分目录）。下两棵树的同名目录是构造产物，别手改 |
 | `server/adapters/cc/build.cjs` | cc 侧构造器：`plugin/` → `server/adapters/cc/plugin/<包>/<内容目录>`（纯拷贝，一个字段不删） |
 | `server/adapters/dsh/build.cjs` | dsh 侧构造器：`plugin/` 各包拍平成一包 + 平台变换（`BODY_RULES`，临时规则待变量机制接管） |
@@ -329,7 +329,7 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `server/adapters/cc/plugin/core/mcp/awf-state/server.cjs` | 状态 MCP — 20 个 tools；动态规划核心位于 server |
 | `server/adapters/cc/plugin/core/mcp/awf-session/server.cjs` | Session MCP — 7 个 tools |
 | `server/adapters/cc/plugin/core/mcp/awf-oneshot/server.cjs` | OneShot MCP — 1 个 tool |
-| `server/adapters/cc/plugin/settings.json` | 插件安装清单（本地注入源 / 全局安装源） |
+| `server/adapters/cc/plugin/settings.base.json` | 插件安装基础设置；本仓插件列表由目录发现后写入生成的 settings.json |
 | `docs/discuss/architecture-notes.md` | 架构决策记录 |
 
 ## 用户配置（`.claude/user/`）

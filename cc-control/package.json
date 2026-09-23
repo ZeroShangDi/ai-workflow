@@ -22,7 +22,7 @@
     "test:real": "node tests/regression/fullflow-regression.mjs",
     "check:arch": "node scripts/check-architecture.mjs",
     "check:capability": "node scripts/check-capability.mjs",
-    "build:plugin": "node server/adapters/cc/build.cjs && node server/adapters/dsh/build.cjs",
+    "build:plugin": "node server/adapters/cc/build.cjs && node server/adapters/dsh/build.cjs && node scripts/render-config.mjs",
     "prepare": "npm run build:plugin",
     "pretest": "npm run build:plugin",
     "prebuild": "npm run build:plugin"

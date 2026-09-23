@@ -220,8 +220,10 @@ describe('gitignore：只忽略构造产物，代码一律入库', () => {
       'server/adapters/dsh/plugin/prompts.json',
       'server/adapters/dsh/plugin/package.json',
       'server/adapters/cc/plugin/core/hooks/gateway.cjs',
-      'server/adapters/cc/plugin/core/plugin.json',
-      'server/adapters/cc/plugin/settings.json',
+      'plugin/core/plugin.json',
+      'plugin/decision/plugin.json',
+      'plugin/plugin-code/plugin.json',
+      'server/adapters/cc/plugin/settings.base.json',
       'server/adapters/cc/plugin/config.json',
       'server/adapters/cc/plugin/plugin-code/prompts.json',
       'server/adapters/cc/build.cjs',
@@ -233,7 +235,7 @@ describe('gitignore：只忽略构造产物，代码一律入库', () => {
     }
   });
 
-  it.skipIf(!hasGit)('被忽略的只落在四个内容目录里', () => {
+  it.skipIf(!hasGit)('被忽略的只落在声明的构造产物里', () => {
     const ignored = require('node:child_process')
       .execSync('git ls-files -o -i --exclude-standard -- server/adapters', { cwd: ROOT, encoding: 'utf8' })
       .split('\n').map((s) => s.trim()).filter(Boolean);
@@ -242,17 +244,26 @@ describe('gitignore：只忽略构造产物，代码一律入库', () => {
     // 里面是开发期给探针用的 `@deepseek-ai/*` 软链，由 scripts/probe/dsh/install-fixture.sh 重建。
     // 显式挑出来而不是宽度过宽地放过 —— 别的任何非内容目录都必须为 0。
     const devOnly = ignored.filter((p) => p.includes('/node_modules/'));
+    const generatedRegistries = new Set([
+      'server/adapters/cc/plugin/.claude-plugin/marketplace.json',
+      'server/adapters/cc/plugin/settings.json',
+    ]);
     const stray = ignored
       .filter((p) => !p.includes('/node_modules/'))
-      .filter((p) => !p.split('/').some((seg) => ASSETS.includes(seg)));
+      .filter((p) => !p.split('/').some((seg) => ASSETS.includes(seg)))
+      .filter((p) => !generatedRegistries.has(p))
+      .filter((p) => !/^server\/adapters\/cc\/plugin\/[^/]+\/plugin\.json$/.test(p));
     expect(devOnly.every((p) => p.includes('@deepseek-ai/')), `node_modules 里出现了非预期项：${devOnly.join(', ')}`).toBe(true);
     expect(stray, `这些被忽略了但不在内容目录里：\n${stray.join('\n')}`).toEqual([]);
   });
 
-  it('源的 .gitignore 规则只针对四个内容目录（不是宽 glob）', () => {
+  it('源的 .gitignore 规则只针对内容目录与生成清单（不是宽 glob）', () => {
     const gi = read(path.join(ROOT, '.gitignore'));
     const rules = gi.split('\n').filter((l) => /plugin\/(\*\/)?(commands|skills|agents|mcp)\//.test(l));
     expect(rules.length).toBeGreaterThanOrEqual(8);
+    expect(gi).toContain('/server/adapters/cc/plugin/*/plugin.json');
+    expect(gi).toContain('/server/adapters/cc/plugin/.claude-plugin/marketplace.json');
+    expect(gi).toContain('/server/adapters/cc/plugin/settings.json');
     // 不许出现「忽略整个 plugin 目录」这种写宽了的规则
     expect(gi).not.toMatch(/^\/server\/adapters\/(cc|dsh)\/plugin\/?\s*$/m);
     expect(gi).not.toMatch(/^\/server\/adapters\/dsh\/plugin\/\*\*\s*$/m);

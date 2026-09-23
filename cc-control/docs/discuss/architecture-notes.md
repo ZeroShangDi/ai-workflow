@@ -16,7 +16,7 @@
 - 新增第 3 插件 **ai-workflow-decision**（`plugin/decision/`，非引擎插件：无 mcp/hooks，hooks 仍单源在 core）：承载决策内核与协议资产
   - 技能：`decision-core`（DC，纯决策内核）+ `decision-workflow`（DW 完整职责，单 agent 下由 server 扮演 DW，技能供复杂/未来场景复用）
   - 资产：`decision/PROTOCOL.md`、`decision/schemas/decision-result.schema.json`、`decision/mode-instruction.md`（决策模式短指令）
-- 注册：config.json `marketplace.plugins` + settings.json；渲染器按 marketplace.plugins 遍历生成（T1-001 泛化），hooks/mcp 单源渲染进引擎插件（config.engineDir）
+- 注册：`plugin/*/plugin.json` 自描述；渲染器自动发现并生成 marketplace/settings/CC manifest，hooks/mcp 单源渲染进引擎插件（config.engineDir）
 
 ### 决策闸门（单 agent）
 

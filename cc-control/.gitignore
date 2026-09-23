@@ -20,8 +20,8 @@ docs/discuss/all_claude_prompts.md
 server/web/public/
 
 # 插件构造产物 —— 源在包根 plugin/，由 `npm run build:plugin` 生成（npm test / build / pack 都会先跑）。
-# 别手改这些目录：改了会在下次构造时被覆盖。清单类（plugin.json / .mcp.json / hooks/）不在此列，
-# 它们由 scripts/render-config.mjs 渲染，仍入库。
+# 别手改这些目录：改了会在下次构造时被覆盖。插件 manifest、marketplace 与安装清单也由
+# scripts/render-config.mjs 从 plugin/*/plugin.json 和 settings.base.json 渲染，不入库。
 /server/adapters/cc/plugin/*/commands/
 /server/adapters/cc/plugin/*/skills/
 /server/adapters/cc/plugin/*/agents/
@@ -30,3 +30,6 @@ server/web/public/
 /server/adapters/dsh/plugin/skills/
 /server/adapters/dsh/plugin/agents/
 /server/adapters/dsh/plugin/mcp/
+/server/adapters/cc/plugin/.claude-plugin/marketplace.json
+/server/adapters/cc/plugin/*/plugin.json
+/server/adapters/cc/plugin/settings.json

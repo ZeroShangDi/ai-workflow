@@ -2,8 +2,8 @@
 /**
  * plugin-assets.cjs — 插件资产定位原语（包根 → plugin/<dir>/<asset>）
  *
- * 为什么要有这个模块：`plugin/config.json` 的 `marketplace.plugins` 是**插件目录的唯一注册表**
- * （render-config.mjs 渲染 marketplace.json 也读它）。「插件 X 的资产在哪」这个形状由**插件系统**
+ * 为什么要有这个模块：生成后的 `plugin/<dir>/plugin.json` 是运行时可用的插件目录注册表。
+ * 「插件 X 的资产在哪」这个形状由**插件系统**
  * 决定，不由任何功能决定 —— 所以它该是共享原语，而不是各功能各写一遍 fs + JSON.parse。
  *
  * 此前散了三处，各知道一部分：
@@ -29,18 +29,24 @@ function pluginConfigPath(root = pkgRoot()) {
 }
 
 /**
- * 读插件注册表条目（marketplace.plugins）。
- * 缺文件 / 非法 JSON / 无 marketplace 段 → 空数组（调用方按「未注册」处理）。
+ * 读生成后的插件 manifest。源码态元数据在 `plugin/<dir>/plugin.json`，构建会把它们渲染到这里。
  * @param {string} [root] 包根；缺省由模块位置推导
  * @returns {Array<{ name: string, dir: string }>}
  */
 function marketplacePlugins(root = pkgRoot()) {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(pluginConfigPath(root), 'utf-8'));
-    return Array.isArray(cfg?.marketplace?.plugins) ? cfg.marketplace.plugins : [];
-  } catch {
-    return [];
+  const generatedRoot = path.join(root, 'server', 'adapters', 'cc', 'plugin');
+  if (!fs.existsSync(generatedRoot)) return [];
+  const found = [];
+  for (const item of fs.readdirSync(generatedRoot, { withFileTypes: true })) {
+    if (!item.isDirectory()) continue;
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(generatedRoot, item.name, 'plugin.json'), 'utf8'));
+      if (manifest?.name) found.push({ name: manifest.name, dir: item.name });
+    } catch {
+      // 非插件目录或尚未生成 manifest：忽略，由调用方按「未注册」处理。
+    }
   }
+  return found;
 }
 
 /**
@@ -54,7 +60,7 @@ function marketplacePlugins(root = pkgRoot()) {
 function pluginDir(name, root = pkgRoot()) {
   const entry = marketplacePlugins(root).find((p) => p?.name === name);
   if (!entry?.dir) {
-    throw new Error(`插件未注册于 marketplace.plugins（plugin/config.json）：${name}`);
+    throw new Error(`插件未注册（缺少生成的 manifest）：${name}`);
   }
   return entry.dir;
 }

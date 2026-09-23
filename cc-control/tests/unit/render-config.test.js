@@ -1,21 +1,54 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readPluginConfig, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings } from '../../server/shared/plugin-render.cjs';
+import {
+  discoverPluginEntries, readPluginConfig, renderPluginJson, renderMarketplace,
+  resolvePluginAssets, renderPluginSettings, renderRepoSettings,
+} from '../../server/shared/plugin-render.cjs';
 
 const REPO = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const PLUGIN = path.join(REPO, 'server', 'adapters', 'cc', 'plugin');
 const readFile = (p) => fs.readFileSync(path.join(PLUGIN, p), 'utf8');
 
 // 泛化后的渲染器契约（T1-001）：
-// - 各插件 plugin.json 依 marketplace.plugins 条目生成，接受任意 dir；
+// - 各插件由中性源 plugin/<dir>/plugin.json 自动发现；
 // - 引擎插件（config.engineDir）的 plugin.json 带 hooks 字段，非引擎插件不带；
 // - marketplace.json 依 plugins 遍历生成（source ./<dir>/）。
 // 基线 = 提交在库里的产物文件（renderPluginJson/renderMarketplace 与 render-config 共用同一实现）。
 
 describe('渲染器泛化回归 — 现有插件输出与提交基线一致', () => {
+  it('目录发现结果直接成为 marketplace.plugins，顺序由各 manifest 的 order 决定', () => {
+    const config = readPluginConfig(REPO);
+    const entries = discoverPluginEntries(REPO);
+    const sourceRoot = path.join(REPO, 'plugin');
+    const sourceDirs = fs.readdirSync(sourceRoot, { withFileTypes: true })
+      .filter((item) => item.isDirectory() && fs.existsSync(path.join(sourceRoot, item.name, 'plugin.json')))
+      .map((item) => item.name)
+      .sort();
+    const sorted = [...entries].sort((a, b) =>
+      (Number(a.order ?? 1000) - Number(b.order ?? 1000)) || a.dir.localeCompare(b.dir));
+
+    expect(config.marketplace.plugins).toEqual(entries);
+    expect(entries.map((p) => p.dir).sort()).toEqual(sourceDirs);
+    expect(entries).toEqual(sorted);
+  });
+
+  it('npm 包不含中性源时，回读 prepack 生成的 CC manifest', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-plugin-discovery-'));
+    try {
+      const target = path.join(root, 'server', 'adapters', 'cc', 'plugin');
+      fs.mkdirSync(path.join(target, 'core'), { recursive: true });
+      fs.copyFileSync(path.join(PLUGIN, 'config.json'), path.join(target, 'config.json'));
+      fs.copyFileSync(path.join(PLUGIN, 'core', 'plugin.json'), path.join(target, 'core', 'plugin.json'));
+      expect(readPluginConfig(root).marketplace.plugins.map((p) => p.name)).toEqual(['ai-workflow-core']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('各插件 renderPluginJson(..., withHooks=dir===engineDir) === 提交的 plugin/<dir>/plugin.json', () => {
     const config = readPluginConfig(REPO);
     const { marketplace, engineDir } = config;
@@ -129,6 +162,18 @@ describe('T1-081 resolvePluginAssets — 任意插件可声明自身 mcp/hooks�
 
 
 describe('T1-082 renderRepoSettings — 本仓 .claude/settings.json 由 plugin/settings.json 渲染', () => {
+  it('基础设置自动追加全部 marketplace 插件', () => {
+    const config = readPluginConfig(REPO);
+    const base = {
+      plugins: ['figma@claude-plugins-official'],
+      enabledPlugins: { 'figma@claude-plugins-official': true },
+    };
+    const out = JSON.parse(renderPluginSettings(base, config.marketplace));
+    const expected = config.marketplace.plugins.map((p) => `${p.name}@${config.marketplace.name}`);
+    expect(out.plugins).toEqual(['figma@claude-plugins-official', ...expected]);
+    expect(expected.every((spec) => out.enabledPlugins[spec] === true)).toBe(true);
+  });
+
   it('<pkg> 解析为绝对 plugin 根；第三方（figma 等）手工层原样保留', () => {
     const src = {
       plugins: ['figma@claude-plugins-official', 'ai-workflow-core@ai-workflow-dev'],

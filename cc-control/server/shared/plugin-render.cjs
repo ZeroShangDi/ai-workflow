@@ -16,6 +16,7 @@
  * 边界：只做「读配置 + 渲染字符串」，不写文件（落盘由调用方 `scripts/render-config.mjs` 决定）。
  */
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { loadConfig, ConfigError } = require('./config-loader.cjs');
 const { pkgRoot } = require('./plugin-assets.cjs');
@@ -43,13 +44,42 @@ const PLUGIN_CONFIG_RULES = {
   hooks: { type: 'object' },
 };
 
-/** marketplace.plugins 最小结构校验：数组 + 每项 dir/name 非空字符串 + dir 不重复 */
+/**
+ * 从中性源 `plugin/<dir>/plugin.json` 发现插件。
+ * 目录名决定 dir；manifest 只保存该插件自己的元数据，order 仅控制市场顺序。
+ */
+function discoverPluginEntries(repoRoot = pkgRoot()) {
+  const source = path.join(repoRoot, 'plugin');
+  const entries = [];
+  const scan = (root, label) => {
+    if (!fs.existsSync(root)) return;
+    for (const item of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!item.isDirectory()) continue;
+      const manifest = path.join(root, item.name, 'plugin.json');
+      if (!fs.existsSync(manifest)) continue;
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      } catch (err) {
+        throw new ConfigError(`插件元数据无法解析：${label}/${item.name}/plugin.json（${err.message}）`);
+      }
+      entries.push({ ...data, dir: item.name });
+    }
+  };
+  scan(source, 'plugin');
+  // npm 包不携带中性源；运行时回读 prepack 已生成的 CC manifest。
+  if (entries.length === 0) scan(path.join(repoRoot, 'server', 'adapters', 'cc', 'plugin'), 'server/adapters/cc/plugin');
+  return entries.sort((a, b) => (Number(a.order ?? 1000) - Number(b.order ?? 1000)) || a.dir.localeCompare(b.dir));
+}
+
+/** marketplace.plugins 最小结构校验：数组 + 每项 dir/name 非空字符串 + dir/name 不重复 */
 function assertMarketplaceShape(marketplace) {
   if (!marketplace || !Array.isArray(marketplace.plugins)) {
-    throw new ConfigError('plugin/config.json 校验失败：缺少 marketplace.plugins 数组');
+    throw new ConfigError('插件目录发现失败：没有生成 marketplace.plugins');
   }
   const errors = [];
   const dirs = [];
+  const names = [];
   marketplace.plugins.forEach((p, i) => {
     if (!p || typeof p !== 'object') {
       errors.push(`marketplace.plugins[${i}] 应为对象`);
@@ -59,17 +89,19 @@ function assertMarketplaceShape(marketplace) {
       if (typeof p[field] !== 'string' || !p[field]) errors.push(`marketplace.plugins[${i}].${field} 应为非空字符串`);
     }
     if (typeof p.dir === 'string' && p.dir) dirs.push(p.dir);
+    if (typeof p.name === 'string' && p.name) names.push(p.name);
   });
   for (const dup of new Set(dirs.filter((d, i) => dirs.indexOf(d) !== i))) {
     errors.push(`marketplace.plugins.dir 重复：${dup}`);
+  }
+  for (const dup of new Set(names.filter((name, i) => names.indexOf(name) !== i))) {
+    errors.push(`marketplace.plugins.name 重复：${dup}`);
   }
   if (errors.length > 0) throw new ConfigError(`plugin/config.json 结构校验失败：\n  ${errors.join('\n  ')}`, errors);
 }
 
 /**
- * 读取插件唯一配置源 plugin/config.json（port / engineDir / marketplace / mcpServers / hooks）。
- * 经 config-loader 加载：默认值兜底 + 类型校验 + marketplace 结构校验（strict 聚合抛 ConfigError），
- * passthrough 保留整份文件，未声明字段原样通过。
+ * 读取运行时配置，并把 `plugin/<dir>/plugin.json` 自动发现结果注入 marketplace.plugins。
  * @param {string} [repoRoot] cc-control 包根；缺省由模块位置推导（plugin-assets.pkgRoot）
  */
 function readPluginConfig(repoRoot = pkgRoot()) {
@@ -78,8 +110,9 @@ function readPluginConfig(repoRoot = pkgRoot()) {
     source: { filePath: path.join(repoRoot, 'server', 'adapters', 'cc', 'plugin', 'config.json') },
     passthrough: true,
   });
-  assertMarketplaceShape(config.marketplace);
-  return config;
+  const marketplace = { ...config.marketplace, plugins: discoverPluginEntries(repoRoot) };
+  assertMarketplaceShape(marketplace);
+  return { ...config, marketplace };
 }
 
 /**
@@ -121,6 +154,20 @@ function renderRepoSettings(pluginSettings, pluginRoot) {
     if (m?.source?.path && typeof m.source.path === 'string') {
       m.source.path = m.source.path.replaceAll('<pkg>', repoRoot);
     }
+  }
+  return JSON.stringify(s, null, 2) + '\n';
+}
+
+/** 从第三方基础设置 + 自动发现的插件生成安装清单。 */
+function renderPluginSettings(baseSettings, marketplace) {
+  const s = JSON.parse(JSON.stringify(baseSettings || {}));
+  s.plugins = Array.isArray(s.plugins) ? s.plugins : [];
+  s.enabledPlugins = s.enabledPlugins && typeof s.enabledPlugins === 'object' ? s.enabledPlugins : {};
+  const marketplaceName = marketplace?.name;
+  for (const plugin of marketplace?.plugins || []) {
+    const spec = `${plugin.name}@${marketplaceName}`;
+    if (!s.plugins.includes(spec)) s.plugins.push(spec);
+    s.enabledPlugins[spec] = true;
   }
   return JSON.stringify(s, null, 2) + '\n';
 }
@@ -209,10 +256,12 @@ function projectMcpJson(repoRoot = pkgRoot(), port, projectRoot) {
 }
 
 module.exports = {
+  discoverPluginEntries,
   readPluginConfig,
   enginePluginRoot,
   resolvePluginAssets,
   renderRepoSettings,
+  renderPluginSettings,
   renderMcpServers,
   renderPluginJson,
   renderMarketplace,

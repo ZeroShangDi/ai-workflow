@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * render-config.mjs — 从 plugin/config.json 渲染插件注册文件
+ * render-config.mjs — 从运行时配置 + plugin/<dir>/plugin.json 渲染插件注册文件
  *
- * 唯一配置源：plugin/config.json（port / engineDir / marketplace / mcpServers / hooks）
+ * 配置源：plugin/config.json（运行时/市场）+ plugin/<dir>/plugin.json（各插件元数据）
  *
- * 模式 1（无参数，npm run build 时调用）— 重生成提交在库里的文件：
+ * 模式 1（无参数，npm run build:plugin 时调用）— 重生成构造产物：
  *   - plugin/.claude-plugin/marketplace.json      市场声明（依 marketplace.plugins 遍历 → source ./<dir>/）
  *   - plugin/<dir>/plugin.json                    各插件声明（依 marketplace.plugins 遍历；引擎插件含 hooks 字段）
  *   - plugin/<engineDir>/.mcp.json                MCP 声明（相对路径，修掉硬编码绝对路径 bug）
  *   - plugin/<engineDir>/hooks/hooks.json         引擎 hooks（__PORT__ → 字面量端口，单源不进非引擎插件）
- *   说明：plugins 的 plugin.json 完全由 marketplace.plugins 条目驱动，新增插件只需在 config 加条目；
+ *   - plugin/settings.json                         安装清单（基础设置 + 自动发现插件）
+ *   说明：新增插件只需增加 plugin/<dir>/plugin.json 与内容目录；
  *        mcpServers/hooks 为引擎运行时单源资产，只渲染进引擎插件目录（config.engineDir，缺省 core）。
  *
  * 模式 2（--workdir <dir> [--port <port>]）— 独立沙箱渲染（手动调用，不再被 bootstrap.sh 触发）：
@@ -28,7 +29,8 @@ import { createRequire } from 'node:module';
 // 静态导出分析，一旦导出写成展开/动态形态就会在真机上直接挂（v0.2.0 复盘 K6 的原始现场）。
 const require = createRequire(import.meta.url);
 const {
-  readPluginConfig, renderMcpServers, renderPluginJson, renderMarketplace, resolvePluginAssets, renderRepoSettings,
+  readPluginConfig, renderMcpServers, renderPluginJson, renderMarketplace, resolvePluginAssets,
+  renderPluginSettings, renderRepoSettings,
 } = require('../server/shared/plugin-render.cjs');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -73,9 +75,16 @@ function main() {
     return;
   }
 
-  // 模式 1：重生成提交文件 — args 用 ${CLAUDE_PLUGIN_ROOT}（Claude Code 注入插件根）
+  // 模式 1：重生成插件构造产物 — args 用 ${CLAUDE_PLUGIN_ROOT}（Claude Code 注入插件根）
   console.log('render-config: 生成插件注册文件');
   write(path.join(pluginRoot, '.claude-plugin', 'marketplace.json'), renderMarketplace(marketplace));
+
+  // 源插件被删除后，旧 manifest 不能继续让运行时把孤儿目录识别成已注册插件。
+  const activeDirs = new Set(marketplace.plugins.map((plugin) => plugin.dir));
+  for (const item of fs.readdirSync(pluginRoot, { withFileTypes: true })) {
+    if (!item.isDirectory() || activeDirs.has(item.name) || item.name.startsWith('.')) continue;
+    fs.rmSync(path.join(pluginRoot, item.name, 'plugin.json'), { force: true });
+  }
 
   // T1-081：config 单源扩展——任意插件可声明自身 mcpServers/hooks（engineDir-only 取消）。
   // 引擎插件（config.engineDir）在自身无声明时回落顶层 config.mcpServers/hooks（向后兼容）；
@@ -91,9 +100,11 @@ function main() {
     }
   }
 
-  // T1-082：本仓 .claude/settings.json = plugin/settings.json 渲染产物（<pkg> → 绝对 plugin 根；
-  // 第三方如 figma 属 plugin/settings.json 的手工合并层，原样保留）
-  const pluginSettings = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'settings.json'), 'utf8'));
+  // 安装清单：settings.base.json 只保留第三方/marketplace 基础设置；本仓插件按目录自动追加。
+  const settingsBase = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'settings.base.json'), 'utf8'));
+  const pluginSettingsText = renderPluginSettings(settingsBase, marketplace);
+  write(path.join(pluginRoot, 'settings.json'), pluginSettingsText);
+  const pluginSettings = JSON.parse(pluginSettingsText);
   write(path.join(repoRoot, '.claude', 'settings.json'), renderRepoSettings(pluginSettings, pluginRoot));
 }
 
