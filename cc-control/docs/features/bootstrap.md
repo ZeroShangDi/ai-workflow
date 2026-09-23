@@ -54,7 +54,7 @@ bootstrap.sh
 
 **`env -u`** 去掉 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` / `DISABLE_TELEMETRY` / `DO_NOT_TRACK` / `DISABLE_GROWTHBOOK`（telemetry / feature-flag 类），仅影响本 claude 会话。
 
-**`--settings "$WORKDIR/.awf/run-settings.json"`** 挂载 run 级 settings（statusLine 等）。**插件不通过 `--plugin-dir` 加载**——三插件由项目 `.claude/settings.json` 注册。
+**`--settings "$WORKDIR/.awf/run-settings.json"`** 挂载 run 级 settings（statusLine 等）。**插件不通过 `--plugin-dir` 加载**——声明的插件由项目 `.claude/settings.json` 注册。
 
 ## 函数清单
 

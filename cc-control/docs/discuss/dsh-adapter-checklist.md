@@ -131,7 +131,7 @@ C-5 讨论中出现的新问题，追加到清单末尾，不插入已确认区�
 
 **补充问题**：暂无。
 
-### C2 36 个 skill 的 dsh 形态怎么落？
+### C2 插件 skill 的 dsh 形态怎么落？
 
 > cc 插件 skill 目录 vs dsh `dsh-skill` / `dsh-skill-filesystem`（格式未验）。
 >

@@ -225,7 +225,7 @@ function isInstalled({ dshHome, profile = 'web' } = {}) {
  *
  * 旧口径（C29）：把 `plugin/skills/<name>` 符号链接进 `$DSH_HOME/skills/<name>`，等平台扫到。
  * 它有两个问题：
- *   ① `$DSH_HOME/skills` 是**全局可见**的技能根（rank 400）—— 这 36 个 AWF 技能会出现在
+ *   ① `$DSH_HOME/skills` 是**全局可见**的技能根（rank 400）—— 全部 AWF 技能会出现在
  *      用户自己的每个 DSH 会话里，还会 first-wins 抢掉用户同名技能；
  *   ② web 组合里 `skill-filesystem` 位于 agent preset 平面（host 行 disabled，F18），
  *      「往全局根塞目录」是否真被发现，取决于 preset 的读取作用域，本来就不可靠。

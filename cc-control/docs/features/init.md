@@ -142,7 +142,7 @@ initCommand(options)
 - [ ] 未装 claude → `process.exit(1)`；未装 tmux → warn 但继续
 - [ ] `.awf/` 不存在时创建完整骨架（含 11 个目录 + README/config/state/architecture）
 - [ ] `.awf/` 已存在且无 `--force` → 文件 mtime 不变；带 `--force` → 补缺失但不覆盖已有
-- [ ] `.claude/settings.json` 含三插件（core/code/decision）enabled 与 marketplace（`source.path` 存在于磁盘）
+- [ ] `.claude/settings.json` 含声明的插件且均 enabled，marketplace 的 `source.path` 存在于磁盘
 - [ ] `.mcp.json` 含三个 awf-* server：绝对/相对路径存在、`AWF_PROJECT_ROOT` 指向本项目、`awf-session` 的 `AWF_BASE` 带端口
 - [ ] 重跑 init → `.claude/settings.json` 与 `.mcp.json` 内容不漂移（幂等）
 - [ ] 默认模板为 0 字节时，新项目**不**生成含 awf 规则的 `CLAUDE.md`

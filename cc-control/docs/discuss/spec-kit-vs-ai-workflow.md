@@ -33,10 +33,10 @@ spec-kit 社区反复追问的那句 *"GitHub Spec Kit Defines the Plan. Who Enf
 | 语言 / 形态 | Python CLI（脚手架 + 模板分发） | Node CLI（`cli/`）+ 常驻 HTTP Server（`server/`） |
 | 运行时 | **无** | **有** —— 常驻单写者控制平面，36 条 HTTP 路由 |
 | 宿主绑定 | **40 个集成**（claude/copilot/cursor/codex/gemini/…），靠模板适配 | **仅 Claude Code**，靠 hooks / MCP / subagent 深绑 |
-| 落进项目 | `.specify/` + `specs/NNN-name/` 文档树 | `.awf/state.json` + 三插件（core / decision / plugin-code） |
+| 落进项目 | `.specify/` + `specs/NNN-name/` 文档树 | `.awf/state.json` + 分层插件 |
 | AI 的角色 | 执行者，人是审阅者 | **被驱动者**，宿主是调度者 |
 | 代码规模 | 未测 | `cli/` + `server/` 约 12,600 行；106 个 vitest 文件 |
-| 对外面 | 9 个 slash 命令 × 40 集成 | 7 CLI 命令 · 16 slash 命令 · **28 个 MCP 工具** · 36 条 HTTP 路由 · 36 个 skill |
+| 对外面 | 9 个 slash 命令 × 40 集成 | CLI、slash command、MCP、HTTP 路由与 skill |
 
 ---
 
@@ -57,7 +57,7 @@ spec-kit 社区反复追问的那句 *"GitHub Spec Kit Defines the Plan. Who Enf
 | **状态机** | 无结构化状态机。1.x 新增 **Workflows**（YAML 管道 + `state.json` + `resume`）——但作用于工作流层，**不作用于单任务** | `state.json` 是任务级状态机；`store` 层（`state.lock` 单写序列化 + 原子写 + 按数据族分型）；28 个 MCP 工具显式 CRUD | awf 深，spec-kit 广 |
 | **可观测性** | 无 | `web/` 前端（React + Vite，5 可见 + 2 隐藏页）+ metrics + run-logger + `.awf/logs/` | awf 独有 |
 | **自定义验证** | 无 | `check-architecture.mjs` **可失败门禁**（零引用 / 依赖方向 / 结构断言 + 元验证）；真机回归 15 case × 150 断言 + e2e 14 case | awf 独有 |
-| **扩展机制** | Extensions / Presets / Bundles，模板 **4 级覆盖**（override > preset > extension > core） | 三插件分层（引擎 / 决策 / 编程）+ `plugin/config.json` 单源 → `render-config.mjs` 渲染 | spec-kit 生态更开放，awf 分层更干净 |
+| **扩展机制** | Extensions / Presets / Bundles，模板 **4 级覆盖**（override > preset > extension > core） | 插件分层 + `plugin/config.json` 单源 → `render-config.mjs` 渲染 | spec-kit 生态更开放，awf 分层更干净 |
 
 ---
 
@@ -155,7 +155,7 @@ spec-kit 的 `Workflows` 是朝这个方向的第一次尝试，但停在 YAML �
 |---|---|---|---|
 | C1 | 项目结构是 `src/cli/` `src/server/` `src/lib/` `src/adapters/` | **旧树 `src/` 已退役删除**。现为根级 `cli/` + `server/`；`server/` 分 `web/` `run/` `features/` `runtime/` `shared/` `observability/` `adapters/` `mock/` `templates/` | commit `6563ea5`（旧树收口 P3）；`package.json` `bin → cli/awf.cjs`、`files` 含 `server/`+`cli/` |
 | C2 | `awf-session` 是 **5 个** MCP 工具 | **7 个在册** —— 新增 `awf_session_intervene` / `awf_session_interrupt`；`awf_await_choice` / `awf_await_input` **资产层已标停用但代码面仍注册**（T1-106，用户裁定暂缓）。三 server 合计 **28 个** | `plugin/core/mcp/awf-session/server.cjs`；`.awf/state.json` 停用标注 |
-| C3 | `README.md` 已过时，仍在描述 `bin/` `commands/` `tools/` | **该判断基于旧版 README**。现行 `README.md`（76 行）已重写为新树：架构图指向 `cli/awf.cjs` + `server/`，目录表为 7 命令 / 三插件 / 真机 e2e | `README.md` 全文 |
+| C3 | `README.md` 已过时，仍在描述 `bin/` `commands/` `tools/` | **该判断基于旧版 README**。现行 `README.md` 已重写为新树：架构图指向 `cli/awf.cjs` + `server/`，目录表覆盖 CLI / 插件 / 真机 e2e | `README.md` 全文 |
 | C4 | 门禁闭环 `MAX_RECHECK=3`（判断正确，落点过时） | 落点在 `server/features/gate/`（`closure.js` 判定与派生 / `fix.js` / `loop.cjs` 文案规则），不再是 `src/server/gate-fix.js` | 目录树 + 文件头 |
 | C5 | 未提及的整层能力 | 漏了 **store 持久化层**、**adapters 端口契约**、**`web/` 前端**、**replanning 动态规划**、**pause 闩锁**、**monitor 介入**、**双套真机测试** | 见 6.2 |
 

@@ -193,7 +193,7 @@ describe('DSH 装配：环境解析与状态', () => {
 });
 
 describe('DSH 装配：技能（已改为随包携带 + 会话级注册）', () => {
-  // 旧口径把 36 个技能符号链接进 $DSH_HOME/skills —— 那是**全局可见**的技能根，
+  // 旧口径把全部技能符号链接进 $DSH_HOME/skills —— 那是**全局可见**的技能根，
   // 会污染用户自己的 DSH 会话、还会 first-wins 抢用户同名技能。现在安装期不碰那里。
   it('安装不往 $DSH_HOME/skills 铺任何东西', () => {
     const home = makeHome();
@@ -252,8 +252,10 @@ describe('DSH 插件目录：自包含', () => {
   });
 
   it('五类资产都在目录里：命令 / 技能 / 代理 / MCP / hooks', () => {
-    expect(fs.readdirSync(path.join(PLUGIN, 'commands')).filter((f) => f.endsWith('.md')).length).toBe(16);
-    expect(fs.readdirSync(path.join(PLUGIN, 'skills')).length).toBe(36);
+    expect(fs.readdirSync(path.join(PLUGIN, 'commands')).some((f) => f.endsWith('.md'))).toBe(true);
+    const skillDirs = fs.readdirSync(path.join(PLUGIN, 'skills'));
+    expect(skillDirs.length).toBeGreaterThan(0);
+    for (const dir of skillDirs) expect(fs.existsSync(path.join(PLUGIN, 'skills', dir, 'SKILL.md'))).toBe(true);
     expect(fs.readdirSync(path.join(PLUGIN, 'agents')).filter((f) => f.endsWith('.md')).length).toBe(3);
     expect(fs.existsSync(path.join(PLUGIN, 'mcp.json'))).toBe(true);
     expect(fs.existsSync(path.join(PLUGIN, 'hooks', 'hooks.json'))).toBe(true);

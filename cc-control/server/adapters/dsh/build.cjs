@@ -3,7 +3,7 @@
  * build.cjs — dsh 侧插件构造器：中性源 `plugin/<包>/<内容目录>` → `server/adapters/dsh/plugin/<内容目录>`
  *
  * ## 与 cc 侧的两点不同
- *   ① **拍平**：源里是三个插件包（core / decision / plugin-code，那是 cc 市场的切分），
+ *   ① **拍平**：源里是多个插件包（cc 市场的切分），
  *      DSH 的安装单元是一条 profile patch 行 → 汇成一个包。
  *   ② **要变换**：源是 cc 口径的正文（命令命名空间、`subagent_type`、CC 工具名…），
  *      DSH 侧必须换成自己的（命令名禁冒号、命名身份靠专用工具实例、工具名蛇形）。
@@ -60,7 +60,7 @@ const AGENT_TOOL_NAME = { 'awf-worker': 'awf_worker' };
 /** 这些 MCP server 是 cc 专有，不随 DSH 包 */
 const MCP_SKIP = new Set(['awf-oneshot']); // `claude -p` 实现；DSH 的一次性调用走 llm.stream
 
-/** 从源遍历出内容目录（三包拍平；同名以先到者为准并告警） */
+/** 从源遍历出内容目录（各包拍平；同名以先到者为准并告警） */
 function discover(source, log = () => {}) {
   const byDir = new Map();
   if (!fs.existsSync(source)) return byDir;

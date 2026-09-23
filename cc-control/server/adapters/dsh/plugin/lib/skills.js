@@ -4,7 +4,7 @@
  * 为什么不是「把技能目录投影到 `$DSH_HOME/skills` 然后等平台扫」：
  *   - DSH 的 `skill-filesystem` 在 web 组合里位于 **agent preset 平面**（host 行 disabled，F18），
  *     技能根是固定的一组（`<项目>/.dsh/skills`、`$DSH_HOME/skills` 等），插件往里塞等于
- *     **全局可见** —— 用户自己开的普通会话也会看到这 36 个技能，还会抢同名技能；
+ *     **全局可见** —— 用户自己开的普通会话也会看到全部 AWF 技能，还会抢同名技能；
  *   - `skills` 服务本身有运行时注册口（`register()`，RUNTIME_RANK），在 **setup 窗口**
  *     用 `agentCtx` 注册即落在该 agent 的作用域层 —— 只有 AWF 自己建的会话看得到。
  *

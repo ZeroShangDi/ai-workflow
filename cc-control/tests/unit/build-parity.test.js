@@ -60,20 +60,27 @@ const walkFiles = (dir, root = dir, out = []) => {
   return out.sort();
 };
 describe('构造：跑得出产物', () => {
-  it('cc 侧 7 个内容目录（core 四类 + decision/skills + plugin-code 两类）', () => {
-    for (const dir of ['core/commands', 'core/skills', 'core/agents', 'core/mcp', 'decision/skills', 'plugin-code/commands', 'plugin-code/skills']) {
+  it('cc 侧生成源中声明的全部内容目录', () => {
+    const dirs = ccBuild.discover(SRC).map(({ pkg, dir }) => `${pkg}/${dir}`);
+    expect(dirs.length).toBeGreaterThan(0);
+    for (const dir of dirs) {
       expect(fs.existsSync(path.join(CC, dir)), `${dir} 未生成`).toBe(true);
       expect(fs.readdirSync(path.join(CC, dir)).length).toBeGreaterThan(0);
     }
   });
 
-  it('dsh 侧 4 个内容目录（三包拍平成一包）', () => {
+  it('dsh 侧按资产类型拍平，文件集来自源目录', () => {
     for (const dir of ['commands', 'skills', 'agents', 'mcp']) {
       expect(fs.existsSync(path.join(DSH, dir)), `${dir} 未生成`).toBe(true);
     }
-    expect(fs.readdirSync(path.join(DSH, 'commands'))).toHaveLength(16);
-    expect(fs.readdirSync(path.join(DSH, 'skills'))).toHaveLength(36);
-    expect(fs.readdirSync(path.join(DSH, 'agents'))).toHaveLength(3);
+    const expectedNames = (kind) => [...new Set(
+      ccBuild.discover(SRC)
+        .filter(({ dir }) => dir === kind)
+        .flatMap(({ from }) => fs.readdirSync(from)),
+    )].sort();
+    for (const kind of ['commands', 'skills', 'agents']) {
+      expect(fs.readdirSync(path.join(DSH, kind)).sort(), `${kind} 文件集与源不一致`).toEqual(expectedNames(kind));
+    }
   });
 
   it('可复现：连跑两次产物逐字节相同（构造器无隐藏状态）', () => {
@@ -90,16 +97,8 @@ describe('构造：cc 侧是纯拷贝（内容一个字段都不改）', () => {
   // 用户的元数据口径：**可以多，不要少**。所以 cc 侧不剥 frontmatter —— 源是超集，
   // 各平台读自己的键。实测（claude plugin validate，含 --strict）三个包零警告：
   // CC 运行时容忍未识别键；反而是「命令没有 frontmatter」本身会招一条警告。
-  it('四类内容目录全部与源逐字节相同', () => {
-    const pairs = [
-      ['core/commands', 'core/commands'],
-      ['core/skills', 'core/skills'],
-      ['core/agents', 'core/agents'],
-      ['core/mcp', 'core/mcp'],
-      ['decision/skills', 'decision/skills'],
-      ['plugin-code/commands', 'plugin-code/commands'],
-      ['plugin-code/skills', 'plugin-code/skills'],
-    ];
+  it('全部内容目录与源逐字节相同', () => {
+    const pairs = ccBuild.discover(SRC).map(({ pkg, dir }) => [`${pkg}/${dir}`, `${pkg}/${dir}`]);
     for (const [srcDir, outDir] of pairs) {
       const srcFiles = walkFiles(path.join(SRC, srcDir));
       expect(walkFiles(path.join(CC, outDir)), `${outDir} 文件集不同`).toEqual(srcFiles);
@@ -171,9 +170,9 @@ describe('构造：dsh 侧的变换恰好是声明的那些', () => {
 
 describe('构造：源的元数据是超集', () => {
   it('每条源命令都有 description + argument-hint(cc) + hint(dsh)', () => {
-    const cmds = ['core/commands', 'plugin-code/commands']
+    const cmds = ccBuild.discover(SRC).filter(({ dir }) => dir === 'commands').map(({ pkg, dir }) => `${pkg}/${dir}`)
       .flatMap((d) => fs.readdirSync(path.join(SRC, d)).map((f) => path.join(SRC, d, f)));
-    expect(cmds).toHaveLength(16);
+    expect(cmds.length).toBeGreaterThan(0);
     for (const p of cmds) {
       const fm = read(p).slice(0, read(p).indexOf('\n---', 3));
       expect(fm, `${p} 缺 description`).toMatch(/^description: .+/m);

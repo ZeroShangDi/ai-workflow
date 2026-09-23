@@ -3,7 +3,7 @@
  * build.cjs — cc 侧插件构造器：中性源 `plugin/<包>/<内容目录>` → `server/adapters/cc/plugin/<包>/<内容目录>`
  *
  * ## 为什么有它
- * 三个插件包（core / decision / plugin-code）里的**内容**（命令 / 技能 / 代理 / MCP server）
+ * 各插件包里的**内容**（命令 / 技能 / 代理 / MCP server）
  * 是平台中性的，只有一份真值 —— 放在包根的 `plugin/`。本构造器把它生成到 cc 树的安装位置，
  * dsh 侧的同名构造器生成到它自己的位置。**两侧都不再手改生成物。**
  *

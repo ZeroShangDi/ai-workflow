@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createBridgeClient } from '../../server/adapters/dsh/plugin/lib/bridge-client.js';
 import { createTurnReporter } from '../../server/adapters/dsh/plugin/index.js';
 import { createOps } from '../../server/adapters/dsh/plugin/lib/ops.js';
+import { listSkills } from '../../server/adapters/dsh/plugin/lib/assets.js';
 
 /**
  * AWF 的 DSH 插件 host 半侧（`dsh-plugin/`）—— P2-5a。
@@ -439,7 +440,7 @@ describe('插件 host 半侧 — op 表', () => {
     const r = await dispatch({ op: 'session.create', args: { projectRoot: '/p' } });
 
     expect(r.ok).toBe(true);
-    expect(r.result.skills.length).toBe(36);          // 36 个技能全部注册进本会话
+    expect(r.result.skills.slice().sort()).toEqual(listSkills().skills.map((s) => s.name).sort());
     expect(skills).toContain('awf-plan-norm');
     // 三个 cc 侧 agents/*.md 各自变成一个命名工具（文件名排序决定装配顺序）
     const expected = ['awf_monitor_probe', 'awf_monitor_repair', 'awf_worker'];

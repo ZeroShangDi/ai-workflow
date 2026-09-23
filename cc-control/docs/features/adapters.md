@@ -87,8 +87,8 @@ server/adapters/dsh/plugin/   ★ 唯一被安装的单元：一个**自包含**
                        tools/children、plan.launch、llm.oneshot；未实现的 op **显式失败**
   lib/{assets,commands,skills,agents,mcp}.js  包内资产 → 平台注册口的翻译层
   hooks/{hooks.json,index.js,turn-reporter.js,approval.js}  cc hook 点的等价订阅（声明表 + 实现）
-  commands/*.md        16 条命令（+description/hint frontmatter，DSH 强校验）
-  skills/<n>/SKILL.md  36 个技能（真实文件，非链接）
+  commands/*.md        命令资产（+description/hint frontmatter，DSH 强校验）
+  skills/<n>/SKILL.md  技能资产（真实文件，非链接）
   agents/*.md          3 个子 Agent 身份 → 三个 tool-subagent 实例（awf_worker / awf_monitor_*）
   mcp.json + mcp/      随包携带的 MCP server（含 mcp/_lib/ 的叶子依赖）
 ```

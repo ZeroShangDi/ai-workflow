@@ -23,7 +23,7 @@
 | 10 | Review API list/override/400/404 | 集成 | 验收 5 | 同上 |
 | 11 | override → 纠偏任务回流 + runLoop 拾取 | 集成 | 验收 5 | 同上 |
 | 12 | decisions.html 页面 + dashboard 入口 | 集成 | 验收 5 | 同上 |
-| 13 | 三插件注册一致性 | 集成/单元 | 验收 6 | `tests/unit/render-config.test.js` `plugin-config.test.js` |
+| 13 | 插件注册一致性 | 集成/单元 | 验收 6 | `tests/unit/render-config.test.js` `plugin-config.test.js` |
 | 14 | gate off 回归基线（旧路径不变） | 集成 | 验收 1/7 | `tests/integration/server.test.js` `decision-gate.test.js` |
 | 15 | 决策续跑（decisionResume）接入 run.js | 单元 | 验收 7 | `tests/unit/run-resume.test.js` |
 | 16 | 真 run 冒烟证据 | 冒烟 | 验收 7 | `sandbox/decision-smoke/smoke.cjs` → `smoke-evidence.json` |

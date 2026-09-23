@@ -41,11 +41,11 @@ describe('渲染器泛化回归 — 现有插件输出与提交基线一致', ()
   });
 });
 
-describe('渲染器泛化 — 新增任意第 3 dir 正确生成', () => {
+describe('渲染器泛化 — 新增任意 dir 正确生成', () => {
   const EXTRA = {
     dir: 'demo-plugin',
     name: 'ai-workflow-demo',
-    description: 'demo 领域插件（任意第 3 dir）',
+    description: 'demo 领域插件（任意 dir）',
     version: '0.1.0',
     keywords: ['demo'],
   };
@@ -55,7 +55,7 @@ describe('渲染器泛化 — 新增任意第 3 dir 正确生成', () => {
     const obj = JSON.parse(out);
     expect(obj).toEqual({
       name: 'ai-workflow-demo',
-      description: 'demo 领域插件（任意第 3 dir）',
+      description: 'demo 领域插件（任意 dir）',
       version: '0.1.0',
       author: { name: 'v-shangjunhao' },
       license: 'MIT',
@@ -64,7 +64,7 @@ describe('渲染器泛化 — 新增任意第 3 dir 正确生成', () => {
     expect(obj.hooks).toBeUndefined();
   });
 
-  it('新增第 3 dir 模拟 render 循环：仅引擎条目带 hooks，新条目不带', () => {
+  it('新增任意 dir 模拟 render 循环：仅引擎条目带 hooks，新条目不带', () => {
     const config = readPluginConfig(REPO);
     const plugins = [...config.marketplace.plugins, EXTRA];
     for (const p of plugins) {

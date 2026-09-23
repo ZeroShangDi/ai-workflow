@@ -31,8 +31,8 @@
 
 | # | 断言 | 依据 |
 |---|------|------|
-| 1 | 三插件均注册（core/code/decision） | `settings.plugins` 中以 `ai-workflow-` 开头的项 == 3 |
-| 2 | 三插件均 enabled | `settings.enabledPlugins[p] === true` |
+| 1 | 声明的插件均注册 | 项目 settings 中的插件集合与安装清单一致 |
+| 2 | 声明的插件均 enabled | `settings.enabledPlugins[p] === true` |
 | 3 | marketplace 指向仓库 plugin/ 且存在 | `extraKnownMarketplaces['ai-workflow-dev'].source.path` 存在 |
 | 4 | 项目级 .mcp.json 三个 server | `awf-state` / `awf-session` / `awf-oneshot` 齐 |
 | 5 | MCP server 均用存在的绝对路径 | `args[0]` 为绝对路径且 `fs.existsSync` |

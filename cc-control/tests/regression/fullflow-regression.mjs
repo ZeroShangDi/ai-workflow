@@ -1168,11 +1168,13 @@ async function caseInit() {
   const settingsPath = path.join(projectRoot, '.claude', 'settings.json');
   const mcpPath = path.join(projectRoot, '.mcp.json');
   const settings = readJson(settingsPath);
+  const declaredSettings = readJson(path.join(repo, 'server', 'adapters', 'cc', 'plugin', 'settings.json'));
   const mcp = readJson(mcpPath);
   const cfg = readJson(path.join(projectRoot, '.awf', 'config.json'));
 
   const plugins = settings?.plugins || [];
   const corePlugins = plugins.filter((x) => String(x).startsWith('ai-workflow-'));
+  const declaredPlugins = (declaredSettings.plugins || []).filter((x) => String(x).startsWith('ai-workflow-'));
   const marketplace = settings?.extraKnownMarketplaces?.['ai-workflow-dev'];
   const servers = Object.keys(mcp?.mcpServers || {});
   const argsOk = servers.every((n) => {
@@ -1198,8 +1200,8 @@ async function caseInit() {
     plugins: corePlugins,
     mcpServers: servers,
     checks: [
-      check('三插件均注册（core/code/decision）', corePlugins.length === 3, corePlugins.join(',')),
-      check('三插件均 enabled', corePlugins.every((p) => settings.enabledPlugins?.[p] === true)),
+      check('声明的插件均注册', JSON.stringify(corePlugins.slice().sort()) === JSON.stringify(declaredPlugins.slice().sort()), corePlugins.join(',')),
+      check('声明的插件均 enabled', declaredPlugins.every((p) => settings.enabledPlugins?.[p] === true)),
       check('marketplace 指向仓库 plugin/ 且存在', !!marketplace?.source?.path && fs.existsSync(marketplace.source.path), marketplace?.source?.path),
       check('项目级 .mcp.json 三个 server', servers.length === 3 && ['awf-state', 'awf-session', 'awf-oneshot'].every((n) => servers.includes(n)), servers.join(',')),
       check('MCP server 均用存在的绝对路径', argsOk),

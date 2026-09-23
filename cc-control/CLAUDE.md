@@ -18,16 +18,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 cc-control/
   package.json             # npm 包
 
-  plugin/                  # ★ 中性源（唯一手写 md 的家）：保持三插件包结构
+  plugin/                  # ★ 中性源（唯一手写 md 的家）：按插件包分目录
                            #   <包>/{commands,skills,agents,mcp}/ —— 平台中性的命令/技能/代理/MCP server
                            #   清单类（plugin.json/.mcp.json/hooks）不在源里，由 render-config.mjs 渲染
                            #   ⚠️ server/adapters/{cc,dsh}/plugin/ 下的同名目录是**构造产物**（gitignore，像 dist）：
                            #   改内容改这里，别改产物。构造：npm run build:plugin（test/build/pack 都会先跑）
 
-  server/adapters/cc/plugin/   # ★ CC 平台插件（.claude-plugin/marketplace.json 注册，三插件；含中性 md）
+  server/adapters/cc/plugin/   # ★ CC 平台插件（由 .claude-plugin/marketplace.json 注册；含中性 md）
     config.json            #   ★ 唯一配置源：engineDir / port / marketplace / mcpServers / hooks
                            #     （render-config.mjs 据此生成下方各注册文件）
-    settings.json          #   安装清单（本地注入源 / 全局安装源，含 core + decision + plugin-code）
+    settings.json          #   安装清单（本地注入源 / 全局安装源）
     core/                  #   引擎层插件 ai-workflow-core：MCP + hooks + 运行态命令技能（跨领域通用）
       plugin.json          #     插件声明（含 hooks）
       .mcp.json            #     3 个 MCP server 声明（相对路径）
@@ -164,7 +164,7 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 | `/w-ui-design` | 设计原型界面（UI 设计稿流程） |
 | `/w-ui-code` | 按原型设计稿实现静态页面 |
 
-## Skills（core / decision / plugin-code）
+## Skills
 
 ### core 插件（server/adapters/cc/plugin/core/skills/，命名空间 `ai-workflow-core`）
 
@@ -320,9 +320,9 @@ node scripts/render-config.mjs   # 仅渲染（build 的子集）
 | `server/server.cjs` | HTTP Session Server 装配根（/send, /cmd, /hook, /status, /run/*）— CLI 基础设施 |
 | `scripts/bootstrap.sh` | 启动 tmux session + claude（插件/hooks/MCP 走 settings.json 注册链路，不做渲染） |
 | `scripts/render-config.mjs` | 按 config.json marketplace.plugins 遍历生成各插件 plugin.json + marketplace + 引擎插件 mcp/hooks（单源），+ 沙箱文件；`--workdir` 模式供独立沙箱渲染 |
-| `plugin/` | ★ 插件内容的**中性源**（命令/技能/代理/MCP server，三插件包结构）。下两棵树的同名目录是构造产物，别手改 |
+| `plugin/` | ★ 插件内容的**中性源**（命令/技能/代理/MCP server，按插件包分目录）。下两棵树的同名目录是构造产物，别手改 |
 | `server/adapters/cc/build.cjs` | cc 侧构造器：`plugin/` → `server/adapters/cc/plugin/<包>/<内容目录>`（纯拷贝，一个字段不删） |
-| `server/adapters/dsh/build.cjs` | dsh 侧构造器：`plugin/` 三包拍平成一包 + 平台变换（`BODY_RULES`，临时规则待变量机制接管） |
+| `server/adapters/dsh/build.cjs` | dsh 侧构造器：`plugin/` 各包拍平成一包 + 平台变换（`BODY_RULES`，临时规则待变量机制接管） |
 | `server/adapters/cc/plugin/config.json` | ★ 唯一配置源（engineDir / port / marketplace / mcpServers / hooks） |
 | `server/adapters/cc/plugin/core/.mcp.json` | 引擎层插件 MCP 声明（3 servers，相对路径） |
 | `server/adapters/cc/plugin/core/hooks/hooks.json` | 引擎层插件 hooks（7 个，端口从 config 注入） |

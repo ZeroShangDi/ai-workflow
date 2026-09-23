@@ -13,7 +13,7 @@ import { readManifest, installHooks } from '../../server/adapters/dsh/plugin/hoo
  *
  * 这一层是把「cc 的 md 形态」翻成「DSH 的运行时注册」的地方，也是最容易悄悄错的地方
  * （少一个技能、白名单核不上、frontmatter 没解析出来都不会报错，只会静默少东西）。
- * 所以这里的断言以**数量 + 形状**为主：36 个技能、16 条命令、3 个命名代理，一个都不能少。
+ * 所以这里按目录实际资产逐条验证形状与注册结果，不维护会随插件扩展而漂移的总数。
  */
 
 describe('资产层：文本只在资产里，代码只做注册', () => {
@@ -120,7 +120,7 @@ describe('装配时机：运行期装配必须经 ctx.inject（F25）', () => {
     expect(state.registered).toEqual([]);                // 没有抢跑（抢跑＝真机上恒为空）
 
     state.pending.forEach((cb) => cb(ctx));              // 服务就绪后
-    expect(state.registered).toHaveLength(16);           // 16 条命令全注册上
+    expect(state.registered.map((d) => d.name).sort()).toEqual(listCommands().map((d) => d.name).sort());
   });
 
   it('没有 awfBase 时完全不装配（明确告警，不是静默半装）', async () => {
@@ -160,9 +160,9 @@ describe('assets：frontmatter 解析', () => {
 });
 
 describe('assets：包内资产清单', () => {
-  it('16 条命令，每条都有 description/hint 与非空正文', () => {
+  it('全部命令都有 description/hint 与非空正文', () => {
     const cmds = listCommands();
-    expect(cmds).toHaveLength(16);
+    expect(cmds.length).toBeGreaterThan(0);
     for (const c of cmds) {
       expect(c.description, `${c.name} 缺 description`).toBeTruthy();
       expect(c.hint, `${c.name} 缺 hint`).toBeTruthy();
@@ -171,10 +171,10 @@ describe('assets：包内资产清单', () => {
     expect(cmds.map((c) => c.name)).toContain('w-plan');
   });
 
-  it('36 个技能，全部带 name/description（DSH 会忽略缺这两项的文件 → 这里不能有跳过）', () => {
+  it('全部技能带 name/description（DSH 会忽略缺这两项的文件 → 这里不能有跳过）', () => {
     const { skills, skipped } = listSkills();
     expect(skipped).toEqual([]);
-    expect(skills).toHaveLength(36);
+    expect(skills.length).toBeGreaterThan(0);
     for (const s of skills) {
       expect(s.description.length, `${s.name} description 太短`).toBeGreaterThan(5);
       expect(s.body.length, `${s.name} 正文为空`).toBeGreaterThan(50);
@@ -230,7 +230,7 @@ describe('commands：注册与注入', () => {
       effect: (fn) => fn(),
     };
     const r = registerCommands(ctx, { log: () => {} });
-    expect(r.registered).toHaveLength(16);
+    expect(r.registered.sort()).toEqual(listCommands().map((d) => d.name).sort());
     expect(r.skipped).toEqual([]);
     const plan = registered.find((d) => d.name === 'w-plan');
     expect(plan.description).toContain('主规划流程');
@@ -241,7 +241,7 @@ describe('commands：注册与注入', () => {
   it('commands 服务不可用 → 一条不注册并回报（不静默少命令）', () => {
     const r = registerCommands({ get: () => undefined }, { log: () => {} });
     expect(r.registered).toEqual([]);
-    expect(r.skipped).toHaveLength(16);
+    expect(r.skipped.slice().sort()).toEqual(listCommands().map((d) => d.name).sort());
   });
 
   it('注入正文 = 命令正文 + 本次输入；无输入时用 md 声明的 empty-input 提示', () => {
@@ -273,7 +273,7 @@ describe('skills：会话级注册', () => {
     const seen = [];
     const agentCtx = { get: (n) => (n === 'skills' ? { register: (s) => { seen.push(s); return () => {}; } } : undefined) };
     const r = registerSkills(agentCtx, { log: () => {} });
-    expect(r.registered).toHaveLength(36);
+    expect(r.registered.sort()).toEqual(listSkills().skills.map((s) => s.name).sort());
     expect(r.failed).toEqual([]);
     const wbs = seen.find((s) => s.name === 'awf-plan-wbs');
     expect(wbs.content.length).toBeGreaterThan(50);

@@ -56,7 +56,7 @@ awf attach               # 实时观看 AI 工作
 |------|------|
 | `cli/` | CLI（7 命令：init / plan / run / plugin / server / open / attach） |
 | `server/` | Session Server + run 宿主（web 面 / run 编排 / features 能力 / runtime 骨架 / shared 原语 / adapters cc 接入） |
-| `plugin/` | 插件市场（三插件：core / decision / plugin-code — 命令 + 技能 + MCP + hooks） |
+| `plugin/` | 插件市场的中性源（命令 + 技能 + MCP + hooks） |
 | `scripts/` | 开发脚本（bootstrap / render-config / lint / build / eval） |
 | `tests/` | unit / integration / e2e（全真用例集）/ regression / fixtures |
 | `web/` | 看板前端（React + Vite，构建产物落 `server/web/public`） |

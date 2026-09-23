@@ -48,9 +48,9 @@ expand 模式下入口正文**取自插件的 `commands/w-plan.md`** —— 以�
 ## 3. 目录对照
 
 ```
-cc/plugin/{core,plugin-code,decision}/     dsh/plugin/
-  core/commands/*.md              ────────►  commands/*.md          （16 条；多了 description/hint frontmatter）
-  core/skills/<n>/SKILL.md        ────────►  skills/<n>/SKILL.md    （36 个，真实文件）
+cc/plugin/<包>/                            dsh/plugin/
+  */commands/*.md                  ────────►  commands/*.md          （多了 description/hint frontmatter）
+  */skills/<n>/SKILL.md            ────────►  skills/<n>/SKILL.md    （真实文件）
   plugin-code/skills/...          ────────►  （同上，同构）
   core/agents/*.md                ────────►  agents/*.md            （3 个）
   core/mcp/*/server.cjs           ────────►  mcp/*/server.cjs       （随包携带 + mcp.json 声明）
@@ -58,7 +58,7 @@ cc/plugin/{core,plugin-code,decision}/     dsh/plugin/
   （无）                          ────────►  lib/*.js                （装配与平台操作，不属于「资产」）
 ```
 
-三平台插件（core / decision / plugin-code）在 DSH 侧**合并成一个包** —— DSH 的安装单元是
+CC 市场里的插件在 DSH 侧**合并成一个包** —— DSH 的安装单元是
 「一个 profile 里的一行」，不是一个市场。技能名与命令名保持与 cc 一致（只有命令名去掉命名空间）。
 
 ## 4. 为什么「link 一个文件夹」在这儿只能落成「拷一个文件夹」
@@ -142,8 +142,8 @@ ctx.inject(['commands'], (commandCtx) => registerCommands(commandCtx, { log }));
 `tests/unit/dsh-plugin-assets.test.js` 有一条回归断言钉死这个形态：apply 期间命令一条都不许注册，
 只能交给 inject 回调。
 
-技能为什么不挂全局：`$DSH_HOME/skills` 是全局技能根（rank 400），把 36 个 AWF 工作流技能
-铺进去，会让用户**自己开的每个 DSH 会话**的提示词里多 36 条无关技能，还会 first-wins
+技能为什么不挂全局：`$DSH_HOME/skills` 是全局技能根（rank 400），把全部 AWF 工作流技能
+铺进去，会让用户**自己开的每个 DSH 会话**的提示词里出现无关技能，还会 first-wins
 抢掉用户同名技能。会话级注册只影响 `awf plan` / `awf run` 自己建的会话。
 
 顺带的后果（与 cc 一致，不是缺陷）：**worker 子会话看不到这些技能** —— 子会话由平台内部
@@ -174,13 +174,13 @@ create，没有它的 setup 窗口。cc 侧同样如此（`awf-worker` 的 `tool
 源与构造器都上线了。**内容只有一份真值**：包根的 `plugin/`。
 
 ```
-plugin/                                   ← 中性源（唯一手写 md 的家），保持**三插件包结构**
+plugin/                                   ← 中性源（唯一手写 md 的家），按插件包分目录
   core/{commands,skills,agents,mcp}/         清单类（plugin.json/.mcp.json/hooks）不在源里
   decision/skills/                           —— 那些由 render-config.mjs 从 config.json 渲染
   plugin-code/{commands,skills}/
 
-server/adapters/cc/build.cjs   → server/adapters/cc/plugin/<包>/<内容目录>/   遍历三包，**纯拷贝**
-server/adapters/dsh/build.cjs  → server/adapters/dsh/plugin/<内容目录>/       三包**拍平**，带变换
+server/adapters/cc/build.cjs   → server/adapters/cc/plugin/<包>/<内容目录>/   遍历各包，**纯拷贝**
+server/adapters/dsh/build.cjs  → server/adapters/dsh/plugin/<内容目录>/       各包**拍平**，带变换
 ```
 
 产物目录像 `dist`：**gitignore，由 `npm run build:plugin` 生成**（`pretest` / `prebuild` / `prepack` 都会先跑，
@@ -213,7 +213,7 @@ cc 侧**一个字段都不删**（`cc/build.cjs` 就是纯拷贝）。依据是�
 | 代理引用 | `subagent_type: ai-workflow-core:awf-worker` | 工具名 `awf_worker` |
 | 交互工具 | `AskUserQuestion` / `Skill 工具` | `ask_user_question` / `skill 工具` |
 | 派生工具措辞 | `Agent 工具` | `subagent 工具`（代理身份里写实成 `awf_worker 工具`） |
-| 插件切分 | 三个插件（core / decision / plugin-code） | 一个包（DSH 安装单元是一条 patch 行） |
+| 插件切分 | 多个市场插件 | 一个包（DSH 安装单元是一条 patch 行） |
 | 代理 max-depth | 无 | frontmatter 加 `max-depth: 0`（DSH 侧平台配置） |
 | MCP server | 原样 | 改写包外 require（`store-core`/`task-graph` → `mcp/_lib/`），去掉 cc 专有的 `awf-oneshot` |
 
