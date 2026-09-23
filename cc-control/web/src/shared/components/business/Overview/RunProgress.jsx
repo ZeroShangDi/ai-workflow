@@ -1,4 +1,4 @@
-import Badge from '../StatusBadge/index.jsx';
+import Badge from '@/shared/components/business/StatusBadge/index.jsx';
 export default function RunProgress({ run, done, tasks, data }) {
   return (
     <section className="run-progress">

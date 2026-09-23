@@ -1,4 +1,4 @@
-import { getRoute } from './routes.js';
+import { getRoute } from '@/app/routes.js';
 export function readRoute(location) {
   const params = new URLSearchParams(location.search);
   const view =

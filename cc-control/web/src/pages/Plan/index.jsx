@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { API } from '../../shared/api/index.js';
-import { useAction } from '../../shared/hooks/useAction.js';
-import '../../shared/components/business/workflow.css';
+import { API } from '@/shared/api/index.js';
+import { useAction } from '@/shared/hooks/useAction.js';
+import '@/shared/components/business/workflow.css';
 function Draft({ plan, busy, action }) {
   const [summary, setSummary] = useState(plan.summary),
     [tasks, setTasks] = useState(plan.tasks);

@@ -1,9 +1,9 @@
-import { API } from '../../../shared/api/index.js';
+import { API } from '@/shared/api/index.js';
 // web/src/views/WbsTree.jsx — WBS-Tree 视图（WBS 可交付空间树 + 任务状态标注）。
 // T1-090：替代 open tree CLI 渲染；经 server api GET /awf/state（{ wbs, tasks }）驱动，轮询 + WS 刷新。
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createApiClient } from '../../../shared/lib/http.js';
-import { buildWbsTree } from '../model.js';
+import { createApiClient } from '@/shared/lib/http.js';
+import { buildWbsTree } from '@/pages/WbsTree/model.js';
 const GLYPH = {
   done: '✓',
   active: '●',

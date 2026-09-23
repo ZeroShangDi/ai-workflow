@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import ProjectPicker from '../../../shared/components/business/ProjectPicker.jsx';
-import { projectName as name } from '../../../shared/lib/project.js';
-import { Button } from '../../../shared/components/ui/index.js';
+import ProjectPicker from '@/shared/components/business/ProjectPicker.jsx';
+import { projectName as name } from '@/shared/lib/project.js';
+import { Button } from '@/shared/components/ui/index.js';
 export default function Sidebar({ open, setOpen, projects, project, setProject, error, client }) {
   const sidebar = useRef(null);
   const [adding, setAdding] = useState(false);

@@ -1,7 +1,7 @@
-import { reviewResultMessage } from '../../../shared/components/business/ReviewRecord/model.js';
-import { useRecordSelection } from '../../../shared/hooks/useRecordSelection.js';
-import { useAction } from '../../../shared/hooks/useAction.js';
-import { API } from '../../../shared/api/index.js';
+import { reviewResultMessage } from '@/shared/components/business/ReviewRecord/model.js';
+import { useRecordSelection } from '@/shared/hooks/useRecordSelection.js';
+import { useAction } from '@/shared/hooks/useAction.js';
+import { API } from '@/shared/api/index.js';
 export function useDynamicReviewPage({ data, client, refresh }) {
   const selection = useRecordSelection(data.proposals?.proposals || [], e => e.proposalId);
   const operation = useAction(client, refresh, reviewResultMessage);

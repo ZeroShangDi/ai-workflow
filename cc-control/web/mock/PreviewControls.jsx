@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import './preview.css';
-import { THEMES, applyTheme, readTheme } from '../src/shared/theme/index.js';
+import { THEMES, applyTheme, readTheme } from '@/shared/theme/index.js';
 export default function PreviewControls({ mock }) {
   const [clockRunning, setClockRunning] = useState(true);
   const [expanded, setExpanded] = useState(window.innerWidth >= 1024);

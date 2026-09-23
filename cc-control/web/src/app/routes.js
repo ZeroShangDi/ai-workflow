@@ -5,14 +5,14 @@ export const ROUTES = [
     label: '项目',
     icon: 'tasks',
     reads: ['workspace'],
-    load: () => import('../pages/Project/index.jsx'),
+    load: () => import('@/pages/Project/index.jsx'),
   },
   {
     key: 'plan',
     label: 'Plan',
     icon: 'tasks',
     reads: ['workspace', 'state'],
-    load: () => import('../pages/Plan/index.jsx'),
+    load: () => import('@/pages/Plan/index.jsx'),
   },
   {
     key: 'run',
@@ -20,28 +20,28 @@ export const ROUTES = [
     icon: 'run',
     reads: ['state', 'conversation', 'sourceLog'],
     snapshot: true,
-    load: () => import('../pages/Run/index.jsx'),
+    load: () => import('@/pages/Run/index.jsx'),
   },
   {
     key: 'tasks',
     label: '任务',
     icon: 'tasks',
     reads: ['state'],
-    load: () => import('../pages/Tasks/index.jsx'),
+    load: () => import('@/pages/Tasks/index.jsx'),
   },
   {
     key: 'decisions',
     label: '决策',
     icon: 'decisions',
     reads: ['decisions'],
-    load: () => import('../pages/Decisions/index.jsx'),
+    load: () => import('@/pages/Decisions/index.jsx'),
   },
   {
     key: 'reviews',
     label: '动态复审',
     icon: 'reviews',
     reads: ['proposals'],
-    load: () => import('../pages/DynamicReview/index.jsx'),
+    load: () => import('@/pages/DynamicReview/index.jsx'),
   },
   {
     key: 'logs',
@@ -49,21 +49,21 @@ export const ROUTES = [
     icon: 'logs',
     reads: [],
     snapshot: true,
-    load: () => import('../pages/Logs/index.jsx'),
+    load: () => import('@/pages/Logs/index.jsx'),
   },
   {
     key: 'diagnostics',
     label: '诊断',
     hidden: true,
     reads: [],
-    load: () => import('../pages/Diagnostics/index.jsx'),
+    load: () => import('@/pages/Diagnostics/index.jsx'),
   },
   {
     key: 'wbs-tree',
     label: 'WBS',
     hidden: true,
     reads: [],
-    load: () => import('../pages/WbsTree/index.jsx'),
+    load: () => import('@/pages/WbsTree/index.jsx'),
   },
   // 三个 CLI 入口页（U4：先做空页面）。`awf open dashboard|tree|ui` 打开的就是它们。
   // 为什么要显式登记：路由表里没有这三个 key 时，`readRoute` 会**静默回退到第一页（项目）**——
@@ -74,7 +74,7 @@ export const ROUTES = [
     hidden: true,
     reads: [],
     placeholder: true,
-    load: () => import('../pages/Placeholder/index.jsx'),
+    load: () => import('@/pages/Placeholder/index.jsx'),
   },
   {
     key: 'tree',
@@ -82,7 +82,7 @@ export const ROUTES = [
     hidden: true,
     reads: [],
     placeholder: true,
-    load: () => import('../pages/Placeholder/index.jsx'),
+    load: () => import('@/pages/Placeholder/index.jsx'),
   },
   {
     key: 'ui',
@@ -90,7 +90,7 @@ export const ROUTES = [
     hidden: true,
     reads: [],
     placeholder: true,
-    load: () => import('../pages/Placeholder/index.jsx'),
+    load: () => import('@/pages/Placeholder/index.jsx'),
   },
 ];
 // Both platform route sets live here; the first page is the fallback route.

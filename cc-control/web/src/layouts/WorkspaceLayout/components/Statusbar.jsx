@@ -1,4 +1,4 @@
-import { label } from '../../../shared/lib/format.js';
+import { label } from '@/shared/lib/format.js';
 export default function Statusbar({ project, run, data, errors }) {
   return (
     <footer className="statusbar">

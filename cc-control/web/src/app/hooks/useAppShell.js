@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createApiClient } from '../../shared/lib/http.js';
-import { API } from '../../shared/api/index.js';
-import { usePolling } from '../../shared/hooks/usePolling.js';
-import { getViews } from '../routes.js';
-import { readRoute, routeUrl } from '../router.js';
-import { useHostContext, resolveProject } from '../../shared/context.js';
+import { createApiClient } from '@/shared/lib/http.js';
+import { API } from '@/shared/api/index.js';
+import { usePolling } from '@/shared/hooks/usePolling.js';
+import { getViews } from '@/app/routes.js';
+import { readRoute, routeUrl } from '@/app/router.js';
+import { useHostContext, resolveProject } from '@/shared/context.js';
 
 export function useAppShell() {
   const context = useHostContext();

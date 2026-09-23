@@ -1,4 +1,4 @@
-import { Button, Input, Textarea } from '../../../../shared/components/ui/index.js';
+import { Button, Input, Textarea } from '@/shared/components/ui/index.js';
 export default function DynamicReviewActions({
   approvable,
   recoverable,

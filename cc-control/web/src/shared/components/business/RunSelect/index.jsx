@@ -1,5 +1,5 @@
-import { label } from '../../../lib/format.js';
-import { Select } from '../../ui/index.js';
+import { label } from '@/shared/lib/format.js';
+import { Select } from '@/shared/components/ui/index.js';
 export default function RunSelect({ runs, selectedRunId, setRunId }) {
   return (
     <Select

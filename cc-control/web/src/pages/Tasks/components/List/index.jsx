@@ -1,14 +1,9 @@
-import {
-  Button,
-  Input,
-  Select,
-  EmptyState as Empty,
-} from '../../../../shared/components/ui/index.js';
-import Icon from '../../../../shared/components/ui/Icon/index.jsx';
-import Badge from '../../../../shared/components/business/StatusBadge/index.jsx';
-import { API } from '../../../../shared/api/index.js';
-import { label, TASK_STATUSES } from '../../../../shared/lib/format.js';
-import { TASK_SOURCES, sourceOf, sourceShort, sourceLabel } from '../../model.js';
+import { Button, Input, Select, EmptyState as Empty } from '@/shared/components/ui/index.js';
+import Icon from '@/shared/components/ui/Icon/index.jsx';
+import Badge from '@/shared/components/business/StatusBadge/index.jsx';
+import { API } from '@/shared/api/index.js';
+import { label, TASK_STATUSES } from '@/shared/lib/format.js';
+import { TASK_SOURCES, sourceOf, sourceShort, sourceLabel } from '@/pages/Tasks/model.js';
 export default function TaskList({
   tasks,
   done,

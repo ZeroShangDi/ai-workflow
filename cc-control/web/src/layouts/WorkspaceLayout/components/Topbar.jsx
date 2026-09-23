@@ -1,5 +1,5 @@
-import { projectName as name } from '../../../shared/lib/project.js';
-import { Button } from '../../../shared/components/ui/index.js';
+import { projectName as name } from '@/shared/lib/project.js';
+import { Button } from '@/shared/components/ui/index.js';
 export default function Topbar({ open, setOpen, project, view, views }) {
   return (
     <header className="topbar">

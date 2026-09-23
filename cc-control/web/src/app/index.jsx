@@ -1,6 +1,6 @@
-import '../shared/styles/index.css';
+import '@/shared/styles/index.css';
 import { useAppShell } from './hooks/useAppShell.js';
-import WorkspaceLayout from '../layouts/WorkspaceLayout/index.jsx';
+import WorkspaceLayout from '@/layouts/WorkspaceLayout/index.jsx';
 import Workspace from './Workspace.jsx';
 export default function App() {
   const shell = useAppShell();

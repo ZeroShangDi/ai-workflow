@@ -1,4 +1,4 @@
-import { Button, Input } from '../../../../shared/components/ui/index.js';
+import { Button, Input } from '@/shared/components/ui/index.js';
 export default function LogControls({ source, search, setSearch, setSource, filtered }) {
   return (
     <>

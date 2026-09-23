@@ -1,4 +1,4 @@
-import { ICONS } from '../../../assets/index.js';
+import { ICONS } from '@/shared/assets/index.js';
 export default function Icon({ name, className = '' }) {
   return (
     <img

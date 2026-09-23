@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { API } from '../../api/index.js';
+import { API } from '@/shared/api/index.js';
 import { createPortal } from 'react-dom';
 import './workflow.css';
 export default function ProjectPicker({ client, onOpened, onClose }) {

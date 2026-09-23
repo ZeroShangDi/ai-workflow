@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 
 // awf web 前端（Vite + React）
+// - 别名 `@` → web/src：源码里不再出现 ../../ 这种相对路径。Node 侧（node --test）
+//   由 scripts/alias-loader.mjs 提供同一别名，两处必须保持一致。
 // - build：产物输出到 server 静态托管目录 server/web/public（server root/资产由此承载，见 server.cjs T1-093）
 // - dev：vite dev 代理 api + WS 到 cc-control Session Server（端口单源经 env，缺省 8787）。
 //   同源访问时（浏览器里 base 用相对路径/经 server 承载）无需代理；dev 起 5173 时需把 /run /awf /api 等转发。
@@ -30,6 +33,9 @@ const WS_PREFIXES = ['/run', '/awf', '/api']; // 含 WS 升级的端点（/run/e
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   build: {
     outDir: '../server/web/public', // T1-093：产物落 server 托管目录（server.cjs 静态承载 React）
     emptyOutDir: true,

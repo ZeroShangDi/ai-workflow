@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { display } from '../../../shared/lib/format.js';
-import { sourceOf } from '../model.js';
+import { display } from '@/shared/lib/format.js';
+import { sourceOf } from '@/pages/Tasks/model.js';
 export function useTasksPage(data) {
   const tasks = data.state?.tasks || [];
   const [filter, setFilter] = useState('all'),

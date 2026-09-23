@@ -1,2 +1,2 @@
 // Compatibility entry for existing tests.
-export * from '../shared/lib/legacy/decisions-model.js';
+export * from '@/shared/lib/legacy/decisions-model.js';

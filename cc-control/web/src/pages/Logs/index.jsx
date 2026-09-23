@@ -1,5 +1,5 @@
 import './styles.css';
-import { SplitPane } from '../../shared/components/ui/index.js';
+import { SplitPane } from '@/shared/components/ui/index.js';
 import { useLogsPage } from './hooks/useLogsPage.js';
 import LogOutput from './components/Output/index.jsx';
 import LogControls from './components/Controls/index.jsx';

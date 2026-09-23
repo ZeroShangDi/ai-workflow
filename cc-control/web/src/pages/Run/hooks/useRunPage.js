@@ -1,6 +1,6 @@
-import { API } from '../../../shared/api/index.js';
+import { API } from '@/shared/api/index.js';
 import { useEffect, useRef, useState } from 'react';
-import { useAction } from '../../../shared/hooks/useAction.js';
+import { useAction } from '@/shared/hooks/useAction.js';
 export function useRunPage(props) {
   const { data, client, refresh, events } = props;
   const tasks = data.state?.tasks || [],

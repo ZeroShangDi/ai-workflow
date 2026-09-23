@@ -1,6 +1,6 @@
-import { EmptyState as Empty, DetailField as Field } from '../../ui/index.js';
-import Badge from '../StatusBadge/index.jsx';
-import { display } from '../../../lib/format.js';
+import { EmptyState as Empty, DetailField as Field } from '@/shared/components/ui/index.js';
+import Badge from '@/shared/components/business/StatusBadge/index.jsx';
+import { display } from '@/shared/lib/format.js';
 export default function ReviewRecordDetail({ item, id, titleOf, children, message }) {
   return (
     <>

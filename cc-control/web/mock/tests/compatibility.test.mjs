@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMockServer } from '../server.js';
 import { PROJECT_ROOTS } from '../fixtures.js';
-import { API } from '../../src/shared/api/index.js';
-import { routeUrl, readRoute } from '../../src/app/router.js';
-import { createApiClient } from '../../src/shared/lib/http.js';
+import { API } from '@/shared/api/index.js';
+import { routeUrl, readRoute } from '@/app/router.js';
+import { createApiClient } from '@/shared/lib/http.js';
 const url = path => {
   const u = new URL(path, 'http://mock');
   u.searchParams.set('p', PROJECT_ROOTS[0]);
@@ -106,7 +106,7 @@ test('remaining writes: start, reply, interrupt, override, resolve, diagnosis', 
     'conflicted',
   );
 });
-import { matrixCells } from '../../src/shared/components/business/Overview/model.js';
+import { matrixCells } from '@/shared/components/business/Overview/model.js';
 test('matrix bounds cells and preserves all task counts including aggregates', () => {
   for (const tasks of [
     Array.from({ length: 30 }, (_, i) => ({ id: i, status: 'active' })),

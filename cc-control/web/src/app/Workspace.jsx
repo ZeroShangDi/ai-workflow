@@ -1,9 +1,9 @@
 import { useWorkspace } from './hooks/useWorkspace.js';
-import Statusbar from '../layouts/WorkspaceLayout/components/Statusbar.jsx';
-import { Button } from '../shared/components/ui/index.js';
+import Statusbar from '@/layouts/WorkspaceLayout/components/Statusbar.jsx';
+import { Button } from '@/shared/components/ui/index.js';
 import { lazy, Suspense } from 'react';
 import { ROUTES, getRoute } from './routes.js';
-import ErrorBoundary from '../shared/components/ui/ErrorBoundary.jsx';
+import ErrorBoundary from '@/shared/components/ui/ErrorBoundary.jsx';
 const pages = Object.fromEntries(ROUTES.map(route => [route.key, lazy(route.load)]));
 export default function Workspace({ project, view, runId, setRunId, setView, connectionError }) {
   const workspace = useWorkspace(project, view);

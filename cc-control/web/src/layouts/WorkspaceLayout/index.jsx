@@ -1,5 +1,5 @@
 import './styles.css';
-import { Button } from '../../shared/components/ui/index.js';
+import { Button } from '@/shared/components/ui/index.js';
 import Sidebar from './components/Sidebar.jsx';
 import Topbar from './components/Topbar.jsx';
 import ViewRail from './components/ViewRail.jsx';

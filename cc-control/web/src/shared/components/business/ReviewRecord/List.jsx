@@ -1,7 +1,7 @@
-import SegmentedControl from '../../ui/SegmentedControl/index.jsx';
-import { Button, EmptyState as Empty } from '../../ui/index.js';
-import Badge from '../StatusBadge/index.jsx';
-import { display, label, formatTime } from '../../../lib/format.js';
+import SegmentedControl from '@/shared/components/ui/SegmentedControl/index.jsx';
+import { Button, EmptyState as Empty } from '@/shared/components/ui/index.js';
+import Badge from '@/shared/components/business/StatusBadge/index.jsx';
+import { display, label, formatTime } from '@/shared/lib/format.js';
 export default function ReviewRecordList({
   title,
   emptyLabel,

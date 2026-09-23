@@ -1,7 +1,7 @@
 import './styles.css';
-import { Button, Textarea } from '../../../../shared/components/ui/index.js';
-import Badge from '../../../../shared/components/business/StatusBadge/index.jsx';
-import { display } from '../../../../shared/lib/format.js';
+import { Button, Textarea } from '@/shared/components/ui/index.js';
+import Badge from '@/shared/components/business/StatusBadge/index.jsx';
+import { display } from '@/shared/lib/format.js';
 export default function RunComposer({
   run,
   cancelRun,

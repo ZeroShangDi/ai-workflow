@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { display, formatTime } from '../../../shared/lib/format.js';
+import { display, formatTime } from '@/shared/lib/format.js';
 export function useLogsPage(props) {
   const { events, data, runId } = props;
   const [source, setSource] = useState('run'),

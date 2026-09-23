@@ -1,10 +1,7 @@
-import { API } from '../../../../shared/api/index.js';
-import {
-  EmptyState as Empty,
-  DetailField as Field,
-} from '../../../../shared/components/ui/index.js';
-import Badge from '../../../../shared/components/business/StatusBadge/index.jsx';
-import { sourceOf, sourceLabel, gateOf } from '../../model.js';
+import { API } from '@/shared/api/index.js';
+import { EmptyState as Empty, DetailField as Field } from '@/shared/components/ui/index.js';
+import Badge from '@/shared/components/business/StatusBadge/index.jsx';
+import { sourceOf, sourceLabel, gateOf } from '@/pages/Tasks/model.js';
 export default function TaskDetail({ task, action, busy }) {
   if (!task) return <Empty>选择任务查看详情</Empty>;
   const gate = sourceOf(task) === 'gate_fix' ? gateOf(task) : null;

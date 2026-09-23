@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readHostContext, acceptHostMessage, resolveProject } from '../src/shared/context.js';
-import { getViews, getRoutes, ROUTES } from '../src/app/routes.js';
-import { routeUrl, readRoute } from '../src/app/router.js';
+import { readHostContext, acceptHostMessage, resolveProject } from '@/shared/context.js';
+import { getViews, getRoutes, ROUTES } from '@/app/routes.js';
+import { routeUrl, readRoute } from '@/app/router.js';
 
 test('DSH identity stays separate from project path and run identity', () => {
   const context = readHostContext({ search: '?mode=dsh&pid=workspace-1&sid=session-2&p=/wrong' });

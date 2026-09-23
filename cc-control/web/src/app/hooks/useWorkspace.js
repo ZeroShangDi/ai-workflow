@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { API } from '../../shared/api/index.js';
-import { createApiClient } from '../../shared/lib/http.js';
-import { mergeEvents } from '../../shared/lib/events.js';
-import { usePolling } from '../../shared/hooks/usePolling.js';
-import { getRoute } from '../routes.js';
+import { API } from '@/shared/api/index.js';
+import { createApiClient } from '@/shared/lib/http.js';
+import { mergeEvents } from '@/shared/lib/events.js';
+import { usePolling } from '@/shared/hooks/usePolling.js';
+import { getRoute } from '@/app/routes.js';
 
 export function useWorkspace(project, view = 'run') {
   const client = useMemo(() => createApiClient({ project }), [project]);

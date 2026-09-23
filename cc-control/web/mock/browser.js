@@ -1,5 +1,5 @@
 import { createMockServer } from './server.js';
-import { configureTransport } from '../src/shared/lib/transport.js';
+import { configureTransport } from '@/shared/lib/transport.js';
 
 export function startMock() {
   const scenario = new URLSearchParams(location.search).get('scenario') || 'demo';

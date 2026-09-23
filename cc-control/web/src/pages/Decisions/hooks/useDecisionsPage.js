@@ -1,8 +1,8 @@
-import { reviewResultMessage } from '../../../shared/components/business/ReviewRecord/model.js';
-import { aggregateDecisions } from '../model.js';
-import { useRecordSelection } from '../../../shared/hooks/useRecordSelection.js';
-import { useAction } from '../../../shared/hooks/useAction.js';
-import { API } from '../../../shared/api/index.js';
+import { reviewResultMessage } from '@/shared/components/business/ReviewRecord/model.js';
+import { aggregateDecisions } from '@/pages/Decisions/model.js';
+import { useRecordSelection } from '@/shared/hooks/useRecordSelection.js';
+import { useAction } from '@/shared/hooks/useAction.js';
+import { API } from '@/shared/api/index.js';
 export function useDecisionsPage({ data, client, refresh }) {
   const entries = aggregateDecisions(data.decisions?.decisions || []);
   const selection = useRecordSelection(entries, e => e.key);

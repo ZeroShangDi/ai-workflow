@@ -1,16 +1,16 @@
-import { Button } from '../../../shared/components/ui/index.js';
-import { API } from '../../../shared/api/index.js';
+import { Button } from '@/shared/components/ui/index.js';
+import { API } from '@/shared/api/index.js';
 // web/src/views/Diagnostics.jsx — Diagnostics 视图（诊断触发 + 展示：指标快照 / AI 诊断结论 / Token / 覆盖范围）。
 // T1-089：经 server api（GET /awf/metrics + GET /awf/diagnostics，POST /awf/diagnostics 触发诊断）驱动，轮询刷新。
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createApiClient } from '../../../shared/lib/http.js';
+import { createApiClient } from '@/shared/lib/http.js';
 import {
   toDiagnosticsModel,
   fmtTokens,
   fmtDuration,
   statusLabel,
   severityLabel,
-} from '../model.js';
+} from '@/pages/Diagnostics/model.js';
 export default function Diagnostics({ sid, project } = {}) {
   const client = useMemo(
     () =>

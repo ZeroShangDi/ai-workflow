@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import RunSelect from '../../../../shared/components/business/RunSelect/index.jsx';
-import { display, label, formatTime } from '../../../../shared/lib/format.js';
-import '../../../../shared/components/business/workflow.css';
+import RunSelect from '@/shared/components/business/RunSelect/index.jsx';
+import { display, label, formatTime } from '@/shared/lib/format.js';
+import '@/shared/components/business/workflow.css';
 export default function RunOutput({ data, output, setFollow, events, runId, ...selection }) {
   const [source, setSource] = useState('conversation');
   return (

@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint src mock --ext .js,.jsx",
     "dev:mock": "vite --mode mock --port 5174",
-    "test": "node --test tests/*.test.mjs mock/tests/*.test.mjs",
+    "test": "node --import ./scripts/alias-loader.mjs --test tests/*.test.mjs mock/tests/*.test.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

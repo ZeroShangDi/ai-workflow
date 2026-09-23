@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { API } from '../../shared/api/index.js';
-import { useAction } from '../../shared/hooks/useAction.js';
-import '../../shared/components/business/workflow.css';
+import { API } from '@/shared/api/index.js';
+import { useAction } from '@/shared/hooks/useAction.js';
+import '@/shared/components/business/workflow.css';
 export default function ProjectPage({ project, data, client, refresh }) {
   const [text, setText] = useState('');
   const { busy, message, action } = useAction(client, refresh);

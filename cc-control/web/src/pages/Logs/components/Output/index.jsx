@@ -1,5 +1,5 @@
-import { Button } from '../../../../shared/components/ui/index.js';
-import RunSelect from '../../../../shared/components/business/RunSelect/index.jsx';
+import { Button } from '@/shared/components/ui/index.js';
+import RunSelect from '@/shared/components/business/RunSelect/index.jsx';
 export default function LogOutput({
   source,
   follow,
