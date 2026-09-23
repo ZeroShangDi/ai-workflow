@@ -9,7 +9,7 @@
     "ai-workflow-dev": {
       "source": {
         "source": "directory",
-        "path": "<pkg>/plugin"
+        "path": "<pkg>/server/adapters/cc/plugin"
       }
     }
   }

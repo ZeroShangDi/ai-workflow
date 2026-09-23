@@ -26,8 +26,9 @@ describe('server · cc 项目配置注入（profile）', () => {
     const s = readSettings();
     expect(s.enabledPlugins['ai-workflow-core'] ?? s.enabledPlugins['ai-workflow-core@ai-workflow-dev']).toBe(true);
     const mpPath = s.extraKnownMarketplaces['ai-workflow-dev'].source.path;
-    expect(mpPath.endsWith('/plugin')).toBe(true);
+    expect(mpPath.endsWith('/server/adapters/cc/plugin')).toBe(true);
     expect(mpPath).not.toContain('<pkg>'); // 占位符已解析
+    expect(fs.existsSync(path.join(mpPath, '.claude-plugin', 'marketplace.json'))).toBe(true);
   });
 
   it('幂等：重复注入不产生重复项，也不覆盖项目已有配置', () => {

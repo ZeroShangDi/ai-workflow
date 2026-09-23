@@ -105,7 +105,8 @@ function main() {
   const pluginSettingsText = renderPluginSettings(settingsBase, marketplace);
   write(path.join(pluginRoot, 'settings.json'), pluginSettingsText);
   const pluginSettings = JSON.parse(pluginSettingsText);
-  write(path.join(repoRoot, '.claude', 'settings.json'), renderRepoSettings(pluginSettings, pluginRoot));
+  // renderRepoSettings 的第二参是“<pkg>/plugin”形态的根，用它反推出真实 <pkg>。
+  write(path.join(repoRoot, '.claude', 'settings.json'), renderRepoSettings(pluginSettings, path.join(repoRoot, 'plugin')));
 }
 
 main();
