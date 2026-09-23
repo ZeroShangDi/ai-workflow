@@ -10,6 +10,6 @@ export default function RunPage(props) {
       <RunOutput {...page} />
       <RunComposer {...page} />
     </section>
-    <RunOverview {...page} />
+    <aside className="detail-pane"><RunOverview {...page} /></aside>
   </div>);
 }

@@ -26,8 +26,9 @@ progress {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.run-overview {
-  padding: var(--cc-spacing-18);
+.overview-panel {
+  /* padding 不在这里：容器给（.detail-pane）—— 本组件既当右侧整栏（Run 页），
+     也当 SplitPane 的 detail 内容（任务页），自带 padding 会变成双层。 */
   display: flex;
   flex-direction: column;
   gap: var(--cc-spacing-16);
@@ -141,7 +142,7 @@ progress::-moz-progress-bar {
   line-height: var(--cc-type-caption-line);
 }
 @media (max-width:767px) {
-.run-overview {
+.overview-panel {
   overflow: visible;
 }
 }
@@ -150,6 +151,6 @@ progress::-moz-progress-bar {
   min-height: 190px;
 }
 }
-.run-overview>section {
+.overview-panel>section {
   flex-shrink: 0;
 }
