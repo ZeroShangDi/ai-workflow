@@ -3,10 +3,17 @@ small,
   color: var(--cc-color-text-secondary);
 }
 .split-view {
-  /* 右栏宽度唯一变量：默认取设计 token，窄屏收窄，用户拖动时由 SplitPane 写行内值覆盖 */
+  /* 右栏宽度唯一变量：默认取设计 token，窄屏由媒体查询收窄，用户拖动时由 SplitPane 写行内值覆盖。
+     真正的轨道宽度是下面这个 clamp()：容器装不下时自动收窄到 panel-min（左栏不挤爆），
+     装得下就用 --split-panel ——**存的值不动**，窗口再变宽就回到用户选的那个宽度。 */
   --split-panel: var(--cc-layout-panel-width);
+  --split-track: clamp(
+    var(--cc-layout-panel-min),
+    var(--split-panel),
+    calc(100% - var(--cc-layout-content-min))
+  );
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--split-panel);
+  grid-template-columns: minmax(0, 1fr) var(--split-track);
   flex: 1;
   min-height: 0;
   position: relative;
@@ -16,7 +23,8 @@ small,
   position: absolute;
   top: 0;
   bottom: 0;
-  right: var(--split-panel);
+  /* 与网格第二轨用**同一个** clamp()，否则收窄时把手会飘离分界线 */
+  right: var(--split-track);
   width: 9px;
   transform: translateX(50%);
   z-index: 1;

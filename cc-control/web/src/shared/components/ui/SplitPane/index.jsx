@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 // 右栏宽度记忆：**全局一份**（四个页面共用同一条分界线，在任一页拖过，其余页保持一致）。
 // 沿用 theme 的 localStorage 写法：私密模式下静默降级，存不下来不影响本次拖动。
@@ -32,7 +32,8 @@ function tokenPx(element, name, fallback) {
 
 /**
  * 夹到「右栏 ≥ panel-min、左栏 ≥ content-min」之间。
- * 放在组件外：拖动、键盘、窗口缩放三条路径共用同一份判据。
+ *
+ * **只在用户动作（拖动/键盘）时用**，不在窗口 resize 时用 —— 见文件末尾的说明。
  */
 function clampWidth(element, next) {
   if (!element) return next;
@@ -46,8 +47,16 @@ function clampWidth(element, next) {
  * 原先各页手抄的 `.split-view / .primary-pane / .detail-pane` 结构收在这里。
  *
  * 宽度**默认不接管** —— `width === null` 时不写行内样式，完全交给 CSS 与媒体查询
- * （≤1279px 收窄到 panel-min、≤767px 转纵向），改版前什么样现在就什么样。
- * 只有用户真拖过（或 localStorage 里有记忆）才固定一个像素宽度。
+ * （≤1279px 收窄到 panel-min、≤767px 转纵向）。只有用户真拖过才固定一个像素宽度。
+ *
+ * ## 为什么窗口变窄时不在 JS 里改宽度
+ * 最初这里是「窗口 resize → 用新容器宽重新夹一次 → 写回 state 与 localStorage」。
+ * 那是错的：**瞬时**的窄视口（拖动中的重排、无头截图、浏览器临时缩小）会把用户
+ * 记住的宽度永久改成下限，之后窗口变宽也回不来 —— 用户没做任何操作，偏好却没了。
+ *
+ * 现在「装不下」交给 CSS 的 `clamp()` 算（见 styles.css 的 `--split-panel`）：
+ * 渲染时自动收窄，**存的值一个字不动**，窗口变宽就回到用户选的那个宽度。
+ * 组件里只保留「用户动作产生的宽度必须落在可达区间内」这一条。
  *
  * @param {{ primary: React.ReactNode, detail: React.ReactNode }} props
  */
@@ -58,10 +67,10 @@ export default function SplitPane({ primary, detail }) {
   const [width, setWidth] = useState(readStoredWidth);
   const [dragging, setDragging] = useState(false);
 
-  /** 当前实际宽度：未接管时从 DOM 量 —— 拖动/键盘都从真实值起步，不从假定的默认值起步 */
+  /** 当前**实际**宽度：从 DOM 量。拖动/键盘都从渲染出来的值起步，不从存的值起步 */
   function currentWidth() {
-    if (width !== null) return width;
     if (detailPane.current) return detailPane.current.offsetWidth;
+    if (width !== null) return width;
     return tokenPx(host.current, '--cc-layout-panel-width', 392);
   }
 
@@ -126,21 +135,11 @@ export default function SplitPane({ primary, detail }) {
     return undefined;
   }
 
-  // 窗口变窄时把固定宽度收回来：行内宽度会盖住媒体查询，不夹的话左栏会被挤没
-  const pinned = width !== null;
-  useEffect(() => {
-    if (!pinned) return undefined;
-    const onResize = () =>
-      setWidth(current => (current === null ? current : clampWidth(host.current, current)));
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [pinned]);
-
   return (
     <div
       className={`split-view${dragging ? ' is-dragging' : ''}`}
       ref={host}
-      style={pinned ? { '--split-panel': `${width}px` } : undefined}>
+      style={width === null ? undefined : { '--split-panel': `${width}px` }}>
       <section className="primary-pane">{primary}</section>
       <aside className="detail-pane" ref={detailPane}>
         {detail}
@@ -150,7 +149,7 @@ export default function SplitPane({ primary, detail }) {
         role="separator"
         aria-orientation="vertical"
         aria-label="调整详情栏宽度"
-        aria-valuenow={pinned ? Math.round(width) : undefined}
+        aria-valuenow={width === null ? undefined : Math.round(width)}
         title="拖动调整宽度，双击复位"
         tabIndex={0}
         onPointerDown={onPointerDown}
