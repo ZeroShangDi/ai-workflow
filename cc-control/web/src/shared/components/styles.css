@@ -2,11 +2,43 @@ small,.muted {
   color: var(--cc-color-text-secondary);
 }
 .split-view {
+  /* 右栏宽度唯一变量：默认取设计 token，窄屏收窄，用户拖动时由 SplitPane 写行内值覆盖 */
+  --split-panel: var(--cc-layout-panel-width);
   display: grid;
-  grid-template-columns: minmax(0,1fr) var(--cc-layout-panel-width);
+  grid-template-columns: minmax(0,1fr) var(--split-panel);
   flex: 1;
   min-height: 0;
+  position: relative;
 }
+/* 拖动中的分界线：给一条可见的落点色，并禁掉选中，免得拖着拖着把文字选上 */
+.split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--split-panel);
+  width: 9px;
+  transform: translateX(50%);
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+}
+.split-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background-color .12s ease, width .12s ease;
+}
+.split-handle:hover::before,
+.split-handle:focus-visible::before,
+.split-view.is-dragging .split-handle::before {
+  width: 2px;
+  background: var(--cc-color-status-info);
+}
+.split-handle:focus-visible { outline: none; }
+.split-view.is-dragging { user-select: none; }
 .primary-pane {
   min-width: 0;
   min-height: 0;
@@ -136,7 +168,7 @@ small,.muted {
 }
 @media (max-width:1279px) {
 .split-view {
-  grid-template-columns: minmax(0,1fr) var(--cc-layout-panel-min);
+  --split-panel: var(--cc-layout-panel-min);
 }
 }
 @media (max-width:767px) {
@@ -144,6 +176,12 @@ small,.muted {
   display: flex;
   flex-direction: column;
   overflow: auto;
+}
+}
+/* 纵向布局下分界线是横的，拖宽度没有意义 */
+@media (max-width:767px) {
+.split-handle {
+  display: none;
 }
 }
 @media (max-width:767px) {
@@ -197,7 +235,7 @@ small,.muted {
 .record-footer { display: flex; justify-content: space-between; gap: 8px; color: var(--cc-color-text-tertiary); }
 .record-card.selected .record-footer>small:last-child { color: var(--cc-color-status-warning); }
 .detail-pane>.card-meta { margin-bottom: 12px; }
-@media (max-width: 1023px) and (min-width: 768px) { .split-view { grid-template-columns: minmax(0, 1fr) 320px; } }
+@media (max-width: 1023px) and (min-width: 768px) { .split-view { --split-panel: var(--cc-layout-panel-min); } }
 
 .pane-header:has(.segmented-control) { flex-wrap: wrap; }
 .pane-header:has(.segmented-control)>div:first-child { flex-shrink: 0; }

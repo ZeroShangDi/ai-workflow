@@ -1,4 +1,5 @@
 import { useAction } from '../../shared/hooks/useAction.js';
+import { SplitPane } from '../../shared/components/ui/index.js';
 import { useTasksPage } from './hooks/useTasksPage.js';
 import TaskList from './components/List/index.jsx';
 import TaskDetail from './components/Detail/index.jsx';
@@ -10,12 +11,6 @@ export default function TasksPage({
 }) {
   const operation = useAction(client, refresh);
   const page = useTasksPage(data);
-  return (<div className="split-view">
-    <section className="primary-pane">
-      <TaskList {...page} {...operation} />
-    </section>
-    {page.panel === 'overview' ? <Overview run={run} done={page.done} tasks={page.tasks} active={page.active} data={data} /> : <aside className="detail-pane">
-      <TaskDetail task={page.task} {...operation} />
-    </aside>}
-  </div>);
+  // 操作结果提示挂在列表下方（TaskList 的 .task-status），不随右侧区块切换而消失
+  return <SplitPane primary={<TaskList {...page} {...operation} />} detail={page.panel === 'overview' ? <Overview run={run} done={page.done} tasks={page.tasks} active={page.active} data={data} /> : <TaskDetail task={page.task} {...operation} />} />;
 }
