@@ -6,7 +6,7 @@ export function aggregateDecisions(entries = []) {
     const previous = groups.get(key) || {
       key,
       id,
-      records: []
+      records: [],
     };
     const result = entry.result || entry;
     groups.set(key, {
@@ -16,8 +16,12 @@ export function aggregateDecisions(entries = []) {
       key,
       id,
       records: [...previous.records, entry],
-      status: entry.event === 'decision_overridden' ? 'overridden' : entry.status || previous.status,
-      completed: previous.completed || entry.event === 'decision_completed' || !entry.event && entry.answer !== undefined
+      status:
+        entry.event === 'decision_overridden' ? 'overridden' : entry.status || previous.status,
+      completed:
+        previous.completed ||
+        entry.event === 'decision_completed' ||
+        (!entry.event && entry.answer !== undefined),
     });
   }
   return [...groups.values()];

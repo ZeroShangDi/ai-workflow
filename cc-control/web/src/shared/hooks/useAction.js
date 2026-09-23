@@ -26,6 +26,6 @@ export function useAction(client, refresh, successMessage = () => '操作已提�
   return {
     busy,
     message,
-    action
+    action,
   };
 }

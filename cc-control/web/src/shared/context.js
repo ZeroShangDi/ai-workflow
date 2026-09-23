@@ -13,15 +13,19 @@ export function readHostContext(location) {
 }
 export function acceptHostMessage(event, { parent, origin, context }) {
   const value = event.data;
-  if (event.source !== parent || event.origin !== origin || value?.type !== 'awf:context') return null;
-  if (value.mode !== context.mode || value.pid !== context.pid || value.sid !== context.sid) return null;
+  if (event.source !== parent || event.origin !== origin || value?.type !== 'awf:context')
+    return null;
+  if (value.mode !== context.mode || value.pid !== context.pid || value.sid !== context.sid)
+    return null;
   if (typeof value.projectRoot !== 'string' || !value.projectRoot) return null;
   return { ...context, projectRoot: value.projectRoot };
 }
 export function resolveProject(context, projects = []) {
   if (context.projectRoot) return context.projectRoot;
   if (context.mode === 'dsh') return null;
-  return projects.find(p => (p.projectId || p.id || p.projectRoot) === context.pid)?.projectRoot || null;
+  return (
+    projects.find(p => (p.projectId || p.id || p.projectRoot) === context.pid)?.projectRoot || null
+  );
 }
 
 export function useHostContext() {
@@ -29,7 +33,8 @@ export function useHostContext() {
   const refreshContext = useCallback(() => {
     setContext(previous => {
       const next = readHostContext(window.location);
-      const sameIdentity = next.mode === previous.mode && next.pid === previous.pid && next.sid === previous.sid;
+      const sameIdentity =
+        next.mode === previous.mode && next.pid === previous.pid && next.sid === previous.sid;
       return next.mode === 'dsh' && sameIdentity ? previous : next;
     });
   }, []);
@@ -41,13 +46,17 @@ export function useHostContext() {
   useEffect(() => {
     if (mode !== 'dsh' || window.parent === window) return;
     let origin;
-    try { origin = new URL(document.referrer).origin; } catch { return; }
+    try {
+      origin = new URL(document.referrer).origin;
+    } catch {
+      return;
+    }
     const identity = { mode, pid, sid, projectRoot: null };
     const receive = event => {
       const next = acceptHostMessage(event, { parent: window.parent, origin, context: identity });
       if (next && (event.data.theme === 'light' || event.data.theme === 'dark')) {
         document.documentElement.dataset.theme = event.data.theme;
-        setContext(previous => previous.projectRoot === next.projectRoot ? previous : next);
+        setContext(previous => (previous.projectRoot === next.projectRoot ? previous : next));
       }
     };
     window.addEventListener('message', receive);

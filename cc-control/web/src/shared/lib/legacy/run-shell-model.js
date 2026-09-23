@@ -18,10 +18,10 @@ export function normalizeRun(r = {}) {
       total,
       blocked: counts.blocked ?? 0,
       active: counts.active ?? 0,
-      pending: counts.pending ?? 0
+      pending: counts.pending ?? 0,
     },
     currentTaskTitle: r.currentTaskTitle || r.currentTaskId || null,
-    startedAt: r.startedAt || null
+    startedAt: r.startedAt || null,
   };
 }
 
@@ -35,12 +35,16 @@ export function toRunShellModel(resp = {}) {
   const raw = Array.isArray(resp?.runs) ? resp.runs : [];
   const runs = raw.map(normalizeRun);
   // active：running 优先，其次 queued，再首条（宿主单 active run，实际只有其一）
-  const active = runs.find(r => r.status === 'running') || runs.find(r => r.status === 'queued') || runs[0] || null;
+  const active =
+    runs.find(r => r.status === 'running') ||
+    runs.find(r => r.status === 'queued') ||
+    runs[0] ||
+    null;
   return {
     runs,
     active,
     total: runs.length,
-    isEmpty: runs.length === 0
+    isEmpty: runs.length === 0,
   };
 }
 

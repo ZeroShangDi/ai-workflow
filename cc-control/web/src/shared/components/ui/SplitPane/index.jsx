@@ -103,11 +103,26 @@ export default function SplitPane({ primary, detail }) {
   }
 
   function onKeyDown(event) {
-    if (event.key === 'ArrowLeft') { event.preventDefault(); return resize(currentWidth() + KEY_STEP); }
-    if (event.key === 'ArrowRight') { event.preventDefault(); return resize(currentWidth() - KEY_STEP); }
-    if (event.key === 'Home') { event.preventDefault(); return resize(0); } // 夹到最小
-    if (event.key === 'End') { event.preventDefault(); return resize(Number.MAX_SAFE_INTEGER); } // 夹到最大
-    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); return reset(); }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      return resize(currentWidth() + KEY_STEP);
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      return resize(currentWidth() - KEY_STEP);
+    }
+    if (event.key === 'Home') {
+      event.preventDefault();
+      return resize(0);
+    } // 夹到最小
+    if (event.key === 'End') {
+      event.preventDefault();
+      return resize(Number.MAX_SAFE_INTEGER);
+    } // 夹到最大
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      return reset();
+    }
     return undefined;
   }
 
@@ -115,32 +130,36 @@ export default function SplitPane({ primary, detail }) {
   const pinned = width !== null;
   useEffect(() => {
     if (!pinned) return undefined;
-    const onResize = () => setWidth(current => (current === null ? current : clampWidth(host.current, current)));
+    const onResize = () =>
+      setWidth(current => (current === null ? current : clampWidth(host.current, current)));
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [pinned]);
 
-  return <div
-    className={`split-view${dragging ? ' is-dragging' : ''}`}
-    ref={host}
-    style={pinned ? { '--split-panel': `${width}px` } : undefined}
-  >
-    <section className="primary-pane">{primary}</section>
-    <aside className="detail-pane" ref={detailPane}>{detail}</aside>
+  return (
     <div
-      className="split-handle"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="调整详情栏宽度"
-      aria-valuenow={pinned ? Math.round(width) : undefined}
-      title="拖动调整宽度，双击复位"
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onDoubleClick={reset}
-      onKeyDown={onKeyDown}
-    />
-  </div>;
+      className={`split-view${dragging ? ' is-dragging' : ''}`}
+      ref={host}
+      style={pinned ? { '--split-panel': `${width}px` } : undefined}>
+      <section className="primary-pane">{primary}</section>
+      <aside className="detail-pane" ref={detailPane}>
+        {detail}
+      </aside>
+      <div
+        className="split-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整详情栏宽度"
+        aria-valuenow={pinned ? Math.round(width) : undefined}
+        title="拖动调整宽度，双击复位"
+        tabIndex={0}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={reset}
+        onKeyDown={onKeyDown}
+      />
+    </div>
+  );
 }

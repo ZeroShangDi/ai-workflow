@@ -2,20 +2,14 @@ import { reviewResultMessage } from '../../../shared/components/business/ReviewR
 import { useRecordSelection } from '../../../shared/hooks/useRecordSelection.js';
 import { useAction } from '../../../shared/hooks/useAction.js';
 import { API } from '../../../shared/api/index.js';
-export function useDynamicReviewPage({
-  data,
-  client,
-  refresh
-}) {
+export function useDynamicReviewPage({ data, client, refresh }) {
   const selection = useRecordSelection(data.proposals?.proposals || [], e => e.proposalId);
   const operation = useAction(client, refresh, reviewResultMessage);
-  const {
-    item,
-    reviewer,
-    instruction
-  } = selection;
+  const { item, reviewer, instruction } = selection;
   const id = item?.proposalId;
-  const approvable = item?.status === 'awaiting_approval' || item?.status === 'decision_required' && item.decision?.decisionId;
+  const approvable =
+    item?.status === 'awaiting_approval' ||
+    (item?.status === 'decision_required' && item.decision?.decisionId);
   return {
     ...selection,
     ...operation,
@@ -24,21 +18,28 @@ export function useDynamicReviewPage({
     recoverable: ['conflicted', 'failed'].includes(item?.status),
     reviewable: item?.status === 'applied_review_pending',
     retry: () => operation.action(API.proposalAction(id, 'retry'), { reviewer, note: instruction }),
-    review: () => operation.action(API.proposalAction(id, 'review'), { reviewer, note: instruction }),
-    alternative: () => operation.action(API.proposalAction(id, 'alternative'), { reviewer, instruction }),
+    review: () =>
+      operation.action(API.proposalAction(id, 'review'), { reviewer, note: instruction }),
+    alternative: () =>
+      operation.action(API.proposalAction(id, 'alternative'), { reviewer, instruction }),
     title: '动态任务复审',
     emptyLabel: '动态任务提案',
     idOf: e => e.proposalId,
     titleOf: e => e.reason || e.proposalId,
     approve: () => {
       const viaDecision = item.status === 'decision_required';
-      return operation.action(viaDecision ? API.resolveDecision(item.decision.decisionId) : API.approveProposal(id), {
-        reviewer: reviewer.trim(),
-        note: instruction.trim(),
-        ...(viaDecision ? {
-          outcome: 'approve'
-        } : {})
-      });
-    }
+      return operation.action(
+        viaDecision ? API.resolveDecision(item.decision.decisionId) : API.approveProposal(id),
+        {
+          reviewer: reviewer.trim(),
+          note: instruction.trim(),
+          ...(viaDecision
+            ? {
+                outcome: 'approve',
+              }
+            : {}),
+        },
+      );
+    },
   };
 }

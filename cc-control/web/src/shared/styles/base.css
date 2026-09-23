@@ -12,11 +12,17 @@
 body {
   margin: 0;
 }
-button,input,textarea,select {
+button,
+input,
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
-button,input,textarea,select {
+button,
+input,
+textarea,
+select {
   appearance: none;
   border: var(--cc-border-width) solid var(--cc-color-border-default);
   border-radius: var(--cc-radius-6);
@@ -28,8 +34,12 @@ select {
   background-image:
     linear-gradient(45deg, transparent 50%, currentColor 50%),
     linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-  background-size: 5px 5px, 5px 5px;
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
   background-repeat: no-repeat;
 }
 button {
@@ -40,14 +50,15 @@ button:hover {
   background: var(--cc-color-bg-hover);
 }
 button:disabled {
-  opacity: .45;
+  opacity: 0.45;
   cursor: default;
 }
 /* 统一去掉焦点样式：不做任何 focus 视觉（含浏览器默认轮廓） */
 :focus-visible {
   outline: none;
 }
-input,textarea {
+input,
+textarea {
   min-width: 0;
   width: 100%;
 }
@@ -82,7 +93,7 @@ pre {
   margin: 0;
 }
 .selected {
-  background: var(--cc-color-bg-selected)!important;
+  background: var(--cc-color-bg-selected) !important;
 }
 pre {
   font-size: var(--cc-type-mono-size);

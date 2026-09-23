@@ -11,15 +11,15 @@
   padding-top: var(--cc-spacing-12);
   overflow-wrap: anywhere;
 }
-@media (max-width:767px) {
-.run-view .primary-pane {
-  min-height: 65dvh;
+@media (max-width: 767px) {
+  .run-view .primary-pane {
+    min-height: 65dvh;
+  }
 }
-}
-@media (max-width:767px) {
-.output-area {
-  max-height: 45dvh;
-}
+@media (max-width: 767px) {
+  .output-area {
+    max-height: 45dvh;
+  }
 }
 .run-view .pane-header {
   height: 47px;
@@ -55,8 +55,8 @@
 .output-area {
   padding: var(--cc-spacing-20) var(--cc-spacing-24) var(--cc-spacing-16);
 }
-@media (max-width:767px) {
-.run-identity small {
-  display: none;
-}
+@media (max-width: 767px) {
+  .run-identity small {
+    display: none;
+  }
 }

@@ -9,8 +9,23 @@ const AWF_SERVER = () => process.env.AWF_SERVER || 'http://127.0.0.1:8787';
 const changeOrigin = true;
 
 // 会话/API 端点前缀（web client 直接调用的路径；HTTP 转发，WS 端点额外 ws:true）
-const PROXY_PREFIXES = ['/run', '/awf', '/api', '/status', '/send', '/cmd', '/respond',
-  '/choice', '/ask', '/stop', '/intervene', '/context-ready', '/diagnostics', '/decisions.html', '/ui'];
+const PROXY_PREFIXES = [
+  '/run',
+  '/awf',
+  '/api',
+  '/status',
+  '/send',
+  '/cmd',
+  '/respond',
+  '/choice',
+  '/ask',
+  '/stop',
+  '/intervene',
+  '/context-ready',
+  '/diagnostics',
+  '/decisions.html',
+  '/ui',
+];
 const WS_PREFIXES = ['/run', '/awf', '/api']; // 含 WS 升级的端点（/run/events 等）
 
 export default defineConfig(({ mode }) => ({
@@ -21,11 +36,14 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: Number(process.env.AWF_WEB_PORT || 5173),
-    proxy: mode === 'mock' ? {} : Object.fromEntries(
-      PROXY_PREFIXES.map((prefix) => [
-        prefix,
-        { target: AWF_SERVER(), changeOrigin, ws: WS_PREFIXES.includes(prefix) },
-      ]),
-    ),
+    proxy:
+      mode === 'mock'
+        ? {}
+        : Object.fromEntries(
+            PROXY_PREFIXES.map(prefix => [
+              prefix,
+              { target: AWF_SERVER(), changeOrigin, ws: WS_PREFIXES.includes(prefix) },
+            ]),
+          ),
   },
 }));

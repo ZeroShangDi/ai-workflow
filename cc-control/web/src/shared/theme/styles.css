@@ -1,5 +1,8 @@
 /* Skins override semantic color roles; geometry and component markup stay fixed. */
-:root { --cc-icon-filter: none; --cc-focus-ring: var(--cc-color-status-info); }
+:root {
+  --cc-icon-filter: none;
+  --cc-focus-ring: var(--cc-color-status-info);
+}
 :root[data-theme='light'] {
   color-scheme: light;
   --cc-color-bg-app: #f6f7f9;
@@ -16,5 +19,5 @@
   --cc-color-status-warning: #906100;
   --cc-color-status-info: #2261ad;
   --cc-color-status-danger: #b82f43;
-  --cc-icon-filter: brightness(.4);
+  --cc-icon-filter: brightness(0.4);
 }

@@ -5,10 +5,14 @@ import ReviewRecordDetail from '../../shared/components/business/ReviewRecord/De
 import Actions from './components/Actions/index.jsx';
 export default function DynamicReviewPage(props) {
   const page = useDynamicReviewPage(props);
-  return <SplitPane
-    primary={<ReviewRecordList {...page} />}
-    detail={<ReviewRecordDetail {...page}>
-      <Actions {...page} />
-    </ReviewRecordDetail>}
-  />;
+  return (
+    <SplitPane
+      primary={<ReviewRecordList {...page} />}
+      detail={
+        <ReviewRecordDetail {...page}>
+          <Actions {...page} />
+        </ReviewRecordDetail>
+      }
+    />
+  );
 }

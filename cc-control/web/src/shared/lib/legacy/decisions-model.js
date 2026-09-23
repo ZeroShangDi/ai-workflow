@@ -16,7 +16,7 @@ export function normalizeDecision(entry = {}) {
     instruction: entry.instruction ?? null,
     at: entry.at ?? null,
     override,
-    overridable: !!id && !override && entry.answer !== undefined
+    overridable: !!id && !override && entry.answer !== undefined,
   };
 }
 
@@ -25,7 +25,7 @@ export function toDecisionsModel(resp = {}) {
   const list = Array.isArray(resp.decisions) ? resp.decisions : [];
   return {
     total: resp.total ?? list.length,
-    decisions: list.map(normalizeDecision)
+    decisions: list.map(normalizeDecision),
   };
 }
 

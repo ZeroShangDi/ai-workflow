@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sourceOf, sourceLabel, sourceShort, gateOf, TASK_SOURCES } from '../src/pages/Tasks/model.js';
+import {
+  sourceOf,
+  sourceLabel,
+  sourceShort,
+  gateOf,
+  TASK_SOURCES,
+} from '../src/pages/Tasks/model.js';
 import { TASK_STATUSES } from '../src/shared/lib/format.js';
 
 test('任务来源：字段缺失时按 ID 约定兜底，余者一律原计划', () => {

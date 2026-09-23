@@ -9,12 +9,12 @@
  *   metrics:   GET /awf/metrics 响应 { ok, metrics: {...} }
  * @returns {object} 展示模型
  */
-export function toDashboardModel({
-  runStatus,
-  status,
-  metrics
-} = {}) {
-  const runs = Array.isArray(runStatus?.runs) ? runStatus.runs : runStatus?.run ? [runStatus.run] : [];
+export function toDashboardModel({ runStatus, status, metrics } = {}) {
+  const runs = Array.isArray(runStatus?.runs)
+    ? runStatus.runs
+    : runStatus?.run
+      ? [runStatus.run]
+      : [];
   const run = runs.find(r => r.status === 'running' || r.status === 'queued') || runs[0] || null;
   const counts = run?.counts || {};
   return {
@@ -32,7 +32,7 @@ export function toDashboardModel({
     runs,
     metrics: metrics?.metrics && typeof metrics.metrics === 'object' ? metrics.metrics : {},
     activeAgents: status?.activeAgents ?? 0,
-    decisionResume: status?.decisionResume || null
+    decisionResume: status?.decisionResume || null,
   };
 }
 
@@ -45,7 +45,7 @@ export function phaseLabel(currentState) {
     REVIEW: '审查',
     TEST: '测试',
     FINISH: '完成',
-    IDLE: '空闲'
+    IDLE: '空闲',
   };
   return map[currentState] || currentState || '—';
 }
@@ -61,18 +61,18 @@ export function applyRunEvent(model, event) {
       return {
         ...model,
         currentTaskId: p.taskId,
-        lastEvent: event.type
+        lastEvent: event.type,
       };
     case 'run.stopped':
       return {
         ...model,
         runStatus: p.status || 'done',
-        lastEvent: event.type
+        lastEvent: event.type,
       };
     default:
       return {
         ...model,
-        lastEvent: event.type
+        lastEvent: event.type,
       };
   }
 }

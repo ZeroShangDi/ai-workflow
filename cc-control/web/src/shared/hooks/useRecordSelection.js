@@ -18,9 +18,10 @@ export function useRecordSelection(entries, keyOf) {
     reviewer,
     setReviewer,
     instruction: drafts[key] || '',
-    setInstruction: value => setDrafts(old => ({
-      ...old,
-      [key]: value
-    }))
+    setInstruction: value =>
+      setDrafts(old => ({
+        ...old,
+        [key]: value,
+      })),
   };
 }

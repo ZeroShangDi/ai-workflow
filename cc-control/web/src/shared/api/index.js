@@ -15,7 +15,8 @@ export const API = Object.freeze({
   retryRun: id => `/run/${encodeURIComponent(id)}/retry`,
   taskAction: (id, action) => `/tasks/${encodeURIComponent(id)}/${action}`,
   adoptDecision: id => `/awf/decisions/${encodeURIComponent(id)}/adopt`,
-  proposalAction: (id, action) => `/run/dynamic-planning/proposals/${encodeURIComponent(id)}/${action}`,
+  proposalAction: (id, action) =>
+    `/run/dynamic-planning/proposals/${encodeURIComponent(id)}/${action}`,
   snapshot: '/status?snapshot=1',
   state: '/awf/state',
   runs: '/run/status',
@@ -32,5 +33,5 @@ export const API = Object.freeze({
   eventPage: (cursor, limit = 500) => `/run/events?afterSeq=${cursor}&limit=${limit}`,
   resolveDecision: id => `/awf/decisions/${encodeURIComponent(id)}/resolve`,
   overrideDecision: id => `/awf/decisions/${encodeURIComponent(id)}/override`,
-  approveProposal: id => `/run/dynamic-planning/proposals/${encodeURIComponent(id)}/approve`
+  approveProposal: id => `/run/dynamic-planning/proposals/${encodeURIComponent(id)}/approve`,
 });

@@ -22,21 +22,21 @@
 
 ## 场景控制
 
-| 场景 | 状态 |
-|---|---|
-| empty | 无项目、无任务 |
-| directory | 环境读取中 |
-| environment | 环境已就绪，无需求 |
-| requirement | 已新增需求，待规划 |
-| planning / plan-ready / plan-error | 生成中 / 待确认 / 生成失败 |
-| queued | 排队中，下一拍启动 |
-| idle | 恢复已有任务，待启动 |
-| demo | 执行中，含多种任务与复审记录 |
-| waiting / waiting-text | 等待选项 / 等待自由输入 |
-| blocked / failed | 任务阻塞 / 运行失败 |
-| completed / cancelled | 已完成 / 已取消 |
-| conflict | 首次审批冲突；重新校验后可再次批准 |
-| error | status 可读，其余接口 503；点击恢复接口后可重试 |
+| 场景                               | 状态                                            |
+| ---------------------------------- | ----------------------------------------------- |
+| empty                              | 无项目、无任务                                  |
+| directory                          | 环境读取中                                      |
+| environment                        | 环境已就绪，无需求                              |
+| requirement                        | 已新增需求，待规划                              |
+| planning / plan-ready / plan-error | 生成中 / 待确认 / 生成失败                      |
+| queued                             | 排队中，下一拍启动                              |
+| idle                               | 恢复已有任务，待启动                            |
+| demo                               | 执行中，含多种任务与复审记录                    |
+| waiting / waiting-text             | 等待选项 / 等待自由输入                         |
+| blocked / failed                   | 任务阻塞 / 运行失败                             |
+| completed / cancelled              | 已完成 / 已取消                                 |
+| conflict                           | 首次审批冲突；重新校验后可再次批准              |
+| error                              | status 可读，其余接口 503；点击恢复接口后可重试 |
 
 控制条支持切场景、重置、主题、暂停自动推进和逐拍推进。刷新重置当前内存；切场景同时清除旧项目/Run URL 参数。空项目场景从真正的空项目列表开始，其他场景含两个隔离项目。
 

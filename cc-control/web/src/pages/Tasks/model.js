@@ -5,9 +5,14 @@
 // server 写字段之前，门禁派生用 ID 约定兜底：id 形如 `<gateId>-F<recheck>`
 // （见 server/features/gate/closure.js）。dynamic_planning 没有约定可依，只能等字段。
 export const TASK_SOURCES = ['plan', 'gate_fix', 'dynamic_planning'];
-const SOURCE_LABELS = { plan: '原计划', gate_fix: '门禁回退派生', dynamic_planning: '运行期动态规划' };
+const SOURCE_LABELS = {
+  plan: '原计划',
+  gate_fix: '门禁回退派生',
+  dynamic_planning: '运行期动态规划',
+};
 const SOURCE_SHORT = { plan: '原计划', gate_fix: '门禁派生', dynamic_planning: '动态规划' };
-export const sourceOf = task => task?.source || (/-F\d+$/.test(task?.id || '') ? 'gate_fix' : 'plan');
+export const sourceOf = task =>
+  task?.source || (/-F\d+$/.test(task?.id || '') ? 'gate_fix' : 'plan');
 // 未知来源原样透出，不静默归到「原计划」——免得把新来源伪装成老来源。
 export const sourceLabel = value => SOURCE_LABELS[value] || value || SOURCE_LABELS.plan;
 export const sourceShort = value => SOURCE_SHORT[value] || value || SOURCE_SHORT.plan;

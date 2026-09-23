@@ -9,7 +9,7 @@
   margin: var(--cc-spacing-8) 0;
   flex-wrap: wrap;
 }
-.actions>span {
+.actions > span {
   flex: 1;
 }
 .pending-card {
@@ -21,7 +21,7 @@
   padding: var(--cc-spacing-10) var(--cc-spacing-18) var(--cc-spacing-12);
   flex-shrink: 0;
 }
-.composer>.actions {
+.composer > .actions {
   margin: 0 0 var(--cc-spacing-8);
   justify-content: flex-end;
   min-height: 24px;
@@ -52,8 +52,8 @@
   margin: var(--cc-spacing-4) 0 0;
   font-size: var(--cc-type-caption-size);
 }
-@media (max-width:767px) {
-.composer>.actions {
-  flex-wrap: wrap;
-}
+@media (max-width: 767px) {
+  .composer > .actions {
+    flex-wrap: wrap;
+  }
 }

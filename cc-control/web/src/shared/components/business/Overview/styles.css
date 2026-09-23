@@ -12,7 +12,7 @@ progress {
 }
 .task-matrix {
   display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--cc-spacing-6);
   max-height: 220px;
   overflow: auto;
@@ -40,7 +40,8 @@ progress {
   gap: var(--cc-spacing-8);
   min-height: 24px;
 }
-.summary-heading h1,.summary-heading h3 {
+.summary-heading h1,
+.summary-heading h3 {
   margin: 0;
 }
 .run-progress {
@@ -54,7 +55,7 @@ progress {
   font-size: var(--cc-type-mono-size);
   line-height: 20px;
 }
-.run-progress>small {
+.run-progress > small {
   color: var(--cc-color-text-tertiary);
 }
 progress {
@@ -87,7 +88,7 @@ progress::-moz-progress-bar {
   min-height: 146px;
 }
 .task-matrix {
-  grid-template-columns: repeat(4,32px);
+  grid-template-columns: repeat(4, 32px);
   grid-auto-rows: 32px;
   gap: var(--cc-spacing-6);
   max-height: none;
@@ -102,13 +103,16 @@ progress::-moz-progress-bar {
   color: var(--cc-color-text-primary);
   background: var(--cc-color-text-tertiary);
 }
-.task-matrix .status-active,.matrix-legend .status-active {
+.task-matrix .status-active,
+.matrix-legend .status-active {
   background: var(--cc-color-status-info);
 }
-.task-matrix .status-done,.matrix-legend .status-done {
+.task-matrix .status-done,
+.matrix-legend .status-done {
   background: var(--cc-color-status-success);
 }
-.task-matrix .status-blocked,.matrix-legend .status-blocked {
+.task-matrix .status-blocked,
+.matrix-legend .status-blocked {
   background: var(--cc-color-status-warning);
 }
 .matrix-legend {
@@ -129,7 +133,7 @@ progress::-moz-progress-bar {
   border-radius: 50%;
   background: var(--cc-color-text-tertiary);
 }
-.execution-section>.summary-heading {
+.execution-section > .summary-heading {
   margin-bottom: var(--cc-spacing-10);
 }
 .execution-card h3 {
@@ -141,16 +145,16 @@ progress::-moz-progress-bar {
   font-size: var(--cc-type-caption-size);
   line-height: var(--cc-type-caption-line);
 }
-@media (max-width:767px) {
-.overview-panel {
-  overflow: visible;
+@media (max-width: 767px) {
+  .overview-panel {
+    overflow: visible;
+  }
 }
+@media (max-width: 767px) {
+  .matrix-section {
+    min-height: 190px;
+  }
 }
-@media (max-width:767px) {
-.matrix-section {
-  min-height: 190px;
-}
-}
-.overview-panel>section {
+.overview-panel > section {
   flex-shrink: 0;
 }

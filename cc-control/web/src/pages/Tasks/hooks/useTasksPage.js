@@ -9,7 +9,12 @@ export function useTasksPage(data) {
     [selected, setSelected] = useState(null),
     // 右侧区块两态：overview = 运行概览（默认，不预选任务），detail = 选中任务的详情
     [panel, setPanel] = useState('overview');
-  const visible = tasks.filter(t => (filter === 'all' || t.status === filter) && (sourceFilter === 'all' || sourceOf(t) === sourceFilter) && display(t).toLowerCase().includes(search.toLowerCase()));
+  const visible = tasks.filter(
+    t =>
+      (filter === 'all' || t.status === filter) &&
+      (sourceFilter === 'all' || sourceOf(t) === sourceFilter) &&
+      display(t).toLowerCase().includes(search.toLowerCase()),
+  );
   // 不兜底到 visible[0]：没点过任务就是没有选中任务，右侧也不显示详情。
   const task = visible.find(t => t.id === selected) || null;
   return {
@@ -32,6 +37,6 @@ export function useTasksPage(data) {
       setSelected(id);
       setPanel('detail');
     },
-    togglePanel: () => setPanel(current => (current === 'overview' ? 'detail' : 'overview'))
+    togglePanel: () => setPanel(current => (current === 'overview' ? 'detail' : 'overview')),
   };
 }

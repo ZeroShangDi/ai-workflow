@@ -4,5 +4,9 @@ let current = {
   socket: url => new WebSocket(url),
   mode: 'live',
 };
-export function configureTransport(transport) { current = { ...current, ...transport }; }
-export function getTransport() { return current; }
+export function configureTransport(transport) {
+  current = { ...current, ...transport };
+}
+export function getTransport() {
+  return current;
+}

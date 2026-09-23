@@ -23,10 +23,7 @@ export function levelOf(id) {
  *   tasks: 任务数组（wbsRef 命中节点时携带其状态/类型）
  * @returns {{ roots: object[], stats: object }} roots 平铺/嵌套节点；stats 汇总
  */
-export function buildWbsTree({
-  wbs = [],
-  tasks = []
-} = {}) {
+export function buildWbsTree({ wbs = [], tasks = [] } = {}) {
   const taskOf = {};
   for (const t of tasks) {
     const ref = t?.wbsRef;
@@ -41,14 +38,14 @@ export function buildWbsTree({
       acceptance: w?.acceptance || null,
       level: levelOf(w?.id),
       task: null,
-      children: []
+      children: [],
     };
     if (node.id && taskOf[node.id]) {
       const t = taskOf[node.id];
       node.task = {
         id: t.id,
         kind: t.kind,
-        status: t.status
+        status: t.status,
       };
     }
     nodeOf.set(node.id, node);
@@ -77,7 +74,7 @@ export function buildWbsTree({
   const stats = {
     total: nodes.length,
     withTask: 0,
-    byStatus: {}
+    byStatus: {},
   };
   for (const n of nodes) {
     if (!n.task) continue;
@@ -86,6 +83,6 @@ export function buildWbsTree({
   }
   return {
     roots,
-    stats
+    stats,
   };
 }

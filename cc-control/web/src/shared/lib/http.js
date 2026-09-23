@@ -16,7 +16,7 @@ export function createApiClient({
   project = null,
   sid = null,
   httpFetch = (...a) => getTransport().fetch(...a),
-  wsFactory = url => getTransport().socket(url)
+  wsFactory = url => getTransport().socket(url),
 } = {}) {
   function urlOf(path) {
     const url = new URL(path, base);
@@ -25,11 +25,7 @@ export function createApiClient({
     if (sid) url.searchParams.set('sid', sid);
     return url.toString().replace(/\+/g, '%20');
   }
-  async function request(path, {
-    method = 'GET',
-    body,
-    signal, timeoutMs = 15000
-  } = {}) {
+  async function request(path, { method = 'GET', body, signal, timeoutMs = 15000 } = {}) {
     const controller = new AbortController();
     const cancel = () => controller.abort(signal?.reason);
     if (signal?.aborted) cancel();
@@ -37,15 +33,21 @@ export function createApiClient({
     const timer = setTimeout(() => controller.abort(new Error('请求超时，请重试')), timeoutMs);
     try {
       const res = await httpFetch(urlOf(path), {
-        method, signal: controller.signal,
+        method,
+        signal: controller.signal,
         headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       let data;
-      try { data = await res.json(); }
-      catch { return { ok: false, error: `http ${res.status}` }; }
+      try {
+        data = await res.json();
+      } catch {
+        return { ok: false, error: `http ${res.status}` };
+      }
       if (!data || typeof data !== 'object') return { ok: false, error: '接口返回了无效数据' };
-      return res.ok === false ? { ...data, ok: false, error: data.error || `http ${res.status}` } : data;
+      return res.ok === false
+        ? { ...data, ok: false, error: data.error || `http ${res.status}` }
+        : data;
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', cancel);
@@ -63,7 +65,7 @@ export function createApiClient({
       return request(path, {
         ...options,
         method: 'POST',
-        body
+        body,
       });
     },
     /**
@@ -77,6 +79,6 @@ export function createApiClient({
     /** 当前作用域（观察用） */
     url(path) {
       return urlOf(path);
-    }
+    },
   };
 }

@@ -5,11 +5,15 @@ import RunComposer from './components/Composer/index.jsx';
 import RunOverview from '../../shared/components/business/Overview/index.jsx';
 export default function RunPage(props) {
   const page = useRunPage(props);
-  return (<div className="split-view run-view">
-    <section className="primary-pane">
-      <RunOutput {...page} />
-      <RunComposer {...page} />
-    </section>
-    <aside className="detail-pane"><RunOverview {...page} /></aside>
-  </div>);
+  return (
+    <div className="split-view run-view">
+      <section className="primary-pane">
+        <RunOutput {...page} />
+        <RunComposer {...page} />
+      </section>
+      <aside className="detail-pane">
+        <RunOverview {...page} />
+      </aside>
+    </div>
+  );
 }

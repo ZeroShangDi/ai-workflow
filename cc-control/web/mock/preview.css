@@ -1,6 +1,33 @@
-html[data-preview="mock"] #root { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100dvh; }
-html[data-preview="mock"] .app-shell { height: 100%; min-height: 0; }
-.preview-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border-top: 1px solid var(--cc-color-border-default); background: var(--cc-color-bg-elevated); font-size: 11px; }
-.preview-controls strong { margin-right: auto; }
-.preview-controls select, .preview-controls button { width: auto; padding: 4px 8px; font-size: 11px; }
-@media (max-width: 767px) { .preview-controls strong { display: none; } }
+html[data-preview='mock'] #root {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100dvh;
+}
+html[data-preview='mock'] .app-shell {
+  height: 100%;
+  min-height: 0;
+}
+.preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--cc-color-border-default);
+  background: var(--cc-color-bg-elevated);
+  font-size: 11px;
+}
+.preview-controls strong {
+  margin-right: auto;
+}
+.preview-controls select,
+.preview-controls button {
+  width: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+@media (max-width: 767px) {
+  .preview-controls strong {
+    display: none;
+  }
+}
