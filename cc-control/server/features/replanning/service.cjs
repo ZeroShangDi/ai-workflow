@@ -2,9 +2,12 @@
 /**
  * service.cjs — 动态任务规划能力服务（replanning 的核心编排）。
  *
- * ## 一条 proposal 的生命周期
- *   propose → （可选）decision_required → awaiting_approval → approve/reject → applied / rejected
- *                          ↘ decision_link_failed（决策端口写入失败，可 reject 收口）
+ * ## 一条 proposal 的生命周期（**两个独立维度**）
+ *   审查状态 `status`（与决策同一套取值）：
+ *     pending_review →（人工）approve → approved
+ *                    ↘（高风险）awaiting_human → 决策内核结论 → approved
+ *   执行结果 `exec.state`：not_applied / applied / conflicted / failed
+ * 两者不混：早先把执行结果塞进 status（8 个取值混装）会让持久化把两件事带进同一列。
  * 每条状态转换都：写 proposal 文件 + 追加事件 + 维护 state.dynamicPlanning.holds。
  *
  * ## 三个关键设计
@@ -141,7 +144,7 @@ function publicProposal(proposal) {
  * @param {Function} [deps.configLoader] - 配置加载器，缺省读 .awf/config.json
  * @param {object} [deps.extensions] - 扩展钩子：afterAnalysis / beforeApply / afterApply（生命周期注入点）
  * @param {object|null} [deps.decisionPort] - 高风险 proposal 的决策端口（request/complete）
- * @returns {{ propose, approve, reject, resolveDecision, get, list }}
+ * @returns {{ propose, approve, resolveDecision, get, list }}
  */
 function createDynamicPlanningService({ projectRoot, configLoader, extensions = {}, decisionPort = null }) {
   // state 文件布局（.awf/state.json + .awf/state.lock）经共享单源取，不在这里拼字面量 ——
@@ -225,10 +228,10 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
   /**
    * 发起一次动态规划提案。整体在 state 文件锁内完成「读最新 state → 分析 → 落 proposal + hold」。
    *
-   * 三条去向由 analysis.requiresDecision 与执行模式共同决定：
-   *   - requiresDecision（有高风险理由）→ 必须经决策端口走人工 => decision_required；
-   *   - approve_then_apply → 挂起等待人工批准 => awaiting_approval；
-   *   - auto_then_review → 直接应用既定 nextState，事后 Review => applied_review_pending。
+   * 三条去向由 analysis.requiresDecision 与执行模式共同决定（status 审查 / exec 执行）：
+   *   - requiresDecision（有高风险理由）→ 交决策内核 => status=awaiting_human, exec=not_applied；
+   *   - approve_then_apply → 挂起等人工批准 => status=pending_review, exec=not_applied；
+   *   - auto_then_review → 直接应用既定 nextState，事后 Review => status=pending_review, exec=applied。
    * 同一时刻只允许一个未决提案（否则改动互相冲突）——有挂起 hold 即拒绝新提案。
    * @returns {object} 对外投影的 proposal
    */
@@ -251,7 +254,13 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
         schemaVersion: 1,
         proposalId: proposalId(),
         capability: 'dynamic_planning',
-        status: 'proposed',
+        // status 是**审查状态**：与决策同一套取值（pending_review / awaiting_human / approved / adjusted），
+        // 只回答「人该不该处理、处理过了没」。
+        status: 'pending_review',
+        // exec 是**本条提案的执行结果**：未应用 / 已应用 / 冲突 / 失败。
+        // 与审查状态是两个独立的维度 —— 早先两者混在 status 一个字段里（8 个取值），
+        // 持久化时会把这个混装直接带进库，故拆开。
+        exec: { state: 'not_applied', at: null },
         executionMode: mode,
         trigger: request.trigger || 'ai_runtime',
         requestedBy: request.requestedBy || 'ai',
@@ -272,7 +281,7 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
         if (typeof decisionPort?.request !== 'function') {
           throw new Error('dynamic planning decision port is not configured');
         }
-        proposal.status = 'decision_required';
+        proposal.status = 'awaiting_human'; // 等的是决策内核的结论，不是人的点头
         const decisionId = `D-${proposal.proposalId}`;
         proposal.decision = { decisionId, status: 'awaiting_human' };
         proposal.nextAction = {
@@ -290,7 +299,9 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
           proposal.decision = { ...proposal.decision, ...linked };
           response = save(proposal, 'proposal.decision_linked', { decisionId });
         } catch (error) {
-          proposal.status = 'decision_link_failed';
+          // 决策请求没写成功：审查上仍「等待人工」（人得手工收口），执行上记失败
+          proposal.status = 'awaiting_human';
+          proposal.exec = { state: 'failed', at: new Date().toISOString(), error: error.message };
           proposal.decision = { ...proposal.decision, status: 'link_failed', error: error.message };
           proposal.nextAction = { type: 'manual_recovery', capability: 'decision', decisionId };
           response = save(proposal, 'proposal.decision_link_failed', { decisionId, error: error.message });
@@ -299,7 +310,7 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
       }
       // 分支二：默认模式 → 挂起等人工批准（hold 已装，state 被锁住不受影响的部分继续跑）。
       if (mode === MODES.APPROVE_THEN_APPLY) {
-        proposal.status = 'awaiting_approval';
+        proposal.status = 'pending_review';
         proposal.nextAction = { type: 'human_approval' };
         installHold(currentState, proposal);
         response = save(proposal, 'proposal.awaiting_approval');
@@ -310,10 +321,11 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
       if (typeof extensions.beforeApply === 'function') extensions.beforeApply({ proposal, currentState });
       proposal.proposedState.lastUpdated = new Date().toISOString();
       storeCore.writeJsonAtomicSync(statePath, proposal.proposedState);
-      proposal.status = 'applied_review_pending';
+      // 自动模式：执行已完成（exec=applied），审查上仍「待复审」—— 人看过之后点「批准和应用」即签收
+      proposal.status = 'pending_review';
       proposal.nextAction = { type: 'post_review', capability: 'dynamic_planning_review' };
       proposal.review = { status: 'pending' };
-      proposal.appliedAt = new Date().toISOString();
+      proposal.exec = { state: 'applied', at: new Date().toISOString() };
       proposal.result = {
         stateFingerprint: fingerprint(proposal.proposedState),
         readyTaskIds: proposal.analysis.readyAfter,
@@ -325,10 +337,11 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
   }
 
   /**
-   * 人工批准一个 awaiting_approval 的 proposal：CAS 双检通过则重放并写回 state，否则判 conflicted。
+   * 人工批准一个 pending_review 的 proposal：CAS 双检通过则重放并写回 state，冲突则记 exec=conflicted。
    *
-   * 全程在文件锁内：proposal 与 state 必须同临界区重读，防止 approve/reject 并发各自拿旧快照覆盖终态。
-   * 冲突（conflicted）时释放 hold，让被锁住的任务恢复调度（前提已变，旧提案不再适用，交给重新提案）。
+   * 自动模式（exec 已是 applied）只改审查状态 —— 那是事后签收，不重放任务图。
+   * 全程在文件锁内：proposal 与 state 必须同临界区重读，防止并发各自拿旧快照覆盖终态。
+   * 冲突时释放 hold，让被锁住的任务恢复调度（前提已变，旧提案不再适用，交给重新提案）。
    * @param {string} id - proposalId
    * @param {{ reviewer: string, note?: string }} opts
    * @returns {object} 对外投影的 proposal
@@ -341,17 +354,29 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
       // 各自拿着旧 proposal 快照覆盖已经形成的终态。
       const proposal = records.readProposal(id);
       if (!proposal) throw new Error(`dynamic planning proposal not found: ${id}`);
-      // 高风险提案不能走普通审批入口——必须先闭合它的正式决策。
-      if (proposal.status === 'decision_required') {
-        throw new Error(`proposal ${id} requires formal decision ${proposal.decision?.decisionId}; resolve the decision instead`);
+      // 高风险提案不能走普通审批入口——必须先闭合它的正式决策（有 decision 即走了决策内核）。
+      if (proposal.decision?.decisionId) {
+        throw new Error(`proposal ${id} requires formal decision ${proposal.decision.decisionId}; resolve the decision instead`);
       }
-      if (proposal.status !== 'awaiting_approval') {
+      if (proposal.status !== 'pending_review') {
         throw new Error(`proposal ${id} cannot be approved while status=${proposal.status}`);
       }
       const currentState = storeCore.readJsonSync(statePath);
+      // 自动模式（auto_then_review）已把改动落到任务图，这里只是**事后签收**：
+      // 改审查状态即可，不重放、不再动任务图。
+      if (proposal.exec?.state === 'applied') {
+        proposal.status = 'approved';
+        proposal.nextAction = null;
+        proposal.approvedBy = reviewer;
+        proposal.approvalNote = note || null;
+        response = save(proposal, 'proposal.approved');
+        return;
+      }
       const prepared = prepareApply(currentState, proposal);
       if (!prepared.ok) {
-        proposal.status = 'conflicted';
+        // 人已批准（审查结论就是「已采纳」）；应用撞上变动属执行侧，记在 exec 上
+        proposal.status = 'approved';
+        proposal.exec = { state: 'conflicted', at: new Date().toISOString() };
         proposal.nextAction = null;
         proposal.conflict = prepared.conflict;
         releaseHold(currentState, proposal.proposalId);
@@ -363,12 +388,13 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
       clearHold(nextState, proposal.proposalId); // 重放基于含 hold 的最新 state，写回前必须摘掉自己那把锁
       nextState.lastUpdated = new Date().toISOString();
       storeCore.writeJsonAtomicSync(statePath, nextState);
-      proposal.status = 'applied';
+      proposal.status = 'approved';
       proposal.nextAction = null;
       proposal.approvedBy = reviewer;
       proposal.approvalNote = note || null;
-      proposal.appliedAt = new Date().toISOString();
-      proposal.applied = {
+      proposal.exec = {
+        state: 'applied',
+        at: new Date().toISOString(),
         basis: 'replay',  // 标记：本次应用是「重放 operations」而非「抄快照」
         affectedTaskIds: prepared.analysis.affectedTaskIds,
       };
@@ -378,34 +404,6 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
       };
       response = save(proposal, 'proposal.approved_and_applied');
       if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: nextState });
-    });
-    return response;
-  }
-
-  /**
-   * 人工拒绝一个待决 proposal：置 rejected + 释放 hold（放行被锁任务），不改动任务图。
-   * 可拒绝的状态含 decision_link_failed（决策端口写入失败时用拒绝收口）。
-   */
-  function reject(id, { reviewer, note } = {}) {
-    assertReviewer(reviewer);
-    let response;
-    storeCore.withFileLock(lockPath, () => {
-      const proposal = records.readProposal(id);
-      if (!proposal) throw new Error(`dynamic planning proposal not found: ${id}`);
-      if (proposal.status === 'decision_required') {
-        throw new Error(`proposal ${id} requires formal decision ${proposal.decision?.decisionId}; resolve the decision instead`);
-      }
-      if (!['awaiting_approval', 'decision_link_failed'].includes(proposal.status)) {
-        throw new Error(`proposal ${id} cannot be rejected while status=${proposal.status}`);
-      }
-      proposal.status = 'rejected';
-      proposal.nextAction = null;
-      proposal.rejectedBy = reviewer;
-      proposal.rejectionNote = note || null;
-      proposal.rejectedAt = new Date().toISOString();
-      const currentState = storeCore.readJsonSync(statePath);
-      releaseHold(currentState, proposal.proposalId);
-      response = save(proposal, 'proposal.rejected');
     });
     return response;
   }
@@ -427,8 +425,8 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
    */
   function resolveDecision(decisionId, { outcome, reviewer, note } = {}) {
     assertReviewer(reviewer);
-    if (!['approve', 'reject'].includes(outcome)) {
-      throw new Error('decision outcome must be approve or reject');
+    if (outcome !== 'approve') {
+      throw new Error('decision outcome must be approve');
     }
     if (typeof decisionPort?.complete !== 'function') {
       throw new Error('dynamic planning decision port is not configured');
@@ -450,7 +448,7 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
       // 重试补记；绝不重复应用，也不接受用重试偷换人的原结论。
       const recordPending = proposal.decision?.status === 'resolved'
         && proposal.decision?.recordStatus !== 'completed';
-      if (proposal.status !== 'decision_required' && !recordPending) {
+      if (proposal.status !== 'awaiting_human' && !recordPending) {
         throw new Error(`decision ${decisionId} cannot be resolved while proposal status=${proposal.status}`);
       }
       // 补记分支：跳过应用，直接用已存结论走 complete（outcome 必须是原结论）。
@@ -466,7 +464,7 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
           outcome: proposal.decision.outcome,
           reviewer: proposal.decision.reviewer,
           note: proposal.decision.note,
-          applicationStatus: proposal.status,
+          applicationStatus: proposal.exec?.state,
         };
         return;
       }
@@ -480,47 +478,40 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
         resolvedAt: new Date().toISOString(),
       };
       const currentState = storeCore.readJsonSync(statePath);
-      if (outcome === 'reject') {
-        proposal.status = 'rejected';
+      // 应用：与普通审批同样的 CAS 双检 + 重放。应用撞上变动时审查结论仍是「已采纳」，
+      // 冲突记在 exec 上（执行侧的事）。
+      const prepared = prepareApply(currentState, proposal);
+      if (!prepared.ok) {
+        proposal.status = 'approved';
+        proposal.exec = { state: 'conflicted', at: new Date().toISOString() };
         proposal.nextAction = null;
-        proposal.rejectedBy = reviewer;
-        proposal.rejectionNote = note || null;
-        proposal.rejectedAt = new Date().toISOString();
+        proposal.conflict = prepared.conflict;
         releaseHold(currentState, proposal.proposalId);
-        response = save(proposal, 'proposal.decision_rejected', { decisionId });
+        response = save(proposal, 'proposal.decision_approved_but_conflicted', { decisionId });
       } else {
-        // approve：与普通审批同样的 CAS 双检 + 重放。冲突则 conflicted 并释放 hold。
-        const prepared = prepareApply(currentState, proposal);
-        if (!prepared.ok) {
-          proposal.status = 'conflicted';
-          proposal.nextAction = null;
-          proposal.conflict = prepared.conflict;
-          releaseHold(currentState, proposal.proposalId);
-          response = save(proposal, 'proposal.decision_approved_but_conflicted', { decisionId });
-        } else {
-          if (typeof extensions.beforeApply === 'function') extensions.beforeApply({ proposal, currentState });
-          const nextState = prepared.nextState;
-          clearHold(nextState, proposal.proposalId);
-          nextState.lastUpdated = new Date().toISOString();
-          storeCore.writeJsonAtomicSync(statePath, nextState);
-          proposal.status = 'applied';
-          proposal.nextAction = null;
-          proposal.approvedBy = reviewer;
-          proposal.approvalNote = note || null;
-          proposal.appliedAt = new Date().toISOString();
-          proposal.applied = {
-            basis: 'replay',
-            affectedTaskIds: prepared.analysis.affectedTaskIds,
-          };
-          proposal.result = {
-            stateFingerprint: fingerprint(nextState),
-            readyTaskIds: prepared.analysis.readyAfter,
-          };
-          response = save(proposal, 'proposal.decision_approved_and_applied', { decisionId });
-          // 传 nextState（锁内重放后的真实新状态）—— 与 approve() 保持一致。
-          // 此前这里误传 proposal.proposedState（创建时快照），会让扩展钩子拿到过期状态。
-          if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: nextState });
-        }
+        if (typeof extensions.beforeApply === 'function') extensions.beforeApply({ proposal, currentState });
+        const nextState = prepared.nextState;
+        clearHold(nextState, proposal.proposalId);
+        nextState.lastUpdated = new Date().toISOString();
+        storeCore.writeJsonAtomicSync(statePath, nextState);
+        proposal.status = 'approved';
+        proposal.nextAction = null;
+        proposal.approvedBy = reviewer;
+        proposal.approvalNote = note || null;
+        proposal.exec = {
+          state: 'applied',
+          at: new Date().toISOString(),
+          basis: 'replay',
+          affectedTaskIds: prepared.analysis.affectedTaskIds,
+        };
+        proposal.result = {
+          stateFingerprint: fingerprint(nextState),
+          readyTaskIds: prepared.analysis.readyAfter,
+        };
+        response = save(proposal, 'proposal.decision_approved_and_applied', { decisionId });
+        // 传 nextState（锁内重放后的真实新状态）—— 与 approve() 保持一致。
+        // 此前这里误传 proposal.proposedState（创建时快照），会让扩展钩子拿到过期状态。
+        if (typeof extensions.afterApply === 'function') extensions.afterApply({ proposal, state: nextState });
       }
       resolvedProposal = proposal;
       completionInput = {
@@ -529,7 +520,7 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
         outcome,
         reviewer,
         note,
-        applicationStatus: response.status,
+        applicationStatus: proposal.exec?.state,
       };
     });
 
@@ -573,7 +564,7 @@ function createDynamicPlanningService({ projectRoot, configLoader, extensions = 
     return records.listProposals().map(publicProposal);
   }
 
-  return { propose, approve, reject, resolveDecision, get, list };
+  return { propose, approve, resolveDecision, get, list };
 }
 
 /** reviewer 必填校验：人工批准/拒绝/决议都必须署名（非空字符串），保证审计可追责 */

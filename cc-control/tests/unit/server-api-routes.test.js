@@ -328,8 +328,8 @@ describe('边角路由', () => {
     }));
     expect([200, 202]).toContain(r.status);
     expect(r.body.ok).toBe(true);
-    // approve_then_apply 下不自动应用，proposal 应处于待批准
-    expect(['awaiting_approval', 'applied_review_pending']).toContain(r.body.proposal.status);
+    // approve_then_apply 下不自动应用，proposal 应处于「待复审」（审查状态与决策同一套取值）
+    expect(r.body.proposal.status).toBe('pending_review');
   });
 });
 

@@ -1462,7 +1462,7 @@ async function caseDynamicPlanning() {
   });
   const filesAfterDup = proposalFiles();
 
-  // 3) MCP 读回 proposal（GET 面）；人工批准前状态仍为 awaiting_approval
+  // 3) MCP 读回 proposal（GET 面）；人工批准前审查状态仍为 pending_review
   const status1 = await mcp.call('awf_dynamic_plan_status', { proposalId: p1Id });
 
   // 4) 人工批准（HTTP 人工入口，刻意不暴露为 MCP tool）→ 原子应用
@@ -1545,11 +1545,11 @@ async function caseDynamicPlanning() {
       // 1) 提案
       check('MCP 提案返回 ok 且未自动应用（approve_then_apply）',
         prop1.parsed?.ok === true && prop1.parsed?.applied === false, prop1.text),
-      check('proposal 状态 awaiting_approval，nextAction 指向人工审批',
-        p1?.status === 'awaiting_approval' && p1?.nextAction?.type === 'human_approval', p1?.status),
+      check('proposal 审查状态 pending_review，nextAction 指向人工审批',
+        p1?.status === 'pending_review' && p1?.nextAction?.type === 'human_approval', p1?.status),
       check('对外不返回内部 proposedState（数据边界）', !!p1 && !('proposedState' in p1)),
       check('proposal 文件落盘且内容一致',
-        !!p1File && p1File.proposalId === p1Id && p1File.status === 'awaiting_approval', p1Id),
+        !!p1File && p1File.proposalId === p1Id && p1File.status === 'pending_review', p1Id),
       check('events.jsonl 追加 proposal.awaiting_approval',
         eventsAfterPropose.some((e) => e.event === 'proposal.awaiting_approval' && e.proposalId === p1Id),
         eventNames.join(',')),

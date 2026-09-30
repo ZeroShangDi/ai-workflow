@@ -27,7 +27,7 @@
           "ESM 模块，只创建 src/counter.js；不要实现别的任务该产出的文件",
           "收尾前做一次计划自检：读 .awf/state.json，逐个检查尚未执行的任务，它需要复用的产出是否都有任务负责产出",
           "若某个待执行任务依赖一个没有任何任务会产出它的文件，不要自己代做，用 MCP 工具 awf_dynamic_plan 为那个任务补一个前置任务：新任务 id 用「<目标任务的 id>-PRE」，operations 用一条 insert_task，relation.type = prerequisite_for，targetTaskId 填那个目标任务",
-          "调用后不论返回 awaiting_approval 还是别的状态都不要等待审批，继续收尾"
+          "调用后不论返回 pending_review 还是别的状态都不要等待审批，继续收尾"
         ],
         "prompt": "/ai-workflow-code:w-dev T1\n\n在 src/counter.js 实现并具名导出 makeCounter()，返回 { inc(), value() }。"
       },

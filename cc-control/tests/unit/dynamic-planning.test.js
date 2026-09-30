@@ -144,7 +144,9 @@ describe('dynamic planning service', () => {
     });
     const proposal = service.propose(insertRequest());
 
-    expect(proposal.status).toBe('applied_review_pending');
+    // 自动模式：执行已完成（exec=applied），审查上仍是「待复审」—— 人看过之后签收
+    expect(proposal.status).toBe('pending_review');
+    expect(proposal.exec.state).toBe('applied');
     expect(proposal.proposedState).toBeUndefined();
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).tasks.map((task) => task.id)).toEqual(['A', 'I', 'B', 'G']);
     expect(service.get(proposal.proposalId).extensionContext).toEqual({ reviewAdapter: 'future' });
@@ -159,27 +161,26 @@ describe('dynamic planning service', () => {
       configLoader: () => ({ mode: MODES.APPROVE_THEN_APPLY, extensions: {} }),
     });
     const proposal = service.propose(insertRequest());
-    expect(proposal.status).toBe('awaiting_approval');
+    expect(proposal.status).toBe('pending_review');
+    expect(proposal.exec.state).toBe('not_applied');
     const heldState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     expect(heldState.tasks.map((task) => task.id)).toEqual(['A', 'B', 'G']);
     expect(heldState.dynamicPlanning.holds[proposal.proposalId].taskIds).toEqual(['B', 'G']);
 
     const applied = service.approve(proposal.proposalId, { reviewer: 'human', note: '同意补对接任务' });
-    expect(applied.status).toBe('applied');
+    expect(applied.status).toBe('approved');
+    expect(applied.exec.state).toBe('applied');
     expect(applied.approvedBy).toBe('human');
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).tasks.map((task) => task.id)).toEqual(['A', 'I', 'B', 'G']);
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).dynamicPlanning).toBeUndefined();
   });
 
-  it('拒绝 proposal 会释放受影响任务 hold', () => {
+  it('没有驳回入口：不同意的表达是「提交其他方案」，不是单纯否决', () => {
     const service = createDynamicPlanningService({
       projectRoot: root,
       configLoader: () => ({ mode: MODES.APPROVE_THEN_APPLY, extensions: {} }),
     });
-    const proposal = service.propose(insertRequest());
-    const rejected = service.reject(proposal.proposalId, { reviewer: 'human', note: '不需要该任务' });
-    expect(rejected.status).toBe('rejected');
-    expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).dynamicPlanning).toBeUndefined();
+    expect(service.reject).toBeUndefined();
   });
 
   it('第一版只允许一个开放 proposal，避免多个 hold 互相制造伪冲突', () => {
@@ -205,9 +206,10 @@ describe('dynamic planning service', () => {
       configLoader: () => ({ mode: MODES.APPROVE_THEN_APPLY, extensions: {} }),
     });
     const proposal = service.propose(insertRequest());
-    expect(service.approve(proposal.proposalId, { reviewer: 'human' }).status).toBe('applied');
-    expect(() => service.reject(proposal.proposalId, { reviewer: 'other' })).toThrow(/status=applied/);
-    expect(service.get(proposal.proposalId).status).toBe('applied');
+    expect(service.approve(proposal.proposalId, { reviewer: 'human' }).status).toBe('approved');
+    // 终态不可被二次批准覆盖
+    expect(() => service.approve(proposal.proposalId, { reviewer: 'other' })).toThrow(/status=approved/);
+    expect(service.get(proposal.proposalId).status).toBe('approved');
   });
 
   it('等待人工批准期间**无关任务**继续推进不阻塞批准，且重放不回退这些新状态', () => {
@@ -226,7 +228,7 @@ describe('dynamic planning service', () => {
     fs.writeFileSync(statePath, JSON.stringify(progressed, null, 2));
 
     const applied = service.approve(proposal.proposalId, { reviewer: 'human', note: '同意补对接任务' });
-    expect(applied.status).toBe('applied');
+    expect(applied.status).toBe('approved');
 
     const after = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     expect(after.tasks.map((task) => task.id)).toEqual(['A', 'I', 'B', 'G']);
@@ -249,7 +251,9 @@ describe('dynamic planning service', () => {
     fs.writeFileSync(statePath, JSON.stringify(drifted, null, 2));
 
     const result = service.approve(proposal.proposalId, { reviewer: 'human' });
-    expect(result.status).toBe('conflicted');
+    // 人已批准（审查结论=已采纳）；应用撞上变动记在 exec 上
+    expect(result.status).toBe('approved');
+    expect(result.exec.state).toBe('conflicted');
     expect(result.conflict.actualScopeFingerprint).not.toBe(result.conflict.expectedScopeFingerprint);
     const after = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     expect(after.tasks.map((task) => task.id)).toEqual(['A', 'B', 'G']);
@@ -267,7 +271,9 @@ describe('dynamic planning service', () => {
     drifted.plan.acceptanceCriteria = ['降级为单文件实现'];
     fs.writeFileSync(statePath, JSON.stringify(drifted, null, 2));
 
-    expect(service.approve(proposal.proposalId, { reviewer: 'human' }).status).toBe('conflicted');
+    const driftedApprove = service.approve(proposal.proposalId, { reviewer: 'human' });
+    expect(driftedApprove.status).toBe('approved');
+    expect(driftedApprove.exec.state).toBe('conflicted');
   });
 
   it('高风险调整建立正式 decision，不能绕过 decision 直接批准', () => {
@@ -280,7 +286,7 @@ describe('dynamic planning service', () => {
       reason: '尝试删除模块实现',
       operations: [{ type: 'delete_task', taskId: 'B' }],
     });
-    expect(proposal.status).toBe('decision_required');
+    expect(proposal.status).toBe('awaiting_human'); // 等的是决策内核的结论
     expect(proposal.nextAction).toMatchObject({ type: 'decision', decisionId: expect.stringMatching(/^D-DP-/) });
     expect(() => service.approve(proposal.proposalId, { reviewer: 'human' })).toThrow(/resolve the decision/);
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).tasks.some((task) => task.id === 'B')).toBe(true);
@@ -297,7 +303,8 @@ describe('dynamic planning service', () => {
     const resolved = service.resolveDecision(proposal.decision.decisionId, {
       outcome: 'approve', reviewer: 'human-owner', note: '确认删除是目标的一部分',
     });
-    expect(resolved.proposal.status).toBe('applied');
+    expect(resolved.proposal.status).toBe('approved');
+    expect(resolved.proposal.exec.state).toBe('applied');
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).tasks.some((task) => task.id === 'B')).toBe(false);
     const completed = new DecisionStore(root).eventsFor(proposal.decision.decisionId).entries;
     expect(completed.map((entry) => entry.event)).toEqual(['decision_requested', 'decision_completed']);
@@ -307,7 +314,7 @@ describe('dynamic planning service', () => {
     });
   });
 
-  it('人工 decision 拒绝高风险调整时释放 hold 并保持原计划', () => {
+  it('高风险调整的决策只接受 approve（驳回入口已去掉）', () => {
     const service = createDynamicPlanningService({
       projectRoot: root,
       configLoader: () => ({ mode: MODES.AUTO_THEN_REVIEW, extensions: {} }),
@@ -317,14 +324,9 @@ describe('dynamic planning service', () => {
       reason: '尝试删除模块实现',
       operations: [{ type: 'delete_task', taskId: 'B' }],
     });
-    const resolved = service.resolveDecision(proposal.decision.decisionId, {
-      outcome: 'reject', reviewer: 'human-owner', note: '不得降低模块化目标',
-    });
-    expect(resolved.proposal.status).toBe('rejected');
-    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    expect(state.tasks.some((task) => task.id === 'B')).toBe(true);
-    expect(state.dynamicPlanning).toBeUndefined();
-    expect(resolved.decision.result).toMatchObject({ type: 'no_action', outcome: 'reject' });
+    expect(() => service.resolveDecision(proposal.decision.decisionId, {
+      outcome: 'reject', reviewer: 'human-owner',
+    })).toThrow(/must be approve/);
   });
 
   it('proposal 已应用但 decision 完成记录中断时，同 outcome 重试只补记、不重复应用', () => {
@@ -349,7 +351,7 @@ describe('dynamic planning service', () => {
     });
     expect(() => service.resolveDecision(proposal.decision.decisionId, {
       outcome: 'approve', reviewer: 'first-human', note: '批准',
-    })).toThrow(/proposal .* is applied.*recording failed/);
+    })).toThrow(/proposal .* is approved.*recording failed/);
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8')).tasks.some((task) => task.id === 'B')).toBe(false);
     expect(service.get(proposal.proposalId).decision.recordStatus).toBe('completion_failed');
 
@@ -357,14 +359,15 @@ describe('dynamic planning service', () => {
     const repaired = service.resolveDecision(proposal.decision.decisionId, {
       outcome: 'approve', reviewer: 'retrying-human', note: '重试只补记',
     });
-    expect(repaired.proposal.status).toBe('applied');
+    expect(repaired.proposal.status).toBe('approved');
     expect(repaired.proposal.decision).toMatchObject({
       recordStatus: 'completed', reviewer: 'first-human', outcome: 'approve',
     });
     expect(completionCalls).toBe(2);
+    // 已完成记录的决策不能被再次 resolve（补记窗口已关）
     expect(() => service.resolveDecision(proposal.decision.decisionId, {
-      outcome: 'reject', reviewer: 'attacker',
-    })).toThrow(/status=applied/);
+      outcome: 'approve', reviewer: 'attacker',
+    })).toThrow(/status=approved/);
   });
 
   it('多 operation 中任一失败时整次规划不落 state，也不产生半成品 proposal', () => {

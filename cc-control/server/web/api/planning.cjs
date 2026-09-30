@@ -8,7 +8,7 @@
  * 路由（method + path）：
  *   GET  /awf/dynamic-planning/proposals                          列全部 / 取单条（?proposalId）
  *   POST /run/dynamic-planning/proposals                          提交一次动态任务调整（propose）
- *   POST /run/dynamic-planning/proposals/:id/(approve|reject)     人工批准/驳回提案
+ *   POST /run/dynamic-planning/proposals/:id/approve                 人工批准提案
  *
  * 约定：`handle(req, res, url, rt, deps)` 返回 boolean —— true=本域已处理（响应已发）；
  * false=不是本域路由，交下一个。deps 由入口注入（本域暂不使用）。
@@ -39,26 +39,24 @@ async function handle(req, res, url, rt, deps) {
     const body = (await readJson(req)) || {};
     try {
       const proposal = rt.dynamicPlanning().propose(body);
-      const applied = proposal.status === 'applied_review_pending'; // 已自动应用 → 200，待人工 → 202
+      const applied = proposal.exec?.state === 'applied'; // 已自动应用 → 200，待人工 → 202
       send(res, applied ? 200 : 202, { ok: true, applied, proposal });
     } catch (e) {
       send(res, 409, { ok: false, error: e.message });
     }
     return true;
   }
-  // POST /run/dynamic-planning/proposals/:id/(approve|reject)：人工批准/驳回提案
-  const dynamicAction = pathname.match(/^\/run\/dynamic-planning\/proposals\/([^/]+)\/(approve|reject)$/);
+  // POST /run/dynamic-planning/proposals/:id/approve：人工批准提案（驳回入口已去掉 ——
+  // 不同意的表达是「提交其他方案」，而不是单纯否决）
+  const dynamicAction = pathname.match(/^\/run\/dynamic-planning\/proposals\/([^/]+)\/approve$/);
   if (req.method === 'POST' && dynamicAction) {
     const proposalId = decodeURIComponent(dynamicAction[1]);
     const body = (await readJson(req)) || {};
     try {
       const service = rt.dynamicPlanning();
-      const proposal = dynamicAction[2] === 'approve'
-        ? service.approve(proposalId, body)
-        : service.reject(proposalId, body);
-      send(res, 200, { ok: true, proposal });
+      send(res, 200, { ok: true, proposal: service.approve(proposalId, body) });
     } catch (e) {
-      send(res, 409, { ok: false, error: e.message });
+      send(res, 409, { ok: false, error: e.message }); // 业务失败 → 409，不是 500
     }
     return true;
   }

@@ -162,7 +162,7 @@ describe('awf-state MCP → server run api（T1-077）', () => {
     const payload = JSON.parse(result.content[0].text);
     expect(payload.ok).toBe(true);
     expect(payload.applied).toBe(true);
-    expect(payload.proposal.status).toBe('applied_review_pending');
+    expect(payload.proposal.status).toBe('pending_review');
     expect(payload.proposal.extensionContext).toEqual({ reviewAdapter: 'future-ui' });
 
     const state = JSON.parse(fs.readFileSync(path.join(proj, '.awf', 'state.json'), 'utf8'));
@@ -174,7 +174,7 @@ describe('awf-state MCP → server run api（T1-077）', () => {
       arguments: { proposalId: payload.proposal.proposalId },
     });
     const statusPayload = JSON.parse(status.content[0].text);
-    expect(statusPayload.proposal.status).toBe('applied_review_pending');
+    expect(statusPayload.proposal.status).toBe('pending_review');
     expect(statusPayload.proposal.proposedState).toBeUndefined();
 
     const bypass = await mcp.call('tools/call', {
@@ -204,7 +204,7 @@ describe('awf-state MCP → server run api（T1-077）', () => {
     });
     const payload = JSON.parse(result.content[0].text);
     expect(payload.applied).toBe(false);
-    expect(payload.proposal.status).toBe('awaiting_approval');
+    expect(payload.proposal.status).toBe('pending_review');
     expect(JSON.parse(fs.readFileSync(path.join(proj, '.awf', 'state.json'), 'utf8')).tasks
       .some((task) => task.id === 'T2-I2')).toBe(false);
 
@@ -217,7 +217,7 @@ describe('awf-state MCP → server run api（T1-077）', () => {
       },
     );
     expect(approved.status).toBe(200);
-    expect((await approved.json()).proposal.status).toBe('applied');
+    expect((await approved.json()).proposal.status).toBe('approved');
     expect(JSON.parse(fs.readFileSync(path.join(proj, '.awf', 'state.json'), 'utf8')).tasks
       .some((task) => task.id === 'T2-I2')).toBe(true);
   });
@@ -231,7 +231,7 @@ describe('awf-state MCP → server run api（T1-077）', () => {
       },
     });
     const payload = JSON.parse(result.content[0].text);
-    expect(payload.proposal.status).toBe('decision_required');
+    expect(payload.proposal.status).toBe('awaiting_human');
     const decisionId = payload.proposal.decision.decisionId;
 
     const decisions = await (await fetch(
@@ -262,7 +262,7 @@ describe('awf-state MCP → server run api（T1-077）', () => {
     );
     const resolvedBody = await resolved.json();
     expect(resolved.status, JSON.stringify(resolvedBody)).toBe(200);
-    expect(resolvedBody.proposal.status).toBe('applied');
+    expect(resolvedBody.proposal.status).toBe('approved');
     expect(resolvedBody.decision.result).toMatchObject({ outcome: 'approve', application_status: 'applied' });
     expect(JSON.parse(fs.readFileSync(path.join(proj, '.awf', 'state.json'), 'utf8')).tasks
       .some((task) => task.id === 'T2-I2')).toBe(false);

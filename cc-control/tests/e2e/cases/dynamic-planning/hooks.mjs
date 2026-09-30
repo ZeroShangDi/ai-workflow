@@ -41,11 +41,11 @@ export async function duringRun({ readState, get, post, sleep }) {
   const deadline = Date.now() + 8 * 60 * 1000;
   while (Date.now() < deadline && !proposal) {
     const r = await get('/awf/dynamic-planning/proposals');
-    proposal = (r.json?.proposals || []).find((p) => p.status === 'awaiting_approval') || null;
+    proposal = (r.json?.proposals || []).find((p) => p.status === 'pending_review') || null;
     if (!proposal) await sleep(1000);
   }
   if (!proposal) {
-    check(false, '未等到 awaiting_approval 的提案（8 分钟内会话内的 AI 没有发起任何动态规划提案）');
+    check(false, '未等到 pending_review 的提案（8 分钟内会话内的 AI 没有发起任何动态规划提案）');
     return { checks };
   }
   memory.proposalId = proposal.proposalId;

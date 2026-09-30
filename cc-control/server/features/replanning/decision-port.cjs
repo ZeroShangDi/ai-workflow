@@ -56,7 +56,7 @@ function createDynamicPlanningDecisionPort({ storeFactory }) {
         question: `是否批准动态任务规划提案 ${proposal.proposalId}？`,
         task_goal: currentState?.plan?.summary || '保持既定任务规划目标与验收标准',
         context: proposal.reason,
-        options: ['approve', 'reject'],
+        options: ['approve'],
         constraints: currentState?.plan?.acceptanceCriteria || [],
         related_decisions: [],
         decision_reasons: reasons,
@@ -80,22 +80,19 @@ function createDynamicPlanningDecisionPort({ storeFactory }) {
    *
    * answer/type/finality 按「批准是否真正落地」分支：
    *   - 批准且已应用 → resolved / final；
-   *   - 批准但 state 已变未应用（conflicted）→ validation_required / provisional（需重新提案）；
-   *   - 拒绝 → no_action / final。
-   * 这样 Review 侧只看 result 就能区分「执行了」「没执行但需跟进」「明确否决」三态。
+   *   - 批准但 state 已变未应用（conflicted）→ validation_required / provisional（需重新提案）。
+   * 这样 Review 侧只看 result 就能区分「执行了」「没执行但需跟进」两态。
+   * （驳回入口已去掉：不同意的表达是「提交其他方案」，而不是单纯否决。）
    */
   function complete({ decisionId, proposal, outcome, reviewer, note, applicationStatus }) {
-    const applied = outcome === 'approve' && applicationStatus === 'applied';
-    const conflicted = outcome === 'approve' && applicationStatus === 'conflicted';
-    const answer = applied
-      ? `批准并应用动态任务规划提案 ${proposal.proposalId}`
-      : conflicted
-        ? `批准提案 ${proposal.proposalId}，但 state 已变化，未应用；需要重新提案`
-        : `拒绝动态任务规划提案 ${proposal.proposalId}，保持现有任务计划`;
+    const conflicted = applicationStatus === 'conflicted';
+    const answer = conflicted
+      ? `批准提案 ${proposal.proposalId}，但 state 已变化，未应用；需要重新提案`
+      : `批准并应用动态任务规划提案 ${proposal.proposalId}`;
     const result = {
       decision_id: decisionId,
       answer,
-      type: applied ? 'resolved' : (conflicted ? 'validation_required' : 'no_action'),
+      type: conflicted ? 'validation_required' : 'resolved',
       finality: conflicted ? 'provisional' : 'final',
       impact: 'high',
       real_question: `是否允许提案 ${proposal.proposalId} 改变既定任务计划中的高风险字段或任务结构？`,
@@ -107,7 +104,7 @@ function createDynamicPlanningDecisionPort({ storeFactory }) {
         '动态规划分析识别高风险变更',
         'execution hold 阻止受影响任务继续执行',
         `人工选择 ${outcome}`,
-        `proposal 结果为 ${applicationStatus}`,
+        `proposal 执行结果为 ${applicationStatus}`,
       ],
       facts: [
         `proposal=${proposal.proposalId}`,
@@ -116,7 +113,7 @@ function createDynamicPlanningDecisionPort({ storeFactory }) {
       assumptions: [],
       unknowns: conflicted ? ['state 在审批前发生变化，旧 proposal 不再可安全应用'] : [],
       risks: proposal?.analysis?.decisionReasons || [],
-      reversible: outcome === 'reject',
+      reversible: conflicted, // 未应用（冲突）才可逆；已应用是既成事实
       reconsider_when: conflicted
         ? ['基于最新 state 重新生成动态规划 proposal']
         : ['任务目标、验收标准或关键约束再次变化时'],
