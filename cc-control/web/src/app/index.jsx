@@ -11,6 +11,7 @@ export default function App() {
         project={shell.project}
         view={shell.view}
         runId={shell.runId}
+        task={shell.task}
         setRunId={shell.setRunId}
         setView={shell.setView}
         connectionError={shell.error}

@@ -5,7 +5,15 @@ import { lazy, Suspense } from 'react';
 import { ROUTES, getRoute } from './routes.js';
 import ErrorBoundary from '@/shared/components/ui/ErrorBoundary.jsx';
 const pages = Object.fromEntries(ROUTES.map(route => [route.key, lazy(route.load)]));
-export default function Workspace({ project, view, runId, setRunId, setView, connectionError }) {
+export default function Workspace({
+  project,
+  view,
+  runId,
+  task,
+  setRunId,
+  setView,
+  connectionError,
+}) {
   const workspace = useWorkspace(project, view);
   const { data, errors } = workspace;
   const runs = data.runs?.runs || [];
@@ -17,6 +25,7 @@ export default function Workspace({ project, view, runId, setRunId, setView, con
     run,
     runId: run?.runId || runId,
     selectedRunId: runId,
+    task,
     runs,
     setRunId,
     setView,

@@ -1,6 +1,7 @@
 import { API } from '@/shared/api/index.js';
 import { useEffect, useRef, useState } from 'react';
 import { useAction } from '@/shared/hooks/useAction.js';
+import { aggregateDecisions, countPendingReview } from '@/pages/Decisions/model.js';
 export function useRunPage(props) {
   const { data, client, refresh, events } = props;
   const tasks = data.state?.tasks || [],
@@ -30,12 +31,21 @@ export function useRunPage(props) {
     action(API.workflowMode, { mode: data.state.mode === 'pause' ? 'run' : 'pause' });
   const interrupt = () => action(API.stop, {});
   const respond = value => action(API.respond, { value: String(value) });
+  // 决策：展示与复审的唯一入口在决策页，这里只给一行计数 + 跳转
+  // （场景 2「上抛给人答」本版不做，run 期间没有需要人实时作答的东西，故不做弹窗）。
+  const decisionEntries = data.decisions?.decisions || [];
+  const decisionTotal = aggregateDecisions(decisionEntries).filter(e => e.completed).length;
+  const pendingReview = countPendingReview(decisionEntries);
+  const goDecisions = () => props.setView('decisions');
   return {
     sendMessage,
     startRun,
     toggleMode,
     interrupt,
     respond,
+    decisionTotal,
+    pendingReview,
+    goDecisions,
     cancelRun: () => action(API.cancelRun(props.runId), {}),
     retryRun: async () => {
       const result = await action(API.retryRun(props.runId), {});

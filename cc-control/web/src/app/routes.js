@@ -18,7 +18,9 @@ export const ROUTES = [
     key: 'run',
     label: 'Run',
     icon: 'run',
-    reads: ['state', 'conversation', 'sourceLog'],
+    // decisions：Run 页只显示「本次产生了多少条决策、几条待复审」并跳转决策页，
+    // 展示与复审的唯一入口在决策页（见 design/decision-redesign.md）。
+    reads: ['state', 'conversation', 'sourceLog', 'decisions'],
     snapshot: true,
     load: () => import('@/pages/Run/index.jsx'),
   },
@@ -26,7 +28,8 @@ export const ROUTES = [
     key: 'tasks',
     label: '任务',
     icon: 'tasks',
-    reads: ['state'],
+    // decisions：任务列表要标出「哪些任务产生过决策」（归因字段 task_id），并支持点进决策页按任务筛
+    reads: ['state', 'decisions'],
     load: () => import('@/pages/Tasks/index.jsx'),
   },
   {

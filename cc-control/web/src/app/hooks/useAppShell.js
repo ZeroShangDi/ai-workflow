@@ -75,11 +75,13 @@ export function useAppShell() {
     open,
     setOpen,
     views,
-    setView: view => navigate({ view }),
+    // task 默认清空：只在显式传（如任务列表点「有决策」跳决策页并按该任务筛）时带上，
+    // 否则切页面会把上一次的筛选带过去。
+    setView: (view, params = {}) => navigate({ view, task: '', ...params }),
     setRunId: runId => navigate({ runId }),
     setProject: (project, view) => {
       if (hostBound) return;
-      navigate({ project, runId: '', ...(view ? { view } : {}) });
+      navigate({ project, runId: '', task: '', ...(view ? { view } : {}) });
       setOpen(false);
     },
   };

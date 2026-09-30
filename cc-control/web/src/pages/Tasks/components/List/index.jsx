@@ -19,6 +19,8 @@ export default function TaskList({
   panel,
   selectTask,
   togglePanel,
+  hasDecision,
+  openDecisions,
   action,
   busy,
   message,
@@ -122,6 +124,27 @@ export default function TaskList({
               <span className="record-title" title={title}>
                 {title}
               </span>
+              {/* 有决策标记：点它跳决策页并按该任务筛。多 agent 下主会话的决策不带 task_id，
+                  所以这条只覆盖「任务级」决策，run 级的不在这里显示。 */}
+              {hasDecision(t) && (
+                <span
+                  className="badge"
+                  role="button"
+                  tabIndex={0}
+                  title="这个任务产生过决策，点击查看"
+                  onClick={e => {
+                    e.stopPropagation();
+                    openDecisions(t.id);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openDecisions(t.id);
+                  }}>
+                  有决策
+                </span>
+              )}
               <Badge value={t.status} />
               {retryable && (
                 <span className="record-actions">

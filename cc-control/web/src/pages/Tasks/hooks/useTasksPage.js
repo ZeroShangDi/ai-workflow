@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { display } from '@/shared/lib/format.js';
 import { sourceOf } from '@/pages/Tasks/model.js';
-export function useTasksPage(data) {
+export function useTasksPage(data, { goDecisions = () => {} } = {}) {
   const tasks = data.state?.tasks || [];
+  // 有决策的任务：决策记录的 task_id 直接指向任务（多 agent 下主会话的决策不带 task_id，
+  // 那种属于 run 级，不往任务上挂）。
+  const decisionTaskIds = new Set(
+    (data.decisions?.decisions || []).map(d => d.task_id).filter(Boolean),
+  );
   const [filter, setFilter] = useState('all'),
     [sourceFilter, setSourceFilter] = useState('all'),
     [search, setSearch] = useState(''),
@@ -39,6 +44,8 @@ export function useTasksPage(data) {
       setSelected(id);
       setPanel('detail');
     },
+    hasDecision: task => decisionTaskIds.has(task.id),
+    openDecisions: taskId => goDecisions(taskId),
     togglePanel: () => setPanel(current => (current === 'overview' ? 'detail' : 'overview')),
   };
 }

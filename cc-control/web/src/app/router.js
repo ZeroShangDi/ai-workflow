@@ -11,6 +11,8 @@ export function readRoute(location) {
     view: getRoute(view, params.get('mode')).key,
     project: params.get('p'),
     runId: params.get('runId') || '',
+    // 任务过滤（决策页用）：从任务列表的「有决策」标记点进来时带上，筛出该任务的决策
+    task: params.get('task') || '',
   };
 }
 export function routeUrl(route, currentUrl) {
@@ -20,6 +22,7 @@ export function routeUrl(route, currentUrl) {
   for (const [key, value] of [
     ['p', route.project],
     ['runId', route.runId],
+    ['task', route.task],
   ]) {
     if (value) url.searchParams.set(key, value);
     else url.searchParams.delete(key);
