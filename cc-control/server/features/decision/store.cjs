@@ -163,8 +163,33 @@ class DecisionStore {
       at: new Date().toISOString(),
       ...payload,
     };
-    this._appendLine(hit.file, event);
+    // runStamp 与其他写入口一致地带上：**每条决策记录都必须能回答「哪一次运行的产物」**，
+    // 否则按运行捞数据时会漏掉改写记录（这条路径最早漏了它）。
+    this._appendLine(hit.file, { runStamp: hit.runStamp, ...event });
     return { runStamp: hit.runStamp, file: hit.file };
+  }
+
+  /**
+   * 把一条已构造好的生命周期事件追加进**含该 decision_id 的那个 run 文件**。
+   *
+   * 为什么不能沿用 appendEvent：它写 `runStamp()`（最新 run），而复审/覆盖可能发生在决策
+   * 落盘之后的另一个 run 里。写错文件，前端按 `runStamp + decision_id` 聚合就会把它当成
+   * 另一条决策（一条决策显示成两行）。`override` 早就是这个约束，这里是它的一般化。
+   *
+   * 幂等：同一 (decision_id, event) 只写一次，与 appendEvent 同口径。
+   * @param {string} decisionId
+   * @param {object} event 已含 event / decision_id 等字段
+   * @returns {{ appended: boolean, runStamp: string, file: string }}
+   * @throws 找不到含该 decision_id 的决策时抛错
+   */
+  appendToDecisionRun(decisionId, event) {
+    const hit = this._findDecision(decisionId);
+    if (!hit) throw new Error(`决策记录不存在：${decisionId}`);
+    const duplicate = this._records(hit.file)
+      .some((entry) => entry.decision_id === decisionId && entry.event === event.event);
+    if (duplicate) return { appended: false, runStamp: hit.runStamp, file: hit.file };
+    this._appendLine(hit.file, { runStamp: hit.runStamp, ...event });
+    return { appended: true, runStamp: hit.runStamp, file: hit.file };
   }
 
   /** 在全部 run 文件中查找含 decision_id 的记录，返回 { runStamp, file, entry } 或 null */

@@ -118,7 +118,22 @@ describe('DecisionStore — 追加式 jsonl / runStamp / override', () => {
     expect(evt.event).toBe('decision_overridden');
     expect(evt.decision_id).toBe('D-6');
     expect(evt.instruction).toBe('改成 Z');
+    // **每条记录都要能回答「哪一次运行的产物」**：这条路径最早漏了 runStamp，
+    // 于是按运行捞数据时会漏掉改写记录（回归守卫）。
+    expect(evt.runStamp).toBe(NEW_RUN);
     expect(store.listAll().some((e) => e.event === 'decision_overridden')).toBe(true);
+  });
+
+  it('每条决策记录都带 runStamp（四条写入口全覆盖：append / appendEvent / override / appendToDecisionRun）', () => {
+    const root = makeProject({ runDirs: [NEW_RUN] });
+    const store = new DecisionStore(root);
+    store.append({ decision_id: 'D-A', answer: 'a' });
+    store.appendEvent({ decision_id: 'D-B', event: 'decision_requested', status: 'deciding' });
+    store.appendEvent({ decision_id: 'D-B', event: 'decision_completed', status: 'pending_review' });
+    store.override('D-B', { instruction: '改' });
+    store.appendToDecisionRun('D-B', { event: 'decision_reviewed', decision_id: 'D-B', status: 'approved' });
+
+    expect(store.listAll().every((e) => typeof e.runStamp === 'string' && e.runStamp)).toBe(true);
   });
 
   it('override 目标不存在 → 抛错', () => {

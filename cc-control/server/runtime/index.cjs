@@ -122,7 +122,17 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
     onMeta: (key, body, status) => updateSubagentMeta(ctx.projectRoot, key, body, status),
     onTranscript: (body, taskId, key) => ctx.logger?.captureSubagentTranscript?.(body, taskId, key),
     onSettle: (r) => {
-      if (r.needsInput) console.log(`[subagent-needs] ${r.needsInput.taskId}: ${r.needsInput.question.slice(0, 40)}`);
+      if (r.needsInput) {
+        console.log(`[subagent-needs] ${r.needsInput.taskId}: ${r.needsInput.question.slice(0, 40)}`);
+        // 举牌同时落一条决策记录（任务级）。此前它只写 needs-input.jsonl 给宿主当挂起游标，
+        // 决策侧看不到 —— 而它自带 taskId，是任务归属最精确的一种决策。
+        decision.recordEscalation({
+          taskId: r.needsInput.taskId,
+          question: r.needsInput.question,
+          options: r.needsInput.options,
+          agentId: r.agentId,
+        });
+      }
       else if (r.ok) console.log(`[subagent-settle] ${r.taskId} -> ${r.status}（via ${ctx.adapter}）`);
       else console.log(`[subagent-settle] ${r.reason} (agent ${r.agentId}, via ${ctx.adapter})`);
     },

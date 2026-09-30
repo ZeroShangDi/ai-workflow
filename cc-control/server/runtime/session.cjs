@@ -40,6 +40,7 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
   let sessionSeq = 0;         // 会话启动序号：每次 SessionStart +1（单调；供 CLI 判定「本次会话已就绪」）
   let decisionGate = null;    // null | { phase:'deciding', startedAt }（决策门阀承载位）
   let decisionResume = null;  // 决策结束后待注入的续跑指令（一次性消费）
+  let capturedRequest = null; // null | { at, question, options, form }（被拦截的提问，供本次决策并入问题侧）
 
   /** 置 ready 并唤醒全部等待者（waiters 一次性清空） */
   function setReady() {
@@ -77,6 +78,15 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
   function setDecision(d) { decisionPending = d; }
   function clearDecision() { decisionPending = null; }
 
+  /** 暂存被拦截的提问（问题侧原始信息）；决策落盘时一次性取走，见 decision/handler */
+  function setCapturedRequest(v) { capturedRequest = v; }
+  function takeCapturedRequest() {
+    const v = capturedRequest;
+    capturedRequest = null;
+    return v;
+  }
+  function clearCapturedRequest() { capturedRequest = null; }
+
   function setFallbackTimer(timer) { fallbackTimer = timer; }
   function clearFallbackTimer() {
     if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
@@ -107,6 +117,7 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
     sessionSeq = 0;
     decisionGate = null;
     decisionResume = null;
+    capturedRequest = null;
     clearFallbackTimer();
   }
 
@@ -155,6 +166,9 @@ function createSession({ sid = null, decisionSeqGen = null } = {}) {
     waitReady,
     setDecision,
     clearDecision,
+    setCapturedRequest,
+    takeCapturedRequest,
+    clearCapturedRequest,
     setFallbackTimer,
     clearFallbackTimer,
     snapshot,

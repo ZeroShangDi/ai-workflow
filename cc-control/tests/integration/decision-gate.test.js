@@ -116,6 +116,21 @@ function readDecisionLines() {
   return fs.readFileSync(RUN_FILE, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
 
+/**
+ * 结论侧记录（只看 decision_completed）。
+ *
+ * 问题侧现在会先落一条 decision_requested（问题 / 作答形态 / 选项），所以「一次决策 = 几行」
+ * 不能再拿 readDecisionLines().length 当判据 —— 断言「结论落了一条」必须按事件过滤。
+ */
+function readCompletedLines() {
+  return readDecisionLines().filter((l) => l.event === 'decision_completed');
+}
+
+/** 问题侧记录（decision_requested） */
+function readRequestedLines() {
+  return readDecisionLines().filter((l) => l.event === 'decision_requested');
+}
+
 const REQ_TAG = (q) => `请决定：<AWF_DECISION_REQUIRED>${q}</AWF_DECISION_REQUIRED>`;
 
 function resultMessage(overrides = {}) {
@@ -171,8 +186,9 @@ describe('decision gate — Stop 统一闸门', () => {
     expect(st.decisionGate.phase).toBe('deciding');
     expect(st.state).toBe('busy');
     expect((await api('GET', '/status')).body.decisionGate.phase).toBe('deciding');
-    // 尚未落盘
-    expect(readDecisionLines()).toHaveLength(0);
+    // 问题侧已落（供 Review 看到「当初在纠结什么」），结论侧尚未落
+    expect(readRequestedLines()).toHaveLength(1);
+    expect(readCompletedLines()).toHaveLength(0);
   });
 
   it('gate on ③a 结果收尾：deciding 中 Stop 含有效 <AWF_DECISION_RESULT> → 落盘 + decisionResume + ready', async () => {
@@ -189,11 +205,13 @@ describe('decision gate — Stop 统一闸门', () => {
     expect(st.decisionResume).toMatchObject({ type: 'resolved', answer: '先做可逆验证再定', fallback: false });
     expect(st.decisionResume.decision_id).toBeTruthy();
 
-    const lines = readDecisionLines();
+    const lines = readCompletedLines();
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ status: 'pending_review', source: 'text' });
     expect(lines[0].result.answer).toBe('先做可逆验证再定');
     expect(lines[0].decision_id).toBe(st.decisionResume.decision_id);
+    // 问题侧与结论侧共用一个 decision_id（页面上是一条决策，不是两条）
+    expect(readRequestedLines()[0].decision_id).toBe(lines[0].decision_id);
   });
 
   it('gate on ③b 兜底：deciding 中 Stop 无有效结果 → deferred fallback 落盘 + decisionResume(fallback) + ready', async () => {
@@ -209,7 +227,7 @@ describe('decision gate — Stop 统一闸门', () => {
     expect(st.state).toBe('ready');
     expect(st.decisionResume.fallback).toBe(true);
 
-    const lines = readDecisionLines();
+    const lines = readCompletedLines();
     expect(lines).toHaveLength(1);
     expect(lines[0].result).toMatchObject({ type: 'deferred', finality: 'provisional', fallback: true });
   });
@@ -239,9 +257,10 @@ describe('decision gate — Stop 统一闸门', () => {
     await setBusy();
     await stopPayload({ last_assistant_message: REQ_TAG('q'), stop_hook_active: false });
     await stopPayload({ last_assistant_message: resultMessage(), stop_hook_active: true });
-    // 同一事务不会再次进入 deciding；普通后续 Stop → ready，无新增行
+    // 同一事务不会再次进入 deciding；普通后续 Stop → ready，无新增结论
     await stopPayload({ last_assistant_message: resultMessage(), stop_hook_active: false });
-    expect(readDecisionLines()).toHaveLength(1);
+    expect(readCompletedLines()).toHaveLength(1);
+    expect(readRequestedLines()).toHaveLength(1);
   });
 });
 
@@ -333,7 +352,7 @@ describe('决策闭环约束（closed-loop）', () => {
     expect(st.decisionGate).toBeNull();
     expect(st.state).toBe('ready');
     expect(st.decisionResume.fallback).toBe(true);
-    expect(readDecisionLines()).toHaveLength(1);
+    expect(readCompletedLines()).toHaveLength(1);
   });
 
   it('AskUserQuestion deny → 标签收尾 → Stop block(deciding) → 结果落盘 一次 DC 闭环', async () => {
@@ -356,9 +375,14 @@ describe('决策闭环约束（closed-loop）', () => {
     expect(st.decisionGate).toBeNull();
     expect(st.state).toBe('ready');
     expect(st.decisionResume.fallback).toBe(false);
-    const lines = readDecisionLines();
+    const lines = readCompletedLines();
     expect(lines).toHaveLength(1);
     expect(lines[0].result.answer).toBe('先做可逆验证再定');
+    // 拦截时拿到的问题与选项并进了**同一次**决策（此前 deny 就丢光，只剩自由文本重问）
+    const asked = readRequestedLines();
+    expect(asked).toHaveLength(1);
+    expect(asked[0].request).toMatchObject({ question: '选 A 还是 B？', options: ['A', 'B'], form: 'single' });
+    expect(asked[0].decision_id).toBe(lines[0].decision_id);
   });
 
   it('无 stop_hook_active 字段也能可靠判定（缺省视作首次可触发；deciding 后按结果/兜底闭合）', async () => {
@@ -375,7 +399,7 @@ describe('决策闭环约束（closed-loop）', () => {
     const st = server._getState();
     expect(st.decisionGate).toBeNull();
     expect(st.state).toBe('ready');
-    expect(readDecisionLines()).toHaveLength(1);
+    expect(readCompletedLines()).toHaveLength(1);
   });
 
   it('无结果必有兜底：deciding 中多次无结果 Stop 均收敛到单条 fallback，不悬空不重复', async () => {
@@ -388,11 +412,11 @@ describe('决策闭环约束（closed-loop）', () => {
     const st = server._getState();
     expect(st.state).toBe('ready');
     expect(st.decisionResume.fallback).toBe(true);
-    expect(readDecisionLines()).toHaveLength(1);
-    expect(readDecisionLines()[0].result.type).toBe('deferred');
+    expect(readCompletedLines()).toHaveLength(1);
+    expect(readCompletedLines()[0].result.type).toBe('deferred');
     // 后续普通 Stop 不再落盘（resume 随新普通完成清空）
     await stopPayload({ last_assistant_message: '后续完成', stop_hook_active: false });
-    expect(readDecisionLines()).toHaveLength(1);
+    expect(readCompletedLines()).toHaveLength(1);
     expect(server._getState().decisionResume).toBeNull();
   });
 });
@@ -406,7 +430,7 @@ describe('捕获记录字段完整性（供 Review 消费）', () => {
     const msg = resultMessage({ confidence: 'high', risks: ['依赖外部定时'], unknowns: ['待验证'] });
     await stopPayload({ last_assistant_message: msg, stop_hook_active: true });
 
-    const lines = readDecisionLines();
+    const lines = readCompletedLines();
     expect(lines).toHaveLength(1);
     const rec = lines[0];
     expect(rec.event).toBe('decision_completed');
@@ -439,7 +463,7 @@ describe('捕获记录字段完整性（供 Review 消费）', () => {
     await stopPayload({ last_assistant_message: REQ_TAG('q'), stop_hook_active: false });
     await stopPayload({ last_assistant_message: '无法完成', stop_hook_active: true });
 
-    const rec = readDecisionLines()[0];
+    const rec = readCompletedLines()[0];
     expect(rec.event).toBe('decision_completed');
     expect(rec.status).toBe('pending_review');
     expect(rec.fallback).toBe(true);
@@ -464,13 +488,39 @@ describe('Review 数据 API — list / override', () => {
     return server._getState().decisionResume.decision_id;
   }
 
-  it('GET /awf/decisions → 聚合倒序列表，含 decision_completed 记录', async () => {
+  it('GET /awf/decisions → 聚合倒序列表，含问题侧与结论侧记录', async () => {
     const id = await captureOne();
     const res = await api('GET', '/awf/decisions');
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.total).toBe(1);
-    expect(res.body.decisions[0]).toMatchObject({ event: 'decision_completed', decision_id: id, status: 'pending_review' });
+    // 一次决策两条事件：requested（问题侧）+ completed（结论侧），前端按 decision_id 聚合成一条
+    expect(res.body.total).toBe(2);
+    expect(res.body.decisions.find((d) => d.event === 'decision_completed'))
+      .toMatchObject({ decision_id: id, status: 'pending_review' });
+    expect(res.body.decisions.find((d) => d.event === 'decision_requested'))
+      .toMatchObject({ decision_id: id, request: { question: 'q', form: 'qa' } });
+  });
+
+  it('POST /awf/decisions/<id>/approve → 追加 decision_reviewed，不改执行产物', async () => {
+    const id = await captureOne();
+    const res = await api('POST', `/awf/decisions/${id}/approve`, { reviewer: '张三' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, decision_id: id, appended: true });
+
+    const list = (await api('GET', '/awf/decisions')).body;
+    const reviewed = list.decisions.find((d) => d.event === 'decision_reviewed');
+    expect(reviewed).toMatchObject({ decision_id: id, status: 'approved', reviewer: '张三' });
+    // 结论侧原记录保留（append-only）
+    expect(list.decisions.find((d) => d.event === 'decision_completed')).toBeTruthy();
+    // approve 只留痕：不像 override 那样往任务图追加纠偏任务
+    const stateFile = JSON.parse(fs.readFileSync(path.join(PROJ, '.awf', 'state.json'), 'utf8'));
+    expect((stateFile.tasks || []).some((t) => t.id === `${id}-REV`)).toBe(false);
+  });
+
+  it('POST /awf/decisions/<id>/approve 不存在的决策 → 404，不落孤儿记录', async () => {
+    const res = await api('POST', '/awf/decisions/D-nope/approve', { reviewer: '张三' });
+    expect(res.status).toBe(404);
+    expect(res.body.ok).toBe(false);
   });
 
   it('POST /awf/decisions/<id>/override → 追加 decision_overridden，原记录保留', async () => {
@@ -481,7 +531,8 @@ describe('Review 数据 API — list / override', () => {
     expect(over.body.decision_id).toBe(id);
 
     const list = (await api('GET', '/awf/decisions')).body;
-    expect(list.total).toBe(2);
+    // requested（问题侧）+ completed（结论侧）+ overridden = 3
+    expect(list.total).toBe(3);
     const original = list.decisions.find((d) => d.event === 'decision_completed');
     const ov = list.decisions.find((d) => d.event === 'decision_overridden');
     expect(original.decision_id).toBe(id);

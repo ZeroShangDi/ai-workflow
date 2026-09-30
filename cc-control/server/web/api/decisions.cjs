@@ -7,6 +7,7 @@
  *
  * 路由（method + path）：
  *   GET  /awf/decisions                    列本项目全部决策记录
+ *   POST /awf/decisions/:id/approve        人工复审「已通过」（只留痕，不动任务图）
  *   POST /awf/decisions/:id/resolve        人工解决一条决策（写决策存储 + 可能的续跑）
  *   POST /awf/decisions/:id/override       用人工指令覆盖 AI 决策 + 追加纠偏任务
  *
@@ -24,6 +25,12 @@ async function handle(req, res, url, rt, deps) {
   if (req.method === 'GET' && pathname === '/awf/decisions') {
     const decisions = ctx.newDecisionStore().listAll();
     send(res, 200, { ok: true, total: decisions.length, decisions });
+    return true;
+  }
+  // POST /awf/decisions/:id/approve：人工复审「已通过」（见 handleApprove）
+  const decisionApprove = pathname.match(/^\/awf\/decisions\/([^/]+)\/approve$/);
+  if (req.method === 'POST' && decisionApprove) {
+    await handleApprove(req, res, decodeURIComponent(decisionApprove[1]), rt);
     return true;
   }
   // POST /awf/decisions/:id/resolve：人工解决一条决策（写决策存储 + 可能的续跑）
@@ -80,6 +87,35 @@ async function handleOverride(req, res, pathname, rt) {
   } catch (e) {
     return send(res, 404, { ok: false, error: e.message }); // 决策不存在 → 404
   }
+}
+
+/**
+ * POST /awf/decisions/:id/approve —— 人工复审「已通过」。
+ *
+ * 与 override 的分工：override = 人不同意，给新要求（会追加一个纠偏任务）；
+ * approve = 人看过了，认可（只留痕，不改任何执行产物）。
+ * 没有这笔记录，页面上就分不清「这条审过、认可」与「这条压根没人看」。
+ */
+async function handleApprove(req, res, decisionId, rt) {
+  const body = (await readJson(req)) || {};
+  const reviewer = typeof body.reviewer === 'string' ? body.reviewer.trim() || null : null;
+  const note = typeof body.note === 'string' ? body.note.trim() || null : null;
+
+  // 先确认决策存在（eventsFor 找不到返回 null）—— 给不存在的 id 留复审记录只会制造孤儿
+  if (!rt.ctx.newDecisionStore().eventsFor(decisionId)) {
+    return send(res, 404, { ok: false, error: `决策不存在：${decisionId}` });
+  }
+  const r = rt.decision.recordReviewed({ decisionId, reviewer, note });
+  if (!r?.appended && r?.error) {
+    return send(res, 500, { ok: false, error: r.error, decision_id: decisionId });
+  }
+  rt.ctx.logger.logDecision({
+    at: new Date().toISOString(),
+    decisionId,
+    event: 'decision_reviewed',
+    detail: `approved by ${reviewer || '(未署名)'}`,
+  });
+  return send(res, 200, { ok: true, decision_id: decisionId, runStamp: r.runStamp, appended: r.appended === true });
 }
 
 module.exports = { handle };
