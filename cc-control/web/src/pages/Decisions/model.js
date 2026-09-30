@@ -1,3 +1,9 @@
+/**
+ * 决策记录的聚合与展示口径（纯函数）。
+ *
+ * 一次决策在存储里是**多条 append-only 事件**（requested / completed / reviewed / overridden），
+ * 这里按 decision_id 聚合成页面上的一条：问题侧字段来自 requested，结论侧来自 completed。
+ */
 export function aggregateDecisions(entries = []) {
   const groups = new Map();
   for (const [index, entry] of entries.entries()) {
@@ -9,12 +15,22 @@ export function aggregateDecisions(entries = []) {
       records: [],
     };
     const result = entry.result || entry;
+    // 问题侧（问题 / 作答形态 / 选项）只在 decision_requested 上，摊平到顶层，
+    // 详情与列表才不用按事件分支。
+    const request = entry.request || previous.request || null;
     groups.set(key, {
       ...previous,
       ...entry,
       ...result,
       key,
       id,
+      request,
+      question: request?.question ?? previous.question ?? null,
+      options: request?.options ?? previous.options ?? [],
+      form: request?.form ?? previous.form ?? null,
+      // 任务级归因（任务列表据此标出「有决策的任务」）。可以为空 ——
+      // 多 agent 下主会话的派发/收尾决策不属于任何单任务。
+      task_id: entry.task_id ?? previous.task_id ?? null,
       records: [...previous.records, entry],
       status:
         entry.event === 'decision_overridden' ? 'overridden' : entry.status || previous.status,
@@ -25,4 +41,10 @@ export function aggregateDecisions(entries = []) {
     });
   }
   return [...groups.values()];
+}
+
+/** 待复审条数：有结论、且既没复审也没改写（Run 页那一行计数用） */
+export function countPendingReview(entries = []) {
+  return aggregateDecisions(entries).filter(e => e.completed && e.status === 'pending_review')
+    .length;
 }

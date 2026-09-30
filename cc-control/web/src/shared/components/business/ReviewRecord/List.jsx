@@ -15,13 +15,16 @@ export default function ReviewRecordList({
   idOf,
   setSelected,
   titleOf,
+  note,
 }) {
   return (
     <>
       <header className="pane-header">
         <div>
           <h1>{title}</h1>
-          <small>当前项目 · {entries.length} 条</small>
+          <small>
+            当前项目 · {entries.length} 条{note ? ` · ${note}` : ''}
+          </small>
         </div>
         <SegmentedControl
           disabled={busy}

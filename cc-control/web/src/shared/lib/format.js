@@ -23,15 +23,25 @@ export const label = value =>
     applied: '已应用',
     rejected: '已拒绝',
     conflicted: '变更冲突',
-    pending_review: '待确认',
+    pending_review: '待复审',
     reviewed: '已复审',
     awaiting_human: '等待人工',
-    overridden: '已调整',
+    overridden: '已改写',
+    approved: '已采纳',
   })[value] ||
   value ||
   '—';
 export const display = value =>
   typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+
+/**
+ * 作答形态的展示名（决策的问题侧 `form`）。
+ *
+ * 与结论性质 `type` 无关（那是 resolved / deferred / …）—— 放这里而不是决策页的 model.js：
+ * `ReviewRecord/Detail.jsx` 是 shared 层组件，不能反向 import pages。
+ */
+export const FORM_LABELS = { qa: '问答', single: '单选', multi: '多选' };
+export const formLabel = value => FORM_LABELS[value] || null;
 export function formatTime(value) {
   if (!value) return '';
   const date = new Date(value);

@@ -121,17 +121,24 @@ small,
   justify-content: space-between;
   gap: var(--cc-spacing-8);
 }
+.card-meta-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+}
 .badge {
   font-size: var(--cc-type-caption-size);
   color: var(--cc-color-text-secondary);
 }
 .status-active,
-.status-running {
+.status-running,
+.status-overridden {
   color: var(--cc-color-status-info);
 }
 .status-done,
 .status-applied,
-.status-reviewed {
+.status-reviewed,
+.status-approved {
   color: var(--cc-color-status-success);
 }
 .status-blocked,
