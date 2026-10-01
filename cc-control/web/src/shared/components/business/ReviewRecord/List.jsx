@@ -20,12 +20,13 @@ export default function ReviewRecordList({
   return (
     <>
       <header className="pane-header">
-        <div>
-          <h1>{title}</h1>
-          <small>
-            当前项目 · {entries.length} 条{note ? ` · ${note}` : ''}
-          </small>
-        </div>
+        {/* 标题 + 灰色描述同行（与任务页 .pane-title 一致），不再上下排布 */}
+        <h1 className="pane-title">
+          {title}
+          <span className="pane-summary">
+            · 当前项目 · {entries.length} 条{note ? ` · ${note}` : ''}
+          </span>
+        </h1>
         <SegmentedControl
           disabled={busy}
           label="记录状态"

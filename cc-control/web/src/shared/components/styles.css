@@ -311,14 +311,12 @@ small,
 .pane-header:has(.segmented-control) {
   flex-wrap: wrap;
 }
-.pane-header:has(.segmented-control) > div:first-child {
-  flex-shrink: 0;
-}
 .pane-header:has(.segmented-control) h1 {
   white-space: nowrap;
 }
 
-/* 任务页：标题后缀内联进度 + 标题行右侧工具区（原 toolbar 独立一行已去掉） */
+/* 标题行：标题 + 灰色描述/进度同行内联，右侧是工具区（原 toolbar 独立一行已去掉）。
+   任务页、决策/动态任务复审、日志页共用这一套 —— 描述不再单独占一行。 */
 .pane-title {
   display: flex;
   align-items: center;

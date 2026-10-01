@@ -14,10 +14,13 @@ export default function LogOutput({
   return (
     <>
       <header className="pane-header">
-        <div>
-          <h1>{source === 'run' ? 'Run 日志' : '当前会话输出'}</h1>
-          <small>{source === 'run' ? 'Run 编排事件' : '当前项目 · 会话抓屏'}</small>
-        </div>
+        {/* 标题 + 灰色描述同行（与任务页 .pane-title 一致），不再上下排布 */}
+        <h1 className="pane-title">
+          {source === 'run' ? 'Run 日志' : '当前会话输出'}
+          <span className="pane-summary">
+            · {source === 'run' ? 'Run 编排事件' : '当前项目 · 会话抓屏'}
+          </span>
+        </h1>
         <RunSelect {...selection} />
       </header>
       <div className="toolbar">
