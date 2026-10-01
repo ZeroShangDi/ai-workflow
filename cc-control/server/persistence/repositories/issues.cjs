@@ -1,0 +1,11 @@
+'use strict';
+const{newId,now,required,mapRow,mapRows}=require('./common.cjs');const{protect}=require('../errors.cjs');
+module.exports=function issues(db){const q=s=>db.connection.prepare(s);const event=(id,type,payload={})=>q('INSERT INTO issue_events(id,issue_id,event_type,payload_json,occurred_at) VALUES(?,?,?,?,?)').run(newId(),id,type,JSON.stringify(payload),now());return{
+ create(input={}){return protect(()=>{const id=input.id||newId(),t=now();q('INSERT INTO product_issues(id,project_id,title,body,status,priority,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run(id,required(input.projectId,'projectId'),required(input.title,'title'),input.body||'',input.status||'open',Number(input.priority)||0,t,t);return mapRow(q('SELECT * FROM product_issues WHERE id=?').get(id));});},
+ get(id){return protect(()=>mapRow(q('SELECT * FROM product_issues WHERE id=?').get(required(id,'id'))));},
+ list({projectId,status}={}){return protect(()=>{let sql='SELECT * FROM product_issues WHERE 1=1',p=[];if(projectId){sql+=' AND project_id=?';p.push(projectId);}if(status){sql+=' AND status=?';p.push(status);}return mapRows(q(sql+' ORDER BY priority DESC,updated_at DESC').all(...p));});},
+ update(id,input={}){return protect(()=>{const f={title:'title',body:'body',status:'status',priority:'priority'},s=[],v=[];for(const[k,c]of Object.entries(f))if(Object.hasOwn(input,k)){s.push(`${c}=?`);v.push(input[k]);}if(s.length){s.push('updated_at=?');v.push(now(),required(id,'id'));q(`UPDATE product_issues SET ${s.join(',')} WHERE id=?`).run(...v);}return mapRow(q('SELECT * FROM product_issues WHERE id=?').get(id));});},
+ assignRequirement(id,requirementId){return protect(()=>{q("UPDATE product_issues SET status='planned',requirement_id=?,updated_at=? WHERE id=?").run(required(requirementId,'requirementId'),now(),required(id,'issueId'));return mapRow(q('SELECT * FROM product_issues WHERE id=?').get(id));});},
+ recordEvent(id,eventType,payload={}){return protect(()=>{event(required(id,'issueId'),required(eventType,'eventType'),payload);return mapRows(q('SELECT * FROM issue_events WHERE issue_id=? ORDER BY occurred_at,id').all(id));});},
+ events(id){return protect(()=>mapRows(q('SELECT * FROM issue_events WHERE issue_id=? ORDER BY occurred_at,id').all(required(id,'issueId'))));}
+};};

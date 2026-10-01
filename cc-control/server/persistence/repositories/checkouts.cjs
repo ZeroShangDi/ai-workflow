@@ -1,0 +1,7 @@
+'use strict';
+const path=require('node:path'); const {newId,now,required,mapRow,mapRows}=require('./common.cjs'); const {protect}=require('../errors.cjs');
+module.exports=function checkouts(db){const q=s=>db.connection.prepare(s);return{
+ register(input={}){return protect(()=>{const root=path.resolve(required(input.rootPath,'rootPath')),canonical=path.normalize(root), id=input.id||newId(),t=now();q(`INSERT INTO project_checkouts(id,project_id,environment_id,root_path,canonical_path,created_at,last_seen_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(environment_id,project_id,canonical_path) DO UPDATE SET root_path=excluded.root_path,last_seen_at=excluded.last_seen_at`).run(id,required(input.projectId,'projectId'),required(input.environmentId,'environmentId'),root,canonical,t,t);return mapRow(q('SELECT * FROM project_checkouts WHERE environment_id=? AND project_id=? AND canonical_path=?').get(input.environmentId,input.projectId,canonical));});},
+ list({projectId,environmentId}={}){return protect(()=>{let sql='SELECT * FROM project_checkouts WHERE 1=1',p=[];if(projectId){sql+=' AND project_id=?';p.push(projectId);}if(environmentId){sql+=' AND environment_id=?';p.push(environmentId);}return mapRows(q(sql+' ORDER BY last_seen_at DESC').all(...p));});},
+ resolve(projectId,environmentId){return protect(()=>mapRow(q('SELECT * FROM project_checkouts WHERE project_id=? AND environment_id=? ORDER BY last_seen_at DESC LIMIT 1').get(required(projectId,'projectId'),required(environmentId,'environmentId'))));},
+};};
