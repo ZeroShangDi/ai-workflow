@@ -62,13 +62,16 @@ export async function mountMcpServers(agentCtx, cwd, {
 
   const McpClient = await loadMcpClient();
   const mounted = [];
+  const serverBase = config.awfBase || process.env.AWF_DSH_BASE;
   for (const server of servers) {
+    const env = { AWF_PROJECT_ROOT: cwd, ...(config.mcpEnv ?? {}) };
+    if (serverBase) env.AWF_BASE = serverBase;
     await agentCtx.plugin(McpClient, {
       transport: 'stdio',
       serverName: server.name,
       command: process.execPath,
       args: [serverEntryPath(server.entry)],
-      env: { AWF_PROJECT_ROOT: cwd, ...(config.mcpEnv ?? {}) },
+      env,
     });
     mounted.push(server.name);
   }

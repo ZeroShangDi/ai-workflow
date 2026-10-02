@@ -13,6 +13,10 @@ const ENDPOINTS = {
   status: ['GET', '/status'],
   probe: ['GET', '/probe'],
   planLaunch: ['POST', '/interactive/plan'], // 规划入口（平台可脱离终端 launch 时由服务端代触发）
+  planPrepare: ['POST', '/workflow/plan/start'],
+  planFinish: ['POST', '/workflow/plan/finish'],
+  runStart: ['POST', '/workflow/run/start'],
+  runFinish: ['POST', '/workflow/run/finish'],
   shutdown: ['POST', '/shutdown'],
   // 会话注入（宿主/tmux 会话）
   send: ['POST', '/send'],
@@ -87,6 +91,10 @@ function createClient({ port, project, fetchImpl = fetch }) {
     sendText: (text) => call('send', { body: { text } }),
     /** 回应决策；answeredBy 标明走了哪条路由（human / auto / ai），服务端据此落记录 */
     respond: (value, answeredBy) => call('respond', { body: { value, answeredBy } }),
+    preparePlan: (body) => call('planPrepare', { body, timeoutMs: 30_000 }),
+    finishPlan: (body) => call('planFinish', { body }),
+    startWorkflowRun: (body) => call('runStart', { body, timeoutMs: 30_000 }),
+    finishWorkflowRun: (body) => call('runFinish', { body }),
   };
 }
 

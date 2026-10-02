@@ -10,14 +10,14 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 ├── context/
 │   ├── architecture.md     # 项目架构事实、模块职责和扩展方式
 │   └── handoff.md          # 上下文压缩时生成的会话接力快照
-├── versions/               # 版本归档（每次 run 完成一份 state 快照）
-│   └── <version>-<timestamp>.json
+├── versions/               # state 快照（按逻辑会话与 attempt 归档）
+│   └── sessions/<sessionId>/attempts/<attemptId>/state.json
 ├── issues/                 # Issue 跟踪（等价于 GitHub Issues）
 │   └── NNN-short-slug.md   #   一文件一 Issue（YAML frontmatter）
 ├── bugs/                   # 运行时缺陷记录
 │   └── <slug>.md           #   一文件一 Bug（不编号，元数据块在标题下）
 ├── decisions/              # AI 运行期决策记录（供人复盘）
-│   └── runs/*.jsonl        #   按 run 追加（不拆单文件）
+│   └── sessions/<sessionId>.jsonl # 同一逻辑会话追加，attemptId 标记重试
 ├── dynamic-planning/       # 运行期局部计划调整 proposal 与事件
 │   ├── proposals/          #   可批准、可冲突恢复的完整 proposal
 │   └── events.jsonl        #   追加式生命周期记录（首次使用时生成）
@@ -27,8 +27,8 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 │   ├── perf/               #   性能分析报告
 │   ├── lint/               #   Lint 报告（按版本分目录）
 │   └── summary/            #   里程碑汇总报告
-└── logs/                   # awf run 全量运行日志 + 跨 run 顶层文件（见 §logs）
-    └── {version}-{ts}/     #   每次 run（main.log + agents/）
+└── logs/                   # 会话日志与跨会话运行日志
+    └── sessions/<sessionId>/ # 同一会话的 main.log、conversation.log 与 agents/
 ```
 
 ---
@@ -43,7 +43,7 @@ ai-workflow 运行时目录，承载版本状态、Issue 跟踪、Bug 记录、�
 
 ### versions/ — 版本归档
 
-每次 `awf run` 走完（FINISH 收尾调 `backupState`）快照一份当时的 `state.json`，落成**扁平文件** `versions/<version>-<timestamp>.json`（如 `0.2.0-2026-09-10T08-31-17.json`），**不建「每版本一个文件夹」**。快照写入后不再修改，git 作为历史追溯。
+Server 持久化工作流在 Run attempt 完成时，将 `state.json` 快照写入 `versions/sessions/<sessionId>/attempts/<attemptId>/state.json`；Plan 覆盖旧 state 前的快照写入同一会话/attempt 目录下的 `before-plan.json`。`state.version` 保留在快照内容中作为项目版本信息，不参与文件寻址。旧 CLI 路径产生的历史版本快照保持原样。
 
 ### issues/ — Issue 跟踪
 
@@ -114,7 +114,7 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue 并双�
 
 `awf run` 运行过程中 AI 做出的辅助决策记录，供人**运行后复盘**查看，与人为决策（`docs/discuss/`）分开。
 
-**落点**：`decisions/runs/<runStamp>.jsonl`（一次 run 一个文件，追加式；`runStamp` 与 `.awf/logs/` 对齐，如 `0.2.0-2026-09-10T14-21-09`）。由 `src/server/decision-store.cjs` 写入，**不按「一决策一文件」拆分**。
+**落点**：持久化 Server 会话写入 `decisions/sessions/<sessionId>.jsonl`；同一逻辑会话中的决策追加到同一文件，每条事件用 `attemptId` 标记发生在哪次尝试。旧 CLI 产生的 `decisions/runs/<runStamp>.jsonl` 保留不动。
 
 **不变量**：只追加、绝不覆盖历史；同一 `decision_id` 在同一 run 文件内不重复落盘；`override` 以追加事件写入原 decision 所在文件。
 
@@ -154,21 +154,22 @@ Bug 确认需要跨任务跟踪时，在 `issues/` 中创建对应 Issue 并双�
 
 ### logs/ — 运行日志
 
-每次 `awf run` 的全量记录，按运行版本与启动时间分目录；另有几个跨 run 的顶层文件。
+持久化 Server 流程按逻辑会话集中保存运行日志；重试继续写入同一会话目录，attempt ID 写在日志头中。跨会话的 Server 日志仍保留为顶层文件。
 
 ```
 logs/
-├── 0.1.3-2026-07-31T14-30-52/  # 运行版本与启动时间
+├── sessions/<sessionId>/        # Plan/Run 逻辑会话；Run 重试复用目录
 │   ├── main.log                 # 主 Agent 可读日志
+│   ├── conversation.log         # 会话对话记录
 │   └── agents/                  # 每个子 Agent 的可读日志
-│       └── T1--agent-id.log
+│       └── <attemptId>--T1--agent-id.log
 ├── server.log                   # 常驻 server 的 stdout/stderr（T1-112）
 ├── hook-gateway.log             # hook 网关留痕（失败必留一行，SessionStart 成功也留一行）
 ├── subagent-events.jsonl        # 子 Agent 生命周期事件（追加）
 └── run-meta.json                # 当前 run 元信息
 ```
 
-**目录命名**：`{version}-YYYY-MM-DDTHH-mm-ss`（运行版本与启动时间）
+**目录命名**：`sessions/<workflowSessionId>`；版本号仅作为日志元数据保留，不构成目录名。
 
 | 文件 | 内容 |
 |------|------|

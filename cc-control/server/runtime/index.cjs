@@ -259,7 +259,7 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
         ),
         setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
         markTaskActive: (r, id) => state.markTaskActive(r, id),
-        backupState: (r) => state.backupState(r),
+          backupState: (r, identity) => state.backupState(r, identity),
       };
       return runStateApi;
     })().catch((err) => {
@@ -347,7 +347,7 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
           requeueTaskIfActive: (r, id) => state.requeueTaskIfActive(r, id),
           findNextTask: (s) => state.findNextTask(s),
           setWorkflowMode: (r, m) => state.setWorkflowMode(r, m),
-          backupState: (r) => state.backupState(r), // run 结束版本归档
+          backupState: (r, identity) => state.backupState(r, identity), // run 收尾按逻辑会话与 attempt 归档
         };
         const rc = await import('../run/config.js');
         cfg = rc.loadRunConfig(ctx.projectRoot);

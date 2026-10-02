@@ -6,11 +6,7 @@
 
 const http = require('http');
 
-// T1-079：awf-session 全经 server（HTTP，AWF_BASE 单源；+sid 命中本 run 槽）；capture 经 host
-// 端口（server /status?snapshot=1，server 经其 tmux/host 原语抓 pane）——不再本地 exec tmux。
-const _execSync = global.__CC_EXEC_SYNC__ || require('child_process').execSync;
-// 会话名单源：经 bootstrap 注入 CC_SESSION（config runtime.session 同源下发）；不内嵌 'cc' 默认
-const SESSION = process.env.CC_SESSION || '';
+// MCP is a Server client: even pane capture is performed by the Server host.
 const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
 // T1-078/079：MCP 只碰本 run —— 带自身 CC_SID（server 按 sid 槽定位）
 // 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
@@ -78,13 +74,10 @@ function httpGet(path) {
 // capture 经 host 端口：优先 server GET /status?snapshot=1（server 经其 tmux/host 抓 pane）；
 // server 无快照/失败 → 降级本地 tmux（离线/旧版/单测）。
 async function capturePane() {
-  const body = await httpGet('/status?snapshot=1');
+  const query = sessionQuery();
+  const body = await httpGet(`/status${query ? `${query}&` : '?'}snapshot=1`);
   if (body && typeof body === 'object' && typeof body.snapshot === 'string' && body.snapshot) return body.snapshot;
-  try {
-    return _execSync(`tmux capture-pane -t "${SESSION}" -p -S -`, { encoding: 'utf-8', timeout: HTTP_TIMEOUT_MS });
-  } catch (e) {
-    return `(capture failed: ${e.message})`;
-  }
+  return body?.error || 'Server 当前未提供会话截图';
 }
 
 function textResult(obj) {

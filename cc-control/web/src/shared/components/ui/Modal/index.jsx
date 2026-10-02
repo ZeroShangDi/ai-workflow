@@ -17,19 +17,22 @@ export default function Modal({
   toolbar,
   note,
   width = '800px',
+  showClose = true,
   onClose,
   children,
 }) {
   const panel = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   useEffect(() => {
-    panel.current?.focus();
+    if (!panel.current?.contains(document.activeElement)) panel.current?.focus();
     const onKey = event => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') closeRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
 
   return createPortal(
     <div
@@ -47,9 +50,9 @@ export default function Modal({
         style={{ '--modal-width': width }}>
         <header className="modal-head">
           <h2 className="modal-title">{title}</h2>
-          <button type="button" className="link-button modal-close" onClick={onClose}>
+          {showClose && <button type="button" className="link-button modal-close" onClick={onClose}>
             关闭 ×
-          </button>
+          </button>}
         </header>
         {subtitle && <p className="modal-subtitle">{subtitle}</p>}
         {toolbar && <div className="modal-toolbar">{toolbar}</div>}

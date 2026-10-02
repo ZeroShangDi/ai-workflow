@@ -14,6 +14,7 @@ const { createProjectRegistry } = require('./runtime/registry.cjs');
 const { createApi } = require('./web/api/index.cjs');
 const bridgeChannel = require('./web/bridge-channel.cjs'); // DSH 指令通道（入口层注入给适配器）
 const { createBootstrap } = require('./runtime/lifecycle.cjs');
+const { createPersistenceApplication } = require('./application/persistence.cjs');
 
 // ── 测试注入缝（生产环境不设置 → 一律回落真实实现）──
 // 旧 server 曾在此读 global.__CC_TMUX__ / __CC_RUNLOGGER__，重构时漏搬，导致靠它拦 tmux 的
@@ -29,14 +30,21 @@ const injectedOneshot = global.__CC_ONESHOT__ || undefined;
 // ── 装配：三块按依赖顺序串起来 ──
 // adapterDeps：平台工厂的额外依赖。**由入口注入**（entry → web + runtime），adapters 本身不反向依赖 web。
 const adapterDeps = { bridge: bridgeChannel.channel() };
+// Server-owned application seam for integration tests and mock-driven Web flow work.
+const persistenceApplication = global.__CC_PERSISTENCE_APPLICATION__
+  || createPersistenceApplication({
+    databaseFilePath: process.env.AWF_DATABASE_PATH,
+    environmentFilePath: process.env.AWF_ENVIRONMENT_FILE,
+  });
 const registry = createProjectRegistry({ env: process.env, hostFactory, RunLogger, adapterDeps }); // ① 注册表（构造即预置 boot runtime）
 const BOOT = () => registry.runtimeFor(registry.bootRoot);    // 取 boot 项目 runtime 的简写
 const PORT = BOOT().ctx.port;                                 // ② 端口来自 boot 上下文（runtime-config）
 
 const api = createApi({
   registry,                             // api 靠 registry 把 ?p 解析成对应 runtime
-  stopServer: () => bootstrap.stop(),   // ③ 箭头延迟取 bootstrap：构造期 bootstrap 还没赋值，直接引用会 undefined
+  stopServer: () => stopServerImpl(),  // ③ 延迟取生命周期关闭函数
   oneshot: injectedOneshot,             // 测试注入缝；undefined → 域内用真实 oneshot adapter
+  persistenceApplication,               // Server 内部负责项目身份解析与持久化访问
 });
 
 // bootstrap 拿 api 的 handler 与端口，反过来 api 的 /shutdown 又要回调 bootstrap.stop —— 用箭头打破这个构造期循环
@@ -50,7 +58,9 @@ const bootstrap = createBootstrap({
   // 不关它 server.close 的回调不触发 → 空闲回收的 exit 不执行 → 进程变僵尸（真机踩到）。
   // 装配根注入，runtime 因此不必反向依赖 web 层（结构门禁的方向约束）。
   closeTransports: [() => bridgeChannel.closeSocket()],
+  onStopped: () => persistenceApplication.close(),
 });
+let stopServerImpl = () => bootstrap.stop();
 api.setTouch(bootstrap.touch); // 把「活动刷新」注入 api：每个请求经 touch() 参与空闲回收计时
 
 // ---- lifecycle（对外 API，与旧 server.cjs 同名同义）----
@@ -65,9 +75,8 @@ function start(port = PORT) {
 }
 
 /** 优雅关闭（/shutdown 与 CLI 都走这里） */
-function stop() {
-  return bootstrap.stop();
-}
+function stop() { return bootstrap.stop(); }
+stopServerImpl = stop;
 
 // ---- test helpers（定向 boot 上下文，与旧单槽导出等价）----
 

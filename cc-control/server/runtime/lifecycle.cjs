@@ -24,8 +24,9 @@ const CLOSE_FALLBACK_MS = 3000;
  * @param {string} deps.projectRoot boot 项目根（启动横幅用）
  * @param {string} deps.sessionName boot 会话名（启动横幅用）
  * @param {Array<Function>} [deps.closeTransports] 关停前必须先关掉的**长连接**（由装配根注入）
+ * @param {Function} [deps.onStopped] HTTP 服务关闭后清理进程级资源
  */
-function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionName, closeTransports = [] }) {
+function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionName, closeTransports = [], onStopped }) {
   const server = http.createServer(handler);
   server.on('upgrade', onUpgrade || (() => {})); // 未注入 upgrade 处理器时挂空函数，避免事件无监听者报错
 
@@ -84,7 +85,12 @@ function createBootstrap({ registry, handler, onUpgrade, projectRoot, sessionNam
     //    （空闲回收的 `stop().then(() => process.exit(0))` 全靠它）。
     return new Promise((resolve) => {
       let done = false;
-      const finish = () => { if (!done) { done = true; resolve(); } };
+      const finish = () => {
+        if (done) return;
+        done = true;
+        try { onStopped?.(); } catch (error) { console.error('[server] shutdown cleanup failed:', error); }
+        resolve();
+      };
       server.close(finish);
       if (server.closeAllConnections) server.closeAllConnections();
       setTimeout(finish, CLOSE_FALLBACK_MS).unref();

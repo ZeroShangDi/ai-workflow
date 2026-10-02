@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { display } from '@/shared/lib/format.js';
 import { sourceOf } from '@/pages/Tasks/model.js';
-export function useTasksPage(data, { goDecisions = () => {} } = {}) {
-  const tasks = data.state?.tasks || [];
+export function useTasksPage(data, { goDecisions = () => {}, sessionKind } = {}) {
+  const allTasks = data.workspace?.activeRequirement
+    ? (data.workspace.tasks || [])
+    : (data.state?.tasks || []);
+  const tasks = sessionKind === 'run'
+    ? allTasks.filter(task => sourceOf(task) !== 'plan')
+    : allTasks;
   // 有决策的任务：决策记录的 task_id 直接指向任务（多 agent 下主会话的决策不带 task_id，
   // 那种属于 run 级，不往任务上挂）。
   const decisionTaskIds = new Set(
@@ -28,7 +33,7 @@ export function useTasksPage(data, { goDecisions = () => {} } = {}) {
     wbs: data.state?.wbs,
     done: tasks.filter(t => t.status === 'done').length,
     active: tasks.filter(t => t.status === 'active'),
-    planSummary: data.state?.plan?.summary || '',
+    planSummary: data.workspace?.plan?.summary || data.state?.plan?.summary || '',
     filter,
     setFilter,
     sourceFilter,

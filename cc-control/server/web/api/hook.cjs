@@ -21,7 +21,7 @@ const { readJson, send } = require('./util.cjs');
 async function handle(req, res, url, rt, deps) {
   const pathname = url.pathname;
   if (req.method === 'POST' && pathname === '/hook') {
-    await handleHook(req, res, url, rt);
+    await handleHook(req, res, url, rt, deps);
     return true;
   }
   return false;
@@ -35,7 +35,7 @@ async function handle(req, res, url, rt, deps) {
  *     并在 AskUserQuestion 的 Pre/Post 上接决策门阀。
  * 返回值可带 ccOutput（决策门阀要求 CC 回吐的行）。
  */
-async function handleHook(req, res, url, rt) {
+async function handleHook(req, res, url, rt, deps = {}) {
   const body = (await readJson(req)) || {};
   const event = body.event || url.searchParams.get('event');
   const { ctx, session } = rt;
@@ -85,12 +85,39 @@ async function handleHook(req, res, url, rt) {
     hookUpdateMeta(ctx, session, body);
     session.setReady();
     ctx.logger.resetTranscript();
+    if (body.session_id) {
+      try { deps.persistenceApplication?.linkActiveSessionConversation?.(ctx.projectRoot, { provider: ctx.adapter || 'unknown', externalConversationId: String(body.session_id) }); }
+      catch (error) { console.warn(`[persistence] session link failed: ${error.message}`); }
+    }
   } else if (event === 'UserPromptSubmit') {
+    if (!session.mainSessionId && body.session_id) session.mainSessionId = body.session_id;
     if (isMainSession(session, body)) session.setBusy(); // 只有主会话的提交才算「忙」
+    if (body.session_id && isMainSession(session, body)) {
+      try { deps.persistenceApplication?.linkActiveSessionConversation?.(ctx.projectRoot, { provider: ctx.adapter || 'unknown', externalConversationId: String(body.session_id) }); }
+      catch (error) { console.warn(`[persistence] session link failed: ${error.message}`); }
+      try { deps.persistenceApplication?.appendSessionLog?.(ctx.projectRoot, String(body.session_id), { role: 'user', text: body.prompt || body.message || '' }); }
+      catch (error) { console.warn(`[persistence] session log failed: ${error.message}`); }
+    }
   } else if (event === 'Stop') {
     if (isMainSession(session, body)) {
+      try { deps.persistenceApplication?.appendSessionLog?.(ctx.projectRoot, String(body.session_id || session.mainSessionId || ''), { role: 'assistant', text: body.last_assistant_message || '' }); }
+      catch (error) { console.warn(`[persistence] session log failed: ${error.message}`); }
       const out = rt.decision.onStop(body); // 决策门阀：在 Stop 上判定是否需要决策
       if (out) hookCcOutput = out.ccOutput;
+      try {
+        if (session.decisionGate?.phase === 'deciding') {
+          deps.persistenceApplication?.recordDecisionRequested(ctx.projectRoot, {
+            id: session.decisionGate.decisionId, decisionType: 'agent',
+            question: body.last_assistant_message || '',
+            externalConversationId: session.mainSessionId, provider: ctx.adapter || 'unknown',
+          });
+        } else if (session.decisionResume?.decision_id) {
+          deps.persistenceApplication?.recordDecisionCompleted(ctx.projectRoot,
+            session.decisionResume.decision_id, session.decisionResume);
+        }
+      } catch (error) {
+        console.warn(`[persistence] decision sync failed: ${error.message}`);
+      }
     }
   } else if (event === 'SubagentStart') {
     // 处理器由 runtime 装配（web → run 的依赖方向不允许，且 DSH 用的是同一个实例）
@@ -104,6 +131,18 @@ async function handleHook(req, res, url, rt) {
   if (event === 'PreToolUse' && body.tool_name === 'AskUserQuestion') {
     const out = rt.decision.onAskUserQuestion(body); // 决策模式下：拦下提问、自行决策
     if (out) hookCcOutput = out.ccOutput;
+    const pending = session.decisionPending;
+    if (pending?.source === 'AskUserQuestion' && pending.decisionId) {
+      try {
+        deps.persistenceApplication?.recordDecisionRequested(ctx.projectRoot, {
+          id: pending.decisionId, decisionType: pending.type,
+          question: pending.question, options: pending.options,
+          externalConversationId: session.mainSessionId, provider: ctx.adapter || 'unknown',
+        });
+      } catch (error) {
+        console.warn(`[persistence] decision sync failed: ${error.message}`);
+      }
+    }
   }
   if (event === 'PostToolUse' && body.tool_name === 'AskUserQuestion') {
     // AskUserQuestion 被回答 → 把回答回填进 decisionPending（带上 answered 标记）
@@ -118,6 +157,13 @@ async function handleHook(req, res, url, rt) {
       else if (resp?.answer) answer = String(resp.answer);
       else answer = JSON.stringify(resp);
       session.setDecision({ ...prev, answer, answered: true });
+      try {
+        deps.persistenceApplication?.recordDecisionAnswered(ctx.projectRoot, prev.decisionId, {
+          value: answer, answeredBy: 'human',
+        });
+      } catch (error) {
+        console.warn(`[persistence] decision answer sync failed: ${error.message}`);
+      }
     }
   }
 

@@ -15,7 +15,10 @@
     "awf-state": {
       "args": [
         "./mcp/awf-state/server.cjs"
-      ]
+      ],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:{PORT}"
+      }
     },
     "awf-session": {
       "args": [

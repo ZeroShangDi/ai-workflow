@@ -34,6 +34,9 @@ export function createApiClient({
     try {
       const res = await httpFetch(urlOf(path), {
         method,
+        // Workflow state is frequently polled and must reflect the active
+        // project's latest database state rather than a cached JSON response.
+        ...(method === 'GET' ? { cache: 'no-store' } : {}),
         signal: controller.signal,
         headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
         body: body !== undefined ? JSON.stringify(body) : undefined,

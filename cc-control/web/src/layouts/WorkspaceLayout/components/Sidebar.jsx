@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import ProjectPicker from '@/shared/components/business/ProjectPicker.jsx';
+import ProjectSessions from './ProjectSessions.jsx';
 import { projectName as name } from '@/shared/lib/project.js';
 import { Button } from '@/shared/components/ui/index.js';
-export default function Sidebar({ open, setOpen, projects, project, setProject, error, client }) {
+export default function Sidebar({ open, setOpen, projects, project, workspace, workspaceError, refreshWorkspace, refreshProjects, setProject, setView, error, client }) {
   const sidebar = useRef(null);
   const [adding, setAdding] = useState(false);
   useEffect(() => {
@@ -48,6 +49,20 @@ export default function Sidebar({ open, setOpen, projects, project, setProject, 
       <header className="brand">
         <span className="brand-logo">c</span>
         <span>cc-work</span>
+        <button
+          type="button"
+          className="add-project-button"
+          aria-label="添加项目"
+          title="添加项目"
+          onClick={() => {
+            setOpen(false);
+            setAdding(true);
+          }}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3.5 6.5h6l2 2H20a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 20 18.5H4A1.5 1.5 0 0 1 2.5 17V8A1.5 1.5 0 0 1 4 6.5Z" />
+            <path d="M15 11.5v5m-2.5-2.5h5" />
+          </svg>
+        </button>
         <Button className="mobile" onClick={() => setOpen(false)}>
           关闭
         </Button>
@@ -62,22 +77,15 @@ export default function Sidebar({ open, setOpen, projects, project, setProject, 
               setProject(p.projectRoot);
               setOpen(false);
             }}>
-            <span className="project-mark">⌄</span>
             <span>{name(p.projectRoot)}</span>
           </Button>
         ))}
         {!projects.length && (
           <p className="muted">{error ? '等待连接 server' : '暂无项目，请添加工作目录'}</p>
         )}
+        <ProjectSessions project={project} workspace={workspace} workspaceError={workspaceError} refreshWorkspace={refreshWorkspace} setView={setView} />
       </div>
       <footer className="sidebar-footer">
-        <Button
-          onClick={() => {
-            setOpen(false);
-            setAdding(true);
-          }}>
-          添加项目
-        </Button>
         <p>本地工作空间</p>
       </footer>
       {adding && (
@@ -85,6 +93,7 @@ export default function Sidebar({ open, setOpen, projects, project, setProject, 
           client={client}
           onClose={() => setAdding(false)}
           onOpened={root => {
+            refreshProjects?.();
             setProject(root, 'project');
             setAdding(false);
           }}

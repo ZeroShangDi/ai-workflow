@@ -1,5 +1,5 @@
 import { Button, Input } from '@/shared/components/ui/index.js';
-export default function LogControls({ source, search, setSearch, setSource, filtered }) {
+export default function LogControls({ source, search, setSearch, setSource, filtered, files, selectedFile, setSelectedFile }) {
   return (
     <>
       <h1>日志控制</h1>
@@ -21,8 +21,13 @@ export default function LogControls({ source, search, setSearch, setSource, filt
       <Button
         className={`stream-option ${source === 'session' ? 'selected' : ''}`}
         onClick={() => setSource('session')}>
-        当前会话输出
+        会话日志文件
       </Button>
+      {source === 'session' && <label className="log-file-picker">选择会话日志
+        <select aria-label="选择会话日志" value={selectedFile} onChange={event => setSelectedFile(event.target.value)}>
+          {files.map(file => <option key={`${file.sessionId}:${file.name}`} value={`${file.sessionId}:${file.name}`}>{file.kind === 'plan' ? 'Plan' : 'Run'} · {file.name}</option>)}
+        </select>
+      </label>}
       <p className="muted">随执行更新</p>
     </>
   );

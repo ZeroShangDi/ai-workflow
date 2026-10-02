@@ -25,7 +25,7 @@ const { stateTemplatePath } = require('./plugin-assets.cjs');
 
 /** 工作区骨架目录（相对 .awf/）：文档四类 + 报告分档 + 版本快照 + 动态规划扩展边界 */
 const WORKSPACE_DIRS = [
-  'bugs', 'issues', 'decisions', 'context', 'logs', 'versions',
+  'bugs', 'issues', 'decisions', 'decisions/sessions', 'context', 'logs', 'logs/sessions', 'versions', 'versions/sessions',
   'dynamic-planning/proposals',
   'reports/lint', 'reports/test', 'reports/review', 'reports/perf', 'reports/summary',
 ];

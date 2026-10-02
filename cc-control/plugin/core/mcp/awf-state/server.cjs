@@ -112,10 +112,12 @@ function summarizeState(s) {
 
 // ---- T1-077：server run api 单写者模式（env CC_AWF_STATE_SERVER=1 启用）----
 // 基础 CRUD 语义仍由本 MCP 判定/mutate；仅读/写边界经 server：读 GET /awf/state、写 POST
-// /run/state/apply（server 以 state.js 锁 + 原子落盘，MCP 不再直写文件/自持锁）。缺省关 →
-// 离线/plan/单测沿用直写文件（现状不变）。
+// All live MCP state writes go through Server /run/state/apply, where locking,
+// atomic file replacement, CAS checks, and persistence projection are centralized.
 const http = require('node:http');
-const SERVER_MODE = process.env.CC_AWF_STATE_SERVER === '1';
+// MCP is a Server client. It must never become a second writer for project state.
+// AWF_BASE is injected by the Server when registering this MCP process.
+const SERVER_MODE = true;
 const SERVER_PORT = Number(process.env.CC_PORT || 8787);
 // T1-078：MCP 只碰本 sid run（软约束）——带上自身 CC_SID，server 按 sid 分片 state。
 // 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
@@ -131,8 +133,11 @@ function stateQuery() {
 function httpJson(method, pathname, obj) {
   return new Promise((resolve) => {
     const data = obj ? JSON.stringify(obj) : '';
+    const base = process.env.AWF_BASE || `http://127.0.0.1:${SERVER_PORT}`;
+    let url;
+    try { url = new URL(pathname, base); } catch { resolve(null); return; }
     const req = http.request({
-      host: '127.0.0.1', port: SERVER_PORT, path: pathname, method,
+      hostname: url.hostname, port: url.port || 80, path: `${url.pathname}${url.search}`, method,
       headers: { 'content-type': 'application/json' },
     }, (r) => {
       let raw = '';

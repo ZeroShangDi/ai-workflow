@@ -76,6 +76,15 @@ async function handle(req, res, url, rt, deps) {
     const body = await readJson(req);
     const v = interact.validateDecisionRequest('choice', body);
     if (!v.ok) { send(res, 400, { ok: false, error: v.error }); return true; }
+    if (deps.persistenceApplication) {
+      const decisionId = require('node:crypto').randomUUID();
+      deps.persistenceApplication.recordDecisionRequested(ctx.projectRoot, {
+        id: decisionId, decisionType: 'choice', question: v.decision.question,
+        options: v.decision.options, context: v.decision.context,
+        externalConversationId: session.mainSessionId, provider: ctx.adapter || 'unknown',
+      });
+      v.decision.decisionId = decisionId;
+    }
     session.setDecision(v.decision);
     console.log(`[choice] ${v.decision.question}`);
     // 挂起即推（前端订阅刷新依据）：旧树在此推 decision.required，重构漏搬
@@ -87,6 +96,15 @@ async function handle(req, res, url, rt, deps) {
     const body = await readJson(req);
     const v = interact.validateDecisionRequest('text', body);
     if (!v.ok) { send(res, 400, { ok: false, error: v.error }); return true; }
+    if (deps.persistenceApplication) {
+      const decisionId = require('node:crypto').randomUUID();
+      deps.persistenceApplication.recordDecisionRequested(ctx.projectRoot, {
+        id: decisionId, decisionType: 'text', question: v.decision.question,
+        context: v.decision.context, externalConversationId: session.mainSessionId,
+        provider: ctx.adapter || 'unknown',
+      });
+      v.decision.decisionId = decisionId;
+    }
     session.setDecision(v.decision);
     console.log(`[ask] ${v.decision.question}`);
     rt.publishEvent('decision.required', { question: v.decision.question, options: v.decision.options });
@@ -112,6 +130,11 @@ async function handle(req, res, url, rt, deps) {
     try {
       const r = await interactive.launchDialog({ cwd: body.cwd || rt.ctx.projectRoot, prompt: body.prompt, title: body.title });
       if (r?.ok === false) { send(res, 502, { ok: false, error: r.error || '计划会话启动失败' }); return true; }
+      if (body.workflowSessionId && r?.sessionId && deps.persistenceApplication) {
+        deps.persistenceApplication.linkSessionConversation(body.workflowSessionId, {
+          provider: rt.ctx.adapter || 'unknown', externalConversationId: String(r.sessionId),
+        });
+      }
       send(res, 200, { ok: true, url: r?.url ?? null, sessionId: r?.sessionId ?? null });
     } catch (err) {
       send(res, 502, { ok: false, error: `计划会话启动失败：${err.message}` });
@@ -221,6 +244,7 @@ async function handle(req, res, url, rt, deps) {
     if (hadDecision) {
       const by = ['human', 'auto', 'ai'].includes(body.answeredBy) ? body.answeredBy : 'human';
       rt.decision.recordAnswered({ decisionId: pendingDecision.decisionId, value: body.value, answeredBy: by });
+      deps.persistenceApplication?.recordDecisionAnswered(ctx.projectRoot, pendingDecision.decisionId, { value: body.value, answeredBy: by });
     }
     await submitRaw(rt, body.value);
     const fallbackMs = hadDecision ? DECISION_FALLBACK_MS : LOCAL_CMD_FALLBACK_MS; // 应答决策给人更长兜底

@@ -140,6 +140,7 @@ async function runCommand(task, options = {}) {
   const client = createClient({ port: ctx.port, project: ctx.projectRoot });
 
   let done = false;
+  let workflowRun = null;
   try {
     if (!preservePause && state.mode !== 'run') {
       const r = await client.setMode('run');
@@ -157,20 +158,30 @@ async function runCommand(task, options = {}) {
       done = true;
       return;
     }
-    const sub = await client.submitRun({ runId: options.runId || undefined, mode: options.multiAgent ? 'batch' : undefined });
+    const sub = await client.startWorkflowRun({
+      requirementId: undefined, runId: options.runId || undefined,
+      mode: options.multiAgent ? 'batch' : undefined,
+    });
     if (sub?.ok === false) throw new Error(`提交 run 失败：${sub.error}`);
+    workflowRun = { workflowSessionId: sub.workflowSessionId, attemptId: sub.attemptId };
     console.log(`${C.dim}  runId=${sub.runId} mode=${sub.mode}${C.reset}`);
 
     const outcome = await observe(client, { runId: sub.runId, mode: decisionMode });
     if (!outcome.ok) throw new Error(outcome.error);
     const idle = await client.setMode('idle');
     if (idle?.ok === false) throw new Error(`run 已完成但无法置 mode=idle：${idle.error}`);
+    const finished = await client.finishWorkflowRun({ ...workflowRun, status: 'completed' });
+    if (finished?.ok === false) throw new Error(`Run 已完成，但 Server 无法结束 attempt：${finished.error}`);
     done = true;
   } finally {
     if (done) {
       stop();
       console.log(`${C.dim}  已停止运行会话（server 常驻保留）${C.reset}`);
     } else {
+      if (workflowRun) {
+        const finished = await client.finishWorkflowRun({ ...workflowRun, status: 'failed', errorText: 'CLI run 未正常完成' });
+        if (finished?.ok === false) console.warn(`Run attempt 状态未能同步到 Server：${finished.error}`);
+      }
       console.log(`${C.yellow}  运行异常退出：保留 tmux 与 server 现场，供 w-monitor 诊断${C.reset}`);
     }
   }

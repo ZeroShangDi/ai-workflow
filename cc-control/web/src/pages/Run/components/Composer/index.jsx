@@ -17,12 +17,13 @@ export default function RunComposer({
   tasks,
   message,
   canSend,
+  workflowSession,
   sendMessage,
-  startRun,
   toggleMode,
   interrupt,
   respond,
 }) {
+  const isRunSession = workflowSession?.kind === 'run';
   return (
     <>
       {pending && (
@@ -47,23 +48,19 @@ export default function RunComposer({
               回到最新输出
             </Button>
           )}
-          <Badge value={data.state?.mode} />
-          {run?.status === 'running' && (
+          {isRunSession && <Badge value={data.state?.mode} />}
+          {workflowSession && <small role="status">持久化会话：{workflowSession.status}</small>}
+          {isRunSession && run?.status === 'running' && (
             <Button type="button" disabled={busy} onClick={cancelRun}>
               取消运行
             </Button>
           )}
-          {['failed', 'cancelled'].includes(run?.status) && (
+          {isRunSession && ['failed', 'cancelled'].includes(run?.status) && (
             <Button type="button" disabled={busy || hasActiveRun} onClick={retryRun}>
               重试运行
             </Button>
           )}
-          {!hasActiveRun && tasks.some(t => t.status === 'pending') && (
-            <Button type="button" disabled={busy} onClick={startRun}>
-              启动 Run
-            </Button>
-          )}
-          {['run', 'pause'].includes(data.state?.mode) && (
+          {isRunSession && ['run', 'pause'].includes(data.state?.mode) && (
             <Button type="button" disabled={busy} onClick={toggleMode}>
               {data.state.mode === 'pause' ? '恢复运行' : '暂停调度'}
             </Button>
@@ -82,7 +79,7 @@ export default function RunComposer({
             aria-label="消息"
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder={pending ? '输入回复…' : '补充执行要求…'}
+            placeholder={pending ? '输入回复…' : workflowSession?.kind === 'plan' ? '补充或修改本需求的 Plan…' : '补充执行要求…'}
           />
           <div className="actions">
             <span role="status" className="muted">

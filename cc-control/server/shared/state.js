@@ -29,7 +29,7 @@ import { withFileLock as withStateLock, readJsonSync, writeJsonAtomicSync, updat
 // CJS 侧（如 features/replanning/service.cjs）也要这份布局，故不能只写在本 ESM 模块里
 import { stateFilePath, stateLockPath, versionsDir } from './project-paths.cjs';
 // 时间戳归一（版本快照文件名 <version>-<ts>）与 run 标识同一规则，经 run-id 单源
-import { normalizeStamp } from './run-id.cjs';
+import { normalizeStamp, validateRunId } from './run-id.cjs';
 // 就绪判据（pending + 未 hold + deps 全 done）的单源实现 —— 与调度器、动态规划的
 // readyBefore/readyAfter 报告共用同一份，避免「报告说就绪」与「真去派的」各算各的
 import { heldTaskIds, depsDone, peekReadyTasks } from './ready-tasks.cjs';
@@ -435,29 +435,33 @@ export function mutateState(projectRoot, mutator) {
 // ── 快照备份 ──
 
 /**
- * 将当前 state.json 快照到 .awf/versions/<version>-<timestamp>.json
+ * 将当前 state.json 快照到会话 attempt 归档路径；旧调用仍使用 .awf/versions/<version>-<timestamp>.json。
  * 仅在 run 所有 tasks 完成后调用（宿主收尾）。
  *
- * 边界：state 缺失或没有 version 字段 → 直接返回（不产生空快照）。
- * 注意这里是唯一走裸 fs.writeFileSync 的地方（非原子写）：目标名带时间戳、每次新建，
- * 不会有并发写者覆盖同一文件，故无需临时文件 + rename。
+ * 边界：state 缺失时不产生快照；旧调用没有 identity 时还要求存在 version 字段。
+ * 使用原子写入，避免进程中断留下半份快照；同一 attempt 重复收尾时会安全覆盖其快照。
  */
-export function backupState(projectRoot) {
+export function backupState(projectRoot, identity = {}) {
   const state = loadState(projectRoot);
   if (!state) return;
-  if (!state.version) return;
+
+  const sessionId = identity.workflowSessionId;
+  const attemptId = identity.attemptId;
+  const hasWorkflowIdentity = validateRunId(sessionId) && validateRunId(attemptId);
+  if (!hasWorkflowIdentity && !state.version) return;
 
   const dir = versionsDir(projectRoot);
-  fs.mkdirSync(dir, { recursive: true });
-
   const ts = normalizeStamp(new Date());
-  const file = path.join(dir, `${state.version}-${ts}.json`);
-  fs.writeFileSync(file, JSON.stringify(state, null, 2));
+  const file = hasWorkflowIdentity
+    ? path.join(dir, 'sessions', sessionId, 'attempts', attemptId, 'state.json')
+    : path.join(dir, `${state.version}-${ts}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  writeJsonAtomicSync(file, state);
 }
 
 /**
  * plan 启动守卫（T1-104）：若存在含残留内容的旧 state（且非 run/pause 运行生命周期），
- * 先把当前 state 原样归档到 .awf/versions/state-<ts>.json，再把当前文件重置为「空 plan 模板」
+ * 先把当前 state 原样归档，再把当前文件重置为「空 plan 模板」
  * （mode=plan + 空 tasks/wbs/milestones/plan），让新 plan 会话从空板开始。
  *   - run/pause 模式 → 不触发（{ action: 'run-active' }）
  *   - 空 state（模板或无语义内容）→ 不重复归档（{ action: 'none' }）
@@ -469,7 +473,7 @@ export function backupState(projectRoot) {
  * @param {string} projectRoot
  * @returns {{ action: 'none'|'run-active'|'archived', archivedPath?: string }}
  */
-export function archiveOldStateForPlan(projectRoot) {
+export function archiveOldStateForPlan(projectRoot, identity = {}) {
   const filePath = stateFilePath(projectRoot);
   const cur = readJsonSync(filePath);
   if (!cur) return { action: 'none' };
@@ -487,7 +491,12 @@ export function archiveOldStateForPlan(projectRoot) {
 
   const dir = versionsDir(projectRoot);
   const ts = normalizeStamp(new Date());
-  const archivedPath = path.join(dir, `state-${ts}.json`);
+  const sessionId = identity.workflowSessionId;
+  const attemptId = identity.attemptId;
+  const hasWorkflowIdentity = validateRunId(sessionId) && validateRunId(attemptId);
+  const archivedPath = hasWorkflowIdentity
+    ? path.join(dir, 'sessions', sessionId, 'attempts', attemptId, 'before-plan.json')
+    : path.join(dir, `state-${ts}.json`);
   // 重置模板保留 version（版本连续性），清空内容维度；currentState 归到 PLAN
   const reset = {
     mode: 'plan',
@@ -501,7 +510,7 @@ export function archiveOldStateForPlan(projectRoot) {
   };
   // 归档 + 重置在同一把 state.lock 内完成：中途失败不会出现「归档了但没重置」的半态
   withStateLock(stateLockPath(projectRoot), () => {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(path.dirname(archivedPath), { recursive: true });
     writeJsonAtomicSync(archivedPath, cur);
     writeJsonAtomicSync(filePath, reset);
   });

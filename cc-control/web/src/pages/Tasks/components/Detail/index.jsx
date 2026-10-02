@@ -33,7 +33,7 @@ function StatusDot({ value }) {
  * `解除阻塞 / 重试任务` 仍接既有的 taskAction —— 该端点在 server 上不存在
  * （`.awf/issues/018`），本次只做视图，行为保持原样。
  */
-function Header({ task, action, busy, onOpenExec }) {
+function Header({ task, action, busy, readOnly, onOpenExec }) {
   const blocked = task.status === 'blocked';
   const reason = task.blockedReason || '';
   return (
@@ -65,13 +65,13 @@ function Header({ task, action, busy, onOpenExec }) {
             <button type="button" className="link-button task-link" onClick={onOpenExec}>
               查看完整原因 <span aria-hidden="true">↗</span>
             </button>
-            <button
+            {!readOnly && <button
               type="button"
               className="link-button task-link"
               disabled={busy}
               onClick={() => action(API.taskAction(task.id, blocked ? 'unblock' : 'retry'), {})}>
               {blocked ? '解除阻塞' : '重试任务'} <span aria-hidden="true">→</span>
-            </button>
+            </button>}
           </div>
         </div>
       )}
@@ -333,13 +333,13 @@ function Output({ task, onOpenExec, onOpenJson }) {
  * 页签与弹窗状态住在这里。调用方按 task.id 给 key，换任务时整个组件重挂，
  * 页签自然回到「任务要求」、弹窗自动关闭 —— 不留上一条任务的阅读现场。
  */
-export default function TaskDetail({ task, tasks, wbs, action, busy }) {
+export default function TaskDetail({ task, tasks, wbs, action, busy, readOnly = false }) {
   const [tab, setTab] = useState('requirements');
   const [dialog, setDialog] = useState(null);
   if (!task) return <Empty>选择任务查看详情</Empty>;
   return (
     <div className="task-detail">
-      <Header task={task} action={action} busy={busy} onOpenExec={() => setDialog('exec')} />
+      <Header task={task} action={action} busy={busy} readOnly={readOnly} onOpenExec={() => setDialog('exec')} />
       <div className="task-tabs" role="tablist">
         {TABS.map(item => (
           <button

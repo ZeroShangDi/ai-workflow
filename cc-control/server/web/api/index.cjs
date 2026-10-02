@@ -38,6 +38,7 @@ const decisions = require('./decisions.cjs');
 const planning = require('./planning.cjs');
 const session = require('./session.cjs');
 const run = require('./run.cjs');
+const persistence = require('./persistence.cjs');
 
 /**
  * 建 api：把 registry 与 stopServer 作为依赖注入，返回 handler 集合。
@@ -47,7 +48,7 @@ const run = require('./run.cjs');
  * @param {object} deps.registry         项目注册表（resolveRuntime / list / all / bootRoot）
  * @param {Function} deps.stopServer     优雅关闭（/shutdown 用）
  */
-function createApi({ registry, stopServer, oneshot }) {
+function createApi({ registry, stopServer, oneshot, persistenceApplication }) {
   // ── 静态托管 ──
   // web 构建产物目录（默认 server/public，可经 CC_WEB_PUBLIC 覆盖）。webIndexHtml() 每次实时读盘，
   // 故产物更新无需重启；缺产物时前端页面路由会明确告警并回 503，而不是给白屏。
@@ -67,13 +68,23 @@ function createApi({ registry, stopServer, oneshot }) {
   }
 
   // 注入给各域：只含「与请求无关」的进程级依赖（各域按需取用，如 session 取 registry 列项目）
-  const deps = { registry, stopServer, oneshot }; // oneshot：入口可注入（测试用 global.__CC_ONESHOT__）
+  const deps = { registry, stopServer, oneshot, persistenceApplication }; // Server 应用依赖均由装配根注入
 
   /** 顶层 handler：解析 URL + 触发活动刷新，再进 handleInner */
   async function handle(req, res) {
     const url = new URL(req.url, 'http://localhost');
     touch(); // 每个请求都算「有活动」，供空闲回收计时
-    return handleInner(req, res, url);
+    try {
+      return await handleInner(req, res, url);
+    } catch (error) {
+      const status = ({ VALIDATION: 400, NOT_FOUND: 404, CONFLICT: 409, STORAGE: 503, CLOSED: 503 })[error?.code] || 500;
+      if (status === 500) console.error('[server] request failed:', error);
+      return send(res, status, {
+        ok: false,
+        error: status === 500 ? 'internal server error' : error.message,
+        ...(error?.code ? { code: error.code } : {}),
+      });
+    }
   }
 
   /** 供 bootstrap 注入「活动刷新」（空闲回收计时） */
@@ -136,6 +147,7 @@ function createApi({ registry, stopServer, oneshot }) {
     if (await state.handle(req, res, url, rt, deps)) return;
     if (await decisions.handle(req, res, url, rt, deps)) return;
     if (await planning.handle(req, res, url, rt, deps)) return;
+    if (await persistence.handle(req, res, url, rt, deps)) return;
     if (await session.handle(req, res, url, rt, deps)) return;
     if (await run.handle(req, res, url, rt, deps)) return;
 

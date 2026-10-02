@@ -5,7 +5,10 @@
       "command": "node",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/mcp/awf-state/server.cjs"
-      ]
+      ],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:8787"
+      }
     },
     "awf-session": {
       "type": "stdio",

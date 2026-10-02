@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { API } from '@/shared/api/index.js';
 import { useAction } from '@/shared/hooks/useAction.js';
 import '@/shared/components/business/workflow.css';
-function Draft({ plan, busy, action }) {
+function Draft({ plan, busy, action, requirementId }) {
   const [summary, setSummary] = useState(plan.summary),
     [tasks, setTasks] = useState(plan.tasks);
   const dirty = summary !== plan.summary || JSON.stringify(tasks) !== JSON.stringify(plan.tasks);
@@ -39,13 +39,13 @@ function Draft({ plan, busy, action }) {
         <div className="actions">
           <button
             disabled={busy || !dirty || !summary.trim() || tasks.some(t => !t.title.trim())}
-            onClick={() => action(API.savePlan, { version: plan.version, summary, tasks })}>
+            onClick={() => action(API.savePlan, { requirementId, version: plan.version, summary, tasks })}>
             保存计划
           </button>
           <button
             className="primary"
             disabled={busy || dirty}
-            onClick={() => action(API.approvePlan, { version: plan.version })}>
+            onClick={() => action(API.approvePlan, { requirementId, version: plan.version })}>
             确认计划
           </button>
           {dirty && <small>请先保存修改</small>}
@@ -54,7 +54,7 @@ function Draft({ plan, busy, action }) {
     </section>
   );
 }
-export default function PlanPage({ data, client, refresh, project, setRunId, runs }) {
+export default function PlanPage({ data, client, refresh, project, requirementId, setRunId, runs }) {
   const { busy, message, action } = useAction(client, refresh);
   const plan = data.workspace?.plan,
     requirements = data.workspace?.requirements || [];
@@ -67,7 +67,8 @@ export default function PlanPage({ data, client, refresh, project, setRunId, run
   };
   async function start() {
     const runId = `web-${Date.now()}`;
-    if (await action(API.submitRun, { runId })) setRunId(runId);
+    const result = await action(API.submitRun, { runId, requirementId: requirementId || data.workspace?.activeRequirement?.id });
+    if (result?.runId) setRunId(result.runId, result.workflowSessionId);
   }
   return (
     <div className="workflow-page">
@@ -91,13 +92,14 @@ export default function PlanPage({ data, client, refresh, project, setRunId, run
           plan={plan}
           busy={busy}
           action={action}
+          requirementId={requirementId || data.workspace?.activeRequirement?.id}
         />
       )}
       <div className="actions">
-        {requirements.length > 0 && plan?.status !== 'generating' && (
+        {requirements.length > 0 && ['empty', 'failed'].includes(plan?.status) && (
           <button
             disabled={busy || runs.some(r => r.status === 'running')}
-            onClick={() => action(API.generatePlan, {})}>
+            onClick={() => action(API.generatePlan, { requirementId: requirementId || data.workspace?.activeRequirement?.id })}>
             {plan?.status === 'failed'
               ? '重试生成'
               : plan?.status === 'empty'

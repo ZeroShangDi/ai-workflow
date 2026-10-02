@@ -132,6 +132,11 @@ function decisionsRunsDir(projectRoot) {
   return path.join(awfDir(projectRoot), 'decisions', 'runs');
 }
 
+/** 持久化工作流会话的决策记录目录 `<root>/.awf/decisions/sessions` */
+function decisionsSessionsDir(projectRoot) {
+  return path.join(awfDir(projectRoot), 'decisions', 'sessions');
+}
+
 /** 动态规划的 proposal/事件目录 `<root>/.awf/dynamic-planning` */
 function dynamicPlanningDir(projectRoot) {
   return path.join(awfDir(projectRoot), 'dynamic-planning');
@@ -175,6 +180,7 @@ module.exports = {
   handoffPath,
   versionsDir,
   decisionsRunsDir,
+  decisionsSessionsDir,
   dynamicPlanningDir,
   REPORTS_PREFIX,
   withStateLock,

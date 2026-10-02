@@ -9,9 +9,14 @@ export default function App() {
       <Workspace
         key={shell.project || 'connecting'}
         project={shell.project}
+        workspace={shell.workspace}
+        workspaceError={shell.workspaceError}
+        refreshWorkspace={shell.refreshWorkspace}
         view={shell.view}
         runId={shell.runId}
         task={shell.task}
+        requirementId={shell.requirementId}
+        sessionId={shell.sessionId}
         setRunId={shell.setRunId}
         setView={shell.setView}
         connectionError={shell.error}

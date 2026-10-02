@@ -20,7 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const store = require('../shared/store.cjs');
-const { normalizeStamp } = require('../shared/run-id.cjs'); // run 标识/时间戳归一单源
+const { normalizeStamp, validateRunId } = require('../shared/run-id.cjs'); // run 标识/时间戳归一单源
 const { logsDir, stateFilePath } = require('../shared/project-paths.cjs'); // .awf 布局单源
 const storeCore = require('../shared/store-core.cjs');
 const { extract } = require('../adapters/ports.cjs'); // 经端口契约的唯一门（extract 属非端口工具，同样只从这里出）
@@ -28,20 +28,81 @@ const { extract } = require('../adapters/ports.cjs'); // 经端口契约的唯�
 const SEP = '─'.repeat(60) + '\n'; // 提示词段前的分隔线：长日志里一眼分清每轮 prompt 边界
 
 class RunLogger {
-  /** @param {string} projectRoot 项目根；缺省/空 → 不初始化，后续所有写自动 no-op */
-  constructor(projectRoot) {
+  /** @param {string} projectRoot 项目根；@param {{deferInit?:boolean}} options 延迟到 Server 分配逻辑会话后再建日志文件 */
+  constructor(projectRoot, { deferInit = false } = {}) {
     this._projectRoot = projectRoot || null;
     this._runDir = null;          // 本次 run 的日志目录（<logs>/<version>-<ts>）
     this._logPath = null;         // main.log 路径；为 null 即代表「未启用」
     this._transcriptFile = null;  // 当前跟踪的 transcript 文件路径（切换时游标归零）
     this._transcriptPos = 0;      // 已消费到的字节偏移（增量读，避免重复捕获）
     this._sessionStartTime = Date.now();
+    this._attemptId = null;
+    this._workflowSessionId = null;
     // main.log 追加经 store 层 AppendFileStore（进程内串行队列，仍沿用现转录/提取方式）
     this._main = null;
 
     if (!projectRoot) return;
-    this._init();
+    if (!deferInit) this._init();
   }
+
+  /**
+   * 将后续对话与运行日志写入 Server 分配的逻辑工作流会话目录。
+   * sessionId 在 Plan/Run 会话重试时保持不变；attemptId 记录这次具体执行。
+   */
+  beginWorkflowSession({ sessionId, attemptId, runId = null, kind = 'run', logDir } = {}) {
+    if (!this._projectRoot || !validateRunId(sessionId) || !validateRunId(attemptId)) return false;
+    const logsRoot = path.resolve(logsDir(this._projectRoot));
+    const relativeLogDir = logDir || path.join('.awf', 'logs', 'sessions', sessionId);
+    const directory = path.resolve(this._projectRoot, relativeLogDir);
+    if (!directory.startsWith(`${logsRoot}${path.sep}`)) return false;
+
+    const version = this._readVersion();
+    fs.mkdirSync(directory, { recursive: true });
+    fs.mkdirSync(path.join(directory, 'agents'), { recursive: true });
+    this._runDir = directory;
+    this._logPath = path.join(directory, 'main.log');
+    this._main = store.createAppendFileStore({ filePath: this._logPath });
+    this.setWorkflowIdentity({ sessionId, attemptId });
+    this._sessionStartTime = Date.now();
+    this._transcriptFile = null;
+    this._transcriptPos = 0;
+    this._main.appendRawSync([
+      '=== AWF Workflow Session Log ===\n',
+      `kind: ${kind}\n`,
+      `workflowSessionId: ${sessionId}\n`,
+      `attemptId: ${attemptId}\n`,
+      `runId: ${runId || ''}\n`,
+      `version: ${version || ''}\n`,
+      `started: ${new Date().toISOString()}\n`,
+      `project: ${this._projectRoot}\n`,
+      '\n',
+    ].join(''));
+    return true;
+  }
+
+  /** 只切换决策归属；Plan 的对话正文由会话 conversation.log 保存，不额外创建 main.log。 */
+  setWorkflowIdentity({ sessionId, attemptId } = {}) {
+    if (!validateRunId(sessionId) || !validateRunId(attemptId)) return false;
+    this._workflowSessionId = sessionId;
+    this._attemptId = attemptId;
+    return true;
+  }
+
+  /** Legacy CLI path until CLI persists its workflow session through Server. */
+  beginLegacyRun() {
+    if (this._workflowSessionId) {
+      this._workflowSessionId = null;
+      this._attemptId = null;
+      this._runDir = null;
+      this._logPath = null;
+      this._main = null;
+    }
+    if (!this._logPath) this._init();
+    return this.enabled;
+  }
+
+  get workflowSessionId() { return this._workflowSessionId; }
+  get attemptId() { return this._attemptId; }
 
   // ---- 初始化 ----
 
@@ -193,7 +254,8 @@ class RunLogger {
     const source = body?.agent_transcript_path;
     if (!source || !fs.existsSync(source)) return;
     const safe = (value, fallback) => String(value || fallback).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const file = `${safe(taskId, 'unknown')}--${safe(agentId, 'agent')}.log`;
+    const attemptPrefix = this._attemptId ? `${safe(this._attemptId, 'attempt')}--` : '';
+    const file = `${attemptPrefix}${safe(taskId, 'unknown')}--${safe(agentId, 'agent')}.log`;
     const header = [
       '=== AWF Subagent Log ===\n',
       `task: ${taskId || 'unknown'}\n`,

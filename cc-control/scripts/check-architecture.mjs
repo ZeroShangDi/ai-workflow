@@ -33,6 +33,8 @@ const LAYER_RULES = [
   [/^server\/features\//, 'server-features'],
   [/^server\/run\//, 'server-run'],
   [/^server\/runtime\//, 'server-runtime'],
+  [/^server\/application\//, 'server-application'],
+  [/^server\/persistence\//, 'server-persistence'],
   [/^server\/shared\//, 'server-shared'],
   [/^server\/observability\//, 'server-observability'],
   [/^server\/adapters\//, 'server-adapters'],
@@ -51,12 +53,16 @@ export const ALLOWED = new Set([
   'server-entry → server-runtime',
   'server-entry → server-web',
   'server-entry → server-observability',
+  'server-entry → server-application',
   // 面
   'server-web → server-runtime',
   'server-web → server-shared',
   'server-web → server-adapters',
   'server-web → server-observability',
   'server-web → server-constants',
+  'server-web → server-application',
+  // Business application services depend on the storage API; the API layer does not.
+  'server-application → server-persistence',
   // 编排
   'server-run → server-shared',
   'server-run → server-adapters',
@@ -105,6 +111,7 @@ export const ENTRY_ALLOWLIST = [
   { file: 'server/mock/index.cjs', reason: '测试脚手架：自述「不参与生产装配、不进 ports 名册」，只被 tests/ 引入；被替换的是 server 的出口（tmux/日志/state 落盘）' },
   { file: 'server/adapters/cc/build.cjs', reason: '插件构造器：由 npm 脚本直接执行（build:plugin / pretest / prepack），不经 import —— 与 cli/awf.cjs 同类' },
   { file: 'server/adapters/dsh/build.cjs', reason: '插件构造器：由 npm 脚本直接执行（build:plugin / pretest / prepack），不经 import —— 与 cli/awf.cjs 同类' },
+  { file: 'server/application/seed-preview.cjs', reason: '一次性执行的本地 SQLite 预览数据播种工具，不参与 Server 生产装配' },
 ];
 
 /**

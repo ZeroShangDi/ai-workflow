@@ -5,9 +5,10 @@ import Topbar from './components/Topbar.jsx';
 import ViewRail from './components/ViewRail.jsx';
 export default function WorkspaceLayout({ children, ...shell }) {
   const showChrome = shell.context?.mode !== 'dsh';
+  const emptyProject = !!shell.project && !!shell.workspace && !shell.workspaceError && !(shell.workspace.requirements || []).length;
   return (
     <div
-      className="app-shell"
+      className={`app-shell${emptyProject ? ' is-empty-project' : ''}`}
       style={
         showChrome
           ? undefined
@@ -21,8 +22,8 @@ export default function WorkspaceLayout({ children, ...shell }) {
         />
       )}
       {showChrome && <Sidebar {...shell} />}
-      {showChrome && <Topbar {...shell} />}
-      <ViewRail {...shell} />
+      {showChrome && !emptyProject && <Topbar {...shell} />}
+      {!emptyProject && <ViewRail {...shell} />}
       {children}
     </div>
   );

@@ -5,7 +5,7 @@ import { mergeEvents } from '@/shared/lib/events.js';
 import { usePolling } from '@/shared/hooks/usePolling.js';
 import { getRoute } from '@/app/routes.js';
 
-export function useWorkspace(project, view = 'run') {
+export function useWorkspace(project, view = 'run', requirementId = '', sessionId = '') {
   const client = useMemo(() => createApiClient({ project }), [project]);
   const [data, setData] = useState({}),
     [errors, setErrors] = useState({});
@@ -18,14 +18,28 @@ export function useWorkspace(project, view = 'run') {
     async signal => {
       const route = getRoute(view);
       const paths = { status: route.snapshot ? API.snapshot : API.status, runs: API.runs };
-      for (const key of route.reads) paths[key] = API[key];
+      for (const key of route.reads) {
+        // AppShell owns the shared project workspace used by both the sidebar
+        // and page content. This hook only polls route-specific page data.
+        if (key === 'workspace') continue;
+        const endpoint = typeof API[key] === 'function' ? API[key]() : API[key];
+        paths[key] = requirementId && ['decisions', 'proposals'].includes(key)
+          ? `${endpoint}?requirementId=${encodeURIComponent(requirementId)}`
+          : endpoint;
+      }
       await Promise.all(
         Object.entries(paths).map(async ([key, path]) => {
           try {
             const response = await client.get(path, { signal });
             if (signal.aborted) return;
             if (response.ok === false) throw new Error(response.error || '读取失败');
-            setData(old => ({ ...old, [key]: response }));
+            // Persistence-backed endpoints may be returned directly or inside
+            // the standard `{ data }` envelope. Normalize the workspace once
+            // here so every page consumes the same `data.workspace` shape.
+            const normalized = key === 'workspace' && !response.workspace
+              ? { ...response, workspace: response.data?.workspace || response.data || null }
+              : response;
+            setData(old => ({ ...old, [key]: normalized }));
             setErrors(old => ({ ...old, [key]: null }));
           } catch (error) {
             if (!signal.aborted) setErrors(old => ({ ...old, [key]: error.message }));
@@ -33,7 +47,7 @@ export function useWorkspace(project, view = 'run') {
         }),
       );
     },
-    { enabled: !!project, revision: `${project}:${view}:${revision}` },
+    { enabled: !!project, interval: sessionId ? 1500 : 3000, revision: `${project}:${view}:${requirementId}:${sessionId}:${revision}` },
   );
   usePolling(
     async signal => {

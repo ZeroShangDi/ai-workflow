@@ -47,7 +47,7 @@ function createProjectContext({ projectRoot, env = process.env, sid, hostFactory
   // 两个 ctx 分离是刻意的：会话名按 run 分片，但磁盘锚保持「本项目唯一 state.json」，不因 sid 漂移
   const nameCtx = buildRunContext({ projectRoot: root, sid: runSid, env });
   const storeCtx = buildRunContext({ projectRoot: root, env });
-  const logger = new RunLogger(root);
+  const logger = new RunLogger(root, { deferInit: true });
   const stores = createRunStores(storeCtx);
   // 平台在装配期按项目定一次（T-P1-01 / C01）：未落地平台在此显式抛错，不静默回落 cc
   const adapters = resolveProjectAdapters(root, {
@@ -107,7 +107,16 @@ function createProjectContext({ projectRoot, env = process.env, sid, hostFactory
     stores,                                   // ② 落盘
     storeCore,
     logger,                                   // ③ 日志
-    newDecisionStore: () => new DecisionStore(root), // ④ 决策存储（工厂：每次取新实例）
+    newDecisionStore: () => {
+      const workflowSessionId = logger.workflowSessionId;
+      return workflowSessionId
+        ? new DecisionStore(root, {
+          runStamp: workflowSessionId,
+          runsDir: projectPaths.decisionsSessionsDir(root),
+          attemptId: logger.attemptId,
+        })
+        : new DecisionStore(root);
+    }, // ④ 会话级决策文件（legacy CLI 未提供持久化会话时保留旧落点）
     decisionEnabled: () => isDecisionEnabled(root),  // 决策开关（读项目配置，运行期可变）
   };
 }

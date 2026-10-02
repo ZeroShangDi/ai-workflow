@@ -1,5 +1,4 @@
 import { Button } from '@/shared/components/ui/index.js';
-import RunSelect from '@/shared/components/business/RunSelect/index.jsx';
 export default function LogOutput({
   source,
   follow,
@@ -9,7 +8,6 @@ export default function LogOutput({
   events,
   output,
   text,
-  ...selection
 }) {
   return (
     <>
@@ -18,10 +16,9 @@ export default function LogOutput({
         <h1 className="pane-title">
           {source === 'run' ? 'Run 日志' : '当前会话输出'}
           <span className="pane-summary">
-            · {source === 'run' ? 'Run 编排事件' : '当前项目 · 会话抓屏'}
+            · {source === 'run' ? 'Run 编排事件' : '会话日志文件'}
           </span>
         </h1>
-        <RunSelect {...selection} />
       </header>
       <div className="toolbar">
         <Button aria-pressed={follow} onClick={() => setFollow(!follow)}>

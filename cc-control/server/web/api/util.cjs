@@ -27,7 +27,7 @@ function readJson(req) {
 
 /** 统一 JSON 响应出口（写状态码 + content-type + JSON body） */
 function send(res, code, obj) {
-  res.writeHead(code, { 'content-type': 'application/json' });
+  res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
 }
 
@@ -46,6 +46,14 @@ function requirePaused(rt, res) {
 // 不依赖任何项目 state 的写端点（唯一例外）；其余写类都要求显式 ?p
 const PROJECT_AGNOSTIC_WRITES = new Set([
   '/shutdown',
+  '/data/projects/inspect',
+  '/api/persistence/projects/inspect',
+  '/data/projects/initialize',
+  '/api/persistence/projects/initialize',
+  '/data/projects/add',
+  '/api/persistence/projects/add',
+  '/data/projects/select-folder',
+  '/api/persistence/projects/select-folder',
   // DSH 桥回传：一个 DSH 后台服务多项目，指令/回报自带 projectRoot，故不属于任何单个项目
   '/bridge/dsh/callback',
 ]);

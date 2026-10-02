@@ -117,7 +117,7 @@ async function handle(req, res, url, rt, deps) {
   }
   // /run/state/apply：整份 state 落盘（含 CAS 可选路径，见 handleStateApply）
   if (req.method === 'POST' && pathname === '/run/state/apply') {
-    await handleStateApply(req, res, url, rt);
+    await handleStateApply(req, res, url, rt, deps);
     return true;
   }
 
@@ -131,7 +131,7 @@ async function handle(req, res, url, rt, deps) {
  *   ② 无 sid 且 body 带 expectedLastUpdated → CAS 写（replaceStateIfUnchanged，冲突回 409）；
  *   ③ 无 sid 且无 CAS 字段 → 直接整份覆盖（saveState）。
  */
-async function handleStateApply(req, res, url, rt) {
+async function handleStateApply(req, res, url, rt, deps = {}) {
   const body = (await readJson(req)) || {};
   const state = body?.state;
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
@@ -160,10 +160,12 @@ async function handleStateApply(req, res, url, rt) {
           // 别人先写了：409 让调用方重读后重试（这正是 CAS 要防的丢更新）
           return send(res, 409, { ...applied, error: 'state 已被其他写者更新，请重新读取后重试' });
         }
+        deps.persistenceApplication?.syncTasksFromState?.(ctx.projectRoot, state.tasks || []);
         return send(res, 200, applied);
       }
       rt.runStateApi.saveState(ctx.projectRoot, state); // ③ 无 CAS 直接覆盖
     }
+    deps.persistenceApplication?.syncTasksFromState?.(ctx.projectRoot, state.tasks || []);
     return send(res, 200, { ok: true });
   } catch (e) {
     return send(res, 500, { ok: false, error: `state 落盘失败: ${e.message}` });

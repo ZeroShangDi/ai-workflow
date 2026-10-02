@@ -28,6 +28,7 @@ async function handle(req, res, url, rt, deps) {
     if (!rt.runHost) { send(res, 503, { ok: false, error: `run host 未就绪: ${rt.runHostBootErr?.message || 'unknown'}` }); return true; }
     const runId = typeof body.runId === 'string' && body.runId.length > 0 ? body.runId : undefined;
     const mode = body.mode === 'single' || body.mode === 'batch' ? body.mode : undefined;
+    rt.ctx.logger.beginLegacyRun?.();
     const r = rt.runHost.submitRun({ runId, mode });
     if (!r.ok) { send(res, 409, { ok: false, error: r.error, runId: r.runId }); return true; }
     send(res, 202, { ok: true, runId: r.runId, mode: r.mode });

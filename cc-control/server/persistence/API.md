@@ -102,10 +102,10 @@ class PersistenceError extends Error {
 
 | 方法 | 参数 | 成功返回 | 说明 |
 |---|---|---|---|
-| `create(input)` | `{ id?, requirementId, kind: 'plan' \| 'run', title?, logDir?, originEnvironmentId?, status? }` | `WorkflowSession` | 创建 plan/run 会话；未传 `logDir` 时使用 `logs/sessions/<sessionId>` 相对路径。 |
+| `create(input)` | `{ id?, requirementId, kind: 'plan' \| 'run', title?, logDir?, originEnvironmentId?, status? }` | `WorkflowSession` | 创建 plan/run 会话；未传 `logDir` 时使用 `.awf/logs/sessions/<sessionId>` 相对路径。 |
 | `get(id)` | 会话 ID 字符串 | `WorkflowSession \| null` | 查询会话，不自动附带 attempts。 |
 | `list(options?)` | `{ requirementId?, kind?, limit?, cursor? }` | `{ items: WorkflowSession[]; nextCursor: string \| null }` | 按 ID 游标分页；limit 最大为 200。 |
-| `startAttempt(sessionId, input?)` | 会话 ID；`{ id?, environmentId?, provider? }` | `SessionAttempt` | 新建尝试并更新会话为 active；二者在同一事务中完成。会话 ID 和日志目录保持不变。 |
+| `startAttempt(sessionId, input?)` | 会话 ID；`{ id?, environmentId?, provider?, runId? }` | `SessionAttempt` | 新建尝试并更新会话为 active；二者在同一事务中完成。可在 Run attempt 上保存 Server 的 `runId`；会话 ID 和日志目录保持不变。 |
 | `finishAttempt(id, options?)` | 尝试 ID；`{ status?: string; errorText?: string \| null }` | `SessionAttempt \| null` | 结束一次运行尝试。默认状态为 `completed`。 |
 | `finish(id, options?)` | 会话 ID；`{ status?: string }` | `WorkflowSession \| null` | 结束整个会话。默认状态为 `completed`。 |
 | `attempts(sessionId)` | 会话 ID 字符串 | `SessionAttempt[]` | 按 attempt 编号列出重试记录。 |

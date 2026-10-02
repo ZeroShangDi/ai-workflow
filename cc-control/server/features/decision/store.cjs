@@ -2,10 +2,9 @@
 /**
  * decision-store.cjs — 决策记录存储（追加式 jsonl）
  *
- * 目录：.awf/decisions/runs/<runStamp>.jsonl
- * runStamp：与 run-logger 对齐（.awf/logs/<version>-<ts>，version 取 state.json，ts 为
- *   ISO 去冒号/点的前 19 位，如 0.2.0-2026-09-07T00-50-00）。解析取当前最新匹配的 run 目录，
- *   保证决策记录落到正在进行的 run；无 run 目录时按同规则用当前时间生成。
+ * 持久化 Server 会话：.awf/decisions/sessions/<workflowSessionId>.jsonl；
+ * legacy CLI：.awf/decisions/runs/<runStamp>.jsonl。
+ * 持久化路径用稳定逻辑会话 ID 聚合重试；attemptId 记录事件所属的本次执行。
  *
  * 不变量：
  *   - 只追加，绝不覆盖历史记录（fs 追加写 + 行级 JSON）；
@@ -61,16 +60,18 @@ function logRunDirs(projectRoot, version) {
 class DecisionStore {
   /**
    * @param {string} projectRoot - 用户项目根目录
-   * @param {{ runStamp?: string, runsDir?: string }} [opts]
-   *   runStamp  显式 run stamp（T1-072 runStamp→sid 归一：多 run 传 sid，决策落该 run 不串）；
+   * @param {{ runStamp?: string, runsDir?: string, attemptId?: string }} [opts]
+   *   runStamp  新路径传 workflowSessionId，legacy 路径仍传 runStamp；
+   *   attemptId 新路径传当前执行 attempt，用于标记决策事件来自哪次尝试；
    *             缺省沿用单 run 现状（扫描 .awf/logs 最新匹配 state.version 的 run 目录）。
    *   runsDir   决策文件目录覆写（W3-002 per-run 布局可传 ctx.runDecisionsDir）；缺省
    *             .awf/decisions/runs。
    */
-  constructor(projectRoot, { runStamp = null, runsDir = null } = {}) {
+  constructor(projectRoot, { runStamp = null, runsDir = null, attemptId = null } = {}) {
     this.projectRoot = projectRoot;
     this._explicitStamp = runStamp;
     this._runsDirOverride = runsDir;
+    this._attemptId = attemptId;
   }
 
   get runsDir() {
@@ -114,7 +115,7 @@ class DecisionStore {
     const runStamp = this.runStamp();
     if (!runStamp) return { appended: false, runStamp: null, file: null };
     const file = this.fileFor(runStamp);
-    const stamped = { runStamp, ...record };
+    const stamped = { runStamp, ...record, ...(this._attemptId ? { attemptId: this._attemptId } : {}) };
 
     if (record.decision_id && this._hasDecision(file, record.decision_id)) {
       return { appended: false, runStamp, file };
@@ -138,7 +139,7 @@ class DecisionStore {
     const duplicate = this._records(file)
       .some((entry) => entry.decision_id === record.decision_id && entry.event === record.event);
     if (duplicate) return { appended: false, runStamp, file };
-    this._appendLine(file, { runStamp, ...record });
+    this._appendLine(file, { runStamp, ...record, ...(this._attemptId ? { attemptId: this._attemptId } : {}) });
     return { appended: true, runStamp, file };
   }
 
@@ -165,7 +166,7 @@ class DecisionStore {
     };
     // runStamp 与其他写入口一致地带上：**每条决策记录都必须能回答「哪一次运行的产物」**，
     // 否则按运行捞数据时会漏掉改写记录（这条路径最早漏了它）。
-    this._appendLine(hit.file, { runStamp: hit.runStamp, ...event });
+    this._appendLine(hit.file, { runStamp: hit.runStamp, ...event, ...(this._attemptId ? { attemptId: this._attemptId } : {}) });
     return { runStamp: hit.runStamp, file: hit.file };
   }
 
@@ -188,7 +189,7 @@ class DecisionStore {
     const duplicate = this._records(hit.file)
       .some((entry) => entry.decision_id === decisionId && entry.event === event.event);
     if (duplicate) return { appended: false, runStamp: hit.runStamp, file: hit.file };
-    this._appendLine(hit.file, { runStamp: hit.runStamp, ...event });
+    this._appendLine(hit.file, { runStamp: hit.runStamp, ...event, ...(this._attemptId ? { attemptId: this._attemptId } : {}) });
     return { appended: true, runStamp: hit.runStamp, file: hit.file };
   }
 

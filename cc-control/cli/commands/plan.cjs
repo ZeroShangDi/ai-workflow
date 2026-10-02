@@ -2,18 +2,14 @@
 /**
  * cli/commands/plan.cjs — awf plan（只编排）
  *
- * 三步，全是调用：
- *   ① 非 resume 时归档残留的旧 state 并重置为空 plan 模板（run/pause 中不触发）；
- *   ② 取入口提示词（由插件 `prompts.json` 声明，CLI 不写死任何命令字面）；
- *   ③ 走本项目的规划入口（`interactive` 端口）：cc 在**本进程**直开交互式对话；平台声明
- *      `detached: true` 时（DSH）请常驻 AWF server 代触发（CLI 进程没有 bridge）。
- *
- * 与旧 CLI 的差别只有调用方式：新树里 `state.js` / `prompts.js` 是 ESM，本命令是 CJS，
- * 故用动态 import（与 `server/runtime/index.cjs` 同一手法）。
+ * CLI 通过 Server 的工作流接口创建需求与 Plan 会话并取得提示词；
+ * 平台交互仍由 adapter 端口负责，CLI 不直接读写持久化状态或自行拼装提示词。
  */
 
 const { spawn } = require('node:child_process');
 const { buildContext } = require('../lib/context.cjs');
+const { createClient } = require('../lib/client.cjs');
+const session = require('../lib/session.cjs');
 
 /** 打开浏览器（失败不阻断：无头机器上仍可手点打出来的 URL） */
 function openUrl(url, browser = process.env.AWF_BROWSER || 'open') {
@@ -28,28 +24,12 @@ function openUrl(url, browser = process.env.AWF_BROWSER || 'open') {
  *   - 否则（cc）：交互式对话要占住用户终端 → 在**本进程**直开。
  * 服务端没起时明确失败（不静默回落成「启动成功」）。
  */
-/**
- * 规划会话的**标题**（给人看的，不是给模型的）。
- *
- * 为什么由 CLI 给：DSH 的会话标题默认取**首条用户消息**，而注入的是命令正文（w-plan.md 全文），
- * 于是侧栏里一排会话全叫「# w-plan 主规划流程。从一句话」。只有这一层知道用户的需求原文。
- * 没描述时返回 undefined —— 让插件用它自己的兜底（项目名），而不是把「AWF 规划」这种空标题写死。
- * @param {string} [desc] 规范化后的需求描述
- * @returns {string|undefined}
- */
-function planTitle(desc) {
-  const text = String(desc ?? '').replace(/\s+/g, ' ').trim();
-  return text === '' ? undefined : `AWF 规划 · ${text.slice(0, 60)}`;
-}
-
-async function launchPlan(projectRoot, prompt, interactive, port, title) {
+async function launchPlan(projectRoot, prompt, interactive, client, title, workflowSessionId) {
   if (interactive.detached !== true) {
     await interactive.launchDialog({ cwd: projectRoot, prompt, title });
     return;
   }
-  const { createClient } = require('../lib/client.cjs');
-  const client = createClient({ port, project: projectRoot });
-  const r = await client.call('planLaunch', { body: { prompt, title } });
+  const r = await client.call('planLaunch', { body: { prompt, title, workflowSessionId } });
   if (r?.ok === false) {
     const raw = r.error || '未知错误';
     // 两种「发不出去」的处置完全不同，提示不能混：
@@ -96,29 +76,28 @@ async function planCommand(description, options = {}) {
   const ctx = buildContext(projectRoot);
   const { interactive } = ctx.adapters.ports;
 
-  if (!options.resume) {
-    const { archiveOldStateForPlan } = await import('../../server/shared/state.js');
-    const r = archiveOldStateForPlan(projectRoot);
-    if (r.action === 'archived') console.log(`检测到旧 plan 状态，已归档：${r.archivedPath}`);
-    else if (r.action === 'run-active') console.log('检测到 run 运行中（mode=run/pause），跳过 plan 重置');
-  }
-
-  const { planEntry } = await import('../../server/shared/prompts.js');
-  // 平台参数：cc 入口是斜杠命令、DSH 展开成指令（见 prompts.js 的 planEntry）
-  const prompt = await planEntry(desc, options.resume, { adapter: ctx.adapter });
-
   console.log('启动规划会话…');
-  // detached 平台（DSH）：规划入口是「平台侧开会话 + 注入指令」，两样前置都得在 ——
-  // 常驻 AWF server（plan 经它代触发）与 dsh 网页后台（会话活在它里面）。不存在则起，存在则复用。
+  // CLI 仅负责启动交互入口；状态重置与提示词构造由 Server 处理。
+  const srv = await session.ensureServer(ctx);
+  if (srv.started) console.log(`  常驻 server 已启动（端口 ${ctx.port}）`);
+  const client = createClient({ port: ctx.port, project: projectRoot });
   if (interactive.detached === true) {
-    const session = await import('../lib/session.cjs');
-    const srv = await session.ensureServer(ctx);
-    if (srv.started) console.log(`  常驻 server 已启动（端口 ${ctx.port}）`);
     await session.ensureDshWeb(ctx);
   }
-  await launchPlan(projectRoot, prompt, interactive, ctx.port, planTitle(desc));
-  if (interactive.detached === true) console.log('规划会话已在平台侧开始（网页里接着聊）');
-  else console.log('规划会话结束');
+  const prepared = await client.preparePlan({ requestText: desc || (options.resume ? undefined : '规划当前项目'), resume: !!options.resume });
+  if (prepared?.ok === false) throw new Error(`Server 无法准备 Plan：${prepared.error}`);
+  try {
+    await launchPlan(projectRoot, prepared.prompt, interactive, client, prepared.title, prepared.workflowSessionId);
+    if (interactive.detached === true) console.log('规划会话已在平台侧开始（网页里接着聊）');
+    else {
+      const finished = await client.finishPlan({ workflowSessionId: prepared.workflowSessionId, attemptId: prepared.attemptId, status: 'completed' });
+      if (finished?.ok === false) throw new Error(`Server 无法结束 Plan attempt：${finished.error}`);
+      console.log('规划会话结束');
+    }
+  } catch (error) {
+    await client.finishPlan({ workflowSessionId: prepared.workflowSessionId, attemptId: prepared.attemptId, status: 'failed', errorText: error.message });
+    throw error;
+  }
 }
 
 module.exports = { planCommand, normalizeDescription };

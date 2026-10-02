@@ -4,8 +4,14 @@ import { useAction } from '@/shared/hooks/useAction.js';
 import { aggregateDecisions, countPendingReview } from '@/pages/Decisions/model.js';
 export function useRunPage(props) {
   const { data, client, refresh, events } = props;
-  const tasks = data.state?.tasks || [],
-    active = tasks.filter(t => t.status === 'active');
+  const workflowSession = data.workspace?.sessions?.find(session => session.id === props.sessionId) || null;
+  const tasks = data.workspace?.activeRequirement
+    ? (data.workspace.tasks || [])
+    : (data.state?.tasks || []);
+  const active = tasks.filter(t => t.status === 'active');
+  const persistedRunActive = data.workspace?.sessions?.some(session =>
+    session.requirementId === workflowSession?.requirementId && session.kind === 'run' && ['created', 'active'].includes(session.status),
+  ) || false;
   const done = tasks.filter(t => t.status === 'done').length;
   const [input, setInput] = useState('');
   const output = useRef(null);
@@ -15,17 +21,13 @@ export function useRunPage(props) {
   }, [data.status?.snapshot, events, follow]);
   const { busy, message, action } = useAction(client, refresh);
   const pending = data.status?.decisionPending;
-  const hasActiveRun = props.runs.some(r => ['running', 'queued'].includes(r.status));
+  const hasActiveRun = props.runs.some(r => ['running', 'queued'].includes(r.status)) || persistedRunActive;
   const canSend = data.status?.session && data.status?.state === 'ready';
   async function sendMessage() {
     const text = input.trim();
     if (!text) return;
     if (await action(pending ? API.respond : API.send, pending ? { value: text } : { text }))
       setInput('');
-  }
-  async function startRun() {
-    const runId = `web-${Date.now()}`;
-    if (await action(API.submitRun, { runId })) props.setRunId(runId);
   }
   const toggleMode = () =>
     action(API.workflowMode, { mode: data.state.mode === 'pause' ? 'run' : 'pause' });
@@ -39,7 +41,6 @@ export function useRunPage(props) {
   const goDecisions = () => props.setView('decisions');
   return {
     sendMessage,
-    startRun,
     toggleMode,
     interrupt,
     respond,
@@ -65,6 +66,7 @@ export function useRunPage(props) {
     action,
     pending,
     hasActiveRun,
+    workflowSession,
     canSend,
   };
 }

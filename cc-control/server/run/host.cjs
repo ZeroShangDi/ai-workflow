@@ -192,10 +192,12 @@ function createRunHost(opts = {}) {
 
   /** 新建 run 记录（不入队驱动；由 submitRun 负责 kick）。
    *  modeOverride：调用方显式指定 'single'|'batch'（如 CLI --multi-agent），缺省按 cfg.agents.max 判定 */
-  function createRunRecord(runId, modeOverride = null) {
+  function createRunRecord(runId, modeOverride = null, identity = {}) {
     const m = modeOverride === 'single' || modeOverride === 'batch' ? modeOverride : mode();
     return {
       runId,
+      workflowSessionId: identity.workflowSessionId || null,
+      attemptId: identity.attemptId || null,
       mode: m,
       status: 'queued',
       error: null,
@@ -408,7 +410,9 @@ function createRunHost(opts = {}) {
       else await driveSingle(run);
 
       // FINISH 收尾：版本归档（迁自重构前 cli/run.js runLoop 末尾的 backupState）
-      stateApi.backupState?.(projectRoot);
+      stateApi.backupState?.(projectRoot, {
+        workflowSessionId: run.workflowSessionId, attemptId: run.attemptId, runId: run.runId,
+      });
 
       const fin = stateApi.loadState(projectRoot);
       const finishState = fin?.currentState;
@@ -466,7 +470,7 @@ function createRunHost(opts = {}) {
         const cur = runs.get(activeRunId);
         return { ok: false, error: `宿主正在驱动 run ${activeRunId}（${cur?.status}）；常驻单槽需先完成/停止`, runId };
       }
-      const run = createRunRecord(runId, spec.mode || null);
+      const run = createRunRecord(runId, spec.mode || null, spec);
       runs.set(runId, run);
       emit('run.submitted', runId, { mode: run.mode });
       activeRunId = runId;

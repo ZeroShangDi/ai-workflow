@@ -24,6 +24,8 @@ export default function TaskList({
   action,
   busy,
   message,
+  primaryAction,
+  sessionKind,
 }) {
   // 完整枚举，不按数据裁剪 —— 这是「分类法选择器」而不是「可用值选择器」：
   // 没有动态任务时也要看得见「动态规划 (0)」，否则会以为是前端坏了。
@@ -52,7 +54,7 @@ export default function TaskList({
     <>
       <header className="pane-header">
         <h1 className="pane-title">
-          任务
+          {sessionKind === 'run' ? '动态任务' : '任务'}
           {!!requirement && (
             <span className="pane-summary" title={planSummary}>
               · {requirement}
@@ -63,6 +65,7 @@ export default function TaskList({
           </span>
         </h1>
         <div className="pane-tools">
+          {primaryAction && <Button variant="primary" disabled={busy || primaryAction.disabled} onClick={primaryAction.run}>{primaryAction.label}</Button>}
           <Input
             aria-label="搜索任务"
             placeholder="搜索任务…"
@@ -146,7 +149,7 @@ export default function TaskList({
                 </span>
               )}
               <Badge value={t.status} />
-              {retryable && (
+              {retryable && sessionKind === 'run' && (
                 <span className="record-actions">
                   <Button
                     disabled={busy}
