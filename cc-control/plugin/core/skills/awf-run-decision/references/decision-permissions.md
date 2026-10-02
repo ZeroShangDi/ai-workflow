@@ -4,11 +4,11 @@
 > 待合并目标：`awf-run-decision/SKILL.md`（当前为 TODO 空壳）
 > 状态：待用户审查，合并后删除本文件
 >
-> 说明：原文引用旧 skill 名 `code-rule-style`，合并时应改为新名 `code-dev-rule` / `code-dev-quality`；「倒计时暂停机制」若新版未实现，可只保留「免问 / 必暂停」二分清单本身。
+> 说明：原文引用旧 skill 名 `code-rule-style`；通用开发行为由 `/w-dev` 承载，质量专项判断由 `code-quality` 承载。「倒计时暂停机制」若新版未实现，可只保留「免问 / 必暂停」二分清单本身。
 
 ## 免问动作（直接执行）
 
-- 代码风格 / 命名 → 依 code-dev-rule / code-dev-quality
+- 代码风格 / 命名 → 依 `/w-dev` 的开发基线；需要专项质量判断时使用 `code-quality`
 - 文件组织 → 沿用现有项目结构
 - 依赖选择 → 优先复用
 - 类型标注 → 严格 TS，禁用 `any`

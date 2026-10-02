@@ -1,8 +1,7 @@
-# canCommit 提交门禁职责边界（待合并）
+# canCommit 提交门禁职责边界（历史候选材料）
 
 > 来源：`plugin_old/skills/awf-sys-spec-workflow/SKILL.md` — Commit Gate 段
-> 待合并目标：`code-commit-gitflow/SKILL.md`（提交流程）或 `awf-run-test/SKILL.md`
-> 状态：待用户审查，合并后删除本文件
+> 状态：未纳入技能路由的历史候选材料。提交门禁以当前 `/w-commit` 和 AWF 运行时规则为准；本文件不作为执行依据，保留供人工择时审阅。
 >
 > 说明：原文状态文件路径 `.claude/awf-state.json` 在新版已改为 `.awf/state.json`，且新版由 awf-state MCP tools 读写。合并前需确认 `canCommit` 字段是否已在新版 state.json 数据模型 / MCP tools 中建模；若未建模，此门禁需配套补一个字段或 MCP tool。
 

@@ -203,23 +203,22 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 - **`code-doc`** — 文档体系规范（五类文档）
 - **`code-retro-point`** — 项目复盘（Stable/Improve/Experiment）
 
-**开发（code-dev-*）**
-- **`code-dev-rule`** — 开发原则（通用行为准则）
-- **`code-dev-design`** — 设计与实现决策
-- **`code-dev-cto`** — 技术选型决策方法
-- **`code-dev-quality`** — 高质量代码标准
-- **`code-dev-security`** — 防御性编程与安全实践
-- **`code-dev-performance`** — 性能优化最佳实践
-- **`code-dev-fallback`** — 渐进增强与优雅降级
-- **`code-dev-experience-react`** / **`code-dev-experience-vue`** — 框架实践取舍
+**领域技能（code-*）**
+- **`code-tech-selection`** — 技术选型
+- **`code-design`** — 架构与模块设计
+- **`code-compatibility`** — 兼容与迁移
+- **`code-quality`** — 质量与验证
+- **`code-performance`** — 性能
+- **`code-security`** — 安全
+- **`code-react`** / **`code-vue`** — 框架实践取舍
 
 **审查（code-review-*）**
-- **`code-review-quality`** — 代码质量审查（正确性/可读性/可维护性）
+- **`code-review-architecture`** — 架构边界与变化传播审查
 - **`code-review-performance`** — 性能分析审查
 - **`code-review-security`** — 安全漏洞检查
-- **`code-review-simplify`** — 代码简化（重复/过度抽象）
 
-**测试**
+**活动专项方法**
+- **`code-debugging`** — 根因调查与修复
 - **`code-test-case`** — AI 生成测试用例方法论
 
 These are invoked automatically by slash commands. Do not invoke them manually unless explicitly requested.

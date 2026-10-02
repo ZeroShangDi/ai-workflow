@@ -20,7 +20,7 @@
     "worker-prompt-note": "（必须在开头声明『你的任务 ID 是 {taskId}』；RESULT / NEEDS_INPUT 输出格式已固化在 awf-worker 身份；dev 必须应用 {architectureSkill}，review 必须应用 {reviewArchitectureSkill}）",
     "dev-command": "/ai-workflow-code:w-dev",
     "context-skill": "code-context-onboard",
-    "architecture-skill": "code-architecture",
+    "architecture-skill": "code-design",
     "review-architecture-skill": "code-review-architecture",
     "plan-entry-mode": "command"
   }
