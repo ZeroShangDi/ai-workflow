@@ -2,6 +2,8 @@
 
 本文件是 `server/persistence/index.cjs` 对外公开接口的使用说明。调用方只依赖这里列出的 API；不要直接导入 `api/`、`repositories/` 或 `database.cjs` 内部文件。
 
+数据模型、实体关系与持久化边界见[设计说明](./设计说明.md)。
+
 ## 使用方式
 
 ```js

@@ -33,7 +33,7 @@ try {
   }));
   value(api.projects.update(context.project.id, { activeRequirementId: requirement.id }));
   const taskRows = [
-    { id: 'preview-task-001', taskKey: 'T1', title: '定义持久化实体关系', kind: 'dev', status: 'done', source: 'plan', prompt: '确认项目、需求、工作流会话与任务的关系。', acceptance: ['ID 关系清晰', '跨设备 checkout 独立于 project'], details: { files: ['docs/data-persistence-design.md'], wbsRef: 'W1' }, position: 1 },
+    { id: 'preview-task-001', taskKey: 'T1', title: '定义持久化实体关系', kind: 'dev', status: 'done', source: 'plan', prompt: '确认项目、需求、工作流会话与任务的关系。', acceptance: ['ID 关系清晰', '跨设备 checkout 独立于 project'], details: { files: ['server/persistence/设计说明.md'], wbsRef: 'W1' }, position: 1 },
     { id: 'preview-task-002', taskKey: 'T2', title: '项目页展示需求和会话', kind: 'dev', status: 'active', source: 'plan', prompt: '从 Server 读取数据库中的项目、需求和会话摘要。', acceptance: ['需求可查看', 'Plan/Run 会话同属一个需求'], details: { files: ['web/src/pages/Project/index.jsx'], wbsRef: 'W2' }, position: 2 },
     { id: 'preview-task-003', taskKey: 'T3', title: '接入决策与动态任务数据', kind: 'dev', status: 'pending', source: 'plan', prompt: '用数据库记录呈现决策、任务关联和动态提案。', acceptance: ['决策可回溯任务', '动态提案可审阅'], details: { files: ['server/web/api'], wbsRef: 'W2' }, position: 3 },
     { id: 'preview-task-004', taskKey: 'T4', title: '处理设备间路径差异', kind: 'analysis', status: 'blocked', source: 'dynamic_planning', prompt: '确认 project id 在不同设备 checkout 间保持稳定。', acceptance: ['项目 ID 稳定', '本地目录按环境区分'], blockedReason: '等待跨设备项目接力方案确认。', details: { files: [], wbsRef: 'W3' }, position: 4 },
