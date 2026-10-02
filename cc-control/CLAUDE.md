@@ -33,7 +33,7 @@ cc-control/
       .mcp.json            #     3 个 MCP server 声明（相对路径）
       hooks/hooks.json     #     7 个 hooks（3 状态 + SubagentStart/Stop 落账 + Pre/PostToolUse）
       commands/            #     slash commands（w-start/pause/monitor）
-      skills/              #     skills（awf-run-* 运行态 + awf-skill/awf-state）
+      skills/              #     skills（awf-run-* 运行态 + awf-state）
       agents/              #     子 Agent 定义（awf-worker.md — 滑动窗口执行单元，RESULT/NEEDS_INPUT 输出协议）
       mcp/                 #     MCP server 实现（state/session/oneshot + state 模板）
     decision/              #   决策层插件 ai-workflow-decision：决策技能 + 协议资产（无 mcp/hooks/命令）
@@ -176,8 +176,13 @@ Any node can loop back. FINISH is a milestone marker, not project end.
 - **`awf-run-reset`** — 反复失败重开：回撤判定、精确撤销、复盘后重探
 
 **通用**
-- **`awf-skill`** — Skill 生命周期管理（创建/修改/聚合/拆分/审计）
 - **`awf-state`** — awf-state MCP 使用指南 + state.json 数据模型（→ server/adapters/cc/plugin/core/mcp/awf-state/）
+
+### common 插件（plugin/common/skills/，命名空间 `ai-workflow-common`）
+
+- **`common-command`** — 命令生命周期管理与入口设计
+- **`common-router`** — 技能路由设计与审计
+- **`common-skill`** — Skill 生命周期管理（创建/修改/聚合/拆分/审计）
 
 ### decision 插件（server/adapters/cc/plugin/decision/skills/，命名空间 `ai-workflow-decision`）
 
