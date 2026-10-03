@@ -1,7 +1,10 @@
 import './styles.css';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Textarea } from '@/shared/components/ui/index.js';
 import Badge from '@/shared/components/business/StatusBadge/index.jsx';
 import { display } from '@/shared/lib/format.js';
+const optionLabel = option => typeof option === 'string' ? option : option?.label || '';
+const optionDescription = option => typeof option === 'object' && option ? option.description || '' : '';
 export default function RunComposer({
   run,
   cancelRun,
@@ -14,26 +17,40 @@ export default function RunComposer({
   setFollow,
   data,
   hasActiveRun,
-  tasks,
   message,
   canSend,
   workflowSession,
   sendMessage,
   toggleMode,
   interrupt,
-  respond,
 }) {
   const isRunSession = workflowSession?.kind === 'run';
+  const [selectedAnswers, setSelectedAnswers] = useState({});
+  const questionItems = useMemo(() => pending?.questions?.length
+    ? pending.questions
+    : pending ? [{ question: pending.question, options: pending.options || [] }] : [], [pending]);
+  useEffect(() => { setSelectedAnswers({}); }, [pending?.decisionId, pending?.question]);
+  useEffect(() => {
+    const answered = questionItems.flatMap((question, index) => {
+      const answer = selectedAnswers[index];
+      return answer ? [`${question.header ? `${question.header}: ` : ''}${question.question}：${answer}`] : [];
+    });
+    if (answered.length) setInput(answered.join('\n'));
+  }, [questionItems, selectedAnswers, setInput]);
   return (
     <>
       {pending && (
         <section className="pending-card">
-          <h3>{pending.question}</h3>
-          {(pending.options || []).map((option, i) => (
-            <Button key={i} disabled={busy} onClick={() => respond(i + 1)}>
-              {display(option)}
-            </Button>
-          ))}
+          {questionItems.map((question, questionIndex) => <div className="pending-question" key={`${question.header || ''}:${questionIndex}`}>
+            {question.header && <small className="muted">{question.header}</small>}
+            <h3>{question.question}</h3>
+            {(question.options || []).map((option, i) => (
+              <Button type="button" key={i} disabled={busy} className={selectedAnswers[questionIndex] === optionLabel(option) ? 'selected' : ''} onClick={() => setSelectedAnswers(old => ({ ...old, [questionIndex]: optionLabel(option) }))}>
+                <strong>{optionLabel(option) || display(option)}</strong>
+                {optionDescription(option) && <small>{optionDescription(option)}</small>}
+              </Button>
+            ))}
+          </div>)}
         </section>
       )}
       <form
@@ -43,6 +60,7 @@ export default function RunComposer({
           sendMessage();
         }}>
         <div className="actions">
+          <Button type="button" className="composer-attach-placeholder" disabled title="本机终端集成暂不可用">查看 CC 运行</Button>
           {!follow && (
             <Button type="button" onClick={() => setFollow(true)}>
               回到最新输出

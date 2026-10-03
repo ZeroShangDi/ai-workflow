@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { API } from '@/shared/api/index.js';
 import { EmptyState as Empty } from '@/shared/components/ui/index.js';
 import { formatShortDateTime, label } from '@/shared/lib/format.js';
-import { kindText, sourceOf, sourceShort } from '@/pages/Tasks/model.js';
+import { kindText, sourceOf, sourceShort, taskDisplayId } from '@/pages/Tasks/model.js';
 import { execTime, resolveDeps, resolveWbs } from './model.js';
 import ExecDialog from './dialogs.jsx';
 import './styles.css';
@@ -38,9 +38,9 @@ function Header({ task, action, busy, readOnly, onOpenExec }) {
   const reason = task.blockedReason || '';
   return (
     <header className="task-head">
-      <h1 className="task-head-title">{task.title || task.name || task.id}</h1>
+      <h1 className="task-head-title">{task.title || task.name || taskDisplayId(task)}</h1>
       <p className="task-meta">
-        <span>{task.id}</span>
+        <span>{taskDisplayId(task)}</span>
         <span className="task-meta-sep">/</span>
         <span>{kindText(task.kind)}</span>
         <span className="task-meta-sep">·</span>
@@ -254,9 +254,9 @@ function Scope({ task, tasks, wbs }) {
       {deps.length > 0 && (
         <Section title="关联依赖" count={deps.length}>
           {deps.map(dep => (
-            <p className={`task-dep status-${dep.status}`} key={dep.id}>
+            <p className={`task-dep status-${dep.status}`} key={dep.key}>
               <span aria-hidden="true">{dep.status === 'done' ? '✓' : '·'}</span>
-              <span className="task-dep-id">{dep.id}</span>
+              <span className="task-dep-id">{dep.displayId}</span>
               {dep.title && <span className="task-dep-title">{dep.title}</span>}
               <span aria-hidden="true">→</span>
             </p>

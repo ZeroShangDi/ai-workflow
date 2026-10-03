@@ -100,6 +100,7 @@ export const getViews = (mode, sessionKind) => {
   if (sessionKind === 'plan') return [
     ...(session ? [{ ...session, label: '会话' }] : []),
     ...(tasks ? [{ ...tasks, label: '任务' }] : []),
+    ...(routes.find(route => route.key === 'decisions') ? [{ ...routes.find(route => route.key === 'decisions'), label: '决策' }] : []),
   ];
   const contextual = ['tasks', 'reviews', 'decisions', 'logs']
     .map(key => routes.find(route => route.key === key))

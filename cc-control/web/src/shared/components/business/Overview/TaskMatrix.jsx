@@ -1,6 +1,7 @@
 import { matrixCells } from './model.js';
 import { label } from '@/shared/lib/format.js';
-export default function TaskMatrix({ tasks }) {
+import { taskDisplayId } from '@/shared/lib/task.js';
+export default function TaskMatrix({ tasks, onSelectTask }) {
   return (
     <section className="matrix-section">
       <div className="summary-heading">
@@ -10,12 +11,15 @@ export default function TaskMatrix({ tasks }) {
       <div className="matrix-content">
         <div className="task-matrix">
           {matrixCells(tasks).map(t => (
-            <span
+            <button
+              type="button"
+              disabled={!onSelectTask || t.count > 1 || t.status === 'mixed'}
               className={`status-${t.status}`}
-              title={`${t.title || t.name || t.id} · ${label(t.status)}`}
-              key={t.id}>
+              title={`${taskDisplayId(t)} · ${t.title || t.name || ''} · ${label(t.status)}`}
+              key={t.id}
+              onClick={() => onSelectTask?.(t.id)}>
               {t.count > 1 ? `+${t.count}` : ''}
-            </span>
+            </button>
           ))}
         </div>
         <div className="matrix-legend">

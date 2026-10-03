@@ -68,6 +68,7 @@ export default function Sidebar({ open, setOpen, projects, project, workspace, w
         </Button>
       </header>
       <div className="sidebar-content">
+        <div className="project-directory-list" aria-label="项目目录">
         {projects.map(p => (
           <Button
             className={`project-item ${p.projectRoot === project ? 'selected' : ''}`}
@@ -83,6 +84,7 @@ export default function Sidebar({ open, setOpen, projects, project, workspace, w
         {!projects.length && (
           <p className="muted">{error ? '等待连接 server' : '暂无项目，请添加工作目录'}</p>
         )}
+        </div>
         <ProjectSessions project={project} workspace={workspace} workspaceError={workspaceError} refreshWorkspace={refreshWorkspace} setView={setView} />
       </div>
       <footer className="sidebar-footer">

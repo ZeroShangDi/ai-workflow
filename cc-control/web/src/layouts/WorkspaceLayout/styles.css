@@ -61,6 +61,19 @@
 .project-mark {
   color: var(--cc-color-status-info);
 }
+.project-directory-list {
+  max-height: min(32vh, 300px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.project-directory-list .project-item { min-width: 0; }
+.project-directory-list .project-item > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sidebar-footer {
   padding: var(--cc-spacing-12) var(--cc-spacing-16);
   border-top: 1px solid var(--cc-color-border-default);

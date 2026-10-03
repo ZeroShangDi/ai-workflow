@@ -1,5 +1,6 @@
 // 任务详情页的派生数据：只做「把 state 里已有的字段摊平成设计稿要的形状」。
 // 不新增字段、不猜语义 —— 查不到的（依赖任务被删、WBS 项不在树里）就退回只显示 id。
+import { taskDisplayId } from '@/pages/Tasks/model.js';
 
 /** 最近一次执行的时间戳：完成时间优先，未完成退回开始时间 */
 export const execTime = task => task?.exec?.completedAt || task?.exec?.startedAt || '';
@@ -11,7 +12,7 @@ export const execTime = task => task?.exec?.completedAt || task?.exec?.startedAt
 export const resolveDeps = (task, tasks = []) =>
   (task?.deps || []).map(id => {
     const found = tasks.find(item => item?.id === id);
-    return { id, title: found?.title || '', status: found?.status || '' };
+    return { key: id, displayId: taskDisplayId(found) || id, title: found?.title || '', status: found?.status || '' };
   });
 
 /** 关联规划：`wbsRef` → `state.wbs` 里的名字（wbs 是 `{id,name,desc,deps}[]`） */

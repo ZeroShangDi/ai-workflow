@@ -1,3 +1,5 @@
+import { optionDescription, optionLabel } from '@/shared/components/business/ReviewRecord/model.js';
+
 /**
  * 决策记录的聚合与展示口径（纯函数）。
  *
@@ -27,11 +29,15 @@ export function aggregateDecisions(entries = []) {
       request,
       question: request?.question ?? previous.question ?? null,
       options: request?.options ?? previous.options ?? [],
+      questions: request?.questions ?? previous.questions ?? [],
       form: request?.form ?? previous.form ?? null,
       // 任务级归因（任务列表据此标出「有决策的任务」）。可以为空 ——
       // 多 agent 下主会话的派发/收尾决策不属于任何单任务。
       task_id: entry.task_id ?? previous.task_id ?? null,
       records: [...previous.records, entry],
+      selectedValue: entry.event === 'decision_answered'
+        ? entry.value ?? entry.answer ?? previous.selectedValue
+        : previous.selectedValue,
       status:
         entry.event === 'decision_overridden' ? 'overridden' : entry.status || previous.status,
       completed:
@@ -40,8 +46,20 @@ export function aggregateDecisions(entries = []) {
         (!entry.event && entry.answer !== undefined),
     });
   }
-  return [...groups.values()];
+  return [...groups.values()].map(entry => {
+    const answer = entry.answer ?? entry.value ?? null;
+    const options = Array.isArray(entry.options) ? entry.options : [];
+    const selectedValue = entry.selectedValue ?? answer;
+    const answerText = typeof selectedValue === 'string' ? selectedValue.trim() : '';
+    const number = /^\d+$/.test(answerText) ? Number(answerText) : null;
+    const selectedOption = number !== null && number > 0 && number <= options.length
+      ? options[number - 1]
+      : options.find(option => optionLabel(option).trim().toLowerCase() === answerText.toLowerCase()) || null;
+    return { ...entry, answer, selectedOption };
+  });
 }
+
+export { optionDescription, optionLabel };
 
 /** 待复审条数：有结论、且既没复审也没改写（Run 页那一行计数用） */
 export function countPendingReview(entries = []) {

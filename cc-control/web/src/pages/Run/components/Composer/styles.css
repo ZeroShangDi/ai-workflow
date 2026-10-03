@@ -26,6 +26,7 @@
   justify-content: flex-end;
   min-height: 24px;
 }
+.composer > .actions .composer-attach-placeholder { margin-right: auto; }
 .composer button {
   min-height: 26px;
   padding: var(--cc-spacing-2) var(--cc-spacing-8);
@@ -37,6 +38,11 @@
   border-radius: var(--cc-radius-8);
   padding: var(--cc-spacing-8) var(--cc-spacing-10);
 }
+.pending-question + .pending-question { margin-top: var(--cc-spacing-12); padding-top: var(--cc-spacing-10); border-top: 1px solid var(--cc-color-border-default); }
+.pending-question h3 { margin: 4px 0 8px; }
+.pending-question button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; min-height: auto; margin: 5px 0; padding: 8px 10px; text-align: left; }
+.pending-question button.selected { border-color: var(--cc-color-status-info); background: var(--cc-color-bg-selected); }
+.pending-question button small { margin-top: 4px; color: var(--cc-color-text-tertiary); font-weight: 400; }
 .composer textarea {
   border: 0;
   background: transparent;

@@ -3,7 +3,7 @@ export default function RunProgress({ run, done, tasks, data }) {
   return (
     <section className="run-progress">
       <div className="summary-heading">
-        <h1>{run ? `Run #${run.runId}` : 'Run 概览'}</h1>
+        <h1>{run ? `Run #${run.runId}` : '任务概览'}</h1>
         {run && <Badge value={run.status} />}
       </div>
       <div className="progress-label">

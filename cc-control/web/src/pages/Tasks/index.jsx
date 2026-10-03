@@ -7,12 +7,11 @@ import TaskDetail from './components/Detail/index.jsx';
 // 组件住在 shared/components/business/Overview（页面之间不许互相 import）。
 import Overview from '@/shared/components/business/Overview/index.jsx';
 import { API } from '@/shared/api/index.js';
-export default function TasksPage({ data, client, refresh, run, setView, sessionKind, sessionId }) {
+export default function TasksPage({ data, client, refresh, run, setView, sessionKind }) {
   const operation = useAction(client, refresh);
   // 点「有决策」标记 → 决策页并按该任务筛（唯一跨页通道是 URL 参数）
   const page = useTasksPage(data, {
     goDecisions: taskId => setView('decisions', { task: taskId }),
-    sessionKind,
   });
   const requirementId = data.workspace?.activeRequirement?.id;
   const plan = data.workspace?.plan;
@@ -35,20 +34,14 @@ export default function TasksPage({ data, client, refresh, run, setView, session
     <SplitPane
       primary={<TaskList {...page} {...operation} primaryAction={primaryAction} sessionKind={sessionKind} />}
       detail={
-        sessionKind === 'plan' && page.panel === 'overview' ? (
-          <aside className="detail-pane">
-            <h3>Plan 概览</h3>
-            <p>{plan?.summary || '当前 Plan 尚无摘要。'}</p>
-            <p className="muted">任务页用于查看计划任务；需要调整时，回到 Plan 会话继续讨论。</p>
-            <button type="button" onClick={() => setView('run', { requirementId, sessionId })}>继续在 Plan 会话中修改</button>
-          </aside>
-        ) : page.panel === 'overview' ? (
+        page.panel === 'overview' ? (
           <Overview
             run={run}
             done={page.done}
             tasks={page.tasks}
             active={page.active}
             data={data}
+            onSelectTask={page.locateTask}
           />
         ) : (
           // key 跟着任务走：换任务时详情整个重挂，页签与弹窗回到初始态，

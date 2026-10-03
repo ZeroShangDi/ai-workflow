@@ -1,4 +1,5 @@
 import Badge from '@/shared/components/business/StatusBadge/index.jsx';
+import { taskDisplayId } from '@/shared/lib/task.js';
 export default function ExecutionTasks({ active }) {
   return (
     <section className="execution-section">
@@ -8,10 +9,10 @@ export default function ExecutionTasks({ active }) {
       {active.map(t => (
         <div className="record-card execution-card" key={t.id}>
           <div className="card-meta">
-            <small>{t.id}</small>
+            <small>{taskDisplayId(t)}</small>
             <Badge value={t.status} />
           </div>
-          <h3>{t.title || t.name || t.id}</h3>
+          <h3>{t.title || t.name || taskDisplayId(t)}</h3>
           {t.description && <p>{t.description}</p>}
         </div>
       ))}

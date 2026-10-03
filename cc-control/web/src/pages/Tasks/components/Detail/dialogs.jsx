@@ -3,6 +3,7 @@ import JsonView from 'react18-json-view';
 import 'react18-json-view/src/style.css';
 import Modal from '@/shared/components/ui/Modal/index.jsx';
 import { formatDateTime, label } from '@/shared/lib/format.js';
+import { taskDisplayId } from '@/pages/Tasks/model.js';
 import { archRows, execTime } from './model.js';
 
 /** 「复制全文」「折叠全部」「复制 JSON」在 server 侧都没有对应能力，本次只做视图 —— 按设计示意渲染成文字。 */
@@ -25,7 +26,7 @@ function ExecDetail({ task, onOpenJson, onClose }) {
       title="执行详情"
       width="800px"
       onClose={onClose}
-      subtitle={`${task.id}  ·  ${task.title || task.name || ''}`}>
+      subtitle={`${taskDisplayId(task)}  ·  ${task.title || task.name || ''}`}>
       <p className={`modal-status status-${task.status}`}>
         <span>{label(task.status)}</span>
         {time && (
@@ -102,7 +103,7 @@ function ExecJson({ task, onClose }) {
       title="执行数据 · exec"
       width="880px"
       onClose={onClose}
-      subtitle={`${task.id}   /   Object · ${Object.keys(exec).length} 个字段`}
+      subtitle={`${taskDisplayId(task)}   /   Object · ${Object.keys(exec).length} 个字段`}
       toolbar={
         <>
           <button

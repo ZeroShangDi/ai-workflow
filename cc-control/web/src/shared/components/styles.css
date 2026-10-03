@@ -167,6 +167,11 @@ small,
 .field pre {
   color: var(--cc-color-text-secondary);
 }
+.decision-options { display: grid; gap: 8px; }
+.decision-options h3 { margin: 0 0 2px; }
+.decision-option { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border: 1px solid var(--cc-color-border-default); border-radius: var(--cc-radius-6); }
+.decision-option strong { color: var(--cc-color-text-primary); font-weight: 600; }
+.decision-option small { color: var(--cc-color-text-tertiary); font-size: var(--cc-type-caption-size); }
 .review-actions {
   display: flex;
   flex-direction: column;

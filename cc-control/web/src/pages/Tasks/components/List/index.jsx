@@ -3,7 +3,7 @@ import Icon from '@/shared/components/ui/Icon/index.jsx';
 import Badge from '@/shared/components/business/StatusBadge/index.jsx';
 import { API } from '@/shared/api/index.js';
 import { label, TASK_STATUSES } from '@/shared/lib/format.js';
-import { TASK_SOURCES, sourceOf, sourceShort, sourceLabel } from '@/pages/Tasks/model.js';
+import { TASK_SOURCES, sourceOf, sourceShort, sourceLabel, taskDisplayId } from '@/pages/Tasks/model.js';
 export default function TaskList({
   tasks,
   done,
@@ -54,7 +54,7 @@ export default function TaskList({
     <>
       <header className="pane-header">
         <h1 className="pane-title">
-          {sessionKind === 'run' ? '动态任务' : '任务'}
+          任务
           {!!requirement && (
             <span className="pane-summary" title={planSummary}>
               · {requirement}
@@ -101,15 +101,17 @@ export default function TaskList({
           </Button>
         </div>
       </header>
-      <div className="record-list task-list">
+      <div className="record-list task-list" data-task-list>
         {visible.map(t => {
-          const title = t.title || t.name || t.id;
+          const displayId = taskDisplayId(t);
+          const title = t.title || t.name || displayId;
           const blocked = t.status === 'blocked';
           const retryable = ['blocked', 'error'].includes(t.status);
           const source = sourceOf(t);
           return (
             <div
               key={t.id}
+              data-task-id={t.id}
               role="button"
               tabIndex={0}
               className={`record-row ${selected === t.id ? 'selected' : ''}`}
@@ -122,7 +124,7 @@ export default function TaskList({
               <span
                 className={`record-id status-${t.status}${source === 'plan' ? '' : ' record-id-derived'}`}
                 title={source === 'plan' ? undefined : sourceLabel(source)}>
-                {t.id}
+                {displayId}
               </span>
               <span className="record-title" title={title}>
                 {title}

@@ -8,7 +8,7 @@ export default function RunOverview(props) {
   return (
     <div className="overview-panel">
       <RunProgress {...props} />
-      <TaskMatrix tasks={props.tasks} />
+      <TaskMatrix tasks={props.tasks} onSelectTask={props.onSelectTask} />
       <ExecutionTasks active={props.active} />
     </div>
   );

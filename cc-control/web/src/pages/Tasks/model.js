@@ -36,3 +36,19 @@ const KIND_LABELS = {
 };
 /** `dev 开发`；未知类型只给原值 */
 export const kindText = kind => (KIND_LABELS[kind] ? `${kind} ${KIND_LABELS[kind]}` : kind || '');
+
+/** Preserve Plan array order; persisted positions carry that order across the database boundary. */
+export const sortTasks = tasks => (tasks || [])
+  .map((task, index) => ({ task, index }))
+  .sort((left, right) => {
+    const leftPosition = Number(left.task?.position);
+    const rightPosition = Number(right.task?.position);
+    const hasLeft = Number.isFinite(leftPosition);
+    const hasRight = Number.isFinite(rightPosition);
+    if (hasLeft && hasRight && leftPosition !== rightPosition) return leftPosition - rightPosition;
+    if (hasLeft !== hasRight) return hasLeft ? -1 : 1;
+    return left.index - right.index;
+  })
+  .map(({ task }) => task);
+
+export { taskDisplayId } from '@/shared/lib/task.js';

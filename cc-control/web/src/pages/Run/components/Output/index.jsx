@@ -1,6 +1,6 @@
 import { display } from '@/shared/lib/format.js';
 import '@/shared/components/business/workflow.css';
-export default function RunOutput({ output, setFollow, events, runId, workflowSession, data, requirementId, setView }) {
+export default function RunOutput({ output, setFollow, events, runId, workflowSession, data, requirementId, setView, conversation }) {
   const sessionKind = workflowSession?.kind === 'plan' ? 'Plan' : 'Run';
   const snapshot = data.status?.snapshot;
   return (
@@ -18,7 +18,7 @@ export default function RunOutput({ output, setFollow, events, runId, workflowSe
           const n = e.currentTarget;
           setFollow(n.scrollHeight - n.scrollTop - n.clientHeight < 48);
         }}>
-        <pre className="terminal">{snapshot || (data.status?.session ? '正在读取会话画面…' : '当前项目没有运行中的会话。')}</pre>
+        <pre className="terminal">{conversation || snapshot || (data.status?.session ? '正在读取会话画面…' : '当前项目没有运行中的会话。')}</pre>
         {workflowSession && (
           <div className="session-log-link">
             <button type="button" onClick={() => setView('logs', { requirementId: requirementId || workflowSession.requirementId, sessionId: workflowSession.id })}>查看 {sessionKind} 会话日志</button>
