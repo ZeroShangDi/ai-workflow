@@ -73,10 +73,10 @@ run 状态机：`queued → running → done | error | stopped`（`RUN_TRANSITIO
 每 500ms 轮询：task.status done/blocked → 返回
   decisionPending 未答        → idleSince=null（等人工不计时）
   pcx.state === 'busy'        → idleSince=null（CC 仍在推进 → 重置窗口）
-  否则 idleSince 起算；now-idleSince >= READY_TIMEOUT_MS → break 进入收尾协商
+  否则 idleSince 起算；now-idleSince >= READY_TIMEOUT_MS → 记录告警并重新起算，继续等待
 ```
 
-即 **CC busy 不计时**；只有 CC 已 idle 且持续无变化到阈值，才判「本任务没落账」，交给 `task-channel.settleTask` 协商（wrapup → 追问 → 必要时标 blocked），而不是直接抛超时。注意这里的窗口阈值复用了 `READY_TIMEOUT_MS`（缺省 **120s**，`server.cjs:47`），与多 agent 侧的 15min 窗口不是同一个常量。
+即 **CC busy 不计时**；只有 CC 已 idle 且任务仍未落账时才累计无变化时间。达到 `READY_TIMEOUT_MS` 后记录告警并继续等待，不进入收尾协商，也不修改任务状态。缺省告警间隔为 **5min**，由 `CC_READY_TIMEOUT_MS` 覆盖；多 agent 使用独立的 `CC_BATCH_IDLE_TIMEOUT_MS` 告警间隔，缺省 **20min**。
 
 ### 4. 多 agent 路径（`driveBatch` → `runScheduler` → `batch-transport`）
 
@@ -120,7 +120,7 @@ while (true):
   - `checkNeedsInput()`：读 `subagent-needs-input.jsonl` → `pendingNeeds` 置位（`:114-127`）。
   - **推进探测**（`:187-190`）：`isBusy() || 任务状态指纹变化 || 子 Agent 事件日志体积变化` 任一发生即重置 `lastChangeAt`。
   - 返回 `{done, suspended}`：done=已结算（done/blocked）的 taskId；`suspended = pendingNeeds.size>0 && done.length===0`（决策挂起时不补位）。
-  - `now()-lastChangeAt >= idleTimeoutMs`（缺省 **15min**，env `CC_BATCH_IDLE_TIMEOUT_MS`）→ 抛「等待子 Agent 完成超时」，保留现场待 w-monitor（`:206-208`）。
+  - `now()-lastChangeAt >= idleTimeoutMs`（缺省 **20min**，env `CC_BATCH_IDLE_TIMEOUT_MS`）→ 记录告警并重置告警窗口，继续等待，不中断 run。
 
 `subagent-failed.jsonl` / `subagent-needs-input.jsonl` / `subagent-events.jsonl` 由 server 的 hook 侧写入（`logSubagentFailure:75` / `logSubagentNeedsInput:89` / `logSubagentEvent:66`），每次 run 启动清空前两者以避免跨 run 伪补发（`resetRunLogs:106`）。
 
@@ -187,7 +187,7 @@ while (true):
 | `MAX_RECHECK` | 3 | 门禁复审轮次上限，超限保持 blocked | state.js:241 |
 | `EXCLUSIVE_KINDS` | `{commit}` | 独占任务类型（改共享仓库状态） | state.js:92 |
 | `POLL_MS` | 2000 | 多 agent 完成感知轮询间隔 | batch-transport.cjs:20 |
-| `IDLE_TIMEOUT_MS` | 15min（env `CC_BATCH_IDLE_TIMEOUT_MS`） | **无变化窗口**上限，非任务总时长上限 | batch-transport.cjs:22 |
+| `IDLE_TIMEOUT_MS` | 20min（env `CC_BATCH_IDLE_TIMEOUT_MS`） | **无变化告警间隔**，到期告警后继续等 | batch-transport.cjs:22 |
 | `RESEND_MAX` | 2 | 单个子 Agent 落账补发上限 | batch-transport.cjs:24 |
 | `MAX_SETTLE_ROUNDS` | 3 | 连续「CC 无产出」轮数上限 → 标 blocked | task-channel.cjs:22 |
 | `SETTLE_MAX_TOTAL_ROUNDS` | 12 | 介入总轮数保险丝（防「一直产出又永不结算」） | task-channel.cjs:24 |
@@ -204,7 +204,7 @@ while (true):
 | env | 缺省 | 用途 | 位置 |
 |-----|------|------|------|
 | `CC_BATCH_IDLE_TIMEOUT_MS` | 900000 | 多 agent 无变化窗口 | batch-transport.cjs:22 |
-| `CC_READY_TIMEOUT_MS` | 120000 | 主会话 ready 等待 + **单 agent 无变化窗口** | server.cjs:47 |
+| `CC_READY_TIMEOUT_MS` | 300000 | 主会话 ready 等待 + **单 agent 无变化告警间隔** | server/config.cjs |
 | `CC_PAUSE_ALERT_MS` / `CC_PAUSE_HEARTBEAT_MS` | 30000 / 60000 | pause 闩锁可观测 | pause.js:7,9 |
 | `CC_RUN_HOST_DEPS`（全局，非 env） | — | 测试整体覆盖宿主装配 | server.cjs:625 |
 
@@ -263,7 +263,7 @@ while (true):
 
 - [ ] 单 agent：`POST /run/submit` 后宿主按 deps 顺序逐任务派发（executor），run 推进到 `done`，事件含 `run.submitted/started/stopped` 与两个 `task.done`（`tests/integration/run-host.test.js:127`）。
 - [ ] 阶段链被真实消费：`task.started` 事件的 `payload.chain` 非空；review 门禁任务走保守链 `['DEV','COMMIT']`（`tests/unit/run-host.test.js:153`）。
-- [ ] 超时判据为无变化窗口：CC busy 期间不计时，仅 CC idle 且持续无变化到 `READY_TIMEOUT_MS` 才进收尾协商（`server.cjs:539-554`）。
+- [ ] 无进展时间只产生告警：CC busy 期间不计时，达到阈值后继续等待且不改任务状态（`server/runtime/executor.cjs`）。
 - [ ] 收尾协商按「有无产出」判定：CC 一直在产出不判死；连续 `MAX_SETTLE_ROUNDS(3)` 轮无产出才标 blocked；等人工决策期间不计轮（`tests/unit/task-channel-settle.test.js`）。
 - [ ] 多 agent：`cfg.agents.max>1` → 宿主 batch 模式，经 `subagentDispatch` 派发并等到全部落账，收尾复位 mode（`tests/integration/batch-host.test.js`）。
 - [ ] 调度约束生效：`commit` 独占（不与任何任务并行）、缺 `plannedFiles` 非 review 任务保守串行、四级配额为硬上限、plannedFiles 冲突不复用并行批（`server/run/scheduler.js:86-106`）。
@@ -275,7 +275,7 @@ while (true):
 ## 已知边界（读码记录，非缺陷）
 
 1. **阶段链只标注、不驱动**：run 域无 `nextStage/assertStage` 调用点，`DEV→TEST→COMMIT` 不会逐阶段推进或逐阶段产事件；任务粒度即执行粒度（`run-host.cjs:266-280`）。
-2. **单/多 agent 超时窗口不对称**：单 agent 复用 `CC_READY_TIMEOUT_MS`（120s），多 agent 为 `CC_BATCH_IDLE_TIMEOUT_MS`（15min）；同一 run 在不同 mode 下判定松紧不同（`server.cjs:47` vs `batch-transport.cjs:22`）。
+2. **单/多 agent 告警间隔不同**：单 agent 复用 `CC_READY_TIMEOUT_MS`（5min），多 agent 为 `CC_BATCH_IDLE_TIMEOUT_MS`（20min）；到期均只告警并继续等待。
 3. **mode 复位依赖「谁改的」**：CLI 先置 run 时宿主 `changedMode=false`，正常收尾也**不复位** mode——复位靠 CLI。CLI 若中途死亡则 mode 永停 run（这是 `run_interrupted` 的判定信号，同时意味着宿主自身不具备兜底复位）。
 4. **无 verdict 的门禁不派生修复**：`gateFixMeta` 对「无 verdict」直接返回 null（视为旧协议/卡住），门禁停在 blocked 等人工（`state.js:255-256`）。
 5. **宿主单槽**：同一宿主同时只驱动一个 run，第二次 submit 返回 409（`run-host.cjs:403-409`）；多 run 并行靠多项目 / 多 `sid` 槽隔离，而非同一宿主并发。

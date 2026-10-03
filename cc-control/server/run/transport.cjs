@@ -19,8 +19,8 @@ const fs = require('fs');
 
 /** 轮询间隔 */
 const POLL_MS = 2000;
-/** 无变化窗口上限（默认 15min，env 覆盖）；不是任务总时长上限 */
-const IDLE_TIMEOUT_MS = Number(process.env.CC_BATCH_IDLE_TIMEOUT_MS || 15 * 60 * 1000);
+/** 无变化告警间隔（默认 20min，env 覆盖）；不是任务总时长上限，到期只告警并继续 */
+const IDLE_TIMEOUT_MS = Number(process.env.CC_BATCH_IDLE_TIMEOUT_MS || 20 * 60 * 1000);
 /** 单个子 Agent 落账补发上限 */
 const RESEND_MAX = 2;
 /** 单任务派发尝试次数上限（首次 + 重派一次）；超限标 blocked，不把 run 挂死 */
@@ -247,11 +247,10 @@ function createBatchTransport({
      * 等运行中集合里至少一个任务结算（done/blocked）。轮询循环每轮：
      *   pause 期间不计时 → 决策挂起(未应答)不计时不补位 → 补发落账失败的子 Agent → 收 NEEDS_INPUT →
      *   做「推进探测」：busy/状态指纹/事件日志体积任一有变即重置无变化窗口 → 判定完成。
-     * 超时用「无变化窗口」而非墙钟总时长（见文件头 + .awf/bugs/timeout-must-confirm-no-cc-change.md）。
+     * 告警用「无变化窗口」而非墙钟总时长（见文件头 + .awf/bugs/timeout-must-confirm-no-cc-change.md）。
      * @param {{ taskIds(): string[] }} running 运行中集合
      * @returns {Promise<{ done: string[], suspended: boolean }>}
      *   suspended=true 表示有任务上抛 NEEDS_INPUT 且尚未解决 → 调度器应暂停补位
-     * @throws 无变化窗口耗尽时抛错（保留现场待 w-monitor）
      */
     async waitAnyDone(running) {
       const ids = running.taskIds();
@@ -297,7 +296,8 @@ function createBatchTransport({
         }
 
         if (now() - lastChangeAt >= idleTimeoutMs) {
-          throw new Error(`等待子 Agent 完成超时（${Math.round(idleTimeoutMs / 60000)}min 无变化）；保留现场待 w-monitor`);
+          log('warn', `等待子 Agent 完成已达 ${Math.round(idleTimeoutMs / 60000)} 分钟无变化，继续等待；不会中断任务或改变状态`);
+          lastChangeAt = now(); // 以告警间隔节流，不把长任务转成失败
         }
       }
     },

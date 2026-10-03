@@ -8,8 +8,8 @@
  * 全部支持环境变量覆盖（CC_*），缺省值即下方字面量；这里的常量是**装配期**读取的
  * 一次性快照，不随运行期变化（进程内不再重新读取 env）。
  *
- * 三个阈值都服务于**会话就绪/兜底**语义（session.waitReady、executor 自结算循环、
- * api 的兜底定时器）。
+ * `READY_TIMEOUT_MS` 服务于运行期的会话就绪等待与单 agent 无进展告警间隔。
+ * Web API 的同步请求超时与会话启动超时由各自配置控制。
  *
  * `ENTER_DELAY_MS`（注文本与回车之间的节奏）**不在这里**：它是平台机制细节，T-P1-02 已
  * 下沉进 host 适配器（`server/adapters/cc/host.cjs` 的 `sendPrompt`，env 仍是 CC_ENTER_DELAY_MS）。
@@ -17,13 +17,13 @@
 
 module.exports = {
   /**
-   * 等会话 ready / 自结算的变化窗口阈值（ms），缺省 2 分钟。
+   * 等会话 ready / 自结算告警间隔（ms），缺省 5 分钟。
    * 两处语义共享同一个值：
    *   - session.waitReady(timeout)：会话从 busy 回到 ready 的最长等待；
-   *   - executor 自结算循环：会话已 idle 但任务未落账时，累计「无变化」多久后交收尾协商。
-   * 共用一个值是有意的 —— 「人/会话 卡住多久算异常」在全链路保持同一标准。
+ *   - executor 自结算循环：会话已 idle 但任务未落账时的告警间隔。
+   * 到期只记录告警并继续等待，不会终止任务或改写任务状态。
    */
-  READY_TIMEOUT_MS: Number(process.env.CC_READY_TIMEOUT_MS || 120000),
+  READY_TIMEOUT_MS: Number(process.env.CC_READY_TIMEOUT_MS || 5 * 60 * 1000),
   /**
    * 执行器「等任务自我结算」的轮询间隔（ms，缺省 500）。
    * 任务落账由平台侧的 MCP 工具异步完成，这个间隔决定宿主多快看到结算；测试可用 `CC_EXECUTOR_POLL_MS=10` 加速。

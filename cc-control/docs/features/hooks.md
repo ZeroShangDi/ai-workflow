@@ -141,7 +141,7 @@ POST /hook
 | `CC_PROJECT` | env | bootstrap 注入；gateway 透传 `&p=`（多项目路由） |
 | `ENTER_DELAY_MS` | `200ms`（`CC_ENTER_DELAY_MS`） | `submit` 中 sendText→sendEnter 间隔 |
 | `LOCAL_CMD_FALLBACK_MS` | `1500ms`（`CC_LOCAL_CMD_MS`） | 本地 slash 命令兜底回 ready |
-| `READY_TIMEOUT_MS` | `120000ms`（`CC_READY_TIMEOUT_MS`） | `waitReady` 缺省超时 |
+| `READY_TIMEOUT_MS` | `300000ms`（`CC_READY_TIMEOUT_MS`） | 运行期间 `waitReady` 的告警间隔；到期继续等待 |
 | `subagent-events.jsonl` | `.awf/logs/…` | 子 Agent 事件原始落盘（`pcx.subagentEventPath`） |
 
 ---

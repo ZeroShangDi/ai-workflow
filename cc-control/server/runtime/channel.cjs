@@ -30,21 +30,27 @@ function createSessionChannelFactory({ ctx, session, observability }) {
   const { notice, pauseNoticeLog } = observability;
   let cached = null; // 惰性单例的 promise（装配失败会清空以便重试）
 
-  /** 注入 prompt 并等本回合收尾；超时返回 false（不抛 —— 由上层回查 state 决定下一步） */
+  /** 超时只作周期告警；执行链路继续等，不把忙碌误判成失败。 */
+  async function waitReadyWithWarnings(label) {
+    for (;;) {
+      if (await session.waitReady(READY_TIMEOUT_MS)) return true;
+      notice('run', 'warn', `${label} 等待 CC 会话就绪已达 ${Math.round(READY_TIMEOUT_MS / 60000)} 分钟，继续等待`);
+    }
+  }
+
+  /** 注入 prompt 并等本回合收尾；等待超时只告警并继续，不返回失败 */
   async function sendPromptAndWait(text) {
-    const ok = await session.waitReady(READY_TIMEOUT_MS);
-    if (!ok) return false;
+    await waitReadyWithWarnings('协商消息');
     ctx.logger.captureFromTranscript();
     session.setBusy();
     ctx.logger.logPrompt(text);
     await submitText(ctx, text);
-    return session.waitReady(READY_TIMEOUT_MS); // 等回合收尾（Stop hook 放回 ready）
+    return waitReadyWithWarnings('等待 CC 回合结束'); // 等回合收尾（Stop hook 放回 ready）
   }
 
   /** 注入本地 slash 命令：等就绪 → 标 busy → 注入 → 起兜底（本地命令无 Stop hook） */
   async function sendLocalCmd(cmd) {
-    const ok = await session.waitReady(READY_TIMEOUT_MS);
-    if (!ok) return false;
+    await waitReadyWithWarnings(`命令 ${cmd}`);
     session.setBusy();
     await submitText(ctx, cmd);
     // 本地命令不触发 Stop hook，会话态会一直 busy —— 必须起兜底把它放回 ready

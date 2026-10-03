@@ -8,8 +8,8 @@
  *
  * 两条等待语义（都别改）：
  *   - **pause 派发闩锁**：暂停期间不派发新任务；但目标任务若已被别处结算，立刻放行（不干等）。
- *   - **自结算等待**：CC 仍 busy（`session.state === 'busy'`）→ 不计时，永不误判超时；
- *     只有 CC 已 idle 且任务仍未结算时，才累计「无变化窗口」，超窗交收尾协商。
+ *   - **自结算等待**：CC 仍 busy（`session.state === 'busy'`）→ 不计时；
+ *     只有 CC 已 idle 且任务仍未结算时，才累计「无变化窗口」，超窗只告警并继续等待。
  */
 
 const { READY_TIMEOUT_MS, EXECUTOR_POLL_MS } = require('../config.cjs');
@@ -72,8 +72,12 @@ function createSingleExecutor({ ctx, session, channel, observability }) {
         return { status: st };
       }
 
-      const ready = await session.waitReady(READY_TIMEOUT_MS);
-      if (!ready) throw new Error('still busy (ready timeout)'); // 等不到就绪 → 抛给宿主处理
+      // 会话忙时只周期性告警，不能因等待窗口到期而失败或改变任务状态。
+      let ready = await session.waitReady(READY_TIMEOUT_MS);
+      while (!ready) {
+        notice('run', 'warn', `任务 ${taskId} 等待 CC 会话就绪已达 ${Math.round(READY_TIMEOUT_MS / 60000)} 分钟，继续等待`);
+        ready = await session.waitReady(READY_TIMEOUT_MS);
+      }
 
       // 任务前上下文压缩检查（跳过首个任务；实测 ≥ 阈值或无实测才打扰 AI）
       const ch = await channel();
@@ -95,12 +99,12 @@ function createSingleExecutor({ ctx, session, channel, observability }) {
         if (session.state === 'busy') { idleSince = null; continue; } // CC 仍忙 → 永不误判超时
         const now = Date.now();
         if (idleSince == null) idleSince = now;                        // 首次发现 idle：起累计
-        else if (now - idleSince >= READY_TIMEOUT_MS) break;           // 窗口已满：交收尾协商
+        else if (now - idleSince >= READY_TIMEOUT_MS) {
+          notice('run', 'warn', `任务 ${taskId} 已等待落账 ${Math.round(READY_TIMEOUT_MS / 60000)} 分钟，继续等待，不改变任务状态`);
+          idleSince = now; // 告警后开启下一窗口；超时本身不触发收尾协商或 blocked
+        }
       }
 
-      // 收尾协商：wrapup → 最多 3 轮 settle → 标 blocked。CC 忘记落账是常态，编排要能自愈继续推进
-      const settled = await ch.settleTask(taskId);
-      return { status: settled === 'done' ? 'done' : 'blocked' };
     },
   };
 }

@@ -187,7 +187,7 @@ HTTP Session Server 是 `awf run` 的**常驻控制平面**：单进程、单端
 
 | 常量 | 值 | 说明 |
 |------|-----|------|
-| `READY_TIMEOUT_MS` | 120000（`CC_READY_TIMEOUT_MS`） | `/send`、`/cmd` waitReady 超时；单 agent 执行器「无变化窗口」判据 |
+| `READY_TIMEOUT_MS` | 300000（`CC_READY_TIMEOUT_MS`） | 单 agent 运行期间的会话等待与无进展告警间隔；到期继续等待 |
 | `ENTER_DELAY_MS` | 200（`CC_ENTER_DELAY_MS`） | `sendText` 后等再 `sendEnter` |
 | `LOCAL_CMD_FALLBACK_MS` | 1500（`CC_LOCAL_CMD_MS`） | `/cmd`、`/stop`、`/respond`（无 decision）兜底回 ready |
 | `DECISION_FALLBACK_MS` | 300000（`CC_DECISION_FALLBACK_MS`） | `/respond`（有 decision）兜底回 ready |
