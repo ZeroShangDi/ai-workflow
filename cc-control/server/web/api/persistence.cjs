@@ -8,6 +8,7 @@ const { resolveAdapterName, resolveProjectAdapters, ADAPTER_NAMES, ADAPTER_ENV }
 const { applyAdapter } = require('../../shared/workspace.cjs');
 const { projectSessionEnv } = require('../../shared/session-env.cjs');
 const { selectProjectDirectory } = require('../../application/directory-picker.cjs');
+const { listBranches } = require('../../application/git-work.cjs');
 
 function respond(res, status, body) {
   send(res, status, body);
@@ -122,6 +123,35 @@ async function handle(req, res, url, rt, deps) {
   if (req.method === 'GET' && pathname === '/data/workspace') {
     const workspace = app.workspaceData(rt.ctx.projectRoot, url.searchParams.get('requirementId'));
     return respond(res, 200, { ok: true, workspace });
+  }
+
+  if (req.method === 'GET' && pathname === '/data/work-config') {
+    return respond(res, 200, { ok: true, data: app.readWorkConfig(rt.ctx.projectRoot) });
+  }
+  if (req.method === 'GET' && pathname === '/data/work-config/branches') {
+    return respond(res, 200, { ok: true, branches: listBranches(url.searchParams.get('repositoryRoot')) });
+  }
+  if (req.method === 'POST' && pathname === '/data/work-config') {
+    const body = await readJson(req) || {};
+    return respond(res, 200, { ok: true, data: app.writeWorkConfig(rt.ctx.projectRoot, body) });
+  }
+  if (req.method === 'GET' && pathname === '/data/work-claims') {
+    return respond(res, 200, { ok: true, data: app.listProjectWorkClaims(rt.ctx.projectRoot) });
+  }
+  const recoverClaim = pathname.match(/^\/data\/work-claims\/([^/]+)\/recover$/);
+  if (req.method === 'POST' && recoverClaim) {
+    const body = await readJson(req) || {};
+    const claim = app.listProjectWorkClaims(rt.ctx.projectRoot).find((row) => row.id === decodeURIComponent(recoverClaim[1]));
+    if (!claim) return respond(res, 404, { ok: false, error: '租约不存在' });
+    const checkout = app.listProjects().find((entry) => claim.worktreePath && (entry.checkout.rootPath === claim.worktreePath || entry.checkout.rootPath.startsWith(`${claim.worktreePath}${path.sep}`)));
+    const workRuntime = checkout && deps.registry.runtimeFor(checkout.checkout.rootPath);
+    if (workRuntime?.runHost?.snapshot()?.runs?.some((run) => ['running', 'queued'].includes(run.status))) return respond(res, 409, { ok: false, error: 'Run 仍在执行，不能释放租约' });
+    if (workRuntime?.session?.state === 'busy') return respond(res, 409, { ok: false, error: 'AI 会话仍在处理，不能释放租约' });
+    const requirementId = claim.itemType === 'requirement' ? claim.itemId
+      : app.listRequirements(rt.ctx.projectRoot, { workKind: 'bugfix', limit: 200 }).items.find((row) => row.originBugId === claim.itemId)?.id;
+    if (requirementId && app.listRequirementSessions(rt.ctx.projectRoot, requirementId, { limit: 200 })?.items?.some((session) => session.status === 'active')) return respond(res, 409, { ok: false, error: 'Plan 或 Run 会话仍处于活动状态，请先结束会话' });
+    const data = app.releaseWorkClaim(rt.ctx.projectRoot, claim.id, body);
+    return respond(res, 200, { ok: true, data });
   }
 
   if (req.method === 'POST' && pathname === '/data/plan/save') {
@@ -264,6 +294,10 @@ async function handle(req, res, url, rt, deps) {
     const body = await readJson(req) || {};
     const requirementId = body.requirementId || app.workspaceData(rt.ctx.projectRoot).activeRequirement?.id;
     if (!requirementId) return respond(res, 404, { ok: false, error: '当前项目没有待确认的需求' });
+    if (app.ensureProject(rt.ctx.projectRoot).project.activeRequirementId === requirementId) {
+      const state = rt.ctx.stores.state.readSync() || {};
+      app.syncTasksFromState(rt.ctx.projectRoot, state.tasks || [], requirementId);
+    }
     const result = app.approvePlan(rt.ctx.projectRoot, requirementId, body.version);
     if (!result) return respond(res, 404, { ok: false, error: '需求不存在' });
     return respond(res, 200, { ok: true, ...result });
@@ -287,7 +321,8 @@ async function handle(req, res, url, rt, deps) {
     const workspace = app.workspaceData(rt.ctx.projectRoot, requestedRequirementId);
     const requirement = workspace.activeRequirement;
     if (!requirement || !workspace.tasks.length) return respond(res, 409, { ok: false, error: '需求没有已确认的任务，暂时不能启动 Run' });
-    if (requirement.status !== 'planned' && requirement.status !== 'in_progress') return respond(res, 409, { ok: false, error: '请先确认 Plan，再启动 Run' });
+    app.assertRunClaim(rt.ctx.projectRoot, requirement.id);
+    if (!['todo', 'in_progress'].includes(requirement.lifecycleStatus)) return respond(res, 409, { ok: false, error: '请先确认 Plan，再启动 Run' });
     const fileTaskIds = new Set((fileState.tasks || []).map((task) => task.id));
     if (workspace.tasks.some((task) => !fileTaskIds.has(task.taskKey || task.id))) {
       return respond(res, 409, { ok: false, error: '当前 Run 引擎仍读取 .awf/state.json；数据库任务尚未与该文件同步。为避免覆盖项目现场，本次没有启动。' });
@@ -308,10 +343,40 @@ async function handle(req, res, url, rt, deps) {
     let unsubscribe = () => {};
     unsubscribe = rt.runHost.subscribe((event) => {
       if (event.runId !== runId) return;
+      if (event.type === 'gate.fix') {
+        try {
+          const gateId = event.payload?.taskId;
+          const key = `run:${runId}:gate:${gateId}`;
+          let bug = gateId && app.listBugs(rt.ctx.projectRoot, { requirementId: requirement.id }).find((row) => row.originEventKey === key);
+          if (gateId && !bug) {
+            bug = app.createBug(rt.ctx.projectRoot, {
+              requirementId: requirement.id, sessionId: created.session.id,
+              title: `${event.payload?.kind === 'test' ? '测试' : '审查'}未通过：${gateId}`,
+              description: `Run ${runId} 的门禁 ${gateId} 发现问题；修复继续由派生任务处理。`,
+              origin: 'run_gate', originEventKey: key, resolutionOwner: 'run', lifecycleStatus: 'in_progress',
+            });
+          }
+          if (bug) {
+            const latest = rt.ctx.stores.state.readSync() || {};
+            app.syncTasksFromState(rt.ctx.projectRoot, latest.tasks || [], requirement.id);
+            app.linkBugTask(rt.ctx.projectRoot, bug.id, gateId, 'discovered_by');
+            if (event.payload?.fixId) app.linkBugTask(rt.ctx.projectRoot, bug.id, event.payload.fixId, 'fixed_by');
+          }
+        } catch (error) { console.warn(`[persistence] gate bug sync failed: ${error.message}`); }
+      }
       if (['task.started', 'task.done', 'task.blocked'].includes(event.type)) {
         try {
           const latest = rt.ctx.stores.state.readSync() || {};
           app.syncTaskStatusesFromState(rt.ctx.projectRoot, latest.tasks || [], requirement.id);
+          if (event.type === 'task.done' && event.payload?.verdict?.level === 'pass') {
+            for (const bug of app.listBugs(rt.ctx.projectRoot, { requirementId: requirement.id }).filter((row) => row.origin === 'run_gate' && row.lifecycleStatus === 'in_progress')) {
+              const gateId = bug.originEventKey?.split(':gate:')[1];
+              if (gateId === event.payload?.taskId || gateId === event.payload?.id) {
+                app.linkBugTask(rt.ctx.projectRoot, bug.id, gateId, 'verified_by');
+                app.transitionBug(rt.ctx.projectRoot, bug.id, 'submit', { expectedRevision: bug.revision, actor: 'run' });
+              }
+            }
+          }
         } catch (error) { console.warn(`[persistence] task status sync failed: ${error.message}`); }
       }
       if (event.type !== 'run.stopped') return;
@@ -326,9 +391,17 @@ async function handle(req, res, url, rt, deps) {
         const finalWorkspace = app.workspaceData(rt.ctx.projectRoot, requirement.id);
         const allTasksDone = finalWorkspace.tasks.length > 0 && finalWorkspace.tasks.every((task) => task.status === 'done');
         app.updateRequirement(rt.ctx.projectRoot, requirement.id, {
-          status: status === 'completed' && allTasksDone ? 'done' : 'in_progress',
+          status: 'in_progress',
+          lifecycleStatus: status === 'completed' && allTasksDone ? 'pending_acceptance' : status === 'failed' ? 'failed' : 'in_progress',
         });
+        if (requirement.workKind === 'bugfix' && requirement.originBugId) {
+          const bug = app.getBug(rt.ctx.projectRoot, requirement.originBugId);
+          if (bug?.lifecycleStatus === 'in_progress' && status === 'completed' && allTasksDone) app.transitionBug(rt.ctx.projectRoot, bug.id, 'submit', { actor: 'run', expectedRevision: bug.revision });
+          else if (bug?.lifecycleStatus === 'in_progress' && status === 'failed') app.transitionBug(rt.ctx.projectRoot, bug.id, 'fail', { actor: 'run', expectedRevision: bug.revision });
+        }
       } catch (error) { console.warn(`[persistence] run completion sync failed: ${error.message}`); }
+      try { app.releaseWorkClaimAfterRun(rt.ctx.projectRoot, requirement.id); }
+      catch (error) { console.warn(`[persistence] run claim release failed: ${error.message}`); }
     });
     const submitted = rt.runHost.submitRun({
       runId, mode: body.mode, workflowSessionId: created.session.id, attemptId: created.attempt.id,
@@ -338,6 +411,7 @@ async function handle(req, res, url, rt, deps) {
       app.finishSessionAttempt(rt.ctx.projectRoot, created.session.id, created.attempt.id, { status: 'failed', errorText: submitted.error });
       return respond(res, 409, { ok: false, error: submitted.error, runId });
     }
+    if (requirement.lifecycleStatus === 'todo') app.transitionRequirement(rt.ctx.projectRoot, requirement.id, 'start', { expectedRevision: requirement.revision });
     return respond(res, 202, { ok: true, runId, workflowSessionId: created.session.id, attemptId: created.attempt.id, mode: submitted.mode });
   }
 
@@ -425,6 +499,8 @@ async function handle(req, res, url, rt, deps) {
   if (req.method === 'GET' && pathname === '/data/requirements') {
     const data = app.listRequirements(rt.ctx.projectRoot, {
       status: url.searchParams.get('status') || undefined,
+      lifecycleStatus: url.searchParams.get('lifecycleStatus') || undefined,
+      workKind: 'requirement',
       limit: url.searchParams.get('limit') || undefined,
       cursor: url.searchParams.get('cursor') || undefined,
     });
@@ -436,9 +512,101 @@ async function handle(req, res, url, rt, deps) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return respond(res, 400, { ok: false, error: 'body must be a JSON object' });
     }
+    if (body.draft === true) {
+      const requirement = app.createDraftRequirement(rt.ctx.projectRoot, body);
+      return respond(res, 201, { ok: true, data: requirement });
+    }
     const data = app.createRequirementWithPlan(rt.ctx.projectRoot, body);
     app.updateProject(rt.ctx.projectRoot, { activeRequirementId: data.requirement.id });
     return respond(res, 201, { ok: true, data });
+  }
+
+  const requirementAction = pathname.match(/^\/data\/requirements\/([^/]+)\/(start|submit|accept|reject|fail|retry|cancel|edit)$/);
+  if (req.method === 'POST' && requirementAction) {
+    const body = await readJson(req) || {};
+    const id = decodeURIComponent(requirementAction[1]);
+    const action = requirementAction[2];
+    const data = action === 'edit'
+      ? app.updateRequirement(rt.ctx.projectRoot, id, {
+        ...Object.fromEntries(['title', 'requestText', 'allowAiWork', 'boardPosition'].filter((key) => Object.hasOwn(body, key)).map((key) => [key, body[key]])),
+        expectedRevision: body.expectedRevision,
+      })
+      : app.transitionRequirement(rt.ctx.projectRoot, id, action, body);
+    if (!data) return respond(res, 404, { ok: false, error: '需求不存在' });
+    return respond(res, 200, { ok: true, data });
+  }
+
+  const requirementPrepare = pathname.match(/^\/data\/requirements\/([^/]+)\/prepare-worktree$/);
+  if (req.method === 'POST' && requirementPrepare) {
+    const body = await readJson(req) || {};
+    const data = app.prepareRequirementWorktree(rt.ctx.projectRoot, decodeURIComponent(requirementPrepare[1]), body);
+    if (!data) return respond(res, 404, { ok: false, error: '需求不存在' });
+    const workRuntime = deps.registry.runtimeFor(data.projectPath);
+    if (workRuntime.ctx.adapter === 'cc') {
+      workRuntime.ctx.adapters.tools.profile.installProfile(data.projectPath);
+      workRuntime.ctx.adapters.tools.profile.installProjectMcp(data.projectPath, workRuntime.ctx.port);
+    }
+    return respond(res, 201, { ok: true, data });
+  }
+  const requirementReview = pathname.match(/^\/data\/requirements\/([^/]+)\/review$/);
+  if (req.method === 'GET' && requirementReview) {
+    const data = app.reviewRequirement(rt.ctx.projectRoot, decodeURIComponent(requirementReview[1]));
+    if (!data) return respond(res, 404, { ok: false, error: '需求不存在' });
+    return respond(res, 200, { ok: true, data });
+  }
+
+  if (req.method === 'GET' && pathname === '/data/bugs') {
+    const data = app.listBugs(rt.ctx.projectRoot, {
+      requirementId: url.searchParams.get('requirementId') || undefined,
+      lifecycleStatus: url.searchParams.get('lifecycleStatus') || undefined,
+    });
+    return respond(res, 200, { ok: true, data });
+  }
+
+  if (req.method === 'POST' && pathname === '/data/bugs') {
+    const body = await readJson(req) || {};
+    const data = app.createBug(rt.ctx.projectRoot, body);
+    return respond(res, 201, { ok: true, data });
+  }
+
+  const bugPrepare = pathname.match(/^\/data\/bugs\/([^/]+)\/prepare-worktree$/);
+  if (req.method === 'POST' && bugPrepare) {
+    const body = await readJson(req) || {};
+    const data = app.prepareBugWorktree(rt.ctx.projectRoot, decodeURIComponent(bugPrepare[1]), body);
+    if (!data) return respond(res, 404, { ok: false, error: 'Bug 不存在' });
+    const workRuntime = deps.registry.runtimeFor(data.projectPath);
+    if (workRuntime.ctx.adapter === 'cc') {
+      workRuntime.ctx.adapters.tools.profile.installProfile(data.projectPath);
+      workRuntime.ctx.adapters.tools.profile.installProjectMcp(data.projectPath, workRuntime.ctx.port);
+    }
+    return respond(res, 201, { ok: true, data });
+  }
+  const bugReview = pathname.match(/^\/data\/bugs\/([^/]+)\/review$/);
+  if (req.method === 'GET' && bugReview) {
+    const data = app.reviewBug(rt.ctx.projectRoot, decodeURIComponent(bugReview[1]));
+    if (!data) return respond(res, 404, { ok: false, error: 'Bug 不存在' });
+    return respond(res, 200, { ok: true, data });
+  }
+
+  const bugAction = pathname.match(/^\/data\/bugs\/([^/]+)\/(start|submit|accept|reopen|fail|close|edit)$/);
+  if (req.method === 'POST' && bugAction) {
+    const body = await readJson(req) || {};
+    const id = decodeURIComponent(bugAction[1]);
+    const data = bugAction[2] === 'edit'
+      ? app.updateBug(rt.ctx.projectRoot, id, {
+        ...Object.fromEntries(['title', 'description', 'severity', 'allowAiWork'].filter((key) => Object.hasOwn(body, key)).map((key) => [key, body[key]])),
+        expectedRevision: body.expectedRevision,
+      })
+      : app.transitionBug(rt.ctx.projectRoot, id, bugAction[2], body);
+    if (!data) return respond(res, 404, { ok: false, error: 'Bug 不存在' });
+    return respond(res, 200, { ok: true, data });
+  }
+
+  const workEventsMatch = pathname.match(/^\/data\/work-events\/(requirement|bug)\/([^/]+)$/);
+  if (req.method === 'GET' && workEventsMatch) {
+    const data = app.listWorkEvents(rt.ctx.projectRoot, workEventsMatch[1], decodeURIComponent(workEventsMatch[2]));
+    if (!data) return respond(res, 404, { ok: false, error: '工作项不存在' });
+    return respond(res, 200, { ok: true, data });
   }
 
   const sessionsMatch = pathname.match(/^\/data\/requirements\/([^/]+)\/sessions$/);

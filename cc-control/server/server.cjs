@@ -15,6 +15,7 @@ const { createApi } = require('./web/api/index.cjs');
 const bridgeChannel = require('./web/bridge-channel.cjs'); // DSH 指令通道（入口层注入给适配器）
 const { createBootstrap } = require('./runtime/lifecycle.cjs');
 const { createPersistenceApplication } = require('./application/persistence.cjs');
+const { createIdleScheduler } = require('./application/idle-scheduler.cjs');
 
 // ── 测试注入缝（生产环境不设置 → 一律回落真实实现）──
 // 旧 server 曾在此读 global.__CC_TMUX__ / __CC_RUNLOGGER__，重构时漏搬，导致靠它拦 tmux 的
@@ -58,8 +59,14 @@ const bootstrap = createBootstrap({
   // 不关它 server.close 的回调不触发 → 空闲回收的 exit 不执行 → 进程变僵尸（真机踩到）。
   // 装配根注入，runtime 因此不必反向依赖 web 层（结构门禁的方向约束）。
   closeTransports: [() => bridgeChannel.closeSocket()],
-  onStopped: () => persistenceApplication.close(),
+  onStopped: () => { idleScheduler?.stop(); persistenceApplication.close(); },
 });
+let idleScheduler = null;
+function startIdleScheduler(port) {
+  if (process.env.AWF_IDLE_SCHEDULER === '0') return;
+  idleScheduler ||= createIdleScheduler({ app: persistenceApplication, registry, anyHostActive: bootstrap.anyHostActive, touch: bootstrap.touch, port });
+  idleScheduler.start();
+}
 let stopServerImpl = () => bootstrap.stop();
 api.setTouch(bootstrap.touch); // 把「活动刷新」注入 api：每个请求经 touch() 参与空闲回收计时
 
@@ -69,13 +76,14 @@ api.setTouch(bootstrap.touch); // 把「活动刷新」注入 api：每个请求
 function start(port = PORT) {
   for (const rt of registry.all()) rt.subagent.reset();
   return bootstrap.start(port).then((r) => {
+    startIdleScheduler(r.port);
     console.log(`[server] listening http://127.0.0.1:${r.port} project=${BOOT().ctx.projectRoot} pid=${process.pid} at ${new Date().toISOString()}`);
     return r;
   });
 }
 
 /** 优雅关闭（/shutdown 与 CLI 都走这里） */
-function stop() { return bootstrap.stop(); }
+function stop() { idleScheduler?.stop(); return bootstrap.stop(); }
 stopServerImpl = stop;
 
 // ---- test helpers（定向 boot 上下文，与旧单槽导出等价）----
@@ -119,5 +127,5 @@ module.exports = {
 // 直接以 `node server.cjs` 运行时才真监听（被 require 时只导出，不起进程）
 if (require.main === module) {
   for (const rt of registry.all()) rt.subagent.reset();
-  bootstrap.listen(PORT);
+  bootstrap.listen(PORT).then((result) => startIdleScheduler(result.port));
 }

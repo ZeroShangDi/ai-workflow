@@ -12,13 +12,17 @@ const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
 // 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
 const PROJ_ROOT = process.env.AWF_PROJECT_ROOT || process.env.CC_PROJECT || '';
 /**
- * server 请求 query：sid(命中本 run 槽) + p(多项目路由到本项目)；无则空串。
+ * server 请求 query：默认 sid(命中本 run 槽)，可由 AWF_SESSION_TARGET_SID 覆盖；
+ * p(多项目路由到本项目)；无则空串。
  * 读**与写**都必须带：写端点此前漏带 → 请求落到 server 的 boot 项目/default 槽，
  * 单项目下「看起来对」，多项目下静默写错项目（T1-110 收口写类端点时照出）。
  */
 function sessionQuery() {
   const parts = [];
-  if (process.env.CC_SID) parts.push(`sid=${encodeURIComponent(String(process.env.CC_SID))}`);
+  const targetSid = process.env.AWF_SESSION_TARGET_SID === 'project'
+    ? ''
+    : (process.env.AWF_SESSION_TARGET_SID ?? process.env.CC_SID);
+  if (targetSid) parts.push(`sid=${encodeURIComponent(String(targetSid))}`);
   if (PROJ_ROOT) parts.push(`p=${encodeURIComponent(PROJ_ROOT)}`);
   return parts.length ? `?${parts.join('&')}` : '';
 }

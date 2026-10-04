@@ -48,7 +48,7 @@ async function handleHook(req, res, url, rt, deps = {}) {
     console.log(`[hook:${hookSid}] ${event} -> ${slot?.state}`);
     if (slot) {
       // 与主槽同款状态机，但只影响本槽：开始→ready、提交→busy、停止→清理并 ready
-      if (event === 'SessionStart') slot.setReady();
+      if (event === 'SessionStart') { slot.bumpSessionSeq(); slot.setReady(); }
       else if (event === 'UserPromptSubmit') slot.setBusy();
       else if (event === 'Stop') { if (!ctx.decisionEnabled()) slot.clearDecision(); slot.setReady(); }
       else if (event === 'PreToolUse' && body?.tool_name === 'AskUserQuestion') {
@@ -137,6 +137,7 @@ async function handleHook(req, res, url, rt, deps = {}) {
         deps.persistenceApplication?.recordDecisionRequested(ctx.projectRoot, {
           id: pending.decisionId, decisionType: pending.type,
           question: pending.question, options: pending.options,
+          questions: pending.questions,
           externalConversationId: session.mainSessionId, provider: ctx.adapter || 'unknown',
         });
       } catch (error) {

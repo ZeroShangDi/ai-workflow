@@ -48,9 +48,12 @@ bootstrap.sh
 | `CC_PORT` | （透传） | server 端口 |
 | `CC_AWF_STATE_SERVER` | （透传） | awf-state MCP 的 `PROJ_ROOT` 来源 |
 | `CC_SID` | （透传） | run 标识 |
+| `AWF_STATE_SID` | （可选） | 覆盖 awf-state MCP 的 sid；`project` 表示读写项目主 state |
+| `AWF_SESSION_TARGET_SID` | （可选） | 覆盖 awf-session MCP 的 sid；`project` 表示观察/介入项目主 CC |
+| `CC_CLOSE_SESSION_ON_EXIT` | `0` | 仅临时监控 CC 设为 `1`；Claude 退出后关闭当前 tmux session |
 | `history-limit` | `100000` | tmux 回滚缓冲（`capture-pane -S -` 依赖） |
 
-**run 级 env 显式赋值（T1-098）**：`CC_SESSION` / `CC_WORKDIR` 恒定写入 `ENV_ASSIGNS`；`CC_PROJECT` / `CC_PORT` / `CC_AWF_STATE_SERVER` / `CC_SID` 仅在调用进程已提供时追加（未提供不写空赋值）。原因：tmux 新会话进程拿到的环境来自 tmux **全局** env（启动 tmux server 那个 run 的环境），并发多 run 时会继承别项目的 `CC_PROJECT`，导致 hook 事件落错项目槽 / MCP 读写错项目 state。故一律在 `claude` 命令前显式赋值，不依赖 tmux 会话环境。
+**run 级 env 显式赋值（T1-098）**：`CC_SESSION` / `CC_WORKDIR` 恒定写入 `ENV_ASSIGNS`；`CC_PROJECT` / `CC_PORT` / `CC_AWF_STATE_SERVER` / `CC_SID` 与两个 MCP sid 覆盖项仅在调用进程已提供时追加（未提供不写空赋值）。原因：tmux 新会话进程拿到的环境来自 tmux **全局** env（启动 tmux server 那个 run 的环境），并发多 run 时会继承别项目的 `CC_PROJECT`，导致 hook 事件落错项目槽 / MCP 读写错项目 state。故一律在 `claude` 命令前显式赋值，不依赖 tmux 会话环境。
 
 **`env -u`** 去掉 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` / `DISABLE_TELEMETRY` / `DO_NOT_TRACK` / `DISABLE_GROWTHBOOK`（telemetry / feature-flag 类），仅影响本 claude 会话。
 

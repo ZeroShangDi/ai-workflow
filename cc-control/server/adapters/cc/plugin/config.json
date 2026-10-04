@@ -28,6 +28,10 @@
         "AWF_BASE": "http://127.0.0.1:{PORT}"
       }
     },
+    "awf-work": {
+      "args": ["./mcp/awf-work/server.cjs"],
+      "env": { "AWF_BASE": "http://127.0.0.1:{PORT}" }
+    },
     "awf-oneshot": {
       "args": [
         "./mcp/awf-oneshot/server.cjs"

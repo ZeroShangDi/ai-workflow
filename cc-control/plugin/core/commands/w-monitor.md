@@ -5,7 +5,7 @@ hint: <检测间隔，可留空>
 ---
 # w-monitor
 
-在当前项目目录的非 tmux Claude Code 会话中，常驻监控 `awf run` 管理的 tmux Claude Code。每 3 分钟派发一次独立侦查 Agent；正常时继续等待，发现异常后立即进入激活状态，暂停 CLI 编排，持续修复到恢复正常或需要用户介入。
+在当前项目目录的独立 Claude Code 会话中，常驻监控 `awf run` 管理的主 tmux Claude Code。会话可以是普通 CC，也可以是 AWF 自动恢复创建的专属 tmux CC；不要在主任务 CC 自身运行监控。每 3 分钟派发一次独立侦查 Agent；正常时继续等待，发现异常后立即进入激活状态，暂停 CLI 编排，持续修复到恢复正常或需要用户介入。
 
 本命令只监控 tmux 中 Claude Code 是否正常工作。MCP、Skill、Session Server 和 CLI 仅作为观测或修复手段，不是首版监控对象。
 
@@ -22,6 +22,7 @@ hint: <检测间隔，可留空>
 1. 读取 `.awf/state.json` 并查询 tmux session。
 2. 仅当 `mode=run` 且 tmux session 存在时启动监控。
 3. 若 `awf run` 尚未运行，提示后立即退出，不空闲守候。
+   - 若是自动启动且该启动条件不满足，仍写 `monitor_exited`（结果说明未启动原因），让服务端回收这次临时 CC。
 4. 创建内存态基线：`checkNumber=0`、`lastProbe=null`、`activeError=null`、`repairAttempts=0`、`cliPaused=false`。
 5. 确保 `.awf/logs/` 存在。监控日志固定写入 `.awf/logs/w-monitor.jsonl`。
 
@@ -122,6 +123,9 @@ REPAIR_RESULT: {"status":"repaired|failed|needs_user","errorType":"","fingerprin
 ```json
 {"timestamp":"ISO-8601","event":"error_detected","checkNumber":3,"errorType":"run_timeout","fingerprint":"...","attempt":0,"evidence":[],"actions":[],"result":""}
 ```
+
+如果启动提示提供了 `AWF_AUTO_MONITOR_SESSION=<tmux session name>`，每条日志还必须带同一个 `monitorSession` 字段；
+这是服务端确认并回收**本次自动启动的监控 CC**的标记。手动运行 `w-monitor` 时不添加该字段。
 
 禁止记录密钥、令牌或未脱敏的敏感信息；证据只保留定位所需的最小片段。
 

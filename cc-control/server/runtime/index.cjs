@@ -28,6 +28,7 @@ const { createDecisionHandler } = require('../features/decision/handler.cjs');
 const gateRules = require('../features/decision/gate.cjs');
 const replanning = require('../features/replanning/index.cjs');
 const { createMonitor } = require('../features/monitor/index.cjs');
+const { createAutoRecovery } = require('../features/monitor/auto-recovery.cjs');
 const { createEventBus } = require('../shared/events.cjs');
 
 /**
@@ -69,6 +70,12 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
     }
     return s;
   }
+  function forgetSession(sidKey) {
+    const key = String(sidKey);
+    const slot = sessions.get(key);
+    slot?.reset();
+    sessions.delete(key);
+  }
 
   // monitor 在 observability 之后装配（它要读指标与 state），而 observability 的采集前钩子
   // 又指向它 —— 用 let + 闭包打破构造期先后（钩子运行时才被调用）
@@ -81,6 +88,7 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
     // 闭包 + 下面的 `let`：钩子只在运行时被调用，那时 monitor 已装配就位。
     onBeforeSnapshot: () => monitor?.reconcile(),
   });
+  const autoRecovery = createAutoRecovery({ ctx, sessionFor, forgetSession, observability });
   const subagent = createSubagentRecorder({
     paths: { event: ctx.subagentEventPath, failed: ctx.subagentFailedPath, needsInput: ctx.subagentNeedsPath },
     stores: ctx.stores,
@@ -368,6 +376,13 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
         scheduler: schedulerFn,
         executor,
         batch,
+        onEvent: (event) => {
+          if (event?.type === 'run.stopped' && event.payload?.status === 'error') {
+            void autoRecovery.onRunEvent(event).catch((error) => {
+              observability.notice('monitor', 'warn', `Run error 自动恢复异常：${error.message}`);
+            });
+          }
+        },
       });
       host.start(); // 宿主立即开始运转（事件环 + 调度）
       runHost = host;
@@ -415,6 +430,7 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
     }
     sessions.clear();
     observability.reset();
+    autoRecovery.stop();
     monitor?.reset(); // 解除诊断互斥闩
     if (runHost) { try { runHost.stop(); } catch { /* ignore */ } } // 停宿主
     // 清掉所有惰性装配缓存，使下次 ensure* 重新装配
@@ -438,6 +454,7 @@ function createProjectRuntime({ projectRoot, env, sid, hostFactory, RunLogger, a
     channel,      // 会话通道工厂（sendPromptAndWait / sendLocalCmd / channel()）
     probe,        // 侦查端口（GET /probe 用；供外部 w-monitor 经 MCP 取会话现场）
     monitor,      // 介入：诊断（GET/POST /awf/diagnostics 用；协议见 features/monitor）
+    autoRecovery, // Run error 后启动隔离 w-monitor CC；只管理自己创建的会话
     ensureRunHost,
     ensureRunStateApi,
     ensureGateFix,

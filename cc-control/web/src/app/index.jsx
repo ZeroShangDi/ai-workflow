@@ -19,6 +19,7 @@ export default function App() {
         sessionId={shell.sessionId}
         setRunId={shell.setRunId}
         setView={shell.setView}
+        setProject={shell.setProject}
         connectionError={shell.error}
       />
     </WorkspaceLayout>

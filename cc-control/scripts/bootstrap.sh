@@ -30,16 +30,23 @@ fi
 #     1. hook 网关按 CC_PROJECT 组 `&p=` 路由 → 事件落到别人的项目槽，本 run 槽永远收不到
 #        SessionStart/Stop，第二次派发卡 `still busy (ready timeout)`，run 直接异常终止；
 #     2. 插件级 awf-state MCP 的 PROJ_ROOT = AWF_PROJECT_ROOT || CC_PROJECT → 读写别的项目 state。
-#   故 CC_SESSION/CC_WORKDIR/CC_PROJECT/CC_PORT/CC_AWF_STATE_SERVER(/CC_SID) 全部在 claude 前显式赋值，
+#   故 CC_SESSION/CC_WORKDIR/CC_PROJECT/CC_PORT/CC_AWF_STATE_SERVER/CC_SID 与监控 MCP 路由变量
+#   AWF_STATE_SID/AWF_SESSION_TARGET_SID 全部在 claude 前显式赋值，
 #   不依赖 tmux 会话环境。新增 run 级变量时同步加到这里。
 ENV_ASSIGNS="CC_SESSION=\"$SESSION\" CC_WORKDIR=\"$WORKDIR\""
 if [ -n "${CC_PROJECT:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_PROJECT=\"$CC_PROJECT\""; fi
 if [ -n "${CC_PORT:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_PORT=\"$CC_PORT\""; fi
 if [ -n "${CC_AWF_STATE_SERVER:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_AWF_STATE_SERVER=\"$CC_AWF_STATE_SERVER\""; fi
 if [ -n "${CC_SID:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS CC_SID=\"$CC_SID\""; fi
+if [ -n "${AWF_STATE_SID:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS AWF_STATE_SID=\"$AWF_STATE_SID\""; fi
+if [ -n "${AWF_SESSION_TARGET_SID:-}" ]; then ENV_ASSIGNS="$ENV_ASSIGNS AWF_SESSION_TARGET_SID=\"$AWF_SESSION_TARGET_SID\""; fi
 
-tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" \
-  "env -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC -u DISABLE_TELEMETRY -u DO_NOT_TRACK -u DISABLE_GROWTHBOOK $ENV_ASSIGNS claude --permission-mode bypassPermissions --settings \"$WORKDIR/.awf/run-settings.json\""
+CLAUDE_COMMAND="env -u CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC -u DISABLE_TELEMETRY -u DO_NOT_TRACK -u DISABLE_GROWTHBOOK $ENV_ASSIGNS claude --permission-mode bypassPermissions --settings \"$WORKDIR/.awf/run-settings.json\""
+# 自动监控 CC 是临时会话：其 Claude 进程退出后只回收自身 tmux session。
+if [ "${CC_CLOSE_SESSION_ON_EXIT:-0}" = "1" ]; then
+  CLAUDE_COMMAND="$CLAUDE_COMMAND; tmux kill-session -t \"$SESSION\""
+fi
+tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$WORKDIR" "$CLAUDE_COMMAND"
 
 # 增大回滚缓冲，避免长会话旧消息被 tmux 截断（capture-pane -S - 依赖它）
 tmux set-option -t "$SESSION" history-limit 100000

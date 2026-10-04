@@ -122,10 +122,13 @@ const SERVER_PORT = Number(process.env.CC_PORT || 8787);
 // T1-078：MCP 只碰本 sid run（软约束）——带上自身 CC_SID，server 按 sid 分片 state。
 // 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
 const PROJ_ROOT = process.env.AWF_PROJECT_ROOT || process.env.CC_PROJECT || '';
-/** server 请求 query：sid(命中本 run 槽) + p(多项目路由到本项目)；无则空串 */
+/** server 请求 query：默认用本 CC_SID，也可由 AWF_STATE_SID 覆盖；p 路由本项目 */
 function stateQuery() {
   const parts = [];
-  if (process.env.CC_SID) parts.push(`sid=${encodeURIComponent(String(process.env.CC_SID))}`);
+  const stateSid = process.env.AWF_STATE_SID === 'project'
+    ? ''
+    : (process.env.AWF_STATE_SID ?? process.env.CC_SID);
+  if (stateSid) parts.push(`sid=${encodeURIComponent(String(stateSid))}`);
   if (PROJ_ROOT) parts.push(`p=${encodeURIComponent(PROJ_ROOT)}`);
   return parts.length ? `?${parts.join('&')}` : '';
 }

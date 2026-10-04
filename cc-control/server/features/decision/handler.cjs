@@ -127,6 +127,12 @@ function createDecisionHandler({
 
     if (action.kind === 'capture') {
       const q = action.question || questions[0];
+      const questionItems = questions.map(item => ({
+        header: item.header || null,
+        question: item.question || '',
+        multiSelect: !!item.multiSelect,
+        options: (item.options || []).map(option => ({ label: option.label || '', description: option.description || '' })),
+      }));
       // 捕获即落记录（复盘要求）：不问「谁来答」，先记下「它发生了」——
       // 走人/AI/自动哪条路由是之后的事，记录必须都在。此前只存内存，决策一旦答完就无迹可查。
       const decisionId = nextId();
@@ -136,7 +142,8 @@ function createDecisionHandler({
         type: q.multiSelect ? 'multiSelect' : 'choice',
         multiSelect: !!q.multiSelect,
         question: q.question,
-        options: (q.options || []).map((o) => o.label),
+        options: (q.options || []).map((o) => ({ label: o.label || '', description: o.description || '' })),
+        questions: questionItems,
         header: q.header || null,
         source: 'AskUserQuestion',
       };
@@ -145,6 +152,7 @@ function createDecisionHandler({
         decisionId: pending.decisionId,
         question: pending.question,
         options: pending.options,
+        questions: pending.questions,
         form: gateRules.formOfQuestion(q),
         source: 'AskUserQuestion',
         status: 'awaiting_human', // 闸门关：仍是「等人应答」的旧语义
@@ -169,10 +177,17 @@ function createDecisionHandler({
     // 标签里只有自由文本，选项无从恢复。所以先暂存进会话，等它带着标签收尾时并进本次决策
     // （见 onStop 的 deciding 分支）。暂存只取一次，且带时效（见 CAPTURED_TTL_MS）。
     const q = action.question || questions[0];
+    const questionItems = questions.map(item => ({
+      header: item.header || null,
+      question: item.question || '',
+      multiSelect: !!item.multiSelect,
+      options: (item.options || []).map(option => ({ label: option.label || '', description: option.description || '' })),
+    }));
     session.setCapturedRequest({
       at: Date.now(),
       question: q.question,
-      options: (q.options || []).map((o) => o.label),
+      options: (q.options || []).map((o) => ({ label: o.label || '', description: o.description || '' })),
+      questions: questionItems,
       form: gateRules.formOfQuestion(q),
     });
     console.log('[hook] AskUserQuestion denied (gate on): 改以决策标签收尾');
@@ -211,6 +226,7 @@ function createDecisionHandler({
         taskId: activeTaskId(),
         question: captured?.question || gateRules.extractDecisionRequiredText(text) || null,
         options: captured?.options || [],
+        questions: captured?.questions || [],
         form: captured?.form || 'qa',
         source: captured ? 'AskUserQuestion' : 'text',
         status: 'deciding', // 场景 3：AI 即将自决，没有人要答
@@ -260,15 +276,16 @@ function createDecisionHandler({
    * 两个入口都经这里：被拦截的提问（单选 / 多选，有选项）与文本标签（问答，无选项）。
    * 必须用 appendEvent（按 (decision_id, event) 去重）：append 是按 decision_id **跨事件**去重的，
    * 那样同一次决策的 requested 一落，completed 就会被静默丢掉（2026-09-13 实测，issue 016）。
-   * @param {{ decisionId: string, taskId?: string|null, question: string, options?: string[],
+   * @param {{ decisionId: string, taskId?: string|null, question: string, options?: object[], questions?: object[],
    *           form: string, source: string, status?: 'deciding'|'awaiting_human'|'escalated' }} input
    */
-  function recordAsked({ decisionId, taskId = null, question, options = [], form, source, status = 'deciding' }) {
+  function recordAsked({ decisionId, taskId = null, question, options = [], questions = [], form, source, status = 'deciding' }) {
     const appended = newDecisionStore().appendEvent(gateRules.buildRequestedRecord({
       decisionId,
       taskId,
       question,
       options,
+      questions,
       form,
       source,
       status,

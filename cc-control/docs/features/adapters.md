@@ -158,7 +158,7 @@ return {
 | `tooling` | factory | plugin 安装 / 市场运维 | `install()`、`uninstall()`、`claudeAvailable()`、`buildMarketplaceAdd()`、`buildInstall()`、`buildUninstall()` | `server/adapters/cc/tooling.cjs` |
 | `interactive` | factory | plan 交互对话（直开终端） | `launchDialog(opts)` | `server/adapters/cc/interactive.cjs`（包装层） |
 | `probe` | factory | w-monitor 外部会话侦查 | `inspect()` | `server/adapters/cc/probe.cjs`（需 host/status 注入） |
-| `session` | factory | 会话启动 / 复用探测 / 停止 / 接入观看 | `sessionName`、`exists()`、`cwd()`、`start({ projectRoot, env })`、`kill()`、`nudge()`、`attach({ stdio })` | `server/adapters/cc/session.cjs`（T-P1-03 收口） |
+| `session` | factory | 会话启动 / 复用探测 / 停止 / 接入观看 | `sessionName`、`exists({ sessionName? })`、`cwd()`、`start({ projectRoot, env })`、`kill({ sessionName? })`、`nudge()`、`attach({ stdio })` | `server/adapters/cc/session.cjs`（T-P1-03 收口） |
 
 ### `ctx.host` 能力化与 `sendPrompt`（T-P1-02）
 

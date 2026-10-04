@@ -17,6 +17,7 @@ export default function Workspace({
   sessionId,
   setRunId,
   setView,
+  setProject,
   connectionError,
 }) {
   const workspaceState = useWorkspace(project, view, requirementId, sessionId);
@@ -42,14 +43,15 @@ export default function Workspace({
     runs,
     setRunId,
     setView,
+    setProject,
   };
   const route = getRoute(view);
   const Page = pages[route.key];
   const relevant = ['status', 'runs', 'events', ...route.reads];
   return (
     <>
-      <main className="workspace">
-        {project && data.workspace && !(data.workspace.requirements || []).length && !workspaceError && (
+      <main className={`workspace${view === 'requirements' ? ' workspace-requirements' : ''}`}>
+        {project && data.workspace && !(data.workspace.requirements || []).length && !workspaceError && !route.management && (
           <div className="project-empty-state">
             <h1>{data.workspace.project?.name || project.split(/[\\/]/).filter(Boolean).at(-1)}</h1>
             <p>暂无需求</p>
@@ -72,7 +74,7 @@ export default function Workspace({
             </div>
           ))}
         {workspaceState.eventNotice && <div role="status">{workspaceState.eventNotice}</div>}
-        {(!project || !data.workspace || (data.workspace.requirements || []).length > 0 || workspaceError) && <ErrorBoundary key={view}>
+        {(!project || !data.workspace || (data.workspace.requirements || []).length > 0 || workspaceError || route.management) && <ErrorBoundary key={view}>
           <Suspense
             fallback={
               <div className="empty" role="status">

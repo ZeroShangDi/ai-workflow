@@ -74,6 +74,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.project-directory-row { display: flex; align-items: center; position: relative; }
+.project-directory-row .project-item { flex: 1; min-width: 0; }
+.project-more { border: 0; background: transparent; color: var(--cc-color-text-secondary); cursor: pointer; font-size: 20px; padding: 4px 8px; }
+.project-menu { position: absolute; right: 4px; top: 35px; z-index: 20; min-width: 110px; background: var(--cc-color-bg-sidebar); border: 1px solid var(--cc-color-border-default); border-radius: 8px; box-shadow: 0 8px 24px #0002; }
+.project-menu button { display: block; width: 100%; border: 0; background: transparent; color: inherit; text-align: left; padding: 10px; cursor: pointer; }
 .sidebar-footer {
   padding: var(--cc-spacing-12) var(--cc-spacing-16);
   border-top: 1px solid var(--cc-color-border-default);
@@ -127,6 +132,7 @@
   flex-direction: column;
   overflow: auto;
 }
+.workspace-requirements { overflow: hidden; }
 .project-empty-state { display: grid; place-content: center; flex: 1; min-height: 0; text-align: center; color: var(--cc-color-text-secondary); }
 .project-empty-state h1 { margin: 0 0 10px; color: var(--cc-color-text-primary); font-size: 20px; font-weight: 500; }
 .project-empty-state p { margin: 0 0 5px; }

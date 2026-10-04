@@ -21,6 +21,9 @@ const RUN_IDENTITY_KEYS = Object.freeze([
   'CC_WORKDIR',
   'CC_AWF_STATE_SERVER',
   'CC_SID',
+  'AWF_STATE_SID',
+  'AWF_SESSION_TARGET_SID',
+  'CC_CLOSE_SESSION_ON_EXIT',
 ]);
 
 /** 删掉父 run 身份；保留 CC_PORT 等控制平面配置项 */

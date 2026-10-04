@@ -5,7 +5,7 @@ import Topbar from './components/Topbar.jsx';
 import ViewRail from './components/ViewRail.jsx';
 export default function WorkspaceLayout({ children, ...shell }) {
   const showChrome = shell.context?.mode !== 'dsh';
-  const emptyProject = !!shell.project && !!shell.workspace && !shell.workspaceError && !(shell.workspace.requirements || []).length;
+  const emptyProject = !!shell.project && !!shell.workspace && !shell.workspaceError && !(shell.workspace.requirements || []).length && !['requirements', 'bugs'].includes(shell.view);
   return (
     <div
       className={`app-shell${emptyProject ? ' is-empty-project' : ''}`}

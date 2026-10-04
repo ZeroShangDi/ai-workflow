@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createApiClient } from '@/shared/lib/http.js';
 import { API } from '@/shared/api/index.js';
 import { usePolling } from '@/shared/hooks/usePolling.js';
-import { getViews } from '@/app/routes.js';
+import { getViews, getManagementViews } from '@/app/routes.js';
 import { readRoute, routeUrl } from '@/app/router.js';
 import { useHostContext, resolveProject } from '@/shared/context.js';
 
@@ -88,7 +88,7 @@ export function useAppShell() {
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
   }, [open]);
-  const views = useMemo(() => getViews(context.mode, sessionKind), [context.mode, sessionKind]);
+  const views = useMemo(() => ['requirements', 'bugs'].includes(route.view) ? getManagementViews() : getViews(context.mode, sessionKind), [context.mode, sessionKind, route.view]);
   const contextError = !project && (hostBound || context.pid) ? '等待当前项目上下文' : '';
   return {
     ...route,

@@ -1,5 +1,7 @@
 // A feature extension adds one route: navigation, loader and reads stay together.
 export const ROUTES = [
+  { key: 'requirements', label: '需求', icon: 'tasks', management: true, reads: [], load: () => import('@/pages/Requirements/index.jsx') },
+  { key: 'bugs', label: 'Bug', icon: 'reviews', management: true, reads: [], load: () => import('@/pages/Bugs/index.jsx') },
   {
     key: 'run',
     label: '会话',
@@ -85,14 +87,14 @@ export const ROUTES = [
 // Both platform route sets live here; the conversation route is the cc fallback.
 export const MODE_ROUTES = {
   cc: ROUTES,
-  dsh: ['tasks', 'decisions', 'reviews', 'logs'].map(key =>
+  dsh: ['requirements', 'bugs', 'tasks', 'decisions', 'reviews', 'logs'].map(key =>
     ROUTES.find(route => route.key === key),
   ),
 };
 export const getRoutes = mode =>
   Object.hasOwn(MODE_ROUTES, mode) ? MODE_ROUTES[mode] : MODE_ROUTES.cc;
 export const getViews = (mode, sessionKind) => {
-  const routes = getRoutes(mode).filter(route => !route.hidden);
+  const routes = getRoutes(mode).filter(route => !route.hidden && !route.management);
   if (mode === 'dsh') return routes;
   const session = routes.find(route => route.key === 'run');
   const tasks = routes.find(route => route.key === 'tasks');
@@ -108,6 +110,7 @@ export const getViews = (mode, sessionKind) => {
     .map(route => route.key === 'reviews' ? { ...route, label: '动态任务' } : route);
   return [...(session ? [{ ...session, label: '会话' }] : []), ...contextual];
 };
+export const getManagementViews = () => ROUTES.filter(route => route.management);
 export const VIEWS = getViews('cc', 'plan');
 export const getRoute = (key, mode) => {
   // Older links may still contain the removed Project/Plan page keys.

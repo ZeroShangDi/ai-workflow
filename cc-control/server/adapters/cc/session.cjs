@@ -22,7 +22,7 @@ const DEFAULT_EXEC = () => require('node:child_process').execFileSync;
  *   sessionName          会话名（cc-<sid>）
  *   bootstrapScriptPath  起会话的脚本（缺省注入自 run-context；start() 必需）
  *   execFileSync         注入的 exec（测试用；生产走系统 tmux）
- * @returns {{ sessionName, exists(), cwd(), start({ projectRoot, env }), kill(), nudge(), attach({ stdio }) }}
+ * @returns {{ sessionName, exists({ sessionName? }), cwd(), start({ projectRoot, env }), kill({ sessionName? }), nudge(), attach({ stdio }) }}
  */
 function createSessionPort({ sessionName = 'cc', bootstrapScriptPath, execFileSync = DEFAULT_EXEC() } = {}) {
   // 统一 utf8：cwd() 要拿字符串而非 Buffer
@@ -32,9 +32,9 @@ function createSessionPort({ sessionName = 'cc', bootstrapScriptPath, execFileSy
   return {
     sessionName,
     /** 会话是否存在。has-session 以退出码表意，故 try/catch */
-    exists() {
+    exists({ sessionName: target = sessionName } = {}) {
       try {
-        tmux(['has-session', '-t', sessionName]);
+        tmux(['has-session', '-t', target]);
         return true;
       } catch {
         return false;
@@ -64,9 +64,9 @@ function createSessionPort({ sessionName = 'cc', bootstrapScriptPath, execFileSy
       return { ok: true };
     },
     /** 结束会话（幂等：不存在就算了） */
-    kill() {
+    kill({ sessionName: target = sessionName } = {}) {
       try {
-        tmux(['kill-session', '-t', sessionName], { stdio: 'ignore' });
+        tmux(['kill-session', '-t', target], { stdio: 'ignore' });
       } catch { /* 已不在 */ }
     },
     /** 补一记回车：消除文件夹信任弹窗 / 唤醒空闲输入框（幂等） */

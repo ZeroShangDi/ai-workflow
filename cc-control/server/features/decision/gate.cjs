@@ -106,7 +106,7 @@ function buildCompletedRecord({ decisionId, result, source, createdAt }) {
  *   - `deciding`：文本入口 / 门阀开启时的提问捕获（AI 即将自决，没有人要答）
  *   - `awaiting_human`：闸门关时的提问捕获（旧语义，等人应答）
  */
-function buildRequestedRecord({ decisionId, taskId = null, question, options = [], form, source, createdAt, status = 'deciding' }) {
+function buildRequestedRecord({ decisionId, taskId = null, question, options = [], questions = [], form, source, createdAt, status = 'deciding' }) {
   return {
     event: 'decision_requested',
     decision_id: decisionId,
@@ -121,6 +121,7 @@ function buildRequestedRecord({ decisionId, taskId = null, question, options = [
       decision_id: decisionId,
       question,
       options,
+      questions,
       form,
     },
   };

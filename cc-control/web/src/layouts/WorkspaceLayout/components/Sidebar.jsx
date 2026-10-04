@@ -6,6 +6,7 @@ import { Button } from '@/shared/components/ui/index.js';
 export default function Sidebar({ open, setOpen, projects, project, workspace, workspaceError, refreshWorkspace, refreshProjects, setProject, setView, error, client }) {
   const sidebar = useRef(null);
   const [adding, setAdding] = useState(false);
+  const [menuProject, setMenuProject] = useState(null);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement;
@@ -70,16 +71,19 @@ export default function Sidebar({ open, setOpen, projects, project, workspace, w
       <div className="sidebar-content">
         <div className="project-directory-list" aria-label="项目目录">
         {projects.map(p => (
+          <div className="project-directory-row" key={p.projectRoot}>
           <Button
             className={`project-item ${p.projectRoot === project ? 'selected' : ''}`}
-            key={p.projectRoot}
             title={p.projectRoot}
             onClick={() => {
               setProject(p.projectRoot);
               setOpen(false);
             }}>
-            <span>{name(p.projectRoot)}</span>
+            <span>{name(p.projectRoot)}{p.projectRoot.includes('/.awf/worktrees/') && <small>独立工作区</small>}</span>
           </Button>
+          <button type="button" className="project-more" aria-label={`${name(p.projectRoot)} 更多操作`} aria-expanded={menuProject === p.projectRoot} onClick={() => setMenuProject(menuProject === p.projectRoot ? null : p.projectRoot)}>⋯</button>
+          {menuProject === p.projectRoot && <div className="project-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setProject(p.projectRoot, 'requirements'); setMenuProject(null); setOpen(false); }}>项目管理</button></div>}
+          </div>
         ))}
         {!projects.length && (
           <p className="muted">{error ? '等待连接 server' : '暂无项目，请添加工作目录'}</p>

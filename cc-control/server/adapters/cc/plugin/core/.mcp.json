@@ -20,6 +20,16 @@
         "AWF_BASE": "http://127.0.0.1:8787"
       }
     },
+    "awf-work": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/awf-work/server.cjs"
+      ],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:8787"
+      }
+    },
     "awf-oneshot": {
       "type": "stdio",
       "command": "node",

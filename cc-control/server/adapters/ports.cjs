@@ -124,7 +124,7 @@ const PORT_CONTRACT = [
     name: 'session',
     status: 'factory',
     role: '会话启动 / 复用探测 / 停止 / 接入观看',
-    methods: ['sessionName', 'exists()', 'cwd()', 'start({ projectRoot, env })', 'kill()', 'nudge()', 'attach({ stdio })'],
+    methods: ['sessionName', 'exists({ sessionName? })', 'cwd()', 'start({ projectRoot, env })', 'kill({ sessionName? })', 'nudge()', 'attach({ stdio })'],
   },
 ];
 

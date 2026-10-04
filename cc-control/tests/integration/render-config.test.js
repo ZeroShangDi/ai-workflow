@@ -44,23 +44,24 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     const mcp = fs.readFileSync(path.join(work, '.mcp.json'), 'utf-8');
     expect(mcp).toContain(`${ROOT}/server/adapters/cc/plugin/core/mcp/awf-state/server.cjs`);
     expect(mcp).toContain(`${ROOT}/server/adapters/cc/plugin/core/mcp/awf-session/server.cjs`);
+    expect(mcp).toContain(`${ROOT}/server/adapters/cc/plugin/core/mcp/awf-work/server.cjs`);
     expect(mcp).toContain(`${ROOT}/server/adapters/cc/plugin/core/mcp/awf-oneshot/server.cjs`);
     // 配置源 mcp args 保持相对路径
     expect(fs.readFileSync(PLUGIN_CONFIG, 'utf-8')).toContain('./mcp/awf-state/server.cjs');
   });
 
-  it('TC3: .mcp.json awf-state 不携带 AWF_PROJECT_ROOT（server 用 cwd 回退）', () => {
+  it('TC3: .mcp.json awf-state 通过 AWF_BASE 访问 Server', () => {
     const work = path.join(TMP, 'w3');
     render(work);
     const parsed = readJson(path.join(work, '.mcp.json'));
-    expect(parsed.mcpServers['awf-state'].env).toBeUndefined();
+    expect(parsed.mcpServers['awf-state'].env.AWF_BASE).toBe('http://127.0.0.1:8787');
   });
 
-  it('TC4: .mcp.json 渲染后 JSON 合法（3 个 server）', () => {
+  it('TC4: .mcp.json 渲染后 JSON 合法（4 个 server）', () => {
     const work = path.join(TMP, 'w4');
     render(work);
     const parsed = readJson(path.join(work, '.mcp.json'));
-    expect(Object.keys(parsed.mcpServers)).toEqual(['awf-state', 'awf-session', 'awf-oneshot']);
+    expect(Object.keys(parsed.mcpServers)).toEqual(['awf-state', 'awf-session', 'awf-work', 'awf-oneshot']);
     for (const s of Object.values(parsed.mcpServers)) {
       expect(s.command).toBe('node');
       expect(Array.isArray(s.args)).toBe(true);
@@ -90,7 +91,7 @@ describe('render-config --workdir 独立沙箱渲染', () => {
     const spacedWork = path.join(TMP, 'my work', 'proj');
     render(spacedWork);
     expect(fs.existsSync(path.join(spacedWork, '.mcp.json'))).toBe(true);
-    expect(readJson(path.join(spacedWork, '.mcp.json')).mcpServers['awf-state'].env).toBeUndefined();
+    expect(readJson(path.join(spacedWork, '.mcp.json')).mcpServers['awf-state'].env.AWF_BASE).toBe('http://127.0.0.1:8787');
   });
 
   it('TC8: 特殊字符路径（ROOT 含空格，拷贝脚本 + config + 共享模块到带空格目录）', () => {

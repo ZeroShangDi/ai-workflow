@@ -30,7 +30,7 @@ module.exports = function plansApi({ getRepositories, transaction }) {
     approve: publicCall((input = {}) => transaction(() => {
       const repositories = getRepositories();
       const requirement = unwrap(repositories.requirements.update(input.requirementId, {
-        status: 'planned', expectedRevision: input.version,
+        status: 'planned', lifecycleStatus: 'todo', expectedRevision: input.version,
       }));
       if (input.planSessionId) unwrap(repositories.sessions.finish(input.planSessionId, { status: 'completed' }));
       return { requirement };

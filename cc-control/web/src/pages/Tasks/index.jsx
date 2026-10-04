@@ -7,8 +7,12 @@ import TaskDetail from './components/Detail/index.jsx';
 // 组件住在 shared/components/business/Overview（页面之间不许互相 import）。
 import Overview from '@/shared/components/business/Overview/index.jsx';
 import { API } from '@/shared/api/index.js';
-export default function TasksPage({ data, client, refresh, run, setView, sessionKind }) {
+import { createApiClient } from '@/shared/lib/http.js';
+import { useState } from 'react';
+export default function TasksPage({ data, client, refresh, run, setView, setProject, sessionKind, project }) {
   const operation = useAction(client, refresh);
+  const [launching, setLaunching] = useState(false);
+  const [launchMessage, setLaunchMessage] = useState('');
   // 点「有决策」标记 → 决策页并按该任务筛（唯一跨页通道是 URL 参数）
   const page = useTasksPage(data, {
     goDecisions: taskId => setView('decisions', { task: taskId }),
@@ -22,17 +26,33 @@ export default function TasksPage({ data, client, refresh, run, setView, session
   const primaryAction = sessionKind === 'plan' && plan?.status === 'approved'
     ? {
         label: hasActiveRun ? 'Run 进行中' : hasPendingTasks ? '执行 Run' : '暂无待执行任务',
-        disabled: hasActiveRun || !hasPendingTasks,
+        disabled: hasActiveRun || !hasPendingTasks || launching,
         run: async () => {
-          const result = await operation.action(API.submitRun, { requirementId });
+          setLaunching(true); setLaunchMessage('');
+          try {
+          const config = await client.get(API.workConfig);
+          if (!config.ok) throw new Error(config.error || '读取 Git 配置失败');
+          const primary = config.data?.git ? `${config.data.git.repositoryRoot}/${config.data.git.projectRelativePath}`.replace(/\/\.$/, '') : project;
+          let runClient = client;
+          let workProject = project;
+          if (project === primary) {
+            const prepared = await client.post(API.prepareRequirementWorktree(requirementId), { owner: 'manual' });
+            if (!prepared.ok) throw new Error(prepared.error || '创建独立工作区失败');
+            workProject = prepared.data.projectPath;
+            runClient = createApiClient({ project: workProject });
+          }
+          const result = await runClient.post(API.submitRun, { requirementId });
+          if (!result.ok) throw new Error(result.error || 'Run 启动失败');
+          if (workProject !== project) setProject(workProject, 'run');
           if (result?.runId) setView('run', { requirementId, sessionId: result.workflowSessionId, runId: result.runId });
+          } catch (error) { setLaunchMessage(error.message); } finally { setLaunching(false); }
         },
       }
       : null;
   // 操作结果提示挂在列表下方（TaskList 的 .task-status），不随右侧区块切换而消失
   return (
     <SplitPane
-      primary={<TaskList {...page} {...operation} primaryAction={primaryAction} sessionKind={sessionKind} />}
+      primary={<TaskList {...page} {...operation} busy={operation.busy || launching} message={launchMessage || operation.message} primaryAction={primaryAction} sessionKind={sessionKind} />}
       detail={
         page.panel === 'overview' ? (
           <Overview
