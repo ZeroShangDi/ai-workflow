@@ -22,7 +22,7 @@ export const ROUTES = [
     icon: 'run',
     // decisions：Run 页只显示「本次产生了多少条决策、几条待复审」并跳转决策页，
     // 展示与复审的唯一入口在决策页（见 design/decision-redesign.md）。
-    reads: ['state', 'decisions', 'logFiles'],
+    reads: ['state', 'decisions'],
     snapshot: true,
     load: () => import('@/pages/Run/index.jsx'),
   },
@@ -53,7 +53,7 @@ export const ROUTES = [
     label: '日志',
     icon: 'logs',
     reads: ['logFiles'],
-    snapshot: true,
+    events: true,
     load: () => import('@/pages/Logs/index.jsx'),
   },
   {
@@ -120,6 +120,9 @@ export const getViews = (mode, sessionKind) => {
       ...(tasks ? [{ ...tasks, label: '任务' }] : []),
       ...(routes.find(route => route.key === 'decisions')
         ? [{ ...routes.find(route => route.key === 'decisions'), label: '决策' }]
+        : []),
+      ...(routes.find(route => route.key === 'logs')
+        ? [routes.find(route => route.key === 'logs')]
         : []),
     ];
   const contextual = ['tasks', 'reviews', 'decisions', 'logs']

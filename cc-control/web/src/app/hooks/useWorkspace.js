@@ -6,6 +6,7 @@ import { usePolling } from '@/shared/hooks/usePolling.js';
 import { getRoute } from '@/app/routes.js';
 
 export function useWorkspace(project, view = 'run', requirementId = '', sessionId = '') {
+  const route = getRoute(view);
   const client = useMemo(() => createApiClient({ project }), [project]);
   const [data, setData] = useState({}),
     [errors, setErrors] = useState({});
@@ -16,16 +17,16 @@ export function useWorkspace(project, view = 'run', requirementId = '', sessionI
   const refresh = useCallback(() => setRevision(r => r + 1), []);
   usePolling(
     async signal => {
-      const route = getRoute(view);
       const paths = { status: route.snapshot ? API.snapshot : API.status, runs: API.runs };
       for (const key of route.reads) {
         // AppShell owns the shared project workspace used by both the sidebar
         // and page content. This hook only polls route-specific page data.
         if (key === 'workspace') continue;
         const endpoint = typeof API[key] === 'function' ? API[key]() : API[key];
-        paths[key] = requirementId && ['decisions', 'proposals'].includes(key)
-          ? `${endpoint}?requirementId=${encodeURIComponent(requirementId)}`
-          : endpoint;
+        paths[key] =
+          requirementId && ['decisions', 'proposals'].includes(key)
+            ? `${endpoint}?requirementId=${encodeURIComponent(requirementId)}`
+            : endpoint;
       }
       await Promise.all(
         Object.entries(paths).map(async ([key, path]) => {
@@ -36,9 +37,10 @@ export function useWorkspace(project, view = 'run', requirementId = '', sessionI
             // Persistence-backed endpoints may be returned directly or inside
             // the standard `{ data }` envelope. Normalize the workspace once
             // here so every page consumes the same `data.workspace` shape.
-            const normalized = key === 'workspace' && !response.workspace
-              ? { ...response, workspace: response.data?.workspace || response.data || null }
-              : response;
+            const normalized =
+              key === 'workspace' && !response.workspace
+                ? { ...response, workspace: response.data?.workspace || response.data || null }
+                : response;
             setData(old => ({ ...old, [key]: normalized }));
             setErrors(old => ({ ...old, [key]: null }));
           } catch (error) {
@@ -47,7 +49,11 @@ export function useWorkspace(project, view = 'run', requirementId = '', sessionI
         }),
       );
     },
-    { enabled: !!project, interval: sessionId ? 1500 : 3000, revision: `${project}:${view}:${requirementId}:${sessionId}:${revision}` },
+    {
+      enabled: !!project,
+      interval: sessionId ? 1500 : 3000,
+      revision: `${project}:${view}:${requirementId}:${sessionId}:${revision}`,
+    },
   );
   usePolling(
     async signal => {
@@ -73,7 +79,7 @@ export function useWorkspace(project, view = 'run', requirementId = '', sessionI
         if (!signal.aborted) setErrors(old => ({ ...old, events: error.message }));
       }
     },
-    { enabled: !!project, interval: 1500, revision: project },
+    { enabled: !!project && !!route.events, interval: 1500, revision: `${project}:${view}` },
   );
   return { client, data, events, errors, eventNotice, refresh };
 }

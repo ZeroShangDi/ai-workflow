@@ -21,9 +21,16 @@ export default function Workspace({
   connectionError,
 }) {
   const workspaceState = useWorkspace(project, view, requirementId, sessionId);
-  const data = { ...workspaceState.data, workspace: sharedWorkspace || workspaceState.data.workspace };
-  const errors = { ...workspaceState.errors, workspace: workspaceError || workspaceState.errors.workspace };
-  const workflowSession = data.workspace?.sessions?.find(session => session.id === sessionId) || null;
+  const data = {
+    ...workspaceState.data,
+    workspace: sharedWorkspace || workspaceState.data.workspace,
+  };
+  const errors = {
+    ...workspaceState.errors,
+    workspace: workspaceError || workspaceState.errors.workspace,
+  };
+  const workflowSession =
+    data.workspace?.sessions?.find(session => session.id === sessionId) || null;
   const runs = data.runs?.runs || [];
   const active = runs.find(r => ['running', 'queued'].includes(r.status));
   const run = runId ? runs.find(r => r.runId === runId) : active || runs.at(-1);
@@ -47,17 +54,23 @@ export default function Workspace({
   };
   const route = getRoute(view);
   const Page = pages[route.key];
-  const relevant = ['status', 'runs', 'events', ...route.reads];
+  const relevant = ['status', 'runs', ...(route.events ? ['events'] : []), ...route.reads];
   return (
     <>
       <main className={`workspace${view === 'requirements' ? ' workspace-requirements' : ''}`}>
-        {project && data.workspace && !(data.workspace.requirements || []).length && !workspaceError && !route.management && (
-          <div className="project-empty-state">
-            <h1>{data.workspace.project?.name || project.split(/[\\/]/).filter(Boolean).at(-1)}</h1>
-            <p>暂无需求</p>
-            <small>从左侧项目会话栏创建需求。</small>
-          </div>
-        )}
+        {project &&
+          data.workspace &&
+          !(data.workspace.requirements || []).length &&
+          !workspaceError &&
+          !route.management && (
+            <div className="project-empty-state">
+              <h1>
+                {data.workspace.project?.name || project.split(/[\\/]/).filter(Boolean).at(-1)}
+              </h1>
+              <p>暂无需求</p>
+              <small>从左侧项目会话栏创建需求。</small>
+            </div>
+          )}
         {!project && (
           <div className="connection-notice" role="status">
             {connectionError
@@ -73,17 +86,25 @@ export default function Workspace({
               <Button onClick={workspaceState.refresh}>重试</Button>
             </div>
           ))}
-        {workspaceState.eventNotice && <div role="status">{workspaceState.eventNotice}</div>}
-        {(!project || !data.workspace || (data.workspace.requirements || []).length > 0 || workspaceError || route.management) && <ErrorBoundary key={view}>
-          <Suspense
-            fallback={
-              <div className="empty" role="status">
-                正在加载页面…
-              </div>
-            }>
-            <Page {...props} route={route} />
-          </Suspense>
-        </ErrorBoundary>}
+        {route.events && workspaceState.eventNotice && (
+          <div role="status">{workspaceState.eventNotice}</div>
+        )}
+        {(!project ||
+          !data.workspace ||
+          (data.workspace.requirements || []).length > 0 ||
+          workspaceError ||
+          route.management) && (
+          <ErrorBoundary key={view}>
+            <Suspense
+              fallback={
+                <div className="empty" role="status">
+                  正在加载页面…
+                </div>
+              }>
+              <Page {...props} route={route} />
+            </Suspense>
+          </ErrorBoundary>
+        )}
       </main>
       <Statusbar project={project} run={run} data={data} errors={errors} />
     </>

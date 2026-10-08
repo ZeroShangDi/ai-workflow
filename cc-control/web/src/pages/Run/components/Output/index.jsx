@@ -1,6 +1,5 @@
-import { display } from '@/shared/lib/format.js';
 import '@/shared/components/business/workflow.css';
-export default function RunOutput({ output, setFollow, events, runId, workflowSession, data, requirementId, setView, conversation }) {
+export default function RunOutput({ output, setFollow, workflowSession, data }) {
   const sessionKind = workflowSession?.kind === 'plan' ? 'Plan' : 'Run';
   const snapshot = data.status?.snapshot;
   return (
@@ -18,23 +17,12 @@ export default function RunOutput({ output, setFollow, events, runId, workflowSe
           const n = e.currentTarget;
           setFollow(n.scrollHeight - n.scrollTop - n.clientHeight < 48);
         }}>
-        <pre className="terminal">{conversation || snapshot || (data.status?.session ? '正在读取会话画面…' : '当前项目没有运行中的会话。')}</pre>
-        {workflowSession && (
-          <div className="session-log-link">
-            <button type="button" onClick={() => setView('logs', { requirementId: requirementId || workflowSession.requirementId, sessionId: workflowSession.id })}>查看 {sessionKind} 会话日志</button>
-          </div>
-        )}
+        <pre className="terminal">
+          {data.status?.session
+            ? snapshot || '正在读取 CC 实时输出…'
+            : '当前项目没有运行中的 CC 会话。'}
+        </pre>
         {!workflowSession && <p className="muted">请从左侧项目会话栏选择一个 Plan 或 Run 会话。</p>}
-        {workflowSession?.kind === 'run' && runId && <div className="event-tail">
-          {events
-            .filter(e => e.runId === runId)
-            .slice(-12)
-            .map(e => (
-              <div key={e.seq}>
-                <span className="muted">{e.type}</span> {display(e.payload)}
-              </div>
-            ))}
-        </div>}
       </div>
     </>
   );
