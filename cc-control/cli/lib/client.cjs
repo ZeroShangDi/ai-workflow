@@ -13,8 +13,11 @@ const ENDPOINTS = {
   status: ['GET', '/status'],
   probe: ['GET', '/probe'],
   planLaunch: ['POST', '/interactive/plan'], // 规划入口（平台可脱离终端 launch 时由服务端代触发）
+  sessionEnsure: ['POST', '/interactive/session/ensure'],
+  sessionStop: ['POST', '/interactive/session/stop'],
   planPrepare: ['POST', '/workflow/plan/start'],
   planFinish: ['POST', '/workflow/plan/finish'],
+  planApprove: ['POST', '/workflow/plan/approve'],
   runStart: ['POST', '/workflow/run/start'],
   runFinish: ['POST', '/workflow/run/finish'],
   shutdown: ['POST', '/shutdown'],
@@ -93,6 +96,9 @@ function createClient({ port, project, fetchImpl = fetch }) {
     respond: (value, answeredBy) => call('respond', { body: { value, answeredBy } }),
     preparePlan: (body) => call('planPrepare', { body, timeoutMs: 30_000 }),
     finishPlan: (body) => call('planFinish', { body }),
+    approvePlan: (body) => call('planApprove', { body }),
+    ensureSession: (body) => call('sessionEnsure', { body, timeoutMs: 130_000 }),
+    stopSession: () => call('sessionStop', { body: {}, timeoutMs: 70_000 }),
     startWorkflowRun: (body) => call('runStart', { body, timeoutMs: 30_000 }),
     finishWorkflowRun: (body) => call('runFinish', { body }),
   };

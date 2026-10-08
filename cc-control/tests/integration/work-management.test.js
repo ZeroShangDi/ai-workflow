@@ -50,6 +50,22 @@ describe('work management', () => {
     expect(() => app.approvePlan(project, requirement.id, requirement.revision)).toThrow('Plan 尚无可执行任务');
   });
 
+  it('lets the CLI workflow endpoint sync and approve a completed Plan', async () => {
+    const requirement = app.createDraftRequirement(project, { requestText: 'Create a report' });
+    app.updateProject(project, { activeRequirementId: requirement.id });
+    app.startPlanSession(project, requirement.id);
+    const req = new PassThrough();
+    req.method = 'POST';
+    const res = { writeHead(code) { this.status = code; }, end(raw) { this.body = JSON.parse(raw); } };
+    const rt = { ctx: { projectRoot: project, stores: { state: { readSync: () => ({ tasks: [{ id: 'T1', title: 'Implement report', status: 'pending' }] }) } } } };
+    const handled = handlePersistence(req, res, new URL('/workflow/plan/approve', 'http://localhost'), rt, { persistenceApplication: app });
+    req.end(JSON.stringify({ requirementId: requirement.id }));
+    expect(await handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body.requirement.lifecycleStatus).toBe('todo');
+    expect(app.listTasks(project, requirement.id)).toHaveLength(1);
+  });
+
   it('records a human closure reason as an event, without another status', () => {
     const bug = app.createBug(project, { title: 'Duplicated problem' });
     expect(() => app.transitionBug(project, bug.id, 'close', { expectedRevision: bug.revision, reason: '重复问题' })).toThrow('需要人工确认');

@@ -46,6 +46,7 @@ describe('ENDPOINTS — 端点表形状与覆盖', () => {
     expect(ENDPOINTS.runStatus).toEqual(['GET', '/run/status']);
     expect(ENDPOINTS.runEvents).toEqual(['GET', '/run/events']);
     expect(ENDPOINTS.runMode).toEqual(['POST', '/run/state/mode']);
+    expect(ENDPOINTS.planApprove).toEqual(['POST', '/workflow/plan/approve']);
   });
 });
 
@@ -126,5 +127,13 @@ describe('便捷方法与端点的对应', () => {
     expect(calls[1].url).toContain('/run/status');
     expect(calls[2].url).toContain('/run/state/mode');
     expect(calls[2].body).toEqual({ mode: 'run' });
+  });
+
+  it('approvePlan 显式确认 CLI 完成的 Plan', async () => {
+    const { fn, calls } = fakeFetch();
+    const c = createClient({ port: 8787, project: '/p', fetchImpl: fn });
+    await c.approvePlan({ requirementId: 'req-1' });
+    expect(calls[0].url).toContain('/workflow/plan/approve');
+    expect(calls[0]).toMatchObject({ method: 'POST', body: { requirementId: 'req-1' } });
   });
 });

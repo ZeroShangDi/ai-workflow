@@ -34,6 +34,7 @@ async function handle(req, res, url, rt, deps) {
     ? `/data/${url.pathname.slice('/api/persistence/'.length)}`
     : url.pathname === '/workflow/plan/start' ? '/data/plan/prepare'
       : url.pathname === '/workflow/plan/finish' ? '/data/plan/finish'
+        : url.pathname === '/workflow/plan/approve' ? '/data/plan/approve'
         : url.pathname === '/workflow/run/start' ? '/data/run/start'
           : url.pathname === '/workflow/run/finish' ? '/data/run/finish' : url.pathname;
   const app = deps.persistenceApplication;

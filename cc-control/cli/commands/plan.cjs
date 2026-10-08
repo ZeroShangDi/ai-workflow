@@ -81,6 +81,12 @@ async function planCommand(description, options = {}) {
   const srv = await session.ensureServer(ctx);
   if (srv.started) console.log(`  常驻 server 已启动（端口 ${ctx.port}）`);
   const client = createClient({ port: ctx.port, project: projectRoot });
+  if (options.approve) {
+    const approved = await client.approvePlan({});
+    if (approved?.ok === false) throw new Error(`Server 无法确认 Plan：${approved.error}`);
+    console.log('当前 Plan 已确认，可以执行 awf run');
+    return;
+  }
   if (interactive.detached === true) {
     await session.ensureDshWeb(ctx);
   }
@@ -90,9 +96,14 @@ async function planCommand(description, options = {}) {
     await launchPlan(projectRoot, prepared.prompt, interactive, client, prepared.title, prepared.workflowSessionId);
     if (interactive.detached === true) console.log('规划会话已在平台侧开始（网页里接着聊）');
     else {
+      // CC 的 CLI Plan 是前台交互会话：用户退出该会话即表示本次 Plan 已完成。
+      // 持久化引入 draft -> todo 门禁后，若 CLI 不同步确认，后续 `awf run`
+      // 会永久停在“请先确认 Plan”，而 CLI 又没有其他确认入口。
+      const approved = await client.approvePlan({ requirementId: prepared.requirement?.id });
+      if (approved?.ok === false) throw new Error(`Server 无法确认 Plan：${approved.error}`);
       const finished = await client.finishPlan({ workflowSessionId: prepared.workflowSessionId, attemptId: prepared.attemptId, status: 'completed' });
       if (finished?.ok === false) throw new Error(`Server 无法结束 Plan attempt：${finished.error}`);
-      console.log('规划会话结束');
+      console.log('Plan 已完成并确认');
     }
   } catch (error) {
     await client.finishPlan({ workflowSessionId: prepared.workflowSessionId, attemptId: prepared.attemptId, status: 'failed', errorText: error.message });

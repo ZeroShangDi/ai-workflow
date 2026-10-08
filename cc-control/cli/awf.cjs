@@ -38,6 +38,7 @@ program
   .command('plan [description...]')
   .description('启动规划会话，对齐需求、产出 WBS 与任务列表')
   .option('-r, --resume', '恢复上次规划')
+  .option('--approve', '确认当前项目的 Plan，允许启动 Run')
   .action(planCommand);
 
 program

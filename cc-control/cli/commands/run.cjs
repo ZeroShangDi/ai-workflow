@@ -131,8 +131,9 @@ async function runCommand(task, options = {}) {
   const preservePause = connectionMode !== 'fresh' && state.mode === 'pause';
 
   const stop = () => session.stopSession(ctx);
-  process.on('SIGINT', () => { stop(); process.exit(0); });
-  process.on('SIGTERM', () => { stop(); process.exit(0); });
+  const stopOnSignal = () => { stop().catch((err) => console.warn(`停止会话失败：${err.message}`)).finally(() => process.exit(0)); };
+  process.on('SIGINT', stopOnSignal);
+  process.on('SIGTERM', stopOnSignal);
 
   console.log(`${C.cyan}⚡ AI Workflow${C.reset}  ${C.dim}${state.plan?.summary || task || ''}${C.reset}`);
 
@@ -175,8 +176,12 @@ async function runCommand(task, options = {}) {
     done = true;
   } finally {
     if (done) {
-      stop();
-      console.log(`${C.dim}  已停止运行会话（server 常驻保留）${C.reset}`);
+      try {
+        await stop();
+        console.log(`${C.dim}  已停止运行会话（server 常驻保留）${C.reset}`);
+      } catch (err) {
+        console.warn(`  Run 已完成，但停止运行会话失败：${err.message}`);
+      }
     } else {
       if (workflowRun) {
         const finished = await client.finishWorkflowRun({ ...workflowRun, status: 'failed', errorText: 'CLI run 未正常完成' });

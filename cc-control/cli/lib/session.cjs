@@ -179,15 +179,33 @@ async function bringUp(ctx, { reuseExisting = false } = {}) {
   if (ctx.adapter === 'dsh') await ensureDshWeb(ctx);
   if (ctx.adapter === 'cc') writeRunSettings(ctx);
   const seqBefore = await sessionSeqOf(ctx); // 基准须在建会话**之前**取
-  const created = ensureSession(ctx, { reuseExisting });
+  let created;
+  if (ctx.adapter === 'dsh') {
+    // DSH bridge 只存在于常驻 server；CLI 不能直接调用本地适配器的 session 端口。
+    const result = await client.createClient({ port: ctx.port, project: ctx.projectRoot })
+      .ensureSession({ reuseExisting });
+    if (result?.status === 404) {
+      throw new Error('常驻 AWF server 尚不支持 DSH run 会话控制（可能仍在运行旧代码）。请先在本项目目录执行 `awf server stop`，再重试。');
+    }
+    if (result?.ok === false) throw new Error(`无法准备 DSH 会话：${result.error}`);
+    created = result.created === true;
+  } else {
+    created = ensureSession(ctx, { reuseExisting });
+  }
   // 只在新建会话时等：resume/attach 复用的是已经在跑的现场
   if (created) await waitSessionStarted(ctx, seqBefore);
   return { server, sessionCreated: created };
 }
 
-/** 结束本次 run 的会话（server 常驻保留：空闲自动回收 / 显式 stop）；经 session 端口（T-P1-03） */
-function stopSession(ctx) {
-  ctx.adapters.ports.session.kill();
+/** 结束本次 run 的会话（server 常驻保留）；DSH 的平台指令必须由持有 bridge 的 server 发出。 */
+async function stopSession(ctx) {
+  if (ctx.adapter === 'dsh') {
+    const result = await client.createClient({ port: ctx.port, project: ctx.projectRoot })
+      .stopSession();
+    if (result?.ok === false) throw new Error(`无法停止 DSH 会话：${result.error}`);
+    return result;
+  }
+  return ctx.adapters.ports.session.kill();
 }
 
 module.exports = {

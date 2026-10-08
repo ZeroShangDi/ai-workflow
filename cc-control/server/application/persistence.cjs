@@ -50,6 +50,18 @@ function createJsonIfMissing(filePath, value) {
   }
 }
 
+/** Replace the generated project identity manifest atomically during legacy identity recovery. */
+function writeProjectManifest(projectRoot, manifest) {
+  const filePath = path.join(path.resolve(projectRoot), '.awf', 'project.json');
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    fs.renameSync(temporaryPath, filePath);
+  } finally {
+    try { fs.unlinkSync(temporaryPath); } catch { /* renamed or already removed */ }
+  }
+}
+
 function ensureProjectManifest(projectRoot) {
   const root = path.resolve(projectRoot);
   const filePath = path.join(root, '.awf', 'project.json');
@@ -102,16 +114,33 @@ function createPersistenceApplication({ persistenceApi = defaultPersistence, env
     const rootPath = path.resolve(projectRoot);
     const registered = projects.get(rootPath);
     if (registered) return registered;
-    const manifest = ensureProjectManifest(rootPath);
+    let manifest = ensureProjectManifest(rootPath);
     const env = ensureEnvironment();
+    const registeredEnvironment = unwrap(persistenceApi.environments.register({ id: env.id }));
     let project = unwrap(persistenceApi.projects.get(manifest.projectId));
+    // Older releases keyed projects only by database ID; a later release introduced
+    // .awf/project.json and could mint a second, empty identity for the same checkout.
+    // If exactly one same-environment checkout has workflow data while the manifest
+    // identity is empty, adopt that established identity instead of orphaning its Plan.
+    const matchingCheckouts = unwrap(persistenceApi.checkouts.list({ environmentId: registeredEnvironment.id }))
+      .filter((checkout) => path.resolve(checkout.rootPath) === rootPath && checkout.projectId !== manifest.projectId);
+    const manifestHasRequirements = project
+      && unwrap(persistenceApi.requirements.list({ projectId: project.id, limit: 1 })).items.length > 0;
+    const established = matchingCheckouts.filter((checkout) => (
+      unwrap(persistenceApi.requirements.list({ projectId: checkout.projectId, limit: 1 })).items.length > 0
+    ));
+    if (!manifestHasRequirements && established.length === 1) {
+      manifest = { ...manifest, projectId: established[0].projectId };
+      writeProjectManifest(rootPath, manifest);
+      project = unwrap(persistenceApi.projects.get(manifest.projectId));
+      console.warn(`[persistence] recovered legacy project identity for ${rootPath}; existing workflow data was preserved`);
+    }
     if (!project) {
       project = unwrap(persistenceApi.projects.create({
         id: manifest.projectId,
         name: path.basename(rootPath),
       }));
     }
-    const registeredEnvironment = unwrap(persistenceApi.environments.register({ id: env.id }));
     const checkout = unwrap(persistenceApi.checkouts.register({
       projectId: project.id,
       environmentId: registeredEnvironment.id,

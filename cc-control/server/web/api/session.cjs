@@ -23,9 +23,24 @@
  */
 
 const interact = require('../interact.cjs');
+const path = require('node:path');
 const { READY_TIMEOUT_MS, LOCAL_CMD_FALLBACK_MS, DECISION_FALLBACK_MS } = require('../../config.cjs');
 const { readJson, send, requirePaused, noSession } = require('./util.cjs');
 const { resolveAdapterSource } = require('../../adapters/ports.cjs');
+const { projectSessionEnv } = require('../../shared/session-env.cjs');
+
+async function waitForDshBridge(rt, timeoutMs = Number(process.env.AWF_DSH_BRIDGE_TIMEOUT_MS) || 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastProbe = null;
+  do {
+    lastProbe = await rt.probe.inspect();
+    if (lastProbe.state !== 'unknown') return lastProbe;
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  } while (true);
+  const reason = lastProbe?.unknownReason ? `（${lastProbe.unknownReason}）` : '';
+  throw new Error(`DSH 插件指令通道在 ${timeoutMs}ms 内仍未连接${reason}；请确认 web profile 已安装 awf-dsh-plugin，并重启 DSH 网页后台使插件生效`);
+}
 
 async function handle(req, res, url, rt, deps) {
   const pathname = url.pathname;
@@ -138,6 +153,48 @@ async function handle(req, res, url, rt, deps) {
       send(res, 200, { ok: true, url: r?.url ?? null, sessionId: r?.sessionId ?? null });
     } catch (err) {
       send(res, 502, { ok: false, error: `计划会话启动失败：${err.message}` });
+    }
+    return true;
+  }
+
+  // DSH 的 CLI 没有 bridge。run 生命周期由此转交给持有 bridge 的常驻 server。
+  if (req.method === 'POST' && pathname === '/interactive/session/ensure') {
+    if (ctx.adapter !== 'dsh') {
+      send(res, 501, { ok: false, error: 'interactive session control is only available for DSH' });
+      return true;
+    }
+    const body = (await readJson(req)) || {};
+    const port = ctx.adapters.ports.session;
+    try {
+      // DSH HTTP 已就绪不代表 profile 插件的 WS bridge 已连上；等真实事实探针成功后再发 session.create。
+      await waitForDshBridge(rt);
+      const exists = await port.exists();
+      const cwd = exists ? await port.cwd() : null;
+      const sameProject = exists && cwd && path.resolve(cwd) === path.resolve(ctx.projectRoot);
+      if (body.reuseExisting && sameProject) {
+        send(res, 200, { ok: true, created: false, reused: true });
+        return true;
+      }
+      if (exists) await port.kill();
+      await port.start({ projectRoot: ctx.projectRoot, env: projectSessionEnv(process.env, {
+        projectRoot: ctx.projectRoot, port: ctx.port, sessionName: ctx.runSessionName,
+      }) });
+      send(res, 200, { ok: true, created: true, reused: false });
+    } catch (err) {
+      send(res, 502, { ok: false, error: err.message });
+    }
+    return true;
+  }
+  if (req.method === 'POST' && pathname === '/interactive/session/stop') {
+    if (ctx.adapter !== 'dsh') {
+      send(res, 501, { ok: false, error: 'interactive session control is only available for DSH' });
+      return true;
+    }
+    try {
+      await ctx.adapters.ports.session.kill();
+      send(res, 200, { ok: true, stopped: true });
+    } catch (err) {
+      send(res, 502, { ok: false, error: err.message });
     }
     return true;
   }
