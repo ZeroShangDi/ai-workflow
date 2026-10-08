@@ -20,7 +20,8 @@ export function useAppShell() {
   const [projectsRevision, setProjectsRevision] = useState(0);
   const client = useMemo(() => createApiClient(), []);
   const project = resolveProject(context, projects);
-  const selectedSession = workspace?.sessions?.find(session => session.id === route.sessionId) || null;
+  const selectedSession =
+    workspace?.sessions?.find(session => session.id === route.sessionId) || null;
   const sessionKind = selectedSession?.kind || null;
   const workspaceClient = useMemo(() => createApiClient({ project }), [project]);
   const refreshWorkspace = useCallback(() => setWorkspaceRevision(value => value + 1), []);
@@ -50,11 +51,12 @@ export function useAppShell() {
     async signal => {
       try {
         const [result, projectResult] = await Promise.all([
-          client.get(API.status, { signal }), client.get(API.projects, { signal }),
+          client.get(API.status, { signal }),
+          client.get(API.projects, { signal }),
         ]);
         if (signal.aborted) return;
         if (result.ok === false) throw new Error(result.error);
-        const projectRows = projectResult.ok === false ? [] : (projectResult.projects || []);
+        const projectRows = projectResult.ok === false ? [] : projectResult.projects || [];
         setProjects(projectRows);
         if (!hostBound && !context.pid && !readRoute(window.location).project && result.projectRoot)
           navigate({ project: result.projectRoot }, true);
@@ -78,7 +80,12 @@ export function useAppShell() {
         if (!signal.aborted) setWorkspaceError(reason.message || '读取项目会话失败');
       }
     },
-    { enabled: !!project, interval: selectedSession && ['created', 'active'].includes(selectedSession.status) ? 1500 : 5000, revision: `${project}:${route.requirementId}:${workspaceRevision}` },
+    {
+      enabled: !!project,
+      interval:
+        selectedSession && ['created', 'active'].includes(selectedSession.status) ? 1500 : 5000,
+      revision: `${project}:${route.requirementId}:${workspaceRevision}`,
+    },
   );
   useEffect(() => {
     if (!open) return;
@@ -88,7 +95,15 @@ export function useAppShell() {
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
   }, [open]);
-  const views = useMemo(() => ['requirements', 'bugs'].includes(route.view) ? getManagementViews() : getViews(context.mode, sessionKind), [context.mode, sessionKind, route.view]);
+  const views = useMemo(
+    () =>
+      context.mode === 'dsh'
+        ? getViews(context.mode, sessionKind)
+        : ['requirements', 'bugs'].includes(route.view)
+          ? getManagementViews()
+          : getViews(context.mode, sessionKind),
+    [context.mode, sessionKind, route.view],
+  );
   const contextError = !project && (hostBound || context.pid) ? '等待当前项目上下文' : '';
   return {
     ...route,
@@ -111,7 +126,14 @@ export function useAppShell() {
     setRunId: (runId, sessionId) => navigate({ runId, ...(sessionId ? { sessionId } : {}) }),
     setProject: (project, view) => {
       if (hostBound) return;
-      navigate({ project, runId: '', task: '', requirementId: '', sessionId: '', ...(view ? { view } : {}) });
+      navigate({
+        project,
+        runId: '',
+        task: '',
+        requirementId: '',
+        sessionId: '',
+        ...(view ? { view } : {}),
+      });
       setOpen(false);
     },
   };

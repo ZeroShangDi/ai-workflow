@@ -1,7 +1,21 @@
 // A feature extension adds one route: navigation, loader and reads stay together.
 export const ROUTES = [
-  { key: 'requirements', label: '需求', icon: 'tasks', management: true, reads: [], load: () => import('@/pages/Requirements/index.jsx') },
-  { key: 'bugs', label: 'Bug', icon: 'reviews', management: true, reads: [], load: () => import('@/pages/Bugs/index.jsx') },
+  {
+    key: 'requirements',
+    label: '需求',
+    icon: 'tasks',
+    management: true,
+    reads: [],
+    load: () => import('@/pages/Requirements/index.jsx'),
+  },
+  {
+    key: 'bugs',
+    label: 'Bug',
+    icon: 'reviews',
+    management: true,
+    reads: [],
+    load: () => import('@/pages/Bugs/index.jsx'),
+  },
   {
     key: 'run',
     label: '会话',
@@ -94,20 +108,24 @@ export const MODE_ROUTES = {
 export const getRoutes = mode =>
   Object.hasOwn(MODE_ROUTES, mode) ? MODE_ROUTES[mode] : MODE_ROUTES.cc;
 export const getViews = (mode, sessionKind) => {
-  const routes = getRoutes(mode).filter(route => !route.hidden && !route.management);
-  if (mode === 'dsh') return routes;
+  const visibleRoutes = getRoutes(mode).filter(route => !route.hidden);
+  if (mode === 'dsh') return visibleRoutes;
+  const routes = visibleRoutes.filter(route => !route.management);
   const session = routes.find(route => route.key === 'run');
   const tasks = routes.find(route => route.key === 'tasks');
   if (!sessionKind) return session ? [{ ...session, label: '会话' }] : routes;
-  if (sessionKind === 'plan') return [
-    ...(session ? [{ ...session, label: '会话' }] : []),
-    ...(tasks ? [{ ...tasks, label: '任务' }] : []),
-    ...(routes.find(route => route.key === 'decisions') ? [{ ...routes.find(route => route.key === 'decisions'), label: '决策' }] : []),
-  ];
+  if (sessionKind === 'plan')
+    return [
+      ...(session ? [{ ...session, label: '会话' }] : []),
+      ...(tasks ? [{ ...tasks, label: '任务' }] : []),
+      ...(routes.find(route => route.key === 'decisions')
+        ? [{ ...routes.find(route => route.key === 'decisions'), label: '决策' }]
+        : []),
+    ];
   const contextual = ['tasks', 'reviews', 'decisions', 'logs']
     .map(key => routes.find(route => route.key === key))
     .filter(Boolean)
-    .map(route => route.key === 'reviews' ? { ...route, label: '动态任务' } : route);
+    .map(route => (route.key === 'reviews' ? { ...route, label: '动态任务' } : route));
   return [...(session ? [{ ...session, label: '会话' }] : []), ...contextual];
 };
 export const getManagementViews = () => ROUTES.filter(route => route.management);
