@@ -16,6 +16,7 @@
  */
 
 import { listCommands } from './assets.js';
+import { createIsolation } from './isolation.js';
 
 /**
  * 注册包内全部命令。
@@ -24,6 +25,7 @@ import { listCommands } from './assets.js';
  * @returns {{registered: string[], skipped: string[]}}
  */
 export function registerCommands(ctx, { log = () => {}, loadLlm = () => import('@deepseek-ai/dsh-llm') } = {}) {
+  const isolate = createIsolation(log);
   // 服务必须经 ctx.get 取：属性访问会触发 Cordis 的 inject 校验，没声明就抛错
   const commands = typeof ctx?.get === 'function' ? ctx.get('commands') : undefined;
   if (!commands?.register) {
@@ -35,13 +37,18 @@ export function registerCommands(ctx, { log = () => {}, loadLlm = () => import('
   const skipped = [];
   for (const cmd of listCommands()) {
     try {
-      ctx.effect(() => commands.register({
-        name: cmd.name,
-        description: cmd.description,
-        ...(cmd.hint ? { input: { hint: cmd.hint } } : {}),
-        handler: (invocation) => handleCommand(cmd, invocation, { log, loadLlm }),
+      ctx.effect(() => isolate(`注册命令 /${cmd.name}`, () => {
+        const dispose = commands.register({
+          name: cmd.name,
+          description: cmd.description,
+          ...(cmd.hint ? { input: { hint: cmd.hint } } : {}),
+          handler: (invocation) => handleCommand(cmd, invocation, { log, loadLlm }),
+        });
+        registered.push(cmd.name);
+        return typeof dispose === 'function'
+          ? () => isolate(`注销命令 /${cmd.name}`, dispose)
+          : dispose;
       }), `awf-dsh: command ${cmd.name}`);
-      registered.push(cmd.name);
     } catch (err) {
       // 单条注册失败不拖垮其余命令，但必须留痕（不静默少一条命令）
       log('warn', `命令 /${cmd.name} 注册失败：${err.message}`);

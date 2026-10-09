@@ -17,6 +17,7 @@
 /** 重连退避（ms）：指数增长、封顶 10s，带抖动避免与其它实例同步 */
 const BACKOFF_BASE_MS = 300;
 const BACKOFF_MAX_MS = 10000;
+const CALLBACK_TIMEOUT_MS = 2500;
 
 /**
  * @param {object} opts
@@ -37,6 +38,10 @@ export function createBridgeClient({
 } = {}) {
   if (!awfBase) throw new Error('awf-dsh: 缺少 awfBase（AWF server 基址）');
   if (typeof dispatch !== 'function') throw new Error('awf-dsh: 缺少 dispatch（指令执行器）');
+  const logger = log;
+  log = (level, message) => {
+    try { logger(level, message); } catch { /* diagnostics never fail the DSH host */ }
+  };
 
   const wsBase = String(awfBase).replace(/^http/, 'ws').replace(/\/$/, '');
   const callbackUrl = `${String(awfBase).replace(/\/$/, '')}/bridge/dsh/callback`;
@@ -53,6 +58,7 @@ export function createBridgeClient({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(CALLBACK_TIMEOUT_MS),
       });
       if (!res.ok) log('warn', `回传 ${payload.phase || payload.kind} 失败：HTTP ${res.status}`);
     } catch (err) {
@@ -61,13 +67,19 @@ export function createBridgeClient({
   }
 
   /** 执行一条指令：先 accepted，再 result（两条回报都带同一个 commandId） */
-  async function handleCommand(command) {
+  async function handleCommand(command, isCurrent) {
     const { commandId, op } = command || {};
     if (!commandId || !op) {
       log('warn', `忽略无法识别的指令：${JSON.stringify(command)?.slice(0, 120)}`);
       return;
     }
     await post({ commandId, phase: 'accepted' });
+    // The host may have stopped while reporting acceptance. Do not start new
+    // session operations from a disposed plugin; already-running DSH work is untouched.
+    if (!isCurrent()) {
+      await post({ commandId, phase: 'result', ok: false, error: 'AWF 插件已停止，未执行指令' });
+      return;
+    }
     let outcome;
     try {
       outcome = await dispatch(command);
@@ -78,40 +90,51 @@ export function createBridgeClient({
   }
 
   function scheduleReconnect() {
-    if (stopped) return;
+    if (stopped || timer) return;
     attempts += 1;
     const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (attempts - 1));
     const jitter = Math.floor(Math.random() * 100);
-    timer = setTimeout(connect, delay + jitter);
+    timer = setTimeout(() => {
+      timer = null;
+      connect();
+    }, delay + jitter);
+    timer.unref?.();
   }
 
   function connect() {
-    if (stopped) return;
+    if (stopped || socket) return;
+    let currentSocket;
     try {
-      socket = new WebSocketImpl(`${wsBase}/bridge/dsh?pluginVersion=${encodeURIComponent(pluginVersion)}`);
+      currentSocket = new WebSocketImpl(`${wsBase}/bridge/dsh?pluginVersion=${encodeURIComponent(pluginVersion)}`);
+      socket = currentSocket;
     } catch (err) {
       log('warn', `连接 AWF 失败：${err.message}`);
       scheduleReconnect();
       return;
     }
-    socket.onopen = () => {
+    const isCurrent = () => !stopped && socket === currentSocket;
+    currentSocket.onopen = () => {
+      if (!isCurrent()) return;
       connected = true;
       attempts = 0;
       log('info', `已连上 AWF 指令通道：${wsBase}/bridge/dsh`);
     };
-    socket.onmessage = (event) => {
+    currentSocket.onmessage = (event) => {
+      if (!isCurrent()) return;
       let command;
       try { command = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data)); }
       catch { log('warn', '收到无法解析的下行帧（已丢弃）'); return; }
       if (command?.type !== 'command') return; // 本通道只承载指令
-      handleCommand(command);
+      handleCommand(command, isCurrent).catch((error) => log('warn', `AWF 指令处理异常：${error?.message || String(error)}`));
     };
-    socket.onerror = (err) => {
+    currentSocket.onerror = (err) => {
+      if (!isCurrent()) return;
       // 带上原因：连不上时（端口写错、AWF server 没起）光看「出错」两个字查不出东西
-      const reason = err?.message || err?.error?.message || (socket?.url ? `目标 ${socket.url}` : '未知');
+      const reason = err?.message || err?.error?.message || (currentSocket.url ? `目标 ${currentSocket.url}` : '未知');
       log('warn', `指令通道出错：${reason}`);
     };
-    socket.onclose = (event) => {
+    currentSocket.onclose = (event) => {
+      if (!isCurrent()) return;
       const wasConnected = connected;
       connected = false;
       socket = null;
@@ -124,15 +147,17 @@ export function createBridgeClient({
 
   return {
     start() {
+      if (socket || timer) return;
       stopped = false;
       connect();
     },
     stop() {
       stopped = true;
       if (timer) { clearTimeout(timer); timer = null; }
-      try { socket?.close?.(); } catch { /* 已关 */ }
+      const previous = socket;
       socket = null;
       connected = false;
+      try { previous?.close?.(); } catch { /* 已关 */ }
     },
     connected: () => connected,
     /** 主动上报平台事件（会话/子 Agent 生命周期） */

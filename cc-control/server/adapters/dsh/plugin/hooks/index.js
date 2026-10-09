@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTurnReporter } from './turn-reporter.js';
 import { createApprovalResponder } from './approval.js';
+import { createIsolation } from '../lib/isolation.js';
 
 const HOOKS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -36,6 +37,7 @@ export function readManifest(file = path.join(HOOKS_DIR, 'hooks.json')) {
  * @returns {string[]} 实际接上的 DSH 事件名
  */
 export function installHooks(ctx, deps) {
+  const isolate = createIsolation(deps.log);
   const { subscriptions } = readManifest();
   const wired = [];
   for (const sub of subscriptions) {
@@ -44,8 +46,18 @@ export function installHooks(ctx, deps) {
       deps.log('warn', `hooks.json 声明了未知处理器 ${sub.handler}（${sub.dsh}）—— 未接线`);
       continue;
     }
-    ctx.effect(() => ctx.on(sub.dsh, make(deps)), `awf-dsh: hook ${sub.dsh} → ${sub.handler}`);
-    wired.push(sub.dsh);
+    isolate(`订阅 ${sub.dsh}`, () => ctx.effect(() => isolate(`接线 ${sub.dsh}`, () => {
+      const handler = make(deps);
+      // Approval handlers isolate only AWF bookkeeping and delegate exactly once.
+      const callback = sub.handler === 'approvalResponder'
+        ? handler
+        : (...args) => isolate(`处理 ${sub.dsh}`, () => handler(...args));
+      const dispose = ctx.on(sub.dsh, callback);
+      wired.push(sub.dsh);
+      return typeof dispose === 'function'
+        ? () => isolate(`退订 ${sub.dsh}`, dispose)
+        : dispose;
+    }), `awf-dsh: hook ${sub.dsh} → ${sub.handler}`));
   }
   deps.log('info', `已接线 ${wired.length} 条订阅：${wired.join(', ')}`);
   return wired;

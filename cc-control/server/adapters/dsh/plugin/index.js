@@ -38,6 +38,7 @@ import { createBridgeClient } from './lib/bridge-client.js';
 import { createOps, lastAssistantText } from './lib/ops.js';
 import { registerCommands } from './lib/commands.js';
 import { installHooks, createTurnReporter } from './hooks/index.js';
+import { createIsolation } from './lib/isolation.js';
 
 export const name = 'awf-dsh';
 
@@ -53,10 +54,14 @@ function pluginVersion() {
 }
 
 export function apply(ctx, config = {}) {
+  config ||= {};
   const log = (level, msg) => {
     const line = `[awf-dsh][${level}] ${msg}`;
-    if (level === 'info') console.log(line); else console.error(line);
+    try {
+      if (level === 'info') console.log(line); else console.error(line);
+    } catch { /* AWF logging must not interrupt DSH */ }
   };
+  const isolate = createIsolation(log);
 
   const awfBase = config.awfBase || process.env.AWF_DSH_BASE;
   if (!awfBase) {
@@ -67,27 +72,28 @@ export function apply(ctx, config = {}) {
 
   // client 后建、ops 先用：事件上报经闭包取 client（避免构造循环）
   let client = null;
-  const { dispatch, noteApproval, createdByAwf, inFlight } = createOps({
-    ctx,
-    config,
-    log,
-    onEvent: (event, facts) => client?.emitEvent(event, facts),
+  const emit = (event, facts) => isolate('事件上报', () => client?.emitEvent(event, facts));
+  const ops = isolate('指令通道初始化', () => {
+    const operations = createOps({ ctx, config, log, onEvent: emit });
+    client = createBridgeClient({
+      awfBase,
+      pluginVersion: pluginVersion(),
+      dispatch: operations.dispatch,
+      log,
+    });
+    return operations;
   });
-  client = createBridgeClient({
-    awfBase,
-    pluginVersion: pluginVersion(),
-    dispatch,
-    log,
-  });
+  if (!ops) return;
+  const { noteApproval, createdByAwf, inFlight } = ops;
 
   // ── hooks：按 hooks.json 的订阅表接线（cc 的 5 个 hook 点等价物）──
-  installHooks(ctx, {
+  isolate('Hook 接线', () => installHooks(ctx, {
     createdByAwf,
     inFlight,
     noteApproval,
     log,
-    emit: (event, facts) => client?.emitEvent(event, facts),
-  });
+    emit,
+  }));
 
   // ── 命令：把包内 commands/*.md 注册成 DSH 原生命令 ──
   // 作用范围说明：DSH 的 slash command 只在**网页输入框**触发（API 注入的 prompt 不走
@@ -99,18 +105,22 @@ export function apply(ctx, config = {}) {
   // 顶层取会恒得 undefined（真机实测：`commands 服务不可用 —— 不注册任何 /w-* 命令`，
   // 网页输入框敲 `/` 一个命令都没有）。这是探针坑位清单的 F25：
   // 「插件运行期装配必须放 ctx.inject([...services], cb)；放 apply 顶层会命中非活动上下文」。
-  ctx.inject(['commands'], (commandCtx) => {
-    registerCommands(commandCtx, { log });
-  });
+  isolate('命令服务订阅', () => ctx.inject(['commands'], (commandCtx) => {
+    isolate('命令注册', () => registerCommands(commandCtx, { log }));
+  }));
 
-  ctx.effect(() => {
-    client.start();
-    log('info', `指令通道启动：${awfBase}（profile=${process.env.DSH_HOME || '?'}）`);
+  isolate('指令通道生命周期注册', () => ctx.effect(() => {
+    isolate('指令通道启动', () => {
+      client.start();
+      log('info', `指令通道启动：${awfBase}（profile=${process.env.DSH_HOME || '?'}）`);
+    });
     return () => {
-      client.stop();
-      log('info', '指令通道已停止');
+      isolate('指令通道停止', () => {
+        client.stop();
+        log('info', '指令通道已停止');
+      });
     };
-  }, 'awf-dsh: bridge client');
+  }, 'awf-dsh: bridge client'));
 }
 
 /**

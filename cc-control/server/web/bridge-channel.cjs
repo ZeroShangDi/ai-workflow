@@ -45,8 +45,15 @@ function channel() {
  * @param {{platform?: string, pluginVersion?: string}} [meta] 握手事实（对接的是哪一版插件，spec §6 原则）
  */
 function attachSocket(socket, meta = { platform: 'dsh' }) {
+  // A second `dsh web` loads plugins before failing with EADDRINUSE. It must not
+  // steal the healthy host's bridge and leave that host silently disconnected.
+  if (pluginSocket && pluginSocket !== socket && !pluginSocket.destroyed && pluginSocket.writable !== false) {
+    try { socket.destroy(); } catch { /* only reject the newcomer */ }
+    return false;
+  }
   pluginSocket = socket;
   channel().attach(meta);
+  return true;
 }
 
 /**

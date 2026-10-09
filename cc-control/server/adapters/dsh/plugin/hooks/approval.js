@@ -11,23 +11,29 @@
  * 作为将来定策略（受控自动批准 vs 接入 AWF 介入机制）的依据。
  */
 
+import { createIsolation } from '../lib/isolation.js';
+
 /**
  * @param {{createdByAwf: Set<string>, noteApproval: Function, emit: Function, log: Function}} deps
  * @returns {(req: object, next: Function) => any} Cordis waterfall 处理器
  */
 export function createApprovalResponder({ createdByAwf, noteApproval, emit, log }) {
+  const isolate = createIsolation(log);
   return (req, next) => {
-    const sessionId = req?.agent?.session?.header?.id ?? null;
-    const ours = sessionId !== null && createdByAwf.has(sessionId);
-    noteApproval(req, { sessionId, ours });
-    emit({
-      type: 'approval.requested',
-      sessionId,
-      ours,
-      toolName: req?.toolName ?? null,
-      reason: req?.reason ?? null,
+    isolate('批准请求记录', () => {
+      const sessionId = req?.agent?.session?.header?.id ?? null;
+      const ours = sessionId !== null && createdByAwf.has(sessionId);
+      noteApproval(req, { sessionId, ours });
+      isolate('批准事件上报', () => emit({
+        type: 'approval.requested',
+        sessionId,
+        ours,
+        toolName: req?.toolName ?? null,
+        reason: req?.reason ?? null,
+      }));
+      log('info', `批准请求（${ours ? 'AWF 会话' : '非 AWF 会话'}）：tool=${req?.toolName ?? '?'} reason=${String(req?.reason ?? '').slice(0, 120)}`);
     });
-    log('info', `批准请求（${ours ? 'AWF 会话' : '非 AWF 会话'}）：tool=${req?.toolName ?? '?'} reason=${String(req?.reason ?? '').slice(0, 120)}`);
+    // Never await AWF callbacks or retry next(): DSH owns the actual approval flow.
     return next();
   };
 }
