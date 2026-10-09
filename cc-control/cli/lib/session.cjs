@@ -89,6 +89,7 @@ async function ensureDshWeb(ctx) {
   if (typeof serve?.ensureWeb !== 'function') return null;
   const r = await serve.ensureWeb({ logDir: ctx.logsDir });
   if (r.started) console.log(`  dsh 网页后台已启动（端口 ${r.port}${r.logPath ? `，日志 ${r.logPath}` : ''}）`);
+  if (r.reused) console.log(`  已复用 dsh 网页后台（端口 ${r.port}，无需再次执行 dsh web）`);
   return r;
 }
 

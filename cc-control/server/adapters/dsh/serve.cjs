@@ -134,12 +134,17 @@ async function ensureWeb({ webPort, profile, logDir, timeoutMs = READY_TIMEOUT_M
   }
 
   let proc;
+  let launchError = null;
+  let exitResult = null;
   try {
     proc = spawnFn('dsh', dshArgs(prof, port), {
       stdio: ['ignore', fd, fd],
       detached: true,
       env: process.env,
     });
+    // spawn failures arrive asynchronously; leaving 'error' unhandled crashes the AWF CLI.
+    proc.on?.('error', (error) => { launchError = error; });
+    proc.on?.('exit', (code, signal) => { exitResult = { code, signal }; });
   } catch (err) {
     if (typeof fd === 'number') { try { fs.closeSync(fd); } catch { /* 已关 */ } }
     throw new Error(`拉起 dsh 网页后台失败：${err.message}（dsh 在 PATH 里吗？）`);
@@ -151,7 +156,19 @@ async function ensureWeb({ webPort, profile, logDir, timeoutMs = READY_TIMEOUT_M
   while (Date.now() < deadline) {
     await sleepFn(POLL_MS);
     const p = await probeFn(port);
-    if (p.kind === 'dsh') return { reused: false, started: true, port, profile: prof, logPath, url: null };
+    if (p.kind === 'dsh') {
+      // Another launcher may have won the port. Reuse it without restarting shared DSH.
+      const reused = Boolean(launchError || exitResult);
+      return { reused, started: !reused, port, profile: prof, logPath, url: null };
+    }
+    if (launchError || exitResult) {
+      const reason = launchError?.message || `进程已退出（${exitResult.signal ? `signal=${exitResult.signal}` : `code=${exitResult.code}`}）`;
+      throw new Error(
+        `拉起 dsh 网页后台失败：${reason}`
+        + (logPath ? `\n  看日志：${logPath}` : '')
+        + '\n  未停止或修改已有的 DSH 后台。',
+      );
+    }
   }
   throw new Error(
     `dsh 网页后台启动超时（${timeoutMs}ms，端口 ${port}）`
