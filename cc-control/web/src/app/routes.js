@@ -3,7 +3,7 @@ export const ROUTES = [
   {
     key: 'requirements',
     label: '需求',
-    icon: 'tasks',
+    icon: 'requirements',
     management: true,
     reads: [],
     load: () => import('@/pages/Requirements/index.jsx'),
@@ -11,7 +11,7 @@ export const ROUTES = [
   {
     key: 'bugs',
     label: 'Bug',
-    icon: 'reviews',
+    icon: 'bugs',
     management: true,
     reads: [],
     load: () => import('@/pages/Bugs/index.jsx'),
