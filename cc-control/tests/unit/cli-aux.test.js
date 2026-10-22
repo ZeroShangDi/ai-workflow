@@ -210,12 +210,20 @@ describe('cli-aux', () => {
       expect(Object.keys(TARGETS).sort()).toEqual(['dashboard', 'tree', 'ui']);
     });
 
-    it('TC17: 打印带项目作用域的 URL（缺 ?p 会落到 server 的 boot 项目）', () => {
+    it('TC17: 打印带项目作用域的 URL（缺 ?p 会落到 server 的 boot 项目）', async () => {
       const proj = tmpProject();
       vi.spyOn(process, 'cwd').mockReturnValue(proj);
       // browser 换成无副作用的 `true`（命令自带的可注入参数，不必为此加产线缝）
-      openCommand('dashboard', { browser: 'true' });
+      expect(await openCommand('dashboard', { browser: 'true' })).toBe(true);
       expect(logs.join('\n')).toContain(`http://localhost:8787/dashboard?p=${encodeURIComponent(proj)}`);
+    });
+
+    it('浏览器命令不存在时保留 URL 并提示，不抛异常', async () => {
+      vi.spyOn(process, 'cwd').mockReturnValue(TMP);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      expect(await openCommand('dashboard', { browser: path.join(TMP, 'missing-browser') })).toBe(false);
+      expect(logs.join('\n')).toContain(`/dashboard?p=${encodeURIComponent(TMP)}`);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('请手动打开上面的地址'));
     });
 
     it('TC18: 未知 target → 报错退出（exit 2）', () => {

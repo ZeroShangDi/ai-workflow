@@ -4,6 +4,7 @@
 > 源码：cli/commands/run.cjs（`runCommand`/`driveSingle`/`observeRun`/`waitSessionStarted`/`handleDecision`/`drainDecisionResume`）
 > 测试文件：
 > - `tests/unit/run.test.js`（CLI 薄化控制流，主套件）
+> - `tests/unit/run-display.test.js`（TTY 刷新、静态日志与事件回放耗时）
 > - `tests/unit/session-ready-wait.test.js`
 > - `tests/unit/run-resume.test.js`
 > - `tests/unit/run-client.test.js`
@@ -18,6 +19,14 @@
 | TC1 | state.json 不存在 → exit(1) | 入口 | run.test.js |
 | TC2 | 环境拉起 → 提交 run → 观察至 done → mode idle + 清理 | 主流程 | run.test.js |
 | TC2b | 观察循环消费宿主事件并展示（task.done 渲染） | 主流程 | run.test.js |
+| UI1 | 无新事件时每秒刷新，结束后仅留一行结果；停止后无残留定时器 | 终端展示 | run-display.test.js |
+| UI2 | 并行任务各自计时，普通日志不覆盖任务，完成/阻塞各留一行 | 终端展示 | run-display.test.js |
+| UI3 | 历史事件按宿主起止时间计算；不同订阅的相同 taskId 不串状态 | 挂接展示 | run-display.test.js |
+| UI4 | 非 TTY 保留开始/完成日志；评测可显式强制重绘 | 输出兼容 | run-display.test.js |
+| UI5 | 决策输入时暂停刷新，输入异常后恢复；窄终端中文标题不换行 | 交互保护 | run-display.test.js |
+| UI6 | done/error/接口失败/抛错退出均清理刷新定时器 | 观察生命周期 | run.test.js |
+| UI7 | 环境就绪后打开本项目 dashboard；打开失败仍继续 run；环境启动失败不打开页面 | 页面启动 | run.test.js |
+| UI8 | 打开带项目作用域的页面；浏览器命令缺失时打印地址与提示，不抛异常 | 页面启动 | cli-aux.test.js |
 | TC2c | run 提交失败 → 保留现场（不 idle、不清理） | 异常保留现场 | run.test.js |
 | TC2d | 宿主以 error 收尾 → 保留现场（不标 idle） | 异常保留现场 | run.test.js |
 | TC2e | 正常完成但 idle 写入失败 → 保留现场 | 异常保留现场 | run.test.js |

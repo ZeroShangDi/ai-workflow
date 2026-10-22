@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const session = require('../../cli/lib/session.cjs');
+const pages = require('../../cli/commands/open.cjs');
 const { runCommand, observe, renderEvent } = require('../../cli/commands/run.cjs');
 
 /**
@@ -27,6 +28,7 @@ let net;
 let logs;
 let errors;
 let savedSession;
+let savedSignalListeners;
 
 function res(body) {
   return { ok: true, status: 200, text: async () => JSON.stringify(body) };
@@ -40,10 +42,10 @@ function installFetch() {
     net.calls.push({ path: u.pathname, method, body, project: u.searchParams.get('p') });
 
     if (u.pathname === '/run/state/mode') { net.modes.push(body.mode); return res({ ok: true }); }
-    if (u.pathname === '/run/submit') {
+    if (u.pathname === '/workflow/run/start') {
       const runId = body?.runId || 'default';
       net.submitted.push({ runId, mode: body?.mode });
-      return res({ ok: true, runId, mode: body?.mode || 'single' });
+      return res({ ok: true, runId, mode: body?.mode || 'single', workflowSessionId: 'ws1', attemptId: 'a1' });
     }
     if (u.pathname === '/run/events') {
       const after = Number(u.searchParams.get('afterSeq') || 0);
@@ -65,12 +67,14 @@ function writeState(overrides = {}) {
 }
 
 beforeEach(() => {
+  savedSignalListeners = new Map(['SIGINT', 'SIGTERM'].map((signal) => [signal, process.listeners(signal)]));
   TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-run-'));
   vi.spyOn(process, 'cwd').mockReturnValue(TMP);
   logs = [];
   errors = [];
   vi.spyOn(console, 'log').mockImplementation((...a) => { logs.push(a.join(' ')); });
   vi.spyOn(console, 'error').mockImplementation((...a) => { errors.push(a.join(' ')); });
+  vi.spyOn(pages, 'openPage').mockResolvedValue(true);
 
   net = { calls: [], modes: [], submitted: [], events: [], runs: [], run: { status: 'done' }, decisionPending: null };
   installFetch();
@@ -81,6 +85,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const [signal, original] of savedSignalListeners) {
+    for (const listener of process.listeners(signal)) {
+      if (!original.includes(listener)) process.removeListener(signal, listener);
+    }
+  }
   session.bringUp = savedSession.bringUp;
   session.stopSession = savedSession.stopSession;
   vi.restoreAllMocks();
@@ -155,6 +164,28 @@ describe('observe — 订阅事件与状态直到终态', () => {
     expect(c.respond).not.toHaveBeenCalled();
     expect(logs.join('\n')).toContain('决策待答');
   });
+
+  it.each(['done', 'error', 'disconnect', 'throw'])('TTY 观察退出 %s 时停止刷新定时器', async (ending) => {
+    vi.useFakeTimers();
+    try {
+      const c = stubClient({
+        pollRunEvents: vi.fn(async () => ({ ok: true, events: [
+          { seq: 1, type: 'task.started', payload: { taskId: 'T1', title: 'A' } },
+        ] })),
+        runSnapshot: vi.fn(async () => {
+          if (ending === 'throw') throw new Error('网络异常');
+          if (ending === 'disconnect') return { ok: false, error: '连接断' };
+          return { ok: true, run: { status: ending } };
+        }),
+      });
+      const result = observe(c, { runId: 'r1', output: { isTTY: true, write: vi.fn() } });
+      if (ending === 'throw') await expect(result).rejects.toThrow('网络异常');
+      else expect((await result).ok).toBe(ending === 'done');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ═══════════════════ runCommand（薄编排）═══════════════════
@@ -174,10 +205,29 @@ describe('runCommand', () => {
     await runCommand(undefined);
 
     expect(session.bringUp).toHaveBeenCalledWith(expect.anything(), { reuseExisting: false });
+    expect(pages.openPage).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: TMP }), 'dashboard');
+    expect(session.bringUp.mock.invocationCallOrder[0]).toBeLessThan(pages.openPage.mock.invocationCallOrder[0]);
     expect(net.modes).toEqual(['run', 'idle']);
     expect(net.submitted).toEqual([{ runId: 'default', mode: undefined }]);
     expect(session.stopSession).toHaveBeenCalled();
     expect(logs.join('\n')).toContain('已停止运行会话');
+  });
+
+  it('浏览器未能打开时仍提交并完成 run', async () => {
+    writeState();
+    pages.openPage.mockResolvedValue(false);
+    await runCommand(undefined);
+    expect(net.submitted).toHaveLength(1);
+    expect(net.modes).toEqual(['run', 'idle']);
+    expect(session.stopSession).toHaveBeenCalled();
+  });
+
+  it('环境启动失败时不尝试打开页面', async () => {
+    writeState();
+    session.bringUp.mockRejectedValue(new Error('环境启动失败'));
+    await expect(runCommand(undefined)).rejects.toThrow('环境启动失败');
+    expect(pages.openPage).not.toHaveBeenCalled();
+    expect(net.submitted).toHaveLength(0);
   });
 
   it('--multi-agent → 提交时声明 mode=batch（多 agent 分流由宿主判定）', async () => {

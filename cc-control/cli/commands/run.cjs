@@ -21,7 +21,9 @@ const { stateFilePath } = require('../../server/shared/project-paths.cjs');
 const { buildContext } = require('../lib/context.cjs');
 const { createClient } = require('../lib/client.cjs');
 const session = require('../lib/session.cjs');
+const pages = require('./open.cjs');
 const { answerDecision } = require('../lib/decision.cjs');
+const { createRunDisplay, renderEvent } = require('../lib/run-display.cjs');
 const { decisionMode: readDecisionMode } = require('../../server/features/decision/config.cjs');
 
 const C = { cyan: '[36m', dim: '[2m', red: '[31m', yellow: '[33m', reset: '[0m' };
@@ -29,75 +31,42 @@ const POLL_MS = 1500;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * 任务状态行：`<icon> [<id>] <标题> <耗时>` —— 与旧 CLI 的任务列表同一格式。
- * 它既是给人看的时间线，也是回归/评测用于事后复盘与并行度分析的稳定格式（eval 的日志检查按它解析）。
- */
-const taskSeen = new Map(); // taskId → { title, startedAt }
-
-function taskLine(icon, id, title, startedAt) {
-  const secs = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0;
-  return `  ${icon} [${id}] ${title || '未命名任务'} ${secs}s`;
-}
-
-/** 事件 → 一行人读文本（未知类型原样打 type） */
-function renderEvent(e) {
-  const p = e.payload || {};
-  const task = p.taskId || p.id || '';
-  switch (e.type) {
-    case 'run.started': return `▶ run 开始（mode=${p.mode || '-'}）`;
-    case 'run.stopped': return `■ run 结束（status=${p.status || '-'}）`;
-    case 'run.error': return `✖ run 出错：${p.error || ''}`;
-    case 'task.started': {
-      taskSeen.set(task, { title: p.title || '', startedAt: Date.now() });
-      return taskLine('●', task, p.title, Date.now());
-    }
-    case 'task.done': {
-      const seen = taskSeen.get(task);
-      return taskLine('✓', task, seen?.title || p.title, seen?.startedAt);
-    }
-    case 'task.blocked': {
-      const seen = taskSeen.get(task);
-      return taskLine('⚠', task, seen?.title || p.title, seen?.startedAt);
-    }
-    // 门禁非 pass → 派生修复任务（fixId 由宿主从派发结果带出）
-    case 'gate.fix':
-      return `  ⚑ 门禁 ${task} 非 pass → 派生修复任务 ${p.fixId || '(未派生)'}`;
-    default: return `  · ${e.type}`;
-  }
-}
-
-/**
  * 订阅事件与状态，直到 run 进入终态。
  * @returns {{ ok: boolean, error?: string }}
  */
-async function observe(client, { runId, afterSeq = 0, mode = 'auto' }) {
+async function observe(client, { runId, afterSeq = 0, mode = 'auto', output = process.stdout }) {
+  const display = createRunDisplay({ output });
   let after = afterSeq;
-  for (;;) {
-    const ev = await client.pollRunEvents({ runId, afterSeq: String(after) });
-    if (ev?.ok === false) return { ok: false, error: ev.error };
-    for (const e of ev.events || []) {
-      if (e.type && !e.type.startsWith('decision.')) console.log(renderEvent(e));
-      after = Math.max(after, e.seq ?? after);
-    }
+  try {
+    for (;;) {
+      const ev = await client.pollRunEvents({ runId, afterSeq: String(after) });
+      if (ev?.ok === false) return { ok: false, error: ev.error };
+      for (const e of ev.events || []) {
+        if (e.type && !e.type.startsWith('decision.')) display.event(e);
+        after = Math.max(after, e.seq ?? after);
+      }
 
-    const st = await client.runSnapshot(runId ? { runId } : undefined);
-    if (st?.ok === false) return { ok: false, error: st.error };
+      const st = await client.runSnapshot(runId ? { runId } : undefined);
+      if (st?.ok === false) return { ok: false, error: st.error };
 
-    // 人机决策挂在会话面（/status 的 decisionPending），不在 run 快照里 → 单独问一次。
-    // 谁来答由配置的策略决定（manual / ai / auto），三路由的应答都经 /respond 落记录。
-    const s = await client.getStatus();
-    if (s?.decisionPending) {
-      const r = await answerDecision({ pending: s.decisionPending, client, mode });
-      if (r.answered) console.log(`  ${C.dim}⚡ 决策已答（${r.by}）：${String(r.value).slice(0, 40)}${C.reset}`);
-      else console.log(`  ${C.dim}⏸ 决策待答（${r.by}）：${r.reason}${C.reset}`);
-    }
+      // 人机决策挂在会话面（/status 的 decisionPending），不在 run 快照里 → 单独问一次。
+      // 谁来答由配置的策略决定（manual / ai / auto），三路由的应答都经 /respond 落记录。
+      const s = await client.getStatus();
+      if (s?.decisionPending) {
+        const r = await display.duringPrompt(() => answerDecision({ pending: s.decisionPending, client, mode }));
+        if (r.answered) display.log(`  ${C.dim}⚡ 决策已答（${r.by}）：${String(r.value).slice(0, 40)}${C.reset}`);
+        else display.log(`  ${C.dim}⏸ 决策待答（${r.by}）：${r.reason}${C.reset}`);
+      }
 
-    const status = st.run?.status;
-    if (status === 'done') return { ok: true };
-    if (status && status !== 'running' && status !== 'queued') {
-      return { ok: false, error: `run 终止于 ${status}${st.run.error ? `：${st.run.error}` : ''}` };
+      const status = st.run?.status;
+      if (status === 'done') return { ok: true };
+      if (status && status !== 'running' && status !== 'queued') {
+        return { ok: false, error: `run 终止于 ${status}${st.run.error ? `：${st.run.error}` : ''}` };
+      }
+      await sleep(POLL_MS);
     }
-    await sleep(POLL_MS);
+  } finally {
+    display.stop();
   }
 }
 
@@ -138,6 +107,7 @@ async function runCommand(task, options = {}) {
   console.log(`${C.cyan}⚡ AI Workflow${C.reset}  ${C.dim}${state.plan?.summary || task || ''}${C.reset}`);
 
   await session.bringUp(ctx, { reuseExisting: connectionMode !== 'fresh' });
+  await pages.openPage(ctx, 'dashboard');
   const client = createClient({ port: ctx.port, project: ctx.projectRoot });
 
   let done = false;

@@ -31,7 +31,7 @@ runCommand(task, options)                                  cli/commands/run.cjs:
   │     ├─ writeRunSettings  → 写 .awf/run-settings.json（statusLine）
   │     ├─ ensureSession     → reuseExisting 时复用与 workDir 匹配的会话，否则 bootstrap.sh 重建
   │     └─ created && waitSessionStarted → 等 SessionStart 到达（含补 Enter 兜信任弹窗）
-  ├─ 7. spawn open dashboard（带 ?p 项目作用域）              run.js:99-100
+  ├─ 7. 自动打开 dashboard（带 ?p 项目作用域；失败仅提示手动打开）
   ├─ 8. setRunMode('run')（needSetRun 时）                    run.js:110-113
   ├─ 9. driveSingle(client, {connectionMode, runId, mode})  run.js:114-119
   └─ 10. 终态处理
@@ -57,13 +57,16 @@ runCommand(task, options)                                  cli/commands/run.cjs:
 
 ### observeRun 事件环（订阅与展示）
 
-`observeRun` 轮询循环直到 run 进终态 `done|error|stopped`（`run.js:388-452`），每轮：
+当前实现为 `cli/commands/run.cjs` 的 `observe` 与 `cli/lib/run-display.cjs` 的 `createRunDisplay`：
 
-1. **pause 闩锁**：`await waitWhilePaused(projectRoot)` —— 暂停期间不消费事件、不应答（`run.js:397`）。
-2. **人机应答/决策中继**：读 `/status`，`decisionPending` → `handleDecision`；`decisionResume`（去重）→ `injectResumeOnce`（`run.js:399-411`）。
-3. **宿主事件展示**：`pollRunEvents({runId, afterSeq})` 增量事件 —— TTY 下喂 `createRunFollow()`（任务行原地重绘）；非 TTY 走静态 `renderHostEvent`（`run.js:413-419`）。
-4. **状态 → 进度行 + 终态判定**：`runSnapshot({runId})`；终态即 break（`run.js:421-430`）。
-5. `sleep(200)` 后下一轮（`run.js:432`）。
+1. `pollRunEvents({runId, afterSeq})` 增量消费宿主事件；每次订阅独立保存任务标题与开始时间。
+2. **TTY 展示**：活动任务每秒在原区域刷新耗时，完成/阻塞后移出动态区域，只保留一行最终记录；并行任务分别计时。日志安全插入动态区域上方，长标题在动态行中截断，避免换行后覆盖其他记录。
+3. **非 TTY 展示**：管道/文件保留开始与完成两条事件日志，不输出光标控制码。评测透传到终端时可显式设置 `AWF_TASK_LIST_INTERACTIVE=1` 开启刷新。
+4. **耗时**：使用宿主事件 `at` 的起止差；缺失时间戳时回退到接收时间。挂接历史事件不会把已完成任务算成 0s。
+5. `runSnapshot` 判定运行状态；`getStatus().decisionPending` 交给 `answerDecision`。等待终端决策期间暂停重绘，保留输入提示。
+6. 每 1500ms 轮询一次；终态、接口失败或抛错退出均在 `finally` 停止展示定时器。派发暂停仍由宿主处理。
+
+环境就绪后自动打开本项目 dashboard（fresh/resume/attach 共用），URL 带 `?p=` 项目作用域。浏览器命令可由 `AWF_BROWSER` 覆盖，默认 `open`；启动浏览器失败时打印提示和地址，继续执行 run。`awf open dashboard` 复用同一打开逻辑。
 
 ## 决策中继
 
