@@ -1,0 +1,60 @@
+{
+  "schema": "codex-control/plugin-manifest@1",
+  "id": "voice-control",
+  "displayName": "Voice Control",
+  "version": "0.1.0",
+  "summary": "Independent local or remote voice runtime with generic event transport and explicit external triggers.",
+  "entrypoints": {
+    "http": "src/main.mjs",
+    "web": "web/index.html",
+    "sdk": "sdk/index.mjs"
+  },
+  "runtime": {
+    "engine": "node",
+    "version": ">=20",
+    "module": "esm",
+    "thirdPartyRuntimeDependencies": 0,
+    "modes": {
+      "local": {
+        "defaultHost": "127.0.0.1",
+        "defaultPort": 8791
+      },
+      "remote": {
+        "supported": true,
+        "transport": "same-api-behind-deployment-auth"
+      }
+    }
+  },
+  "capabilities": {
+    "voiceSessions": true,
+    "serverSentEvents": true,
+    "browserSpeech": {
+      "asr": "optional-native",
+      "tts": "optional-native"
+    },
+    "textFallback": true,
+    "externalTriggers": {
+      "default": "disabled",
+      "activation": "explicit-configuration"
+    },
+    "taskControl": false
+  },
+  "configuration": {
+    "dataDirectoryEnvironment": "VOICE_CONTROL_DATA_DIR",
+    "triggerFile": "data/config.json",
+    "exampleFile": "data/config.example.json"
+  },
+  "lifecycle": [
+    "installed",
+    "configured",
+    "healthy",
+    "paired",
+    "subscribed",
+    "active"
+  ],
+  "security": {
+    "defaultBindHost": "127.0.0.1",
+    "remoteAuthentication": "deployment-boundary",
+    "taskControlExposure": false
+  }
+}

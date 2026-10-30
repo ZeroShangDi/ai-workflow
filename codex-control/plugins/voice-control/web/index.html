@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Voice Control</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>Voice Control</h1>
+            <p>独立语音会话</p>
+          </div>
+        </div>
+        <div class="server-state" id="serverState">
+          <span class="state-dot" id="serverDot"></span>
+          <span id="serverLabel">正在检查服务</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="control-panel">
+          <section class="control-section">
+            <div class="section-heading">
+              <h2>会话</h2>
+              <span id="sessionStatus">空闲</span>
+            </div>
+            <div class="capabilities">
+              <span class="capability" id="asrCapability">识别 · 检测中</span>
+              <span class="capability" id="ttsCapability">播报 · 检测中</span>
+            </div>
+            <div class="primary-actions">
+              <button class="button button-primary" id="startButton" type="button">开始语音</button>
+              <button class="button button-secondary" id="stopButton" type="button" disabled>结束</button>
+            </div>
+            <button class="button button-quiet" id="muteButton" type="button" aria-pressed="false">
+              播报已开启
+            </button>
+            <p class="capability-note" id="capabilityNote" role="status"></p>
+          </section>
+
+          <section class="control-section session-details">
+            <h2>连接详情</h2>
+            <dl>
+              <div>
+                <dt>会话编号</dt>
+                <dd id="sessionId">—</dd>
+              </div>
+              <div>
+                <dt>游标</dt>
+                <dd id="lastCursor">0</dd>
+              </div>
+              <div>
+                <dt>外部触发</dt>
+                <dd id="triggerStatus">未配置</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="control-section text-fallback">
+            <label for="textInput">文字输入</label>
+            <form id="textForm">
+              <input
+                id="textInput"
+                name="text"
+                type="text"
+                maxlength="6000"
+                autocomplete="off"
+                placeholder="输入消息"
+                disabled
+              >
+              <button class="button button-send" id="sendButton" type="submit" disabled>发送</button>
+            </form>
+          </section>
+        </aside>
+
+        <section class="transcript-panel" aria-labelledby="transcriptTitle">
+          <div class="transcript-header">
+            <div>
+              <h2 id="transcriptTitle">实时消息</h2>
+              <p id="activityText">等待开始</p>
+            </div>
+            <span class="event-count" id="eventCount">0 条</span>
+          </div>
+          <p class="error-banner" id="errorBanner" role="alert" hidden></p>
+          <div class="transcript" id="transcript" aria-live="polite">
+            <p class="empty-state" id="emptyState">尚未开始语音会话</p>
+          </div>
+          <p class="interim" id="interimText" aria-live="polite"></p>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
