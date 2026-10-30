@@ -44,6 +44,18 @@ function queryString(values) {
   return text ? `?${text}` : '';
 }
 
+function timeoutValue(value) {
+  const timeout = value === undefined || value === null || value === ''
+    ? 30000
+    : Number(value);
+  if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 600000) {
+    throw new ControlClientError('Hub timeout must be an integer from 1000 to 600000 ms', {
+      code: 'HUB_NOT_CONFIGURED',
+    });
+  }
+  return timeout;
+}
+
 export class HubControlClient {
   constructor({
     baseUrl,
@@ -57,7 +69,7 @@ export class HubControlClient {
     this.token = token;
     this.consumer = consumer;
     this.voiceConsumer = voiceConsumer;
-    this.timeoutMs = timeoutMs;
+    this.timeoutMs = timeoutValue(timeoutMs);
     this.fetch = fetchImpl;
   }
 
@@ -129,6 +141,8 @@ export class HubControlClient {
 
   createWork({
     sessionId,
+    draftId,
+    binding,
     draft,
     transcript,
     idempotencyKey,
@@ -138,6 +152,8 @@ export class HubControlClient {
       body: {
         consumer: this.consumer,
         sessionId,
+        draftId,
+        binding,
         draft,
         transcript,
         idempotencyKey,

@@ -18,6 +18,19 @@ import {
 
 const AFFIRMATIVE = /^(确认|确认创建|是的|是|好|可以|同意|对|批准|yes|y|ok|okay|confirm|approve)[。.!！]?$/i;
 const NEGATIVE = /^(否|不|不行|不用|不要|取消|拒绝|no|n|cancel|reject)[。.!！]?$/i;
+const WORK_READ_VIEWS = new Set(['history', 'result', 'errors', 'activity', 'artifacts']);
+
+function isUnknownReceipt(value) {
+  return value?.status === 'unknown'
+    || value?.outcome === 'unknown'
+    || value?.result === 'unknown';
+}
+
+function isFailedReceipt(value) {
+  return value?.status === 'failed'
+    || value?.outcome === 'failed'
+    || value?.result === 'failed';
+}
 
 function subscriptionAckRequired(registry, consumer, event) {
   const matches = registry.matchingSubscriptions(consumer, event);
@@ -141,6 +154,8 @@ export class Hub {
     if (consumer) this.assertActiveConsumer(consumer);
     const interaction = this.controls.getInteraction(interactionId);
     if (!interaction) return null;
+    if (interaction.status !== 'pending') return null;
+    if (interaction.expiresAt && Date.parse(interaction.expiresAt) <= Date.now()) return null;
     if (sessionId && interaction.sessionId !== sessionId) {
       throw new HubError(403, 'session_interaction_mismatch', 'interaction belongs to another session');
     }
@@ -225,55 +240,109 @@ export class Hub {
     }
     const listing = await this.adapter.projects();
     const normalized = requested.toLocaleLowerCase();
-    const project = listing.projects.find((item) => item.key === requested)
-      || listing.projects.find((item) => (
+    const exact = listing.projects.find((item) => item.key === requested);
+    const matches = exact ? [exact] : listing.projects.filter((item) => (
         item.name?.toLocaleLowerCase() === normalized
         || item.cwd?.toLocaleLowerCase() === normalized
         || item.cwd?.split(/[\\/]/).at(-1)?.toLocaleLowerCase() === normalized
-      ));
-    if (!project) {
+    ));
+    if (!matches.length) {
       throw new HubError(409, 'project_not_found', 'project is not registered in the bridge software', {
         requested,
         candidates: listing.projects.slice(0, 20),
       });
     }
-    return project;
+    if (matches.length > 1) {
+      throw new HubError(409, 'project_ambiguous', 'project name matches multiple registered projects', {
+        requested,
+        candidates: matches.slice(0, 20),
+      });
+    }
+    return matches[0];
   }
 
   async createWork({
     consumer,
     sessionId,
     idempotencyKey,
+    draftId,
+    binding,
     draft,
     transcript,
   }) {
     this.assertActiveConsumer(consumer);
     const controlSessionId = requireText(sessionId, 'sessionId', 256);
+    const createDraftId = requireText(draftId, 'draftId', 256);
+    const draftBinding = requireText(binding, 'binding', 256);
     const value = assertObject(draft, 'draft');
     const projectName = requireText(value.project, 'draft.project', 4096);
     const request = requireText(value.request, 'draft.request', 100000);
+    const submittedTranscript = assertObject(transcript, 'transcript');
+    const submittedTurn = submittedTranscript.turnId || submittedTranscript.sequence;
+    if (!submittedTurn) {
+      throw new HubError(400, 'invalid_request', 'transcript requires turnId or sequence');
+    }
     const payload = {
       consumer,
       sessionId: controlSessionId,
+      draftId: createDraftId,
+      binding: draftBinding,
       draft: cloneJson(value),
-      transcript: cloneJson(transcript || null),
+      transcript: cloneJson(submittedTranscript),
     };
     return this.idempotency.execute({
       key: idempotencyKey,
       payload,
       operation: async () => {
+        const latestTranscript = this.controls.latestTranscript({ sessionId: controlSessionId });
+        if (
+          !latestTranscript
+          || latestTranscript.turnId !== submittedTranscript.turnId
+          || latestTranscript.sequence !== String(submittedTranscript.sequence)
+          || latestTranscript.text !== submittedTranscript.text
+        ) {
+          throw new HubError(
+            409,
+            'confirmation_not_current',
+            'create confirmation must match the newest stored user transcript',
+          );
+        }
+        if (decisionFromTranscript(latestTranscript.text) !== 'approve') {
+          throw new HubError(
+            409,
+            'confirmation_not_explicit',
+            'create confirmation requires an explicit affirmative transcript',
+          );
+        }
         const project = await this.#resolveProject(projectName);
-        const created = await this.adapter.createSession({
-          project: project.key,
-          title: defaultWorkTitle(value),
-          requestId: crypto.randomUUID(),
+        const confirmation = this.controls.reserveConfirmation({
+          sessionId: controlSessionId,
+          draftId: createDraftId,
+          binding: draftBinding,
+          transcript: submittedTranscript,
         });
+        let created;
+        try {
+          created = await this.adapter.createSession({
+            project: project.key,
+            title: defaultWorkTitle(value),
+            requestId: crypto.randomUUID(),
+          });
+        } catch (error) {
+          if (error?.unknown !== true) {
+            this.controls.releaseConfirmation(confirmation.confirmationId);
+          }
+          throw error;
+        }
         const work = this.controls.createWork({
           controlSessionId,
           workSessionId: created.id,
           project: project.key,
           title: defaultWorkTitle(value),
           request,
+        });
+        this.controls.commitConfirmation(confirmation.confirmationId, {
+          workId: work.workId,
         });
         this.bindings.create({
           controlSessionId,
@@ -300,6 +369,34 @@ export class Hub {
             requestId: crypto.randomUUID(),
             mode: 'send',
           });
+          if (isUnknownReceipt(receipt)) {
+            return {
+              status: 'unknown',
+              workId: work.workId,
+              sessionId: created.id,
+              reconcileRequired: true,
+              message: 'The work was created, but the initial instruction result is unknown.',
+            };
+          }
+          if (isFailedReceipt(receipt)) {
+            this.controls.updateWork(work.workId, { status: 'failed' });
+            this.#appendWorkEvent({
+              work,
+              topic: 'task.failed',
+              dedupeKey: `create:${work.workId}:initial-send-failed`,
+              payload: {
+                workId: work.workId,
+                summary: receipt.error || 'The initial work instruction failed.',
+              },
+              notify: true,
+            });
+            return {
+              status: 'failed',
+              workId: work.workId,
+              sessionId: created.id,
+              error: receipt.error || 'The initial work instruction failed.',
+            };
+          }
           this.controls.updateWork(work.workId, { status: 'running' });
           return {
             status: 'accepted',
@@ -394,6 +491,8 @@ export class Hub {
       result: {
         outcome: work.outcome,
         summary: work.summary,
+        resultRef: work.resultRef,
+        artifactIds: work.artifactIds,
         artifacts: work.artifacts,
       },
     };
@@ -405,33 +504,81 @@ export class Hub {
     workId = null,
     view = 'history',
     after = '0',
+    before = null,
     limit = 50,
+    maxChars = 100000,
   }) {
     this.assertActiveConsumer(consumer);
+    if (!WORK_READ_VIEWS.has(view)) {
+      throw new HubError(400, 'invalid_request', 'view is invalid');
+    }
+    const boundedChars = Math.max(1, Math.min(100000, Number(maxChars) || 100000));
     const work = await this.#workFor({ sessionId, workId });
     const targetSession = work?.workSessionId || sessionId;
     if (!targetSession) throw new HubError(400, 'invalid_request', 'sessionId or workId is required');
     if (['history', 'result'].includes(view) && typeof this.adapter.history === 'function') {
       const history = await this.adapter.history(targetSession);
+      const serialized = JSON.stringify(history);
+      const offset = Number(after || 0);
+      if (!Number.isSafeInteger(offset) || offset < 0) {
+        throw new HubError(400, 'invalid_request', 'history after must be a character offset');
+      }
+      if (offset || serialized.length > boundedChars) {
+        const end = Math.min(serialized.length, offset + boundedChars);
+        return {
+          workId: work?.workId || null,
+          sessionId: targetSession,
+          view,
+          historyText: serialized.slice(offset, end),
+          offset,
+          nextOffset: end < serialized.length ? String(end) : null,
+          complete: end >= serialized.length,
+        };
+      }
       return { workId: work?.workId || null, sessionId: targetSession, view, history };
+    }
+    if (!work) {
+      throw new HubError(404, 'work_not_found', 'work event views require a bound work');
     }
     const page = this.events.read({
       after,
       limit: Math.max(1, Math.min(100, Number(limit) || 50)),
     });
-    const events = page.events
+    if (
+      before !== null
+      && before !== undefined
+      && before !== ''
+      && !/^(0|[1-9][0-9]*)$/.test(String(before))
+    ) {
+      throw new HubError(400, 'invalid_request', 'before must be a non-negative cursor');
+    }
+    const candidates = page.events
+      .filter((event) => !before || Number(event.cursor) < Number(before))
       .filter((event) => !work || event.scope.workId === work.workId)
       .filter((event) => {
         if (view === 'artifacts') return event.topic === 'artifact.ready';
         if (view === 'errors') return ['task.failed', 'task.interrupted'].includes(event.topic);
         return true;
       });
+    const events = [];
+    let chars = 0;
+    let truncated = false;
+    for (const event of candidates) {
+      const size = JSON.stringify(event).length;
+      if (events.length && chars + size > boundedChars) {
+        truncated = true;
+        break;
+      }
+      events.push(event);
+      chars += size;
+    }
     return {
-      workId: work?.workId || null,
+      workId: work.workId,
       sessionId: targetSession,
       view,
       events,
-      nextCursor: page.nextCursor,
+      nextCursor: truncated && events.length ? events.at(-1).cursor : page.nextCursor,
+      truncated,
     };
   }
 
@@ -462,6 +609,23 @@ export class Hub {
         mode,
       }),
     });
+    if (isUnknownReceipt(receipt)) {
+      return {
+        ...receipt,
+        workId: work.workId,
+        sessionId: work.workSessionId,
+        retryable: false,
+      };
+    }
+    if (isFailedReceipt(receipt)) {
+      return {
+        ...receipt,
+        status: 'failed',
+        workId: work.workId,
+        sessionId: work.workSessionId,
+        retryable: false,
+      };
+    }
     this.#appendWorkEvent({
       source: 'bridge-control',
       work,
@@ -514,6 +678,21 @@ export class Hub {
       questionId: requireText(value?.questionId, `answers[${index}].questionId`, 128),
       text: requireText(value?.text, `answers[${index}].text`, 6000),
     }));
+    const expectedQuestionIds = new Set(
+      (interaction.questions || []).map((question) => question.questionId),
+    );
+    const receivedQuestionIds = new Set(normalized.map((answer) => answer.questionId));
+    if (
+      normalized.length !== expectedQuestionIds.size
+      || receivedQuestionIds.size !== normalized.length
+      || [...expectedQuestionIds].some((questionId) => !receivedQuestionIds.has(questionId))
+    ) {
+      throw new HubError(
+        400,
+        'answer_group_incomplete',
+        'answers must cover every bound question exactly once',
+      );
+    }
     const work = this.controls.getWork(interaction.workId);
     const payload = { interactionId, binding, answers: normalized, transcript };
     return this.idempotency.execute({
@@ -529,6 +708,22 @@ export class Hub {
           requestId: crypto.randomUUID(),
           mode: 'send',
         });
+        if (isUnknownReceipt(receipt)) {
+          return {
+            status: 'unknown',
+            interactionId,
+            workId: work.workId,
+            reconcileRequired: true,
+          };
+        }
+        if (isFailedReceipt(receipt)) {
+          return {
+            status: 'failed',
+            interactionId,
+            workId: work.workId,
+            error: receipt.error || 'The answer could not be delivered.',
+          };
+        }
         this.controls.resolveInteraction(interactionId, {
           binding,
           resolution: { type: 'answer', answers: normalized, transcript },
@@ -583,15 +778,30 @@ export class Hub {
           requestId: crypto.randomUUID(),
           mode: 'send',
         });
+        if (isUnknownReceipt(receipt)) {
+          return {
+            status: 'unknown',
+            interactionId,
+            workId: work.workId,
+            reconcileRequired: true,
+          };
+        }
+        if (isFailedReceipt(receipt)) {
+          return {
+            status: 'failed',
+            interactionId,
+            workId: work.workId,
+            error: receipt.error || 'The approval decision could not be delivered.',
+          };
+        }
         this.controls.resolveInteraction(interactionId, {
           binding,
           resolution: { type: 'approval', decision, transcript },
         });
-        const topic = decision === 'approve' ? 'interaction.answered' : 'task.stopped';
         this.#appendWorkEvent({
           source: 'bridge-control',
           work,
-          topic,
+          topic: 'interaction.answered',
           dedupeKey: `interaction:${interactionId}:${decision}`,
           payload: {
             interactionId,
@@ -622,7 +832,23 @@ export class Hub {
       payload,
       operation: () => this.adapter.stop(work.workSessionId),
     });
+    if (isUnknownReceipt(receipt)) {
+      return {
+        ...receipt,
+        workId: work.workId,
+        retryable: false,
+      };
+    }
+    if (isFailedReceipt(receipt)) {
+      return {
+        ...receipt,
+        status: 'failed',
+        workId: work.workId,
+        retryable: false,
+      };
+    }
     this.controls.updateWork(work.workId, { status: 'stopped' });
+    this.controls.expirePendingInteractions(work.workId);
     this.#appendWorkEvent({
       work,
       topic: 'task.stopped',
@@ -641,14 +867,21 @@ export class Hub {
     return work;
   }
 
-  async emitProgress({ consumer, sessionId, text, percent = null, idempotencyKey }) {
+  async emitProgress({
+    consumer,
+    sessionId,
+    text,
+    percent = null,
+    artifact = null,
+    idempotencyKey,
+  }) {
     this.assertActiveConsumer(consumer);
     const work = this.#reportWork(sessionId);
     const progress = this.idempotency.execute({
       key: idempotencyKey,
-      payload: { sessionId, text, percent },
+      payload: { sessionId, text, percent, artifact: artifact || null },
       operation: async () => {
-        const value = this.controls.appendProgress(work.workId, { text, percent });
+        const value = this.controls.appendProgress(work.workId, { text, percent, artifact });
         this.#appendWorkEvent({
           source: 'bridge-control',
           work,
@@ -774,6 +1007,9 @@ export class Hub {
       payload: { sessionId, artifact },
       operation: async () => {
         const published = this.controls.publishArtifact(work.workId, artifact);
+        if (published.duplicate) {
+          return { status: 'accepted', workId: work.workId, artifact: published };
+        }
         this.#appendWorkEvent({
           source: 'bridge-control',
           work,
@@ -787,14 +1023,27 @@ export class Hub {
     });
   }
 
-  async finishWork({ consumer, sessionId, outcome, summary, idempotencyKey }) {
+  async finishWork({
+    consumer,
+    sessionId,
+    outcome,
+    summary,
+    resultRef = null,
+    artifactIds = [],
+    idempotencyKey,
+  }) {
     this.assertActiveConsumer(consumer);
     const work = this.#reportWork(sessionId);
     return this.idempotency.execute({
       key: idempotencyKey,
-      payload: { sessionId, outcome, summary },
+      payload: { sessionId, outcome, summary, resultRef, artifactIds },
       operation: async () => {
-        const finished = this.controls.finishWork(work.workId, { outcome, summary });
+        const finished = this.controls.finishWork(work.workId, {
+          outcome,
+          summary,
+          resultRef,
+          artifactIds,
+        });
         const topic = outcome === 'completed'
           ? 'task.completed'
           : outcome === 'failed' || outcome === 'blocked'
@@ -807,7 +1056,13 @@ export class Hub {
           work,
           topic,
           dedupeKey: `finish:${work.workId}:${idempotencyKey}`,
-          payload: { workId: work.workId, outcome, summary },
+          payload: {
+            workId: work.workId,
+            outcome,
+            summary,
+            resultRef: finished.resultRef,
+            artifactIds: finished.artifactIds,
+          },
           notify: true,
           correlationId: idempotencyKey,
         });
@@ -816,6 +1071,8 @@ export class Hub {
           workId: work.workId,
           outcome,
           summary: finished.summary,
+          resultRef: finished.resultRef,
+          artifactIds: finished.artifactIds,
         };
       },
     });
@@ -827,6 +1084,7 @@ export class Hub {
     deliveryStatus,
     error = null,
   }) {
+    this.assertActiveConsumer(consumer);
     const delivery = this.inbox.acknowledge(requireText(noticeId, 'noticeId', 256), {
       consumer,
       outcome: requireText(deliveryStatus, 'deliveryStatus', 32),

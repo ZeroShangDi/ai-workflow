@@ -21,7 +21,7 @@
 
 ## Exposure and Safety
 
-- `bridge-control` is not an ordinary globally exposed Codex plugin. The existing MCP package is a local development prototype until the two-profile implementation replaces it.
+- `bridge-control` is not an ordinary globally exposed Codex plugin. It exposes two isolated internal profiles and must only be loaded by a trusted host for the dedicated control or work session.
 - Work sessions may load only `work-reporter`; they must not create work, approve themselves, answer their own questions, or subscribe to control events.
 - High-risk confirmation must be derived from the latest real user transcript and immutable interaction binding, never from a model-supplied boolean alone.
 - Plugin installation does not imply configuration, health, pairing, subscription, or activation.

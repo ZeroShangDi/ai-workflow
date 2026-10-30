@@ -60,7 +60,9 @@ bridge-hub -. optional public SDK/API .-> voice-control
 
 `voice-control` 不依赖 `bridge-hub` 或 `bridge-control`。安装不等于可用，必须完成配置、健康检查、配对和事件订阅。
 
-当前 [`plugins/bridge-control`](plugins/bridge-control) 的五工具 MCP 版本是本地集成原型，不会被当作最终普通 Codex 插件发布。
+[`plugins/bridge-control`](plugins/bridge-control) 已拆为 `voice-controller` 与
+`work-reporter` 两套隔离的内部控制面。它由可信宿主显式加载，不安装为普通
+全局 Codex 插件；旧的全量 MCP 原型不应继续保留在 `~/.codex` 中。
 
 ## Development
 

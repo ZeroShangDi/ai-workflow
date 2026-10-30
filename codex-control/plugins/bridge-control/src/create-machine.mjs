@@ -158,6 +158,8 @@ export class CreateDraftMachine {
     try {
       creation = await this.createWork({
         idempotencyKey,
+        draftId: current.draftId,
+        binding: current.binding,
         draft: { ...current.draft },
         sessionId,
         transcript,
@@ -175,6 +177,17 @@ export class CreateDraftMachine {
         ...this.publicDraft(current),
         idempotencyKey,
         message: 'The create result is unknown. Reconcile state before retrying.',
+      };
+    }
+    if (creation?.status === 'failed') {
+      current.outcome = 'failed';
+      current.retryable = false;
+      current.reconciliationRequired = false;
+      current.updatedAt = this.now().toISOString();
+      return {
+        ...this.publicDraft(current),
+        failure: creation,
+        message: creation.error || 'The create request failed.',
       };
     }
     if (creation?.status === 'cancelled') {

@@ -137,8 +137,51 @@ test('voice controller, Hub, work reporter, and CMB complete one confirmed contr
     sessionId: workSessionId,
     text: '正在整理目录与变更记录',
     percent: 40,
+    artifact: {
+      artifactId: 'artifact-progress',
+      kind: 'document',
+      uri: 'file:///tmp/progress.md',
+    },
   });
   assert.equal(progress.status, 'accepted');
+  assert.equal(progress.progress.artifact.artifactId, 'artifact-progress');
+
+  const question = await reporter.call('bridge_chat_request_input', {
+    sessionId: workSessionId,
+    questions: [{
+      questionId: 'delivery-format',
+      prompt: '交付说明使用哪种格式？',
+      kind: 'choice',
+      choices: ['Markdown', 'PDF'],
+    }],
+    speak: '交付说明使用 Markdown 还是 PDF？',
+  });
+  assert.equal(question.status, 'pending');
+  await requestJson(baseUrl, '/api/v1/transcripts', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: {
+      sessionId: 'voice-session-1',
+      turnId: 'turn-3',
+      text: '选择 Markdown',
+    },
+  });
+  await assert.rejects(
+    () => voice.call('bridge_chat_answer', {
+      sessionId: 'voice-session-1',
+      interactionId: question.interactionId,
+      binding: question.binding,
+      answers: [{ questionId: 'unknown-question', text: 'Markdown' }],
+    }),
+    /cover every bound question exactly once/,
+  );
+  const answered = await voice.call('bridge_chat_answer', {
+    sessionId: 'voice-session-1',
+    interactionId: question.interactionId,
+    binding: question.binding,
+    answers: [{ questionId: 'delivery-format', text: 'Markdown' }],
+  });
+  assert.equal(answered.status, 'accepted');
 
   const approval = await reporter.call('bridge_chat_request_approval', {
     sessionId: workSessionId,
@@ -169,7 +212,7 @@ test('voice controller, Hub, work reporter, and CMB complete one confirmed contr
     headers: { Authorization: `Bearer ${token}` },
     body: {
       sessionId: 'voice-session-1',
-      turnId: 'turn-3',
+      turnId: 'turn-4',
       text: '确认',
     },
   });
@@ -186,8 +229,28 @@ test('voice controller, Hub, work reporter, and CMB complete one confirmed contr
     sessionId: workSessionId,
     outcome: 'completed',
     summary: '交付说明已发布，变更记录已整理。',
+    resultRef: 'result-final',
+    artifactIds: ['artifact-progress'],
   });
   assert.equal(finished.status, 'accepted');
+  assert.equal(finished.resultRef, 'result-final');
+  await assert.rejects(
+    () => reporter.call('bridge_chat_emit_progress', {
+      sessionId: workSessionId,
+      text: '完成后不应接受的进度',
+    }),
+    /already completed/,
+  );
+  await assert.rejects(
+    () => voice.call('bridge_chat_pending', {
+      sessionId: 'voice-session-1',
+      interactionId: approval.interactionId,
+    }),
+    /interaction does not exist/,
+  );
+  const finalStatus = await voice.call('bridge_chat_status', { workId });
+  assert.equal(finalStatus.result.resultRef, 'result-final');
+  assert.deepEqual(finalStatus.result.artifactIds, ['artifact-progress']);
 
   const events = await voice.call('bridge_chat_events', {
     sessionId: 'voice-session-1',
@@ -206,6 +269,6 @@ test('voice controller, Hub, work reporter, and CMB complete one confirmed contr
   });
   assert.equal(acknowledged.delivery.status, 'spoken');
 
-  assert.equal(cmb.state.sendCount, 2);
+  assert.equal(cmb.state.sendCount, 3);
   assert.equal(cmb.state.respondCount, 0);
 });

@@ -127,7 +127,8 @@ The voice host owns one audio arbiter:
 - interrupted announcements remain persisted and are not marked spoken;
 - a reconnect replays events from the last acknowledged cursor.
 
-The plugin never calls TTS or controls the microphone.
+The voice runtime owns microphone, ASR, TTS, and playback. The internal control
+plugin never calls TTS or controls the microphone.
 
 ## 6. Create Flow
 
@@ -141,9 +142,11 @@ The plugin never calls TTS or controls the microphone.
 8. The user answers with an explicit affirmative or negative.
 9. The voice host persists the final real user transcript through the Hub's host-only ingress API.
 10. The model calls `bridge_chat_confirm`.
-11. The backend re-reads the stored transcript against the pending draft and either confirms or cancels.
+11. The Hub re-reads the stored transcript, requires an explicit affirmative, and consumes that confirmation once before creating work.
 
 The backend, not the model, decides whether the user confirmed. A model-provided boolean is never sufficient authorization.
+The same real user turn cannot authorize a second work creation, even with a new
+draft ID or idempotency key.
 
 The create receipt is returned to the current voice turn. The model or host may speak it using a returned speech template. Creation success means "accepted", never "completed".
 

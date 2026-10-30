@@ -179,6 +179,7 @@ export class VoiceControlApp {
       );
     }
     const sessionId = requiredString(input.sessionId, 'sessionId');
+    const noticeId = requiredString(input.noticeId, 'noticeId');
     const eventId = input.eventId === undefined ? null : requiredString(input.eventId, 'eventId');
     const dedupeKey = input.dedupeKey === undefined
       ? (eventId ? `${trigger.id}:${eventId}` : null)
@@ -186,7 +187,7 @@ export class VoiceControlApp {
     return this.#append(this.#requireSession(sessionId), {
       type: 'trigger',
       text: input.text,
-      noticeId: input.noticeId,
+      noticeId,
       dedupeKey,
       topic,
     });

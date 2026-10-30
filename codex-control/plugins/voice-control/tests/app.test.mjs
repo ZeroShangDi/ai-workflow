@@ -121,4 +121,8 @@ test('rejects trigger dispatch until an enabled topic subscription exists', () =
     () => app.dispatchTrigger('trusted-host', { ...request, topic: 'task.failed' }),
     (error) => error.code === 'trigger_topic_not_subscribed',
   );
+  assert.throws(
+    () => app.dispatchTrigger('trusted-host', { ...request, noticeId: undefined }),
+    /noticeId is required/,
+  );
 });

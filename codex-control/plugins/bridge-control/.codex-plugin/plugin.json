@@ -12,7 +12,6 @@
     "voice",
     "mcp"
   ],
-  "mcpServers": "./.mcp.json",
   "skills": "./skills/",
   "interface": {
     "displayName": "Bridge Control",

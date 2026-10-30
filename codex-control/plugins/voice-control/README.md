@@ -89,7 +89,7 @@ Hub。
 
 复用的状态名为 `listening`、`thinking`、`speaking`、`working`、`warning`、`error`、`idle`。转录角色为 `user`、`assistant`、`system`；前两种沿用 ai-market，`system` 是本插件用于会话和触发通知的明确扩展。
 
-本插件额外为每个事件附加 `eventId`、`cursor`、`sessionId` 和 `createdAt`，但 SSE 业务负载仍保留上述紧凑语义。SSE 的 `id` 使用 cursor，重连时通过 `Last-Event-ID` 或 `after` 续读。
+本插件额外为每个事件附加 `eventId`、`cursor`、`sessionId` 和 `createdAt`，但 SSE 业务负载仍保留上述紧凑语义。SSE 的 `id` 使用 cursor；浏览器自动重连时优先使用 `Last-Event-ID`，首次连接才使用查询参数 `after`。
 
 没有直接搬入以下实现：
 

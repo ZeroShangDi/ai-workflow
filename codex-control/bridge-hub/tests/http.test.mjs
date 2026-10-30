@@ -142,6 +142,86 @@ test('HTTP hub returns unknown once and does not replay a failed CMB write', asy
   assert.equal(cmb.state.sendCount, 1);
 });
 
+test('unknown work writes never fabricate progress or terminal state', async (t) => {
+  const cmb = await startMockCmb();
+  t.after(cmb.close);
+  const { baseUrl, hub } = await startTestHub(t, { cmbBaseUrl: cmb.baseUrl });
+  await activateConsumer(baseUrl, 'voice-control', ['*']);
+  hub.recordTranscript({
+    sessionId: 'voice-session',
+    turnId: 'turn-1',
+    text: '确认',
+  });
+  const created = await hub.createWork({
+    consumer: 'voice-control',
+    sessionId: 'voice-session',
+    idempotencyKey: 'create-unknown-check',
+    draftId: 'draft-unknown-check',
+    binding: 'binding-unknown-check',
+    draft: {
+      project: 'local|demo',
+      title: 'Unknown write',
+      request: '测试未知写入',
+    },
+    transcript: hub.latestUserTranscript({ sessionId: 'voice-session' }),
+  });
+  assert.equal(created.status, 'accepted');
+  const historyPage = await hub.readWork({
+    consumer: 'voice-control',
+    workId: created.workId,
+    view: 'history',
+    maxChars: 10,
+  });
+  assert.equal(historyPage.historyText.length, 10);
+  assert.equal(historyPage.complete, false);
+  await assert.rejects(
+    () => hub.createWork({
+      consumer: 'voice-control',
+      sessionId: 'voice-session',
+      idempotencyKey: 'create-replay-check',
+      draftId: 'another-draft',
+      binding: 'another-binding',
+      draft: {
+        project: 'local|demo',
+        title: 'Replay',
+        request: '同一次确认不能创建第二个任务',
+      },
+      transcript: hub.latestUserTranscript({ sessionId: 'voice-session' }),
+    }),
+    (error) => error.code === 'confirmation_already_used',
+  );
+  assert.equal(cmb.state.createCount, 1);
+
+  cmb.state.sendMode = 'unknown';
+  const eventCursor = hub.events.lastCursor;
+  const send = await hub.sendWorkMessage({
+    consumer: 'voice-control',
+    workId: created.workId,
+    text: '这条消息结果未知',
+    mode: 'send',
+    idempotencyKey: 'send-unknown-check',
+  });
+  assert.equal(send.status, 'unknown');
+  assert.equal(hub.events.lastCursor, eventCursor);
+  assert.equal(hub.controls.getWork(created.workId).status, 'running');
+
+  cmb.state.stopMode = 'unknown';
+  const stopped = await hub.stopWork({
+    consumer: 'voice-control',
+    workId: created.workId,
+    idempotencyKey: 'stop-unknown-check',
+  });
+  assert.equal(stopped.status, 'unknown');
+  assert.equal(hub.controls.getWork(created.workId).status, 'running');
+
+  const scopedRead = await requestJson(
+    baseUrl,
+    '/api/v1/chat/work/read?consumer=voice-control&sessionId=unknown-session&view=activity',
+  );
+  assert.equal(scopedRead.status, 404);
+  assert.equal(scopedRead.body.code, 'work_not_found');
+});
+
 test('SSE route proxies CMB public events and requires the API token when configured', async (t) => {
   const cmb = await startMockCmb();
   t.after(cmb.close);

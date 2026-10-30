@@ -155,11 +155,18 @@ async function handle(hub, request, response, { apiToken = null } = {}) {
       workId: url.searchParams.get('workId'),
       view: url.searchParams.get('view') || 'history',
       after: url.searchParams.get('after') || '0',
+      before: url.searchParams.get('before'),
       limit: boundedInteger(url.searchParams.get('limit'), {
         fallback: 50,
         minimum: 1,
         maximum: 100,
         field: 'limit',
+      }),
+      maxChars: boundedInteger(url.searchParams.get('maxChars'), {
+        fallback: 100000,
+        minimum: 1,
+        maximum: 100000,
+        field: 'maxChars',
       }),
     }));
   }

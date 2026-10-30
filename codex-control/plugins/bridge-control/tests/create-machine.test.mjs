@@ -13,6 +13,8 @@ test('create draft transitions through needs_input and confirmation without bool
     createWork: async (request) => {
       createCalls += 1;
       assert.equal(request.transcript.turnId, 'turn-2');
+      assert.equal(request.draftId, complete.draftId);
+      assert.equal(request.binding, complete.binding);
       return { status: 'accepted', workId: 'work-42' };
     },
   });
@@ -154,4 +156,33 @@ test('unknown create result keeps the confirmation state and is not replayed', a
   });
   assert.equal(repeated.writeStatus, 'unknown');
   assert.equal(createCalls, 1);
+});
+
+test('a failed create receipt is never reported as confirmed', async () => {
+  let transcript = { turnId: 'turn-1', text: '创建任务' };
+  const service = new ControlService({
+    hub: createVoiceHub({
+      latestUserTranscript: async () => transcript,
+      createWork: async () => ({
+        status: 'failed',
+        code: 'project_not_found',
+        error: 'project does not exist',
+      }),
+    }),
+    profile: PROFILE_VOICE_CONTROLLER,
+  });
+  const pending = await service.call('bridge_chat_create', {
+    sessionId: 'session',
+    draft: { project: 'missing', request: '创建任务' },
+  });
+  transcript = { turnId: 'turn-2', text: '确认' };
+  const result = await service.call('bridge_chat_confirm', {
+    sessionId: 'session',
+    draftId: pending.draftId,
+    binding: pending.binding,
+  });
+  assert.equal(result.status, 'awaiting_confirmation');
+  assert.equal(result.outcome, 'failed');
+  assert.equal(result.retryable, false);
+  assert.match(result.message, /project does not exist/);
 });

@@ -23,3 +23,11 @@ test('production control code has no concrete CMB import', () => {
   assert.deepEqual(importedCmb, []);
   assert.equal(fs.existsSync(path.join(plugin, 'src', 'adapters', 'cmb.mjs')), false);
 });
+
+test('Codex marketplace metadata does not expose the internal MCP server globally', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(plugin, '.codex-plugin', 'plugin.json'),
+    'utf8',
+  ));
+  assert.equal(manifest.mcpServers, undefined);
+});

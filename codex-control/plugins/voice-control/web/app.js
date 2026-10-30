@@ -223,6 +223,10 @@ function startPlayback(item) {
 
 function processPlaybackQueue() {
   if (!state.running || state.muted || !canSpeak || state.playback.active) return;
+  if (state.userSpeechActive) {
+    schedulePlayback(500);
+    return;
+  }
   const item = state.playback.directQueue.shift() || state.playback.noticeQueue[0] || null;
   if (!item) return;
   if (item.kind === 'notice') {
@@ -521,6 +525,8 @@ elements.textForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const text = elements.textInput.value;
   elements.textInput.value = '';
+  state.lastUserSpeechAt = Date.now();
+  interruptPlayback('interrupted');
   void postUserText(text).catch((error) => showError(error.message));
 });
 window.addEventListener('pagehide', () => {

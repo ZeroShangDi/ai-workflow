@@ -32,6 +32,7 @@ export async function startMockCmb() {
     respondCalls: [],
     sendMode: 'success',
     createMode: 'success',
+    stopMode: 'success',
     sessionExpired: false,
   };
   let baseUrl = '';
@@ -188,6 +189,11 @@ export async function startMockCmb() {
     }
     if (sessionRoute?.[2] === 'stop' && request.method === 'POST') {
       state.stopCount += 1;
+      if (state.stopMode === 'unknown') {
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'synthetic stop failure' }));
+        return;
+      }
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ status: 'accepted' }));
       return;

@@ -116,9 +116,7 @@ async function serveStatic(req, res, url, webRoot, allowedOrigins) {
 function streamEvents(req, res, url, app, allowedOrigins) {
   const sessionId = url.pathname.split('/')[3];
   app.getSession(sessionId);
-  const afterValue = url.searchParams.get('after')
-    ?? req.headers['last-event-id']
-    ?? 0;
+  const afterValue = resolveReplayCursor(url, req.headers);
   parseCursor(afterValue, 'after');
 
   res.writeHead(200, {
@@ -168,6 +166,12 @@ function streamEvents(req, res, url, app, allowedOrigins) {
     ended = true;
     cleanup();
   });
+}
+
+export function resolveReplayCursor(url, headers = {}) {
+  return headers['last-event-id']
+    ?? url.searchParams.get('after')
+    ?? 0;
 }
 
 export function createVoiceHttpServer({

@@ -44,6 +44,13 @@ test('control store retains bounded real transcripts and resolves only newer bou
   });
   assert.equal(interaction.status, 'pending');
   assert.equal(store.pendingInteractions({ workId: work.workId }).length, 1);
+  assert.throws(
+    () => store.finishWork(work.workId, {
+      outcome: 'completed',
+      summary: '不应在待审批时完成',
+    }),
+    (error) => error.code === 'interaction_pending',
+  );
 
   store.recordTranscript({
     sessionId: 'voice-1',
@@ -71,4 +78,82 @@ test('control store retains bounded real transcripts and resolves only newer bou
   const reloaded = new ControlStore({ dataDir: directory });
   assert.equal(reloaded.latestTranscript({ sessionId: 'voice-1' }).text, '确认');
   assert.equal(reloaded.getWork(work.workId).title, '报告');
+});
+
+test('transcript identities are immutable and stale sequence numbers cannot become latest', () => {
+  const store = new ControlStore();
+  store.recordTranscript({
+    sessionId: 'voice-1',
+    turnId: 'turn-2',
+    sequence: '2',
+    text: '第二条',
+  });
+  assert.throws(
+    () => store.recordTranscript({
+      sessionId: 'voice-1',
+      turnId: 'turn-2',
+      sequence: '2',
+      text: '被替换的内容',
+    }),
+    (error) => error.code === 'dedupe_conflict',
+  );
+  assert.throws(
+    () => store.recordTranscript({
+      sessionId: 'voice-1',
+      turnId: 'turn-1',
+      sequence: '1',
+      text: '迟到的第一条',
+    }),
+    (error) => error.code === 'transcript_out_of_order',
+  );
+  assert.equal(store.latestTranscript({ sessionId: 'voice-1' }).text, '第二条');
+});
+
+test('terminal work rejects further reporting and interaction deadlines must be valid', () => {
+  const store = new ControlStore({
+    now: () => new Date('2026-10-30T00:00:00.000Z'),
+  });
+  store.recordTranscript({
+    sessionId: 'voice-1',
+    turnId: 'turn-1',
+    text: '开始',
+  });
+  const work = store.createWork({
+    controlSessionId: 'voice-1',
+    workSessionId: 'work-session-1',
+    project: 'local|demo',
+    title: '测试',
+    request: '测试',
+  });
+  assert.throws(
+    () => store.createInteraction({
+      sessionId: 'voice-1',
+      workId: work.workId,
+      kind: 'approval',
+      operation: 'delete',
+      target: 'old.log',
+      impact: 'delete permanently',
+      reversibility: 'irreversible',
+      speak: '是否确认？',
+      expiresAt: '2020-01-01T00:00:00.000Z',
+    }),
+    /expiresAt must be in the future/,
+  );
+  store.publishArtifact(work.workId, {
+    artifactId: 'artifact-1',
+    kind: 'document',
+    uri: 'file:///tmp/result.md',
+  });
+  store.finishWork(work.workId, {
+    outcome: 'completed',
+    summary: '完成',
+    resultRef: 'result-1',
+    artifactIds: ['artifact-1'],
+  });
+  assert.equal(store.getWork(work.workId).status, 'completed');
+  assert.equal(store.getWork(work.workId).resultRef, 'result-1');
+  assert.throws(
+    () => store.appendProgress(work.workId, { text: '完成后迟到进度' }),
+    (error) => error.code === 'work_terminal',
+  );
 });

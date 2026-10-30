@@ -20,7 +20,9 @@ Returns one of:
 
 Confirms or cancels a pending create draft.
 
-The backend inspects the latest real user transcript. Accept short explicit affirmative or negative replies. The model does not provide the authoritative boolean.
+The Hub inspects the latest real user transcript. Accept short explicit
+affirmative or negative replies. The model does not provide the authoritative
+boolean. An affirmative turn is consumed once and cannot create a second work.
 
 ### `bridge_chat_find`
 

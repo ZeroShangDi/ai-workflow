@@ -158,6 +158,8 @@ BRIDGE_CONTROL_HUB_MODULE=/absolute/path/to/bridge-hub/src/control-client.mjs
 The host posts final real user speech to `POST /api/v1/transcripts` before
 asking the control plugin to confirm or resolve an interaction. The Hub reads
 that persisted transcript again; the model cannot supply authorization text.
+Create work additionally requires the same affirmative transcript to be the
+newest stored turn, and consumes it once so it cannot authorize two drafts.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
