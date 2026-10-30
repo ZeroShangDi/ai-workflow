@@ -129,6 +129,31 @@ export function createVoiceClient({
       return request('/api/health', { signal });
     },
 
+    async open(options = {}) {
+      const { signal, ...body } = options;
+      const result = await request('/api/open', {
+        method: 'POST',
+        body,
+        signal,
+      });
+      return result.session;
+    },
+
+    async close(sessionId) {
+      const result = await request('/api/close', {
+        method: 'POST',
+        body: { sessionId },
+      });
+      return result.session;
+    },
+
+    async tunnel(event) {
+      return request('/api/tunnel', {
+        method: 'POST',
+        body: event,
+      });
+    },
+
     async createSession(options = {}) {
       const { signal, ...body } = options;
       const result = await request('/api/sessions', {

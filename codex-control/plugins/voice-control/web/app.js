@@ -1,91 +1,41 @@
-const elements = {
-  serverDot: document.querySelector('#serverDot'),
-  serverLabel: document.querySelector('#serverLabel'),
-  sessionStatus: document.querySelector('#sessionStatus'),
-  sessionId: document.querySelector('#sessionId'),
-  lastCursor: document.querySelector('#lastCursor'),
-  triggerStatus: document.querySelector('#triggerStatus'),
-  asrCapability: document.querySelector('#asrCapability'),
-  ttsCapability: document.querySelector('#ttsCapability'),
-  capabilityNote: document.querySelector('#capabilityNote'),
-  startButton: document.querySelector('#startButton'),
-  stopButton: document.querySelector('#stopButton'),
-  muteButton: document.querySelector('#muteButton'),
-  textForm: document.querySelector('#textForm'),
-  textInput: document.querySelector('#textInput'),
-  sendButton: document.querySelector('#sendButton'),
-  transcript: document.querySelector('#transcript'),
-  emptyState: document.querySelector('#emptyState'),
-  eventCount: document.querySelector('#eventCount'),
-  activityText: document.querySelector('#activityText'),
-  interimText: document.querySelector('#interimText'),
-  errorBanner: document.querySelector('#errorBanner'),
-};
-
+const toggle = document.querySelector('#toggle');
+const toggleLabel = document.querySelector('#toggleLabel');
+const stateLabel = document.querySelector('#state');
+const transcript = document.querySelector('#transcript');
+const errorBanner = document.querySelector('#error');
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const canRecognize = typeof Recognition === 'function';
 const canSpeak = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function';
 
-const state = {
+const model = {
+  active: false,
+  opening: false,
   session: null,
-  eventSource: null,
-  running: false,
-  shouldRecognize: false,
+  source: null,
   recognition: null,
+  shouldListen: false,
   restartTimer: null,
-  speechResumeTimer: null,
-  muted: false,
-  seenEvents: new Set(),
-  eventCount: 0,
-  currentCursor: '0',
-  userSpeechActive: false,
-  lastUserSpeechAt: 0,
-  playback: {
-    active: null,
-    directQueue: [],
-    noticeQueue: [],
-    timer: null,
-  },
+  speechQueue: [],
+  speaking: null,
+  seen: new Set(),
+  cursor: '0',
 };
 
-const activityLabels = {
-  idle: '空闲',
-  listening: '正在聆听',
-  thinking: '正在思考',
-  speaking: '正在播报',
-  working: '工作处理中',
-  warning: '需要留意',
-  error: '发生错误',
-};
-
-function setServerState(kind, label) {
-  elements.serverDot.className = `state-dot ${kind}`;
-  elements.serverLabel.textContent = label;
+function showError(value = '') {
+  errorBanner.textContent = value;
+  errorBanner.hidden = !value;
 }
 
-function setCapability(element, kind, label) {
-  element.className = `capability ${kind}`;
-  element.textContent = label;
+function setState(value) {
+  stateLabel.textContent = value;
 }
 
-function showError(message = '') {
-  elements.errorBanner.textContent = message;
-  elements.errorBanner.hidden = !message;
-}
-
-function setActivity(label) {
-  elements.activityText.textContent = label;
-}
-
-function updateControls() {
-  const active = Boolean(state.session) && state.running;
-  elements.startButton.disabled = active;
-  elements.stopButton.disabled = !active;
-  elements.sessionStatus.textContent = active ? '会话中' : '空闲';
-  elements.sessionId.textContent = state.session?.id || '—';
-  elements.lastCursor.textContent = state.currentCursor;
-  elements.textInput.disabled = !active;
-  elements.sendButton.disabled = !active;
+function setToggle(active, opening = false) {
+  model.active = active;
+  model.opening = opening;
+  toggle.disabled = opening;
+  toggle.setAttribute('aria-pressed', String(active));
+  toggleLabel.textContent = opening ? '正在连接' : active ? '结束聊天' : '开始聊天';
 }
 
 async function api(path, options = {}) {
@@ -94,455 +44,228 @@ async function api(path, options = {}) {
     headers: {
       Accept: 'application/json',
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(options.headers || {}),
     },
   });
   const value = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(value?.error?.message || `请求失败 (${response.status})`);
-  }
+  if (!response.ok) throw new Error(value?.error?.message || `请求失败 (${response.status})`);
   return value;
 }
 
-function clearTranscript() {
-  if (state.playback.timer) clearTimeout(state.playback.timer);
-  state.playback = {
-    active: null,
-    directQueue: [],
-    noticeQueue: [],
-    timer: null,
-  };
-  state.seenEvents.clear();
-  state.eventCount = 0;
-  state.currentCursor = '0';
-  elements.transcript.replaceChildren();
-  elements.transcript.append(elements.emptyState);
-  elements.emptyState.hidden = false;
-  elements.eventCount.textContent = '0 条';
+function append(role, text) {
+  transcript.querySelector('.placeholder')?.remove();
+  const row = document.createElement('p');
+  row.className = role;
+  row.textContent = role === 'user' ? `你：${text}` : role === 'assistant' ? text : `任务播报：${text}`;
+  transcript.append(row);
+  while (transcript.children.length > 8) transcript.firstElementChild.remove();
+  transcript.scrollTop = transcript.scrollHeight;
 }
 
-function eventSourceName(event) {
-  if (event.type === 'transcript') return event.role;
-  return 'system';
+function speak(text, { noticeId = null, kind = 'direct' } = {}) {
+  if (!canSpeak || !text || !model.active) return;
+  model.speechQueue.push({ text, noticeId, kind });
+  drainSpeech();
 }
 
-function eventText(event) {
-  if (event.type === 'transcript') return event.text;
-  if (event.type === 'voice') return event.message || activityLabels[event.state] || event.state;
-  if (event.type === 'activity') return activityLabels[event.state] || event.state;
-  if (event.type === 'trigger') return event.text;
-  if (event.type === 'delivery') {
-    const labels = {
-      spoken: '播报完成',
-      interrupted: '播报已打断',
-      failed: '播报失败',
-    };
-    return `${labels[event.state] || event.state} · ${event.noticeId}`;
-  }
-  if (event.type === 'session.opened') return event.message || '语音会话已打开';
-  if (event.type === 'session.closed') return event.message || '语音会话已关闭';
-  return event.message || event.text || event.type;
-}
-
-async function postEvent(event, { keepalive = false } = {}) {
-  if (!state.session || !state.running) return null;
-  return api(`/api/sessions/${encodeURIComponent(state.session.id)}/events`, {
-    method: 'POST',
-    keepalive,
-    body: JSON.stringify(event),
-  });
-}
-
-async function postVoiceState(event, voiceState) {
-  await postEvent({
-    type: 'voice',
-    state: voiceState,
-    event,
-    dedupeKey: `${event}:${state.session?.id}:${Date.now()}`,
-  });
-}
-
-function postDelivery(item, status, message = null, { keepalive = false } = {}) {
-  if (!item.noticeId) return;
-  void postEvent({
-    type: 'delivery',
-    noticeId: item.noticeId,
-    status,
-    message,
-    dedupeKey: `delivery:${item.noticeId}:${status}`,
-  }, { keepalive }).catch(() => {});
-}
-
-function schedulePlayback(delay = 350) {
-  if (state.playback.timer) clearTimeout(state.playback.timer);
-  state.playback.timer = setTimeout(() => {
-    state.playback.timer = null;
-    processPlaybackQueue();
-  }, delay);
-}
-
-function settlePlayback(item, status, message = null, { keepalive = false } = {}) {
-  if (!item || item.settled) return;
-  item.settled = true;
-  if (state.playback.active === item) state.playback.active = null;
-  postDelivery(item, status, message, { keepalive });
-  void postVoiceState('bot_stopped', 'listening').catch(() => {});
-  setActivity(status === 'spoken' ? '空闲' : activityLabels.listening);
-  schedulePlayback(450);
-}
-
-function interruptPlayback(status = 'interrupted') {
-  const current = state.playback.active;
-  if (current) {
-    settlePlayback(current, status, status === 'interrupted' ? 'user interrupted playback' : null);
-  }
-  if (canSpeak) window.speechSynthesis.cancel();
-}
-
-function startPlayback(item) {
-  if (!canSpeak || state.muted || !state.running) return;
-  state.playback.active = item;
-  setActivity(activityLabels.speaking);
-  void postVoiceState('bot_started', 'speaking').catch(() => {});
-
+function drainSpeech() {
+  if (!model.active || model.speaking || !model.speechQueue.length || !canSpeak) return;
+  model.speechQueue.sort((left, right) => (left.kind === 'direct' ? -1 : 1) - (right.kind === 'direct' ? -1 : 1));
+  const item = model.speechQueue.shift();
+  model.speaking = item;
+  setState(item.kind === 'notice' ? '正在播报任务进展' : '正在回答');
   const utterance = new SpeechSynthesisUtterance(item.text);
   utterance.lang = document.documentElement.lang || navigator.language || 'zh-CN';
-  utterance.onend = () => {
-    settlePlayback(item, 'spoken');
+  const settle = async (status) => {
+    if (model.speaking !== item) return;
+    model.speaking = null;
+    if (item.noticeId && model.session) {
+      await api(`/api/sessions/${encodeURIComponent(model.session.id)}/events`, {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'delivery',
+          noticeId: item.noticeId,
+          status,
+          dedupeKey: `delivery:${item.noticeId}:${status}`,
+        }),
+      }).catch(() => {});
+    }
+    if (model.active) setState('我在听');
+    drainSpeech();
   };
+  utterance.onend = () => void settle('spoken');
   utterance.onerror = (event) => {
     const interrupted = ['canceled', 'interrupted'].includes(event.error);
-    settlePlayback(
-      item,
-      interrupted ? 'interrupted' : 'failed',
-      interrupted ? 'speech synthesis cancelled' : `speech synthesis failed: ${event.error}`,
-    );
+    void settle(interrupted ? 'interrupted' : 'failed');
   };
   window.speechSynthesis.speak(utterance);
 }
 
-function processPlaybackQueue() {
-  if (!state.running || state.muted || !canSpeak || state.playback.active) return;
-  if (state.userSpeechActive) {
-    schedulePlayback(500);
-    return;
-  }
-  const item = state.playback.directQueue.shift() || state.playback.noticeQueue[0] || null;
-  if (!item) return;
-  if (item.kind === 'notice') {
-    if (state.userSpeechActive || Date.now() - state.lastUserSpeechAt < 1800) {
-      schedulePlayback(500);
-      return;
+function interruptSpeech() {
+  if (!model.speaking && !model.speechQueue.length) return;
+  if (model.speaking) {
+    const item = model.speaking;
+    model.speaking = null;
+    if (item.noticeId && model.session) {
+      void fetch(`/api/sessions/${encodeURIComponent(model.session.id)}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'delivery',
+          noticeId: item.noticeId,
+          status: 'interrupted',
+          dedupeKey: `delivery:${item.noticeId}:interrupted`,
+        }),
+      }).catch(() => {});
     }
-    state.playback.noticeQueue.shift();
   }
-  startPlayback(item);
+  model.speechQueue.length = 0;
+  if (canSpeak) window.speechSynthesis.cancel();
 }
 
-function queueSpeech(text, { kind = 'direct', noticeId = null } = {}) {
-  if (!canSpeak || !text || !state.running) return;
-  const item = {
-    text,
-    kind,
-    noticeId,
-    settled: false,
-  };
-  if (kind === 'notice') {
-    if (state.playback.noticeQueue.some((value) => value.noticeId === noticeId)) return;
-    state.playback.noticeQueue.push(item);
-  } else {
-    if (state.playback.active?.kind === 'notice') interruptPlayback('interrupted');
-    state.playback.directQueue.push(item);
-  }
-  processPlaybackQueue();
-}
-
-function renderEvent(event) {
-  if (!event?.eventId || state.seenEvents.has(event.eventId)) return;
-  state.seenEvents.add(event.eventId);
-  state.currentCursor = event.cursor || state.currentCursor;
-  state.eventCount += 1;
-  elements.eventCount.textContent = `${state.eventCount} 条`;
-  elements.lastCursor.textContent = state.currentCursor;
-  elements.emptyState.hidden = true;
-
-  const source = eventSourceName(event);
-  const row = document.createElement('article');
-  row.className = `message-row message-${source}`;
-
-  const meta = document.createElement('div');
-  meta.className = 'message-meta';
-  const speaker = document.createElement('span');
-  speaker.textContent = source === 'user' ? '你' : source === 'assistant' ? '助手' : '系统';
-  const time = document.createElement('time');
-  const createdAt = event.createdAt ? new Date(event.createdAt) : new Date();
-  time.dateTime = createdAt.toISOString();
-  time.textContent = createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  meta.append(speaker, time);
-
-  const body = document.createElement('p');
-  body.textContent = eventText(event);
-  row.append(meta, body);
-  elements.transcript.append(row);
-  elements.transcript.scrollTop = elements.transcript.scrollHeight;
-
-  if (event.type === 'activity') setActivity(activityLabels[event.state] || event.state);
-  if (event.type === 'voice') setActivity(activityLabels[event.state] || event.state);
-  if (event.type === 'transcript' && ['assistant', 'system'].includes(event.role)) {
-    queueSpeech(event.text, { kind: 'direct' });
-  } else if (event.type === 'trigger') {
-    queueSpeech(event.text, { kind: 'notice', noticeId: event.noticeId });
-  } else if (event.type === 'voice' && ['warning', 'error'].includes(event.state)) {
-    queueSpeech(eventText(event), { kind: 'notice' });
-  }
-}
-
-function handleSse(frame) {
-  let event;
-  try {
-    event = JSON.parse(frame.data);
-  } catch {
+function handleEvent(event) {
+  if (!event || model.seen.has(event.eventId)) return;
+  model.seen.add(event.eventId);
+  model.cursor = String(event.cursor || model.cursor);
+  if (event.type === 'transcript') {
+    if (event.role === 'assistant') {
+      append('assistant', event.text);
+      speak(event.text);
+    } else if (event.role === 'user' && ![...transcript.children].some((node) => node.textContent === `你：${event.text}`)) {
+      append('user', event.text);
+    }
     return;
   }
-  renderEvent(event);
-  if (event.type === 'session.closed') {
-    state.running = false;
-    state.shouldRecognize = false;
-    stopRecognition();
-    state.eventSource?.close();
-    state.eventSource = null;
-    setServerState('ready', '服务可用');
-    setActivity('会话已结束');
-    updateControls();
+  if (event.type === 'trigger') {
+    append('notice', event.text);
+    speak(event.text, { noticeId: event.noticeId, kind: 'notice' });
+    return;
+  }
+  if (event.type === 'voice') {
+    if (event.state === 'thinking') setState('正在想');
+    if (event.state === 'warning' || event.state === 'error') showError(event.message || '语音服务暂时不可用');
   }
 }
 
-function attachEvents() {
-  state.eventSource?.close();
-  const source = new EventSource(
-    `/api/sessions/${encodeURIComponent(state.session.id)}/events?after=0`,
-  );
-  state.eventSource = source;
-  source.onopen = () => setServerState('ready', '事件流已连接');
-  source.onerror = () => {
-    if (state.running) setServerState('warning', '事件流重连中');
-  };
-  for (const type of [
-    'transcript',
-    'voice',
-    'activity',
-    'trigger',
-    'delivery',
-    'session.opened',
-    'session.closed',
-  ]) {
-    source.addEventListener(type, handleSse);
+function connectEvents() {
+  model.source?.close();
+  const source = new EventSource(`/api/sessions/${encodeURIComponent(model.session.id)}/events?after=0`);
+  model.source = source;
+  for (const type of ['transcript', 'trigger', 'voice', 'activity', 'session.closed']) {
+    source.addEventListener(type, (event) => {
+      try { handleEvent(JSON.parse(event.data)); } catch { /* Ignore malformed frames. */ }
+    });
   }
 }
 
 function stopRecognition() {
-  state.shouldRecognize = false;
-  if (state.restartTimer) clearTimeout(state.restartTimer);
-  if (state.speechResumeTimer) clearTimeout(state.speechResumeTimer);
-  state.restartTimer = null;
-  state.speechResumeTimer = null;
-  state.userSpeechActive = false;
+  model.shouldListen = false;
+  if (model.restartTimer) clearTimeout(model.restartTimer);
+  model.restartTimer = null;
+  try { model.recognition?.stop(); } catch { /* Already stopped. */ }
+}
+
+async function sendUserText(text) {
+  if (!text.trim() || !model.session || !model.active) return;
+  append('user', text.trim());
+  interruptSpeech();
+  setState('正在想');
   try {
-    state.recognition?.stop();
-  } catch {
-    // Recognition may already be stopped by the browser.
+    await api(`/api/sessions/${encodeURIComponent(model.session.id)}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ text: text.trim() }),
+    });
+  } catch (failure) {
+    showError(failure.message);
+    setState('我在听');
   }
-  elements.interimText.textContent = '';
 }
 
-async function postUserText(text) {
-  if (!state.session || !state.running || !text.trim()) return;
-  await postEvent({
-    type: 'transcript',
-    role: 'user',
-    text: text.trim(),
-    dedupeKey: `text:${state.session.id}:${Date.now()}`,
-  });
-}
-
-function beginRecognition() {
-  if (!canRecognize || !state.running) return;
-  state.shouldRecognize = true;
-  if (!state.recognition) {
+function startRecognition() {
+  if (!canRecognize || !model.active) return;
+  if (!model.recognition) {
     const recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = document.documentElement.lang || navigator.language || 'zh-CN';
-    recognition.onstart = () => {
-      setCapability(elements.asrCapability, 'ready', '识别 · 运行中');
-      setActivity(activityLabels.listening);
-    };
     recognition.onresult = (event) => {
-      state.userSpeechActive = true;
-      state.lastUserSpeechAt = Date.now();
-      if (state.speechResumeTimer) clearTimeout(state.speechResumeTimer);
-      interruptPlayback('interrupted');
-      let interim = '';
+      interruptSpeech();
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
-        const text = result[0]?.transcript || '';
-        if (result.isFinal) {
-          void postUserText(text).catch((error) => showError(error.message));
-        } else {
-          interim += text;
-        }
-      }
-      elements.interimText.textContent = interim;
-      if (!interim) {
-        state.speechResumeTimer = setTimeout(() => {
-          state.userSpeechActive = false;
-          state.lastUserSpeechAt = Date.now();
-          processPlaybackQueue();
-        }, 1200);
+        if (result.isFinal) void sendUserText(result[0]?.transcript || '');
       }
     };
     recognition.onerror = (event) => {
-      if (['aborted', 'no-speech'].includes(event.error)) return;
-      state.shouldRecognize = false;
-      setCapability(elements.asrCapability, 'warning', '识别 · 不可用');
-      elements.capabilityNote.textContent = '本机语音识别不可用，可改用文字输入。';
-      showError('浏览器语音识别未完成，请检查麦克风权限或改用文字输入。');
+      if (!['aborted', 'no-speech'].includes(event.error)) {
+        showError('浏览器语音识别不可用，请检查麦克风权限。');
+      }
     };
     recognition.onend = () => {
-      if (!state.running || !state.shouldRecognize) return;
-      state.restartTimer = setTimeout(() => {
-        try {
-          recognition.start();
-        } catch {
-          elements.capabilityNote.textContent = '语音识别暂未恢复，可继续使用文字输入。';
-        }
-      }, 350);
+      if (!model.active || !model.shouldListen) return;
+      model.restartTimer = setTimeout(() => {
+        try { recognition.start(); } catch { /* Browser restart races are harmless. */ }
+      }, 300);
     };
-    state.recognition = recognition;
+    model.recognition = recognition;
   }
-  try {
-    state.recognition.start();
-  } catch {
-    // start() throws if the browser is already listening.
-  }
+  model.shouldListen = true;
+  try { model.recognition.start(); } catch { /* Already listening. */ }
 }
 
-async function startSession() {
+async function start() {
   showError();
-  elements.startButton.disabled = true;
+  if (!canRecognize) {
+    showError('当前浏览器不支持语音识别。');
+    return;
+  }
+  setToggle(false, true);
+  setState('正在打开麦克风');
   try {
-    const result = await api('/api/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ title: 'Voice Control' }),
-    });
-    state.session = result.session;
-    state.running = true;
-    clearTranscript();
-    attachEvents();
-    updateControls();
-    setActivity('正在准备语音');
-    beginRecognition();
-  } catch (error) {
-    state.running = false;
-    state.session = null;
-    showError(error.message);
-    updateControls();
+    const opened = await api('/api/open', { method: 'POST', body: JSON.stringify({}) });
+    model.session = opened.session;
+    model.seen.clear();
+    transcript.replaceChildren();
+    setToggle(true);
+    connectEvents();
+    startRecognition();
+    setState('我在听');
+  } catch (failure) {
+    setToggle(false);
+    setState('准备就绪');
+    showError(failure.message);
   }
 }
 
-async function closeSession() {
-  if (!state.session) return;
-  const session = state.session;
-  interruptPlayback('interrupted');
-  state.running = false;
+async function stop() {
+  interruptSpeech();
   stopRecognition();
-  state.playback.directQueue.length = 0;
-  state.playback.noticeQueue.length = 0;
-  if (canSpeak) window.speechSynthesis.cancel();
-  updateControls();
-  try {
-    await api(`/api/sessions/${encodeURIComponent(session.id)}/close`, {
+  model.source?.close();
+  model.source = null;
+  const session = model.session;
+  model.session = null;
+  setToggle(false);
+  setState('准备就绪');
+  if (session) {
+    await api('/api/close', {
       method: 'POST',
-      body: JSON.stringify({}),
-    });
-  } catch (error) {
-    showError(error.message);
-  } finally {
-    setTimeout(() => {
-      if (state.eventSource && state.session?.id === session.id) {
-        state.eventSource.close();
-        state.eventSource = null;
-      }
-    }, 800);
+      body: JSON.stringify({ sessionId: session.id }),
+    }).catch((failure) => showError(failure.message));
   }
 }
 
-function detectCapabilities() {
-  if (canRecognize) {
-    setCapability(elements.asrCapability, 'ready', '识别 · 浏览器');
-  } else {
-    setCapability(elements.asrCapability, 'unavailable', '识别 · 不可用');
-    elements.capabilityNote.textContent = '本机语音识别不可用，可改用文字输入。';
-  }
-  if (canSpeak) {
-    setCapability(elements.ttsCapability, 'ready', '播报 · 浏览器');
-  } else {
-    setCapability(elements.ttsCapability, 'unavailable', '播报 · 不可用');
-    elements.capabilityNote.textContent += ' 本机语音播报不可用，消息仅显示文本。';
-  }
-}
-
-async function loadHealth() {
-  try {
-    const health = await api('/api/health');
-    setServerState('ready', '服务可用');
-    elements.triggerStatus.textContent = health.lifecycle?.subscribed ? '已配置' : '未配置';
-  } catch (error) {
-    setServerState('warning', '服务不可用');
-    showError(error.message);
-  }
-}
-
-elements.startButton.addEventListener('click', () => {
-  void startSession();
-});
-elements.stopButton.addEventListener('click', () => {
-  void closeSession();
-});
-elements.muteButton.addEventListener('click', () => {
-  state.muted = !state.muted;
-  elements.muteButton.setAttribute('aria-pressed', String(state.muted));
-  elements.muteButton.textContent = state.muted ? '播报已静音' : '播报已开启';
-  if (state.muted) {
-    interruptPlayback('interrupted');
-    state.playback.directQueue.length = 0;
-    if (canSpeak) window.speechSynthesis.cancel();
-  } else {
-    processPlaybackQueue();
-  }
-});
-elements.textForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  const text = elements.textInput.value;
-  elements.textInput.value = '';
-  state.lastUserSpeechAt = Date.now();
-  interruptPlayback('interrupted');
-  void postUserText(text).catch((error) => showError(error.message));
+toggle.addEventListener('click', () => {
+  if (model.opening) return;
+  if (model.active) void stop(); else void start();
 });
 window.addEventListener('pagehide', () => {
-  if (!state.session || !state.running) return;
-  const active = state.playback.active;
-  if (active) settlePlayback(active, 'interrupted', 'page closed during playback', {
-    keepalive: true,
-  });
-  fetch(`/api/sessions/${encodeURIComponent(state.session.id)}/close`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
-    keepalive: true,
-  }).catch(() => {});
+  if (model.session) {
+    navigator.sendBeacon?.(
+      '/api/close',
+      new Blob([JSON.stringify({ sessionId: model.session.id })], { type: 'application/json' }),
+    );
+  }
 });
-
-detectCapabilities();
-updateControls();
-void loadHealth();
+setToggle(false);
+if (!canRecognize) {
+  setState('语音识别不可用');
+  showError('当前浏览器不支持语音识别。');
+}

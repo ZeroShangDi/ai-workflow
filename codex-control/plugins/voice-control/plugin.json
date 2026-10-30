@@ -2,8 +2,8 @@
   "schema": "codex-control/plugin-manifest@1",
   "id": "voice-control",
   "displayName": "Voice Control",
-  "version": "0.1.0",
-  "summary": "Independent local or remote voice runtime with generic event transport and explicit external triggers.",
+  "version": "0.2.0",
+  "summary": "Standalone voice chat runtime with local task notices, playback ledgers, and public open/close/tunnel interfaces.",
   "entrypoints": {
     "http": "src/main.mjs",
     "web": "web/index.html",
@@ -32,7 +32,15 @@
       "asr": "optional-native",
       "tts": "optional-native"
     },
-    "textFallback": true,
+    "textFallback": false,
+    "conversation": {
+      "protocol": "openai-compatible-chat-completions",
+      "configuredAtRuntime": true
+    },
+    "taskNotices": {
+      "storage": "local-notice-ledger",
+      "playbackAcknowledgement": "observed-browser-state"
+    },
     "externalTriggers": {
       "default": "disabled",
       "activation": "explicit-configuration"
@@ -41,6 +49,11 @@
   },
   "configuration": {
     "dataDirectoryEnvironment": "VOICE_CONTROL_DATA_DIR",
+    "chatProviderEnvironment": [
+      "VOICE_CONTROL_CHAT_URL",
+      "VOICE_CONTROL_CHAT_MODEL",
+      "VOICE_CONTROL_CHAT_API_KEY_FILE"
+    ],
     "triggerFile": "data/config.json",
     "exampleFile": "data/config.example.json"
   },

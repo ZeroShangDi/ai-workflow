@@ -40,7 +40,7 @@ function corsHeaders(req, allowedOrigins) {
   if (!allowedOrigins.has(origin) && !allowedOrigins.has('*')) return {};
   return {
     'Access-Control-Allow-Origin': allowedOrigins.has('*') ? '*' : origin,
-    'Access-Control-Allow-Headers': 'Content-Type, Last-Event-ID',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, Last-Event-ID',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
     'Access-Control-Max-Age': '600',
     Vary: 'Origin',
@@ -213,13 +213,39 @@ export function createVoiceHttpServer({
         writeJson(req, res, 200, { ok: true, ...app.replaceTriggerConfig(body) }, origins);
         return;
       }
+      if (url.pathname === '/api/open' && req.method === 'POST') {
+        const body = await readJson(req);
+        writeJson(req, res, 201, { ok: true, session: app.createSession(body) }, origins);
+        return;
+      }
+      if (url.pathname === '/api/close' && req.method === 'POST') {
+        const body = await readJson(req);
+        const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+        if (!sessionId) {
+          throw new VoiceControlError('invalid_request', 'sessionId is required', { status: 400 });
+        }
+        writeJson(req, res, 200, { ok: true, session: app.closeSession(sessionId) }, origins);
+        return;
+      }
+      if (url.pathname === '/api/tunnel' && req.method === 'POST') {
+        const body = await readJson(req);
+        writeJson(req, res, 202, { ok: true, ...app.tunnel(body) }, origins);
+        return;
+      }
+      if (url.pathname === '/api/notices' && req.method === 'GET') {
+        writeJson(req, res, 200, {
+          ok: true,
+          notices: app.listNotices({ sessionId: url.searchParams.get('sessionId') }),
+        }, origins);
+        return;
+      }
       if (url.pathname === '/api/sessions' && req.method === 'POST') {
         const body = await readJson(req);
         writeJson(req, res, 201, { ok: true, session: app.createSession(body) }, origins);
         return;
       }
 
-      const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(events|close))?$/);
+      const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(events|chat|close))?$/);
       if (sessionMatch) {
         const sessionId = decodeURIComponent(sessionMatch[1]);
         const action = sessionMatch[2] || null;
@@ -239,6 +265,11 @@ export function createVoiceHttpServer({
             duplicate: result.duplicate,
             event: result.event,
           }, origins);
+          return;
+        }
+        if (action === 'chat' && req.method === 'POST') {
+          const body = await readJson(req);
+          writeJson(req, res, 200, { ok: true, ...await app.chat(sessionId, body) }, origins);
           return;
         }
         if (action === 'close' && req.method === 'POST') {

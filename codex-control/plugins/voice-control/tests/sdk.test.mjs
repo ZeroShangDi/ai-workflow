@@ -88,3 +88,28 @@ test('SDK dispatches explicitly configured external triggers', async () => {
   assert.equal(JSON.parse(seen.options.body).noticeId, 'delivery-7');
   assert.equal(result.event.noticeId, 'delivery-7');
 });
+
+test('SDK exposes the public open, close, and tunnel interfaces', async () => {
+  const calls = [];
+  const client = createVoiceClient({
+    baseUrl: 'http://voice.test',
+    fetch: async (url, options) => {
+      calls.push({ url: String(url), method: options.method, body: options.body ? JSON.parse(options.body) : null });
+      const value = String(url).endsWith('/api/open')
+        ? { ok: true, session: { id: 'vcs_1' } }
+        : { ok: true, accepted: true };
+      return new Response(JSON.stringify(value), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+  });
+  assert.equal((await client.open()).id, 'vcs_1');
+  await client.tunnel({ eventId: 'evt_1', topic: 'task.progress', text: '处理中' });
+  await client.close('vcs_1');
+  assert.deepEqual(calls.map((call) => [new URL(call.url).pathname, call.method]), [
+    ['/api/open', 'POST'],
+    ['/api/tunnel', 'POST'],
+    ['/api/close', 'POST'],
+  ]);
+});

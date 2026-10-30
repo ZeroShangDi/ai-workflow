@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { VoiceControlError } from './errors.mjs';
 import { parseCursor, SessionEventLog } from './events.mjs';
 
-export const VOICE_CONTROL_VERSION = '0.1.0';
+export const VOICE_CONTROL_VERSION = '0.2.0';
 
 const SESSION_OPEN = 'open';
 const SESSION_CLOSED = 'closed';
@@ -31,9 +31,19 @@ function requiredString(value, field) {
 }
 
 export class VoiceControlApp {
-  constructor({ triggerConfigStore, now = () => new Date(), idFactory = () => randomUUID() }) {
+  constructor({
+    triggerConfigStore,
+    chatProvider = null,
+    noticeStore = null,
+    transcriptRecorder = null,
+    now = () => new Date(),
+    idFactory = () => randomUUID(),
+  }) {
     if (!triggerConfigStore) throw new Error('triggerConfigStore is required');
     this.triggerConfigStore = triggerConfigStore;
+    this.chatProvider = chatProvider;
+    this.noticeStore = noticeStore;
+    this.transcriptRecorder = transcriptRecorder;
     this.now = now;
     this.idFactory = idFactory;
     this.sessions = new Map();
@@ -56,6 +66,7 @@ export class VoiceControlApp {
       type: 'session.opened',
       message: '语音会话已打开。',
     });
+    this.#deliverPendingNotices(session);
     return this.#summary(session);
   }
 
@@ -66,7 +77,15 @@ export class VoiceControlApp {
   appendEvent(sessionId, input = {}) {
     const session = this.#requireSession(sessionId);
     this.#assertOpen(session);
-    return this.#append(session, input);
+    const result = this.#append(session, input);
+    if (input?.type === 'delivery' && typeof input.noticeId === 'string') {
+      this.noticeStore?.acknowledge(
+        input.noticeId,
+        input.status,
+        typeof input.message === 'string' ? input.message : null,
+      );
+    }
+    return result;
   }
 
   appendTranscript(sessionId, { role, source, text, dedupeKey = null } = {}) {
@@ -84,6 +103,137 @@ export class VoiceControlApp {
       text,
       dedupeKey,
     });
+  }
+
+  async chat(sessionId, { text } = {}) {
+    const session = this.#requireSession(sessionId);
+    this.#assertOpen(session);
+    const prompt = requiredString(text, 'text');
+    if (prompt.length > 6000) {
+      throw new VoiceControlError('invalid_request', 'text must be at most 6000 characters', {
+        status: 400,
+      });
+    }
+    if (!this.chatProvider?.configured) {
+      throw new VoiceControlError(
+        'chat_not_configured',
+        'Configure VOICE_CONTROL_CHAT_URL and VOICE_CONTROL_CHAT_MODEL before using voice chat',
+        { status: 503 },
+      );
+    }
+    const turnId = `turn_${this.idFactory()}`;
+    const userEvent = this.#append(session, {
+      type: 'transcript',
+      role: 'user',
+      text: prompt,
+      dedupeKey: `user:${turnId}`,
+    }).event;
+    this.transcriptRecorder?.({
+      sessionId,
+      turnId,
+      text: prompt,
+      createdAt: userEvent.createdAt,
+    });
+    this.#append(session, {
+      type: 'activity',
+      state: 'thinking',
+      dedupeKey: `thinking:${turnId}`,
+    });
+    const history = session.events
+      .after(0)
+      .filter((event) => event.type === 'transcript' && ['user', 'assistant'].includes(event.role))
+      .slice(-30)
+      .map((event) => ({ role: event.role, content: event.text }));
+    let assistant;
+    try {
+      assistant = await this.chatProvider.reply({
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '你是 Codex Control 的语音助手。',
+              '回答简洁、直接，适合被立即朗读。',
+              '不要声称执行了未实际执行的操作。',
+              '需要创建或控制任务时，等待宿主工具的明确结果。',
+            ].join(''),
+          },
+          ...history,
+        ],
+      });
+    } catch (failure) {
+      this.#append(session, {
+        type: 'voice',
+        state: 'warning',
+        message: failure.message,
+        dedupeKey: `chat-failed:${turnId}`,
+      });
+      throw new VoiceControlError(
+        failure.code || 'chat_failed',
+        failure.message || 'Voice chat failed',
+        { status: 502, cause: failure },
+      );
+    }
+    const assistantEvent = this.#append(session, {
+      type: 'transcript',
+      role: 'assistant',
+      text: assistant,
+      dedupeKey: `assistant:${turnId}`,
+    }).event;
+    this.#append(session, {
+      type: 'activity',
+      state: 'listening',
+      dedupeKey: `listening:${turnId}`,
+    });
+    return { status: 'accepted', turnId, userEvent, assistantEvent };
+  }
+
+  acceptExternalEvent(input = {}) {
+    if (!this.noticeStore) {
+      throw new VoiceControlError(
+        'notice_store_unavailable',
+        'External task events are not configured',
+        { status: 503 },
+      );
+    }
+    const event = this.noticeStore.accept(input);
+    const target = event.notice.sessionId
+      ? this.sessions.get(event.notice.sessionId)
+      : [...this.sessions.values()].reverse().find((session) => session.status === SESSION_OPEN);
+    if (target?.status === SESSION_OPEN) this.#deliverNotice(target, event.notice);
+    return {
+      accepted: true,
+      duplicate: event.duplicate,
+      notice: this.noticeStore.get(event.notice.noticeId),
+      deliveredSessionId: target?.status === SESSION_OPEN ? target.id : null,
+    };
+  }
+
+  tunnel(input = {}) {
+    if (input?.type === 'transcript') {
+      const sessionId = requiredString(input.sessionId, 'sessionId');
+      if (!['assistant', 'system'].includes(input.role)) {
+        throw new VoiceControlError('invalid_request', 'tunnel transcripts must be assistant or system messages', {
+          status: 400,
+        });
+      }
+      return {
+        accepted: true,
+        event: this.appendTranscript(sessionId, {
+          role: input.role,
+          text: input.text,
+          dedupeKey: input.dedupeKey || null,
+        }).event,
+      };
+    }
+    if (input?.type === 'voice' || input?.type === 'activity') {
+      const sessionId = requiredString(input.sessionId, 'sessionId');
+      return { accepted: true, event: this.appendEvent(sessionId, input).event };
+    }
+    return this.acceptExternalEvent(input);
+  }
+
+  listNotices({ sessionId = null } = {}) {
+    return this.noticeStore?.pending({ sessionId }) || [];
   }
 
   closeSession(sessionId) {
@@ -199,6 +349,7 @@ export class VoiceControlApp {
       (session) => session.status === SESSION_OPEN,
     ).length;
     const enabledTriggers = config.triggers.filter((trigger) => trigger.enabled).length;
+    const notices = this.noticeStore?.summary() || { total: 0, pending: 0 };
     return {
       ok: true,
       name: 'voice-control',
@@ -221,7 +372,30 @@ export class VoiceControlApp {
         total: config.triggers.length,
         enabled: enabledTriggers,
       },
+      chat: {
+        configured: this.chatProvider?.configured === true,
+      },
+      notices,
     };
+  }
+
+  #deliverPendingNotices(session) {
+    if (!this.noticeStore) return;
+    for (const notice of this.noticeStore.pending({ sessionId: session.id })) {
+      this.#deliverNotice(session, notice);
+    }
+  }
+
+  #deliverNotice(session, notice) {
+    const result = this.#append(session, {
+      type: 'trigger',
+      text: notice.text,
+      noticeId: notice.noticeId,
+      eventId: notice.eventId,
+      topic: notice.topic,
+      dedupeKey: `notice:${notice.noticeId}`,
+    });
+    if (!result.duplicate) this.noticeStore?.markDelivered(notice.noticeId, session.id);
   }
 
   #append(session, eventInput) {
