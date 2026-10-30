@@ -1,188 +1,145 @@
 # Codex Control Architecture
 
-## 1. Goal
+## 1. Product Goal
 
-Codex Control provides a voice-first control plane for external agent software.
+Codex Control provides a voice-first control plane while keeping its two plugins independently usable.
 
-The user should be able to:
-
-- create and start work by speaking;
-- answer missing-parameter questions in the same voice conversation;
-- query progress and results;
-- continue, queue, steer, or stop work;
-- receive questions and approvals;
-- approve, reject, or answer without opening a work page;
-- hear completion, failure, and pending-action notices;
-- reconnect without losing events or replaying writes.
-
-The first external software is Codex Mobile Bridge (CMB). The architecture must also support other bridge software without copying the whole voice or message stack.
+- `voice-control` alone supports a complete voice-chat loop.
+- `bridge-control` alone supports CMB task control.
+- Installing both adds task creation, progress notices, approvals, completion announcements, and playback receipts to the same voice page.
+- `bridge-hub` is optional and only serves future mobile-App integration. It is never required by either plugin.
 
 ## 2. Components
 
 ### 2.1 `plugins/voice-control`
 
-An independently installable, remotely deployable voice plugin.
+A self-contained local or remote voice runtime. It owns:
 
-It owns:
+- the voice page and a single start/stop interaction;
+- ASR and TTS through browser or host providers;
+- the conversation-provider loop;
+- voice sessions, transcript history, SSE events and interruption behavior;
+- task-notice ingestion, queueing and durable playback state;
+- observed playback acknowledgements;
+- public `open`, `close`, and `tunnel` endpoints.
 
-- microphone and WebRTC lifecycle;
-- ASR and TTS provider integration;
-- voice session state and interruption handling;
-- audio playback arbitration;
-- the voice page and minimal host SDK;
-- generic voice event transport;
-- external trigger subscriptions supplied by its host or integrator.
-
-It does not own:
-
-- CMB or other task-control APIs;
-- work creation, status, approval, or task persistence;
-- `bridge-hub`;
-- `bridge-control` domain logic.
-
-Local development and remote deployment use the same public API. Only transport, configuration, and authentication differ.
+It does not import or require `bridge-hub`, `bridge-control`, CMB, or ai-market code.
 
 ### 2.2 `plugins/bridge-control`
 
-An internal capability plugin loaded by trusted hosts. It is not an ordinary globally exposed plugin.
+An independently runnable internal control plugin backed directly by CMB public HTTP/SSE. It owns:
 
-It contains two runtime profiles:
+- CMB login, projects, sessions, send, history, respond and stop;
+- `voice-controller` and `work-reporter` profiles;
+- task creation confirmation based on the newest real voice transcript;
+- task and interaction state;
+- task-event production for Voice Control.
 
-- `voice-controller`: loaded only in the dedicated voice or app control conversation;
-- `work-reporter`: loaded only in work sessions created by the controller.
-
-`voice-controller` may create, find, inspect, continue, stop, read, answer, and approve work.
-
-`work-reporter` may emit progress, request input, request approval, publish artifacts, and finish work. It must not create work, answer its own questions, approve itself, or subscribe to control events.
+It does not import or require Hub or Voice Control implementation code.
 
 ### 2.3 `bridge-hub`
 
-The single deployable backend and integration layer.
+Optional backend for a future mobile App. It may independently depend on CMB and use Voice Control through its public `open`, `close`, and `tunnel` interfaces. It must not be part of the local two-plugin control path and neither plugin may depend on it.
 
-It owns:
-
-- CMB and future software adapters;
-- plugin loading and capability registration;
-- append-only event storage and cursor allocation;
-- subscription and external-trigger registry;
-- pairing, trust, tenant, user, and device scope;
-- session binding between control, work, and voice conversations;
-- durable inbox, delivery policy, deduplication, and acknowledgements;
-- the public API/SSE/WebSocket surface used by trusted hosts.
-
-It does not own microphone, ASR, TTS, audio playback, or voice-page rendering.
-
-## 3. Dependency Rules
+## 3. Dependency Graph
 
 ```text
-bridge-hub        -> CMB and other external software
-bridge-hub        -> bridge-control domain contracts
-bridge-hub        -. optional public SDK/API .-> voice-control
+bridge-control ───────────────────> CMB public HTTP/SSE
+bridge-control ──task events──────> shared local event files
+shared local event files ────────> voice-control
 
-voice-control     -> no bridge-hub dependency
-voice-control     -> no bridge-control dependency
-bridge-control    -> no concrete bridge-hub dependency
+bridge-hub ──────────────────────> CMB public HTTP/SSE              # optional
+bridge-hub ──open/close/tunnel───> voice-control                    # optional
+
+voice-control  ──X──> bridge-hub
+voice-control  ──X──> bridge-control
+bridge-control ──X──> bridge-hub
+bridge-control ──X──> voice-control implementation
 ```
 
-Rules:
-
-- `voice-control` may be installed and used for ordinary voice conversation without either other component.
-- `bridge-control` may be tested against a fake hub and must expose a stable domain contract.
-- only `bridge-hub` may depend directly on concrete external software such as CMB;
-- `bridge-hub` may depend on `voice-control` only through its public SDK or remote API;
-- `voice-control` must never import or assume `bridge-hub` internals;
-- no plugin may import the CMB submodule source. All access is through CMB's public HTTP/SSE contract.
-
-## 4. Activation Lifecycle
-
-Installed is not usable.
+The shared local event directory defaults to:
 
 ```text
-installed -> configured -> healthy -> paired -> subscribed -> active
+~/.codex-control/events/
+├── voice-transcripts.jsonl
+└── task-events.jsonl
 ```
 
-- `installed`: package is present.
-- `configured`: endpoint, credentials reference, providers, and retention settings exist.
-- `healthy`: session and event dependencies pass a health check.
-- `paired`: trusted instance and user scope are established.
-- `subscribed`: required event triggers are mapped.
-- `active`: the host may route user requests to the plugin.
+- `voice-transcripts.jsonl` is written by Voice Control from final real-user speech or text.
+- `task-events.jsonl` is written by Bridge Control for task creation, progress, interactions and completion.
+- Voice Control reads task events, owns notice state, and records observed playback outcomes in its own ledger.
 
-A voice plugin without task-control triggers can still provide ordinary voice chat. It must not claim task-control support until the pairing and subscription checks pass.
+## 4. Standalone and Combined Modes
 
-## 5. Voice Flow
+### Voice only
 
-There are three output sources:
+```text
+microphone -> ASR -> conversation provider -> assistant text -> TTS
+```
 
-1. user speech converted to text by ASR;
-2. conversational assistant speech generated from the current model turn;
-3. system announcements emitted by the notification scheduler.
+The page needs only one start/stop switch, state text, and the current conversation text.
 
-The voice host owns one audio arbiter:
+### Control only
 
-- user speech interrupts assistant or system speech;
-- only one source speaks at a time;
-- background notices wait for an idle gap;
-- direct answers to the current user request have priority over background notices;
-- interrupted announcements remain persisted and are not marked spoken;
-- a reconnect replays events from the last acknowledged cursor.
+```text
+MCP tools -> bridge-control -> CMB
+```
 
-The voice runtime owns microphone, ASR, TTS, and playback. The internal control
-plugin never calls TTS or controls the microphone.
+CMB task control works without Voice Control. Events remain durable in the local event file for a later Voice instance.
 
-## 6. Create Flow
+### Both installed
 
-1. The voice host converts the user request and sends it to the voice model.
-2. The model calls `bridge_chat_create` with a draft.
-3. The plugin returns `needs_input` when fields are missing.
-4. The model asks the returned questions in the same voice conversation.
-5. The user answers and the model updates the same draft.
-6. When complete, the plugin returns `awaiting_confirmation` with a deterministic summary and confirmation prompt.
-7. The voice host ensures the confirmation prompt is spoken.
-8. The user answers with an explicit affirmative or negative.
-9. The voice host persists the final real user transcript through the Hub's host-only ingress API.
-10. The model calls `bridge_chat_confirm`.
-11. The Hub re-reads the stored transcript, requires an explicit affirmative, and consumes that confirmation once before creating work.
+```text
+voice chat -> host model/tools -> bridge-control -> CMB
+                                      |
+                                      v
+                            task-events.jsonl
+                                      |
+                                      v
+voice-control notice ledger -> page/TTS -> playback receipt
+```
 
-The backend, not the model, decides whether the user confirmed. A model-provided boolean is never sufficient authorization.
-The same real user turn cannot authorize a second work creation, even with a new
-draft ID or idempotency key.
+Hub is not present in this path.
 
-The create receipt is returned to the current voice turn. The model or host may speak it using a returned speech template. Creation success means "accepted", never "completed".
+## 5. Voice Page
 
-## 7. Background Events
+The reference behavior comes from the existing uni-app/voice-service surface: one voice switch plus text. The plugin page must not expose a dashboard or multiple control panels.
 
-Long-running work cannot be awaited inside the create turn.
+Required states:
 
-1. A persistent Hub worker ingests CMB state changes.
-2. Events are appended with stable IDs and sequence numbers.
-3. Subscription rules decide whether a voice plugin should see each event.
-4. The voice host reads events with `bridge_chat_events`.
-5. Notices are queued and spoken only during an allowed idle period.
-6. The host writes `spoken`, `interrupted`, or `failed` playback acknowledgements.
+- idle;
+- opening;
+- listening;
+- thinking;
+- speaking;
+- error.
 
-A disconnected voice session does not cancel work and does not lose events.
+User speech interrupts active assistant or task-notice playback. A notice is only marked `spoken` after observed playback ends.
 
-The voice model never submits an authorization sentence. The voice host records
-the real final transcript at the Hub boundary; confirmations and approvals then
-re-read that stored value. This keeps transcript capture in the voice layer,
-authorization in the Hub, and execution in the external work adapter.
+## 6. Create and Authorization
 
-## 8. Security Boundaries
+1. The voice page records final user text and writes a stable transcript event.
+2. `bridge-control` builds a draft and returns missing fields.
+3. A complete draft enters `awaiting_confirmation` with a baseline transcript.
+4. Only a newer explicit affirmative transcript can confirm creation.
+5. The same transcript cannot authorize two tasks.
+6. CMB create/send results are idempotent; unknown write outcomes are not replayed.
 
-- No arbitrary URL proxy.
-- No plaintext credentials in tool arguments or persisted event payloads.
-- Work sessions receive only the `work-reporter` profile.
-- High-risk approvals require explicit user-confirmed interaction binding.
-- Unknown write results are reconciled, never automatically replayed.
-- Retrieved work or chat content is data, not executable instructions.
-- Raw audio and transcript logging are opt-in and retention-controlled.
-- Plugin installation does not imply trust, pairing, or event authorization.
+## 7. Hub Boundary
 
-## 9. Non-goals for the First Slice
+Hub work is deferred until mobile-App requirements are concrete. When added:
 
-- Full production STUN/TURN and multi-region relay.
-- Mobile native app packaging.
-- Automatic provider account provisioning.
-- Arbitrary third-party plugin sandboxing.
-- Replacing CMB's own UI or modifying CMB source.
+- Hub depends directly on CMB public HTTP/SSE;
+- Hub uses only `voice-control`'s public `open`, `close`, and `tunnel` endpoints;
+- Hub must not import Voice Control or Bridge Control internals;
+- Hub must not become the storage owner for Voice notice state or the default task-control path.
+
+## 8. Security
+
+- No plaintext credentials in tool arguments or events.
+- CMB credentials come from environment variables or private files.
+- Event files are created private to the current user.
+- Work sessions receive only `work-reporter`.
+- Approvals and creation use the newest real user transcript and immutable interaction bindings.
+- Unknown external writes are reconciled, never automatically replayed.
+- Raw audio is never stored by the event bus.

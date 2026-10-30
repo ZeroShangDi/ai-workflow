@@ -11,12 +11,14 @@
 
 - Canonical contracts live in `docs/architecture/`. Read them before changing any plugin, event, or dependency boundary.
 - The target is two plugins plus one backend:
-  - `plugins/voice-control/`: independently installable and remotely deployable voice runtime, page, SDK, ASR/TTS adapters, and trigger port;
-  - `plugins/bridge-control/`: trusted internal control capability with separate `voice-controller` and `work-reporter` profiles;
-  - `bridge-hub/`: backend that depends on CMB through its public API, loads control-domain contracts, and may optionally use the voice plugin's public SDK.
+  - `plugins/voice-control/`: fully self-contained voice chat, page, ASR/TTS adapters, conversation provider, local notice ledger, playback acknowledgement, and public `open`/`close`/`tunnel` interfaces;
+  - `plugins/bridge-control/`: fully independent task-control plugin with `voice-controller` and `work-reporter` profiles, backed directly by CMB public HTTP/SSE;
+  - `bridge-hub/`: optional backend for future mobile App integration that independently depends on CMB and may consume Voice Control through its public `open`/`close`/`tunnel` interfaces.
 - `voice-control` must not depend on `bridge-hub` or `bridge-control`.
-- `bridge-control` must not import concrete CMB or Hub implementation details.
-- `bridge-hub` is the only component that directly depends on CMB.
+- `bridge-control` must not depend on `bridge-hub` or `voice-control` implementation details.
+- Both plugins access CMB only through public HTTP/SSE contracts; neither imports CMB source.
+- `bridge-hub` is optional and must never become a prerequisite for either plugin pair working locally.
+- Default task-event decoupling uses the local `~/.codex-control/events` JSONL contract. Voice playback state is persisted by `voice-control`, not Hub.
 - All new public tools use the `bridge_chat_` prefix.
 
 ## Exposure and Safety

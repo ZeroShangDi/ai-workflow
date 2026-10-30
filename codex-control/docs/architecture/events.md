@@ -1,8 +1,18 @@
 # Event Protocol
 
+The default two-plugin path uses private local JSONL files under
+`~/.codex-control/events/`. It does not use Hub.
+
+- `voice-transcripts.jsonl`: final real-user voice transcripts written by Voice Control;
+- `task-events.jsonl`: task, interaction and announcement events written by Bridge Control.
+
+Voice Control consumes task events into its own durable notice ledger. Hub may
+later consume the same public event semantics, but Hub is not the owner of the
+local event bus and must not be required by either plugin.
+
 ## Envelope
 
-Every Hub event uses one versioned envelope:
+Every task event uses one versioned envelope:
 
 ```json
 {
@@ -27,7 +37,8 @@ Every Hub event uses one versioned envelope:
 }
 ```
 
-`cursor` is allocated by the Hub. Producers do not invent cursors.
+The local event bus uses append order as its cursor. Producers must use stable
+`eventId` and `dedupeKey` values.
 
 ## Topics
 
@@ -114,11 +125,11 @@ Installing a consumer does not create subscriptions. Pairing and subscription co
 
 `eventId` is globally unique. `dedupeKey` is producer-scoped and used for semantic deduplication, such as one completion per work sequence.
 
-The Hub must not use message text as identity.
+No event consumer, including an optional Hub, may use message text as identity.
 
 ## Retention
 
 - Event metadata is durable.
 - Sensitive payload fields are allowlisted.
 - Raw audio is never stored in the event store.
-- Transcript retention is configured in `voice-control`, not inferred by the Hub.
+- Transcript retention is configured and enforced by `voice-control`.

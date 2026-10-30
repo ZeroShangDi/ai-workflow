@@ -20,7 +20,8 @@ Returns one of:
 
 Confirms or cancels a pending create draft.
 
-The Hub inspects the latest real user transcript. Accept short explicit
+The control backend inspects the latest real user transcript recorded by Voice
+Control. Accept short explicit
 affirmative or negative replies. The model does not provide the authoritative
 boolean. An affirmative turn is consumed once and cannot create a second work.
 

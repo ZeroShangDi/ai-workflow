@@ -1,5 +1,8 @@
 # Bridge Hub
 
+> Optional future App backend. The local `voice-control` + `bridge-control`
+> pair does not use Hub and must remain fully functional without it.
+
 `bridge-hub` is the first backend slice for Codex Control. It connects to
 Codex Mobile Bridge (CMB) through CMB's public HTTP and SSE contracts and does
 not import CMB source code.
