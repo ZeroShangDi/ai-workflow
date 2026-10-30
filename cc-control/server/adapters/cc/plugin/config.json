@@ -1,0 +1,114 @@
+{
+  "port": 8787,
+  "engineDir": "core",
+  "runtime": {
+    "session": "cc"
+  },
+  "marketplace": {
+    "name": "ai-workflow-dev",
+    "description": "ai-workflow 插件市场",
+    "owner": {
+      "name": "v-shangjunhao"
+    }
+  },
+  "mcpServers": {
+    "awf-state": {
+      "args": [
+        "./mcp/awf-state/server.cjs"
+      ],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:{PORT}"
+      }
+    },
+    "awf-session": {
+      "args": [
+        "./mcp/awf-session/server.cjs"
+      ],
+      "env": {
+        "AWF_BASE": "http://127.0.0.1:{PORT}"
+      }
+    },
+    "awf-work": {
+      "args": ["./mcp/awf-work/server.cjs"],
+      "env": { "AWF_BASE": "http://127.0.0.1:{PORT}" }
+    },
+    "awf-oneshot": {
+      "args": [
+        "./mcp/awf-oneshot/server.cjs"
+      ]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gateway.cjs\" __PORT__"
+          }
+        ]
+      }
+    ]
+  }
+}

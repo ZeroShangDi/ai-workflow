@@ -1,0 +1,19 @@
+import run from './icons/run.svg';
+import tasks from './icons/tasks.svg';
+import logs from './icons/logs.svg';
+import decisions from './icons/decisions.svg';
+import reviews from './icons/reviews.svg';
+import overview from './icons/overview.svg';
+import requirements from './icons/requirements.svg';
+import bugs from './icons/bugs.svg';
+// Imported assets are fingerprinted by Vite; no expiring Figma URLs in runtime code.
+export const ICONS = Object.freeze({
+  run,
+  tasks,
+  logs,
+  decisions,
+  reviews,
+  overview,
+  requirements,
+  bugs,
+});

@@ -1,0 +1,101 @@
+* {
+  box-sizing: border-box;
+}
+:root {
+  color-scheme: dark;
+  font-family: var(--cc-font-ui);
+  color: var(--cc-color-text-primary);
+  background: var(--cc-color-bg-app);
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+}
+body {
+  margin: 0;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+button,
+input,
+textarea,
+select {
+  appearance: none;
+  border: var(--cc-border-width) solid var(--cc-color-border-default);
+  border-radius: var(--cc-radius-6);
+  background: var(--cc-color-bg-surface);
+  padding: var(--cc-spacing-6) var(--cc-spacing-10);
+}
+select {
+  padding-right: var(--cc-spacing-24);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+button {
+  cursor: pointer;
+  min-height: var(--cc-layout-control-height);
+}
+button:hover {
+  background: var(--cc-color-bg-hover);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* 统一去掉焦点样式：不做任何 focus 视觉（含浏览器默认轮廓） */
+:focus-visible {
+  outline: none;
+}
+input,
+textarea {
+  min-width: 0;
+  width: 100%;
+}
+textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+h1 {
+  font-size: var(--cc-type-display-size);
+  line-height: var(--cc-type-display-line);
+  margin: 0 0 var(--cc-spacing-8);
+  font-weight: 600;
+}
+h3 {
+  font-size: var(--cc-type-heading-size);
+  line-height: var(--cc-type-heading-line);
+  font-weight: 550;
+  margin: var(--cc-spacing-16) 0 var(--cc-spacing-10);
+}
+small {
+  font-size: var(--cc-type-caption-size);
+}
+p {
+  overflow-wrap: anywhere;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--cc-font-mono);
+  font-size: var(--cc-type-caption-size);
+  line-height: 1.8;
+  margin: 0;
+}
+.selected {
+  background: var(--cc-color-bg-selected) !important;
+}
+pre {
+  font-size: var(--cc-type-mono-size);
+  line-height: var(--cc-type-mono-line);
+}

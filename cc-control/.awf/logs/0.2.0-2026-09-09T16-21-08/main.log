@@ -1,0 +1,9 @@
+=== AWF Run Log ===
+version: 0.2.0
+started: 2026-09-09T16:21:08.857Z
+project: /Users/shangjunhao/Project/ai-workflow/ai-workflow/cc-control
+
+────────────────────────────────────────────────────────────
+[16:21:12] 提示词
+执行 /ai-workflow-code:w-dev T1-098：沙箱/独立项目跑真 run 全流程（plan→run 单/多 agent 决策·门禁）经新链路回归（含 W3-006 双 run 回归）
+

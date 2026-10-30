@@ -1,0 +1,324 @@
+=== AWF Run Log ===
+version: 0.2.0
+started: 2026-09-09T08:41:13.406Z
+project: /Users/v-shangjunhao/MyProject/cc-control-wt-v0.2.0/cc-control
+
+────────────────────────────────────────────────────────────
+[08:41:16] 提示词
+上下文检查（依据 code-context-onboard 技能规则，只做判断不做任何任务工作）：
+0. 当前对话上下文占用：未知（statusline 未配置，请自行估算）
+1. 判断是否需要压缩（优先以第 0 行的实测值为准；无实测则按对话轮数/体积估算）：
+   - 占用明显充足（明显低于窗口 ~65%），或虽接近阈值但下个任务轻量、可安全完成 → 只回复 `AWF_CONTEXT_OK`，不修改任何文件、不做任何其他操作
+   - 占用已接近/超过窗口 ~65%，且下个任务仍需较多上下文 → 压缩
+2. 压缩执行（四步）：
+   a. 按 code-context-onboard 的 7 段快照格式生成交接快照（标识符如 UUID/路径/端口必须原样保留）
+   b. 写入 `.awf/context/handoff.md`（目录不存在则创建）
+   c. 调用 `awf_context_ready` 通知 CLI 快照已就绪
+   d. 回复 `AWF_CONTEXT_READY`，结束本轮
+3. 本轮是纯检查轮：无论如何都不要开始执行任何任务、不要调用任务相关工具。
+
+────────────────────────────────────────────────────────────
+[08:41:25] 提示词
+执行 /ai-workflow-code:w-dev T1-105：只完成 server 侧 run-host 前置能力——新增可测试的常驻 run host，接线 run-driver（单 agent 阶段链）、run-scheduler（多 agent）与 gateCompletionHook；暴露 run 提交、状态快照和轮询事件端点。保持现有 cli/run.js 与 cli/run-batch.js 的 live driver 路径不变，禁止在本任务切换 CLI；CLI 切换由下一任务 T1-058 完成。
+
+────────────────────────────────────────────────────────────
+[08:45:53] 提示词
+任务 T1-105 的执行提示词已处理。请按当前真实状态收尾：
+- 已完成 → 用 awf_task_complete 原子记录 T1-105 的 done、result、files 和 architecture
+- 未完成 → 继续完成工作，不要标记 done
+
+────────────────────────────────────────────────────────────
+[08:55:51] 提示词
+执行 /ai-workflow-code:w-dev T1-058：在 T1-105 的 server run-host 已通过测试后，将 cli/run.js 切换为 run-client：提交 run→轮询订阅事件/状态展示→人机应答中继→收尾；移除 run.js 内任务选择、阶段推进和调度循环。不要迁移剩余 state/gate 直写，后者留 T1-061。
+
+────────────────────────────────────────────────────────────
+[09:03:04] 提示词
+执行 /ai-workflow-code:w-dev T1-059：--resume/--attach 重连（读 store 落盘状态续接）
+
+────────────────────────────────────────────────────────────
+[09:07:27] 提示词
+执行 /ai-workflow-code:w-dev T1-060：attach/follow 终端跟随展示
+
+────────────────────────────────────────────────────────────
+[09:10:27] 提示词
+执行 /ai-workflow-code:w-dev T1-061：cli 侧 state 写（调度/门禁派生等剩余直写）改经 server run api
+
+────────────────────────────────────────────────────────────
+[09:15:43] 提示词
+执行 /ai-workflow-code:w-dev T1-062：cli 侧直写路径/读路径清理（lib/state.js 写侧下线；读经 client 快照）
+
+────────────────────────────────────────────────────────────
+[09:20:12] 提示词
+执行 /ai-workflow-code:w-dev T1-063：ensureServer 存在即复用（去 kill-by-port；含 plan 期拉起）
+
+────────────────────────────────────────────────────────────
+[09:22:57] 提示词
+执行 /ai-workflow-code:w-dev T1-064：空闲超时回收 + awf server stop；run 结束不关 server
+
+────────────────────────────────────────────────────────────
+[09:25:33] 提示词
+执行 /ai-workflow-code:w-dev T1-065：messaging/inbox 死代码删除（crossSession 降级已定）
+
+────────────────────────────────────────────────────────────
+[09:27:37] 提示词
+执行 /ai-workflow-code:w-dev T1-066：open tree CLI 渲染移除 → 指向 web WBS-Tree 视图
+
+────────────────────────────────────────────────────────────
+[09:29:04] 提示词
+执行 /ai-workflow-code:w-dev T1-067：cli 薄化后命令面测试绿 + 单写者冒烟（server 唯一写）+ 常驻/回收/attach 冒烟
+
+────────────────────────────────────────────────────────────
+[09:31:01] 提示词
+执行 /ai-workflow-code:w-dev T1-104：awf plan 启动时检测非空旧 state → 自动归档 .awf/versions/state-&lt;ts&gt;.json 并重置为空 plan 模板；run 模式不触发。
+
+────────────────────────────────────────────────────────────
+[09:32:54] 提示词
+执行 /ai-workflow-code:w-review T2-021：审查 W2-021 范围改动并给 verdict
+
+────────────────────────────────────────────────────────────
+[09:34:03] 提示词
+执行 /ai-workflow-code:w-review T2-022：审查 W2-022 范围改动并给 verdict
+
+────────────────────────────────────────────────────────────
+[09:34:42] 提示词
+执行 /ai-workflow-code:w-review T2-023：审查 W2-023 范围改动并给 verdict
+
+────────────────────────────────────────────────────────────
+[09:35:08] 提示词
+执行 /ai-workflow-code:w-test T3-005：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。
+
+────────────────────────────────────────────────────────────
+[09:35:55] 提示词
+执行 /ai-workflow-code:w-dev T1-068：registry 多槽 + per-run adapter 绑定 + run-context 多实例（W1-005 装配器按 sid 真正多开）
+
+────────────────────────────────────────────────────────────
+[09:37:14] 提示词
+执行 /ai-workflow-code:w-dev T1-069：tmux/messaging/sock/目录按 cc-<sid>/<sid>.sock 命名接入
+
+────────────────────────────────────────────────────────────
+[09:38:35] 提示词
+执行 /ai-workflow-code:w-dev T1-070：每 run settings 渲染 __SID__（bootstrap/run-settings 生成归 cc）+ gateway 透传 sid
+
+────────────────────────────────────────────────────────────
+[09:40:26] 提示词
+执行 /ai-workflow-code:w-dev T1-071：server /hook 按 sid 路由到 run 槽；内存状态机按 sid 隔离（ready/busy/decision 不串 run）
+
+────────────────────────────────────────────────────────────
+[09:43:25] 提示词
+执行 /ai-workflow-code:w-dev T1-072：各 run 独立 state/logs/metrics/decisions 目录（承接 W3-002 布局）；runStamp→sid 归一，决策/日志不串 run
+
+────────────────────────────────────────────────────────────
+[09:44:58] 提示词
+执行 /ai-workflow-code:w-dev T1-073：client 带 sid；run driver 注册 run 取 sid；attach 指定 run
+
+────────────────────────────────────────────────────────────
+[09:47:35] 提示词
+执行 /ai-workflow-code:w-dev T1-074：前端 ?sid 路由视图（多 run 简单列表壳）
+
+────────────────────────────────────────────────────────────
+[09:48:32] 提示词
+执行 /ai-workflow-code:w-dev T1-075：同机两独立项目并发 run 冒烟（各自 .awf/settings/workdir）：不互杀、hook 路由正确、隔离成立、registry 列两 run
+
+────────────────────────────────────────────────────────────
+[09:49:43] 提示词
+执行 /ai-workflow-code:w-dev T1-076：双 run 并发冒烟全过 + 单/双 run 状态/日志/决策归属断言
+
+────────────────────────────────────────────────────────────
+[09:50:42] 提示词
+执行 /ai-workflow-code:w-review T2-028：审查 W2-028 范围改动并给 verdict
+
+────────────────────────────────────────────────────────────
+[09:51:14] 提示词
+执行 /ai-workflow-code:w-test T3-006：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。
+
+────────────────────────────────────────────────────────────
+[09:51:57] 提示词
+执行 /ai-workflow-code:w-dev T1-077：awf-state 18 tools 语义保留，底层改经 server run api（带 sid env）；直写文件/锁逻辑下线
+
+────────────────────────────────────────────────────────────
+[09:56:28] 提示词
+执行 /ai-workflow-code:w-dev T1-078：MCP 代理鉴权/边界：只碰本 sid run（软约束，U3）
+
+────────────────────────────────────────────────────────────
+[09:58:32] 提示词
+执行 /ai-workflow-code:w-dev T1-079：awf-session 全经 server（+sid）；capture 经 host 端口
+
+────────────────────────────────────────────────────────────
+[10:00:43] 提示词
+执行 /ai-workflow-code:w-dev T1-080：awf-oneshot 经 server /oneshot（直连 spawn claude 下线）
+
+────────────────────────────────────────────────────────────
+[10:02:29] 提示词
+执行 /ai-workflow-code:w-dev T1-081：config 单源扩展：任意插件可声明自身 mcp/hooks（engineDir-only 取消）+ render 改输出
+
+────────────────────────────────────────────────────────────
+[10:04:36] 提示词
+执行 /ai-workflow-code:w-dev T1-082：settings.json 本仓段改由 config 渲染产物；根 .mcp.json 消除；figma 等第三方留手工合并层
+
+────────────────────────────────────────────────────────────
+[10:06:40] 提示词
+执行 /ai-workflow-code:w-dev T1-083：命令/skill 描述去"运行实现字面"（引用行为语义；低强度，接 U5 粗略档）
+
+────────────────────────────────────────────────────────────
+[10:08:01] 提示词
+执行 /ai-workflow-code:w-dev T1-084：MCP 全链路（主会话写状态/oneshot/await）+ 注册/渲染单测 + plugin 测试适配绿
+
+────────────────────────────────────────────────────────────
+[10:09:44] 提示词
+执行 /ai-workflow-code:w-review T2-033：审查 W2-033 范围改动并给 verdict
+
+────────────────────────────────────────────────────────────
+[10:10:11] 提示词
+执行 /ai-workflow-code:w-review T2-035：审查 W2-035 范围改动并给 verdict
+
+────────────────────────────────────────────────────────────
+[10:10:35] 提示词
+执行 /ai-workflow-code:w-test T3-007：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。
+
+────────────────────────────────────────────────────────────
+[10:11:10] 提示词
+执行 /ai-workflow-code:w-dev T1-085：web/ 初始化（Vite+React+lint）+ api client（http+ws 封装，带 sid）
+
+────────────────────────────────────────────────────────────
+[10:12:49] 提示词
+执行 /ai-workflow-code:w-dev T1-086：主题/共享组件库（抽 4 html 公共的 CSS 变量/esc/format/task 列表等）
+
+────────────────────────────────────────────────────────────
+[10:14:18] 提示词
+执行 /ai-workflow-code:w-dev T1-087：Dashboard 迁移（run 总览/任务列表/阶段/指标/send·respond·stop/启停，经 server api + WS）
+
+────────────────────────────────────────────────────────────
+[10:15:37] 提示词
+执行 /ai-workflow-code:w-dev T1-088：Decisions 迁移（决策列表/Review/override，api + WS 更新）
+
+────────────────────────────────────────────────────────────
+[10:16:36] 提示词
+上下文检查（依据 code-context-onboard 技能规则，只做判断不做任何任务工作）：
+0. 当前对话上下文占用：已用约 80%（statusline 实测）
+1. 判断是否需要压缩（优先以第 0 行的实测值为准；无实测则按对话轮数/体积估算）：
+   - 占用明显充足（明显低于窗口 ~65%），或虽接近阈值但下个任务轻量、可安全完成 → 只回复 `AWF_CONTEXT_OK`，不修改任何文件、不做任何其他操作
+   - 占用已接近/超过窗口 ~65%，且下个任务仍需较多上下文 → 压缩
+2. 压缩执行（四步）：
+   a. 按 code-context-onboard 的 7 段快照格式生成交接快照（标识符如 UUID/路径/端口必须原样保留）
+   b. 写入 `.awf/context/handoff.md`（目录不存在则创建）
+   c. 调用 `awf_context_ready` 通知 CLI 快照已就绪
+   d. 回复 `AWF_CONTEXT_READY`，结束本轮
+3. 本轮是纯检查轮：无论如何都不要开始执行任何任务、不要调用任务相关工具。
+
+────────────────────────────────────────────────────────────
+[10:17:27] 提示词
+【上下文快照】按 code-context-onboard 生成，接手前先读
+# Handoff Snapshot — AWF v0.2.0 重构执行现场
+
+> 生成 2026-09-09（awf run 主会话压缩点）。目录：`/Users/v-shangjunhao/MyProject/cc-control-wt-v0.2.0/cc-control`
+> 分支 `wt/cc-control-v0.2.0`（repo root=cc-control-wt-v0.2.0，本项目为子目录 cc-control）。端口 8787 被当前 awf run 占用（禁嵌套真 run；真 run/双 run 回归留 T1-098）。本快照供冷启动续接。
+
+## Goal
+
+在 AWF v0.2.0 重构上继续执行剩余任务（当前进度：dev 到 T1-088、门禁至 T3-007 及 review T2-*，全量 87 文件 / 749 例绿）。剩余按 .awf/state.json 任务图推进：前端工程（web/ React：Diagnostics / WBS-Tree / 产物托管 等后续）、真实 run 自托管回归 T1-098、各模块/review 门禁。纪律：只本地 commit 不 push；commit 不带 Co-Authored-By；按任务 ID 用 MCP 落账 awf_task_complete(done, result/files/architecture/commits/verdict)；问题按门禁闭环派生修复。
+
+## State
+
+- 主线 commit 至 `ac108e5`（T1-088 Decisions 迁移）；此前依次 b2cffb0(T1-105)/4bb0d96/…/6de4395(T1-077)/f4f7132(T1-078)/7103b48(T1-079)/7a5d8cb(T1-080)/fe71a83(T1-081)/5fba8bd(T1-082)/73d7196(T1-083)/17df9cb(T1-085)/434bab8(T1-086)/23a4b68(T1-087)。门禁 pass：T2-021/022/023/028/033/035、T3-005/006/007。
+- 代码事实（标识符原样）：
+  - server 常驻控制平面：`src/server/run-host.cjs`（createRunHost：单 agent 经 run-driver.decideChain/gateCompletionHook，多 agent 经注入 runScheduler；submit/status/pollEvents 事件环；default 单 run 'default'=单写）；`run-slot.cjs`（per-sid ready/busy/decision/contextReady 内存隔离）；`run-registry.cjs`（多槽 ctx+adapter+sm，ensureLayout per-run 目录 .awf/runs/<sid>）。server.cjs 挂 `/run/*`（submit/status/events/state/{mode,task/active,gate,backup,apply}/oneshot）、`/shutdown`、`/awf/state`(?sid 分片 .awf/runs/<sid>/state.json)、`/status`(?sid 槽态)、`/hook`(sid 早路 handleSidHook)、`/theme.css` `/common.js`（共享资产托管）；空闲回收 main 进程 CC_SERVER_IDLE_MS + CC_SERVER_IDLE_CHECK_MS。
+  - cli 薄化：`run.js` runCommand→driveSingle(fresh/resume/attach, runId=sid)→observeRun(follow TTY/决策中继)；mode 经 client.setRunMode；ensureServer 存在即复用（去 kill-by-port，他项目占用报错）；run 结束只关 tmux 保留 server；`run-batch.js` 多 agent 仅路由（宿主 batch 传输未接线）；`run-client.js` 提交/轮询/读/写端点方法 + slotStatus(sid)。
+  - 单写者：src/cli 零 lib/state.js 写函数；gate-fix 在 `src/server/gate-fix.js`；awf-state MCP 18 tools 语义保留、env CC_AWF_STATE_SERVER=1 时读/写经 server（GET /awf/state + POST /run/state/apply，带 CC_SID）；run 会话 env 注入 CC_AWF_STATE_SERVER=1/CC_PORT（ensureSession）；plan（无 server）离线直写。
+  - sid 贯穿：run-context runSessionName=cc-<sid>；run-id resolveRunStamp；DecisionStore {runStamp,runsDir} per-run 决策隔离；gateway/session/oneshot MCP 带 sid。
+  - 注册/渲染单源：plugin/config.json + plugin/settings.json；plugin-config.js resolvePluginAssets/renderRepoSettings；render-config 输出各 plugin.json+.mcp/hooks + 本仓 .claude/settings.json（<pkg>→绝对 plugin 根，gitignore 不提交）；根 .mcp.json 已删。
+  - 前端 `web/`（Vite+React，依赖未装、沙箱不联网）：`src/api/client.js` createApiClient({base,sid,httpFetch,wsFactory}) http+ws 带 sid；`views/dashboard-model.js`+Dashboard.jsx（T1-087：总览/任务/阶段/指标/send/respond/stop/启停，WS+3s 轮询）、`views/decisions-model.js`+Decisions.jsx（T1-088：列表/override，WS decision.record）；App 按 ?view=dashboard|decisions&sid；web dev proxy /run /awf /status → AWF_SERVER（缺省 127.0.0.1:8787）。
+  - 托管页共享资产 src/server/theme.css + common.js（window.AWF_COMMON esc/fmtDuration/taskRow/renderTaskList），4 html head 已注入 link/script。
+- 测试：`npx vitest run tests/unit tests/integration` = 87 文件 / 749 例绿；e2e 两既有失败为已知基线（run.e2e 端口占用、e2e-smoke 日志路径，docs/bugs/recovery-baseline-e2e-failures.md）。关键套件：run/run-batch/run-client/run-slot/run-registry/sid-naming/run-stamp-sid/run-host/scheduler/server-lifecycle/two-project-smoke/awf-state*/awf-session*/awf-oneshot*/render-config/dashboard-shell/web-* 模型。
+- .awf/state.json 只能经 awf-state MCP 改；任务 exec/verdict 均在 state。
+
+## Tried
+
+- 按 /w-dev <id> 顺序执行 40+ 任务（T1-105…T1-088）与门禁（全 pass），固定流程：读 state 定义 → 改/补测试 → lint+全量 → commit → awf_task_complete。React 组件不纳入仓库 vitest（纯模型层测）；web 依赖留真实 dev 安装。
+
+## Decisions
+
+- 已定勿翻：server 常驻单写者控制平面、cli 薄化经 run-client、sid 贯穿多 run、MCP 收 server 薄代理（env 门控，缺省离线直写零回归）、注册/渲染单源、前端 web 迁移经 api+WS（模型层先测）。
+- 遗留（exec 已标注，不阻塞已过门禁；真 run 前补/验证）：宿主 batch 传输、curl hooks 带 &sid + 每 run CC_SID/AWF_BASE env 注入、决策闸门 per-run 全分支、/run/state/apply last-writer-wins 缺 CAS、前端 Diagnostics/WBS-Tree/产物托管。
+
+## Evidence
+
+- 最近 commit ac108e5 后全量 87 文件/749 例绿。回退锚点若回归：跑 run-related + server-lifecycle + awf-* + render-config + web 模型套件。
+- 各任务 exec/verdict 留存 .awf/state.json。
+
+## Feedback
+
+- 全局：只 commit 不 push、无 Co-Authored-By、直接执行、听指挥不扩范围。压缩轮只判断+快照。
+
+## Next
+
+读 .awf/state.json 取下一 pending dev（预计 web Diagnostics/WBS-Tree 等前端、或进入 T1-098 前的接线任务）→ 固定流程执行 → 保持全量绿 → T1-098 自托管真 run（含双 run/决策闸门）前补齐 exec 标注的遗留。上下文再告警时重复本流程。
+
+
+执行 /ai-workflow-code:w-dev T1-089：Diagnostics 迁移（诊断触发/展示）
+
+────────────────────────────────────────────────────────────
+[10:17:30] 提示词
+任务 T1-089 的执行提示词已处理。请按当前真实状态收尾：
+- 已完成 → 用 awf_task_complete 原子记录 T1-089 的 done、result、files 和 architecture
+- 未完成 → 继续完成工作，不要标记 done
+
+────────────────────────────────────────────────────────────
+[10:22:04] 提示词
+执行 /ai-workflow-code:w-dev T1-090：WBS-Tree 独立视图组件（替代 open tree CLI 渲染）
+
+────────────────────────────────────────────────────────────
+[10:26:23] 提示词
+执行 /ai-workflow-code:w-dev T1-091：轮询→事件订阅（task.done/decision.required/run 状态推送刷新）
+
+────────────────────────────────────────────────────────────
+[10:41:53] 提示词
+执行 /ai-workflow-code:w-dev T1-092：?sid 路由视图 + 多 run 简单列表壳
+
+────────────────────────────────────────────────────────────
+[10:43:43] 提示词
+执行 /ai-workflow-code:w-dev T1-093：build→server/public 静态托管 + dev 代理 /api+WS
+
+────────────────────────────────────────────────────────────
+[10:47:54] 提示词
+执行 /ai-workflow-code:w-dev T1-094：ui.html 废弃删除
+
+────────────────────────────────────────────────────────────
+[10:51:09] 提示词
+执行 /ai-workflow-code:w-test T3-008：非真模块核查——对照模块 acceptance 与改动 diff 检查结构与验收点（不跑整套真实测试）；问题按门禁闭环处理。
+
+────────────────────────────────────────────────────────────
+[10:52:36] 提示词
+执行 /ai-workflow-code:w-dev T1-095：unit/integration 改指向新结构（server client mock/事件路由/store 路径）
+
+────────────────────────────────────────────────────────────
+[10:56:26] 提示词
+执行 /ai-workflow-code:w-dev T1-096：adapter mock 测试、store/迁移/config/装配/run-id/client/sid 路由单测
+
+────────────────────────────────────────────────────────────
+[10:58:02] 提示词
+执行 /ai-workflow-code:w-dev T1-097：前端 api/ws 层单测
+
+────────────────────────────────────────────────────────────
+[10:58:48] 提示词
+执行 /ai-workflow-code:w-dev T1-098：沙箱/独立项目跑真 run 全流程（plan→run 单/多 agent 决策·门禁）经新链路回归（含 W3-006 双 run 回归）
+
+────────────────────────────────────────────────────────────
+[10:59:07] 提示词
+任务 T1-098 的执行提示词已处理。请按当前真实状态收尾：
+- 已完成 → 用 awf_task_complete 原子记录 T1-098 的 done、result、files 和 architecture
+- 未完成 → 继续完成工作，不要标记 done
+
+────────────────────────────────────────────────────────────
+[10:59:09] 提示词
+任务 T1-098 尚未标记 done（当前 status=pending）。请明确当前状态并三选一执行：
+1. 已完成 → awf_task_status 标记 T1-098 done + awf_task_result 记录结果
+2. 未完成，继续做 → 继续实现直到完成，再标记 done
+3. 卡住或需决策 → awf_task_status 标记 T1-098 blocked，并调 awf_await_choice 说明障碍
+
+────────────────────────────────────────────────────────────
+[10:59:25] 提示词
+任务 T1-098 尚未标记 done（当前 status=pending）。请明确当前状态并三选一执行：
+1. 已完成 → awf_task_status 标记 T1-098 done + awf_task_result 记录结果
+2. 未完成，继续做 → 继续实现直到完成，再标记 done
+3. 卡住或需决策 → awf_task_status 标记 T1-098 blocked，并调 awf_await_choice 说明障碍
+

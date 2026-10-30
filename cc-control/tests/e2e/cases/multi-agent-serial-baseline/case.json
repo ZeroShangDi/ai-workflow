@@ -1,0 +1,30 @@
+{
+  "id": "multi-agent-serial-baseline",
+  "name": "对照基线：同一任务集单 agent 串行（run.agents.max=1）",
+  "extends": "multi-agent-parallel",
+  "config": {
+    "run": {
+      "agents": { "max": 1 }
+    }
+  },
+  "expected": {
+    "files": [
+      "src/util/math.js",
+      "src/util/string.js",
+      "src/model/user.js",
+      "src/model/order.js",
+      "eval-marker/T1.done",
+      "eval-marker/T2.done",
+      "eval-marker/T3.done",
+      "eval-marker/T4.done",
+      "test/util.test.js",
+      "test/model.test.js",
+      "README.md"
+    ],
+    "verify": [
+      "node", "--input-type=module", "-e",
+      "import { existsSync } from 'node:fs';\nconst m = await import('./src/util/math.js');\nconst s = await import('./src/util/string.js');\nconst u = await import('./src/model/user.js');\nconst o = await import('./src/model/order.js');\nconst markers = ['T1','T2','T3','T4'].every((id) => existsSync('eval-marker/'+id+'.done'));\nif (m.add(1,2)!==3 || s.upper('hi')!=='HI' || u.createUser('a').name!=='a' || o.createOrder(7).id!==7 || !markers) { console.error('VERIFY_FAIL'); process.exit(1); }\nconsole.log('ALL_OK');"
+    ],
+    "tasksDone": true
+  }
+}

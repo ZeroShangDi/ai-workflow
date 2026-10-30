@@ -1,0 +1,39 @@
+{
+  "id": "decision",
+  "name": "决策闸门（DC 自决 + DecisionStore 落盘 + 续跑注入）",
+  "requirements": "任务执行中抛出一个真实决策（<AWF_DECISION_REQUIRED>）→ 决策内核产出 Decision Result → 落盘 DecisionStore → 续跑注入 → 任务据结论完成。",
+  "config": {
+    "run": {
+      "agents": { "max": 1, "maxModules": 1, "maxPerModule": 1, "maxPerFeature": 1 },
+      "decision": { "enabled": true }
+    }
+  },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "决策闸门真 run（AI 自决 → 落盘 → 续跑）" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "决策后创建 src/counter.js",
+        "kind": "dev",
+        "status": "pending",
+        "deps": [],
+        "wbsRef": "W1",
+        "prompt": "执行 /ai-workflow-code:w-dev T1：本任务必须先做一次真实决策，再据此实现。\n第一步（不要创建任何文件）：把「计数器是否需要上限保护」当作决策问题，以 <AWF_DECISION_REQUIRED> 与 </AWF_DECISION_REQUIRED> 包裹问题内容，并把该标记块放在本回合最后一行，然后结束本回合等待决策结果。\n第二步：收到决策结果后，按结论在项目根创建 src/counter.js，导出一个自增计数器函数 makeCounter()，返回 { inc(), value() }；完成后用 awf_task_complete 把 T1 记录为 done（result 说明产出与决策如何影响实现，files 填 src/counter.js）。",
+        "plannedFiles": ["src/counter.js"],
+        "constraints": ["只创建 src/counter.js"],
+        "acceptance": "src/counter.js 存在且导出 makeCounter；本次 run 产生过 decision_completed 记录"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "files": ["src/counter.js"],
+    "tasksDone": true,
+    "dirContain": [{ "dir": ".awf/decisions/runs", "contains": ["decision_completed"] }],
+    "modeIdle": true,
+    "sessionEnvPointsAt": true
+  }
+}

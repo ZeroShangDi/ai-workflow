@@ -1,0 +1,24 @@
+{
+  "$comment": "本插件的订阅表（DSH 侧没有 hook 文件机制，等价物是进程内 ctx.on 订阅）。cc 那份 hooks.json 是**平台清单**，由平台读到后 fork gateway.cjs；这份是**插件自己的接线声明**，由 hooks/index.js 读，把「cc 的哪个 hook 点 ↔ DSH 的哪个事件 ↔ 哪个处理器」摆成数据而不是散在散文里。改接线只改这张表。",
+  "subscriptions": [
+    {
+      "cc": ["SessionStart", "UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop"],
+      "dsh": "session/event",
+      "handler": "turnReporter",
+      "mode": "emit",
+      "note": "一条会话事件火线覆盖 cc 的 5 个 hook 点：turn/start → 会话 busy / 子 Agent agent.started；turn/end → ready + 末条 assistant 文本（决策门阀读它）/ agent.stopped + RESULT 正文"
+    },
+    {
+      "cc": ["PermissionRequest"],
+      "dsh": "approval/request",
+      "handler": "approvalResponder",
+      "mode": "waterfall",
+      "note": "只记录 + 委派（next()），不自动批准；U16 的受控自动批准要等「什么操作会触发批准」测全再定"
+    }
+  ],
+  "notWired": {
+    "PreToolUse": "cc 用它拦 AskUserQuestion 报告决策请求。DSH 的等价事件是 waterfall 的 `user-questions/request`（工具名 ask_user_question）。当前 AWF 的决策门阀走「回合末 <AWF_DECISION_REQUIRED> 标记 + Stop 事件」，未接此口；接上可缩短决策检测延迟 —— 登记为待办，不在本轮改行为。",
+    "PostToolUse": "cc 侧用于进度观测；DSH 有 waterfall 的 `tools/post-execute`。AWF 当前靠 state 轮询判进度，未接。",
+    "PreCompact": "cc 的上下文压缩前 hook；DSH 无对应事件，压缩过程经 session/event 的 compaction/* 观察得到。AWF 的上下文压缩走自己的 features/context，未接。"
+  }
+}

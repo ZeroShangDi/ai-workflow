@@ -1,0 +1,661 @@
+small,
+.muted {
+  color: var(--cc-color-text-secondary);
+}
+.split-view {
+  /* 右栏宽度唯一变量：默认取设计 token，窄屏由媒体查询收窄，用户拖动时由 SplitPane 写行内值覆盖。
+     真正的轨道宽度是下面这个 clamp()：容器装不下时自动收窄到 panel-min（左栏不挤爆），
+     装得下就用 --split-panel ——**存的值不动**，窗口再变宽就回到用户选的那个宽度。 */
+  --split-panel: var(--cc-layout-panel-width);
+  --split-track: clamp(
+    var(--cc-layout-panel-min),
+    var(--split-panel),
+    calc(100% - var(--cc-layout-content-min))
+  );
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--split-track);
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+/* 拖动中的分界线：给一条可见的落点色，并禁掉选中，免得拖着拖着把文字选上 */
+.split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* 与网格第二轨用**同一个** clamp()，否则收窄时把手会飘离分界线 */
+  right: var(--split-track);
+  width: 9px;
+  transform: translateX(50%);
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+}
+.split-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition:
+    background-color 0.12s ease,
+    width 0.12s ease;
+}
+.split-handle:hover::before,
+.split-handle:focus-visible::before,
+.split-view.is-dragging .split-handle::before {
+  width: 2px;
+  background: var(--cc-color-status-info);
+}
+.split-handle:focus-visible {
+  outline: none;
+}
+.split-view.is-dragging {
+  user-select: none;
+}
+.primary-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-header {
+  min-height: 72px;
+  padding: var(--cc-spacing-16) var(--cc-spacing-18);
+  border-bottom: 1px solid var(--cc-color-border-default);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cc-spacing-12);
+}
+.pane-header h1 {
+  margin: 0;
+}
+.pane-header select {
+  max-width: 45%;
+}
+.detail-pane {
+  min-width: 0;
+  overflow: auto;
+  background: var(--cc-color-bg-surface);
+  padding: var(--cc-spacing-20) var(--cc-spacing-18);
+  border-left: 1px solid var(--cc-color-border-default);
+}
+.detail-pane > h3 {
+  margin-top: var(--cc-spacing-32);
+}
+.toolbar {
+  display: flex;
+  gap: var(--cc-spacing-8);
+  padding: var(--cc-spacing-12) var(--cc-spacing-18);
+  border-bottom: 1px solid var(--cc-color-border-default);
+}
+.record-list {
+  padding: var(--cc-spacing-16) var(--cc-spacing-18);
+  overflow: auto;
+}
+.record-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--cc-color-bg-surface);
+  border: 1px solid var(--cc-color-border-default);
+  border-radius: var(--cc-radius-8);
+  padding: var(--cc-spacing-12);
+  margin-bottom: var(--cc-spacing-10);
+}
+.record-card.selected {
+  border-color: var(--cc-color-status-warning);
+}
+.record-card h3 {
+  margin: var(--cc-spacing-8) 0;
+  overflow-wrap: anywhere;
+}
+.record-card p {
+  color: var(--cc-color-text-secondary);
+  margin: var(--cc-spacing-6) 0;
+}
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--cc-spacing-8);
+}
+.card-meta-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+}
+.badge {
+  font-size: var(--cc-type-caption-size);
+  color: var(--cc-color-text-secondary);
+}
+.status-active,
+.status-running,
+.status-overridden {
+  color: var(--cc-color-status-info);
+}
+.status-done,
+.status-applied,
+.status-reviewed,
+.status-approved {
+  color: var(--cc-color-status-success);
+}
+.status-blocked,
+.status-awaiting_human,
+.status-pending_review,
+.status-awaiting_approval,
+.status-decision_required,
+.status-applied_review_pending {
+  color: var(--cc-color-status-warning);
+}
+.status-error,
+.status-conflicted {
+  color: var(--cc-color-status-danger);
+}
+.field {
+  margin-top: var(--cc-spacing-12);
+  padding: var(--cc-spacing-12);
+  background: var(--cc-color-bg-app);
+  border: 1px solid var(--cc-color-border-default);
+  border-radius: var(--cc-radius-6);
+}
+.field h3 {
+  margin: 0 0 var(--cc-spacing-8);
+  font-size: var(--cc-type-body-size);
+}
+.field pre {
+  color: var(--cc-color-text-secondary);
+}
+.decision-options { display: grid; gap: 8px; }
+.decision-options h3 { margin: 0 0 2px; }
+.decision-option { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border: 1px solid var(--cc-color-border-default); border-radius: var(--cc-radius-6); }
+.decision-option strong { color: var(--cc-color-text-primary); font-weight: 600; }
+.decision-option small { color: var(--cc-color-text-tertiary); font-size: var(--cc-type-caption-size); }
+.review-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-10);
+  margin-top: var(--cc-spacing-20);
+}
+.primary {
+  background: var(--cc-color-text-primary);
+  color: var(--cc-color-bg-app);
+}
+.primary:hover {
+  background: var(--cc-color-text-secondary);
+}
+.empty {
+  padding: var(--cc-spacing-48) var(--cc-spacing-24);
+  text-align: center;
+  color: var(--cc-color-text-secondary);
+}
+.terminal {
+  color: var(--cc-color-text-secondary);
+}
+.error {
+  padding: var(--cc-spacing-8) var(--cc-spacing-16);
+  color: var(--cc-color-status-danger);
+  border-bottom: 1px solid var(--cc-color-border-default);
+  overflow-wrap: anywhere;
+}
+.error button {
+  margin-left: var(--cc-spacing-12);
+}
+@media (max-width: 1279px) {
+  .split-view {
+    --split-panel: var(--cc-layout-panel-min);
+  }
+}
+@media (max-width: 767px) {
+  .split-view {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+}
+/* 纵向布局下分界线是横的，拖宽度没有意义 */
+@media (max-width: 767px) {
+  .split-handle {
+    display: none;
+  }
+}
+@media (max-width: 767px) {
+  .primary-pane {
+    flex-shrink: 0;
+    min-height: 300px;
+  }
+}
+@media (max-width: 767px) {
+  .detail-pane {
+    border-left: 0;
+    border-top: 1px solid var(--cc-color-border-default);
+    overflow: visible;
+  }
+}
+@media (max-width: 767px) {
+  .record-list {
+    overflow: visible;
+  }
+}
+@media (max-width: 767px) {
+  .pane-header {
+    padding: var(--cc-spacing-12);
+  }
+}
+@media (max-width: 767px) {
+  .pane-header h1 {
+    font-size: var(--cc-type-heading-size);
+  }
+}
+@media (max-width: 767px) {
+  .toolbar {
+    padding: var(--cc-spacing-12);
+  }
+}
+.pane-header {
+  min-height: 62px;
+  padding: var(--cc-spacing-10) var(--cc-spacing-18);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.ui-icon {
+  object-fit: contain;
+  filter: var(--cc-icon-filter);
+  flex-shrink: 0;
+}
+
+.segmented-control {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.segmented-control button {
+  min-height: 28px;
+  padding: 4px 12px;
+  font-size: var(--cc-type-caption-size);
+}
+.segmented-control button[aria-pressed='true'] {
+  background: var(--cc-color-bg-selected);
+}
+.record-list .record-card {
+  min-height: 116px;
+}
+.record-list .record-card h3 {
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+}
+.record-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--cc-type-caption-size);
+}
+.record-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--cc-color-text-tertiary);
+}
+.record-card.selected .record-footer > small:last-child {
+  color: var(--cc-color-status-warning);
+}
+.detail-pane > .card-meta {
+  margin-bottom: 12px;
+}
+@media (max-width: 1023px) and (min-width: 768px) {
+  .split-view {
+    --split-panel: var(--cc-layout-panel-min);
+  }
+}
+
+.pane-header:has(.segmented-control) {
+  flex-wrap: wrap;
+}
+.pane-header:has(.segmented-control) h1 {
+  white-space: nowrap;
+}
+
+/* 标题行：标题 + 灰色描述/进度同行内联，右侧是工具区（原 toolbar 独立一行已去掉）。
+   任务页、决策/动态任务复审、日志页共用这一套 —— 描述不再单独占一行。 */
+.pane-title {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  min-width: 0;
+}
+.pane-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  color: var(--cc-color-text-tertiary);
+  font-size: var(--cc-type-caption-size);
+  font-weight: 400;
+  line-height: 1;
+}
+.pane-progress::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: var(--cc-radius-999);
+  background: currentColor;
+}
+.pane-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  flex-shrink: 0;
+}
+/* 需求摘要：标题行里唯一可压缩的元素，超长在此截断（全文在 title），不挤右侧工具区。
+   搜索框同理 —— 工具栏整体 flex-shrink:0，窄了先缩它俩。 */
+.pane-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cc-color-text-secondary);
+  font-size: var(--cc-type-caption-size);
+  font-weight: 400;
+  line-height: 1;
+}
+.pane-tools input {
+  flex: 1 1 160px;
+  width: auto;
+  min-width: 88px;
+  max-width: 200px;
+}
+.pane-tools select {
+  width: auto;
+  max-width: 168px;
+}
+/* 把「视图切换」和筛选控件分开：一个是视图，三个是筛选，不混在一排里 */
+.pane-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  background: var(--cc-color-border-default);
+}
+.pane-toggle {
+  flex: 0 0 auto;
+  width: var(--cc-layout-control-height);
+  min-height: var(--cc-layout-control-height);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
+}
+.pane-toggle[aria-pressed='true'] {
+  background: var(--cc-color-bg-selected);
+  border-color: var(--cc-color-border-default);
+}
+
+/* 行式任务条：左侧状态色条 · ID 色块 · 标题（超出省略 + 原生 tip）· 状态 pill · 可选操作 */
+.task-list {
+  padding: var(--cc-spacing-10) var(--cc-spacing-18);
+}
+/* 行内操作的结果提示挂在列表下方（不在 .record-list 滚动区里）——
+   右侧切到运行概览时也看得见，原来只挂在详情面板里。 */
+.task-status {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 var(--cc-spacing-18) var(--cc-spacing-10);
+  color: var(--cc-color-text-secondary);
+  font-size: var(--cc-type-caption-size);
+}
+.record-row {
+  --row-accent: var(--cc-color-border-default);
+  display: flex;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--cc-spacing-10) var(--cc-spacing-12);
+  background: var(--cc-color-bg-surface);
+  box-shadow: inset 2px 0 0 var(--row-accent);
+  text-align: left;
+  cursor: pointer;
+}
+.record-row + .record-row {
+  border-top: 1px solid var(--cc-color-border-default);
+}
+.record-row:hover {
+  background: var(--cc-color-bg-hover);
+}
+/* 任务状态共五种（pending 走默认中性灰）；此处只做任务状态到色条的映射 */
+.record-row:has(.badge.status-active) {
+  --row-accent: var(--cc-color-status-info);
+}
+.record-row:has(.badge.status-blocked) {
+  --row-accent: var(--cc-color-status-warning);
+}
+.record-row:has(.badge.status-error) {
+  --row-accent: var(--cc-color-status-danger);
+}
+.record-row:has(.badge.status-done) {
+  --row-accent: var(--cc-color-status-success);
+}
+.record-id {
+  flex: 0 0 auto;
+  font: var(--cc-type-caption-size)/1 var(--cc-font-mono);
+  padding: 3px var(--cc-spacing-6);
+  border-radius: var(--cc-radius-4);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+:where(.record-id) {
+  color: var(--cc-color-text-secondary);
+}
+/* 非原计划（门禁回退派生 / 运行期动态规划）：ID 色块改描边款，一眼区分且不占宽度 */
+.record-id-derived {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.record-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.record-row .badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cc-spacing-6);
+  padding: 3px var(--cc-spacing-8);
+  border-radius: var(--cc-radius-999);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.record-row .badge::before {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--cc-radius-999);
+  background: currentColor;
+}
+.record-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--cc-spacing-4);
+}
+.record-actions button {
+  min-height: 24px;
+  padding: 2px var(--cc-spacing-8);
+  font-size: var(--cc-type-caption-size);
+}
+@media (max-width: 767px) {
+  .pane-tools input {
+    width: 120px;
+  }
+  .task-list {
+    padding: var(--cc-spacing-10) var(--cc-spacing-12);
+  }
+}
+
+/* ── 文字型按钮 ──
+   base.css 把所有 `button` 都当控件：min-height 32、圆角 6、边框、hover 底色。
+   下面这几处（页签、详情里的文字入口、弹窗关闭）要的是「一行文字」，
+   直接写 `background: none` 是盖不住的 —— 那些是元素选择器，`button:hover` 的
+   (0,1,1) 会压过单个类 (0,1,0)。所以统一给一个类做整套摘除，各组件再各自上色。 */
+.link-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.link-button:hover {
+  background: none;
+}
+
+/* 弹窗：遮罩 + 面板。面板 portal 到 body，所以 position 用 fixed 而不是绝对定位。 */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--cc-spacing-24);
+  background: rgb(0 0 0 / 55%);
+}
+.modal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-24);
+  width: min(var(--modal-width, 800px), 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--cc-spacing-24);
+  border-radius: var(--cc-radius-12);
+  background: var(--cc-color-bg-surface);
+}
+.modal-panel:focus-visible {
+  outline: none;
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cc-spacing-16);
+}
+.modal-title {
+  margin: 0;
+  font-size: var(--cc-type-display-size);
+  line-height: var(--cc-type-display-line);
+  font-weight: 600;
+  color: var(--cc-color-text-primary);
+}
+.modal-close {
+  flex: 0 0 auto;
+  color: var(--cc-color-text-secondary);
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+}
+.modal-close:hover {
+  color: var(--cc-color-text-primary);
+}
+.modal-subtitle {
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+}
+.modal-toolbar {
+  display: flex;
+  gap: var(--cc-spacing-24);
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+  color: var(--cc-color-text-secondary);
+}
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-24);
+}
+.modal-note {
+  margin: 0;
+  font-size: var(--cc-type-caption-size);
+  line-height: var(--cc-type-caption-line);
+  color: var(--cc-color-text-tertiary);
+}
+.modal-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cc-spacing-8);
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+}
+.modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-12);
+}
+.modal-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--cc-spacing-16);
+  margin: 0;
+  font-size: var(--cc-type-heading-size);
+  line-height: var(--cc-type-heading-line);
+  font-weight: 600;
+  color: var(--cc-color-text-primary);
+}
+/* 设计示意、本次未接行为的那几处入口：保持设计里的位置与配色，但不做成可点控件 */
+.modal-tool {
+  font-size: var(--cc-type-body-medium-size);
+  line-height: var(--cc-type-body-medium-line);
+  font-weight: 500;
+  color: var(--cc-color-text-secondary);
+}
+/* 真接了行为的那一个（折叠全部）挂 .link-button，给它一个 hover 反馈 */
+.link-button.modal-tool:hover {
+  color: var(--cc-color-text-primary);
+}
+.modal-text {
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.modal-arch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cc-spacing-4);
+  margin: 0;
+}
+.modal-arch-row {
+  display: flex;
+  gap: var(--cc-spacing-16);
+}
+.modal-arch-row dt {
+  /* 64 + 16 的间距 = 设计稿里值列的起点（距标签列 80） */
+  flex: 0 0 64px;
+  margin: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+}
+.modal-arch-row dd {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--cc-type-body-size);
+  line-height: var(--cc-type-body-line);
+  color: var(--cc-color-text-secondary);
+  overflow-wrap: anywhere;
+}

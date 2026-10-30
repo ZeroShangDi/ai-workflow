@@ -1,0 +1,5 @@
+'use strict';const path=require('node:path');const{newId,now,required,mapRow,mapRows}=require('./common.cjs');const{protect,PersistenceError}=require('../errors.cjs');
+module.exports=function artifacts(db){const q=s=>db.connection.prepare(s);return{
+ register(input={}){return protect(()=>{const raw=required(input.relativePath,'relativePath');if(path.isAbsolute(raw)||raw.split(/[\\/]/).includes('..'))throw new PersistenceError('VALIDATION','Artifact path must be relative and remain inside the project .awf directory');const rel=path.normalize(raw);const id=input.id||newId();q('INSERT INTO artifacts(id,owner_type,owner_id,checkout_id,relative_path,media_type,size_bytes,digest,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id,required(input.ownerType,'ownerType'),required(input.ownerId,'ownerId'),input.checkoutId||null,rel,input.mediaType||null,input.sizeBytes??null,input.digest||null,now());return mapRow(q('SELECT * FROM artifacts WHERE id=?').get(id));});},
+ list(ownerType,ownerId){return protect(()=>mapRows(q('SELECT * FROM artifacts WHERE owner_type=? AND owner_id=? ORDER BY created_at').all(required(ownerType,'ownerType'),required(ownerId,'ownerId'))));},
+};};

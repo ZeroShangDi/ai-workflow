@@ -1,0 +1,120 @@
+'use strict';
+/**
+ * bridge-channel.cjs — DSH 指令通道的**传输侧**（AWF 的 WS 服务端 + HTTP 回传入口）
+ *
+ * 依据 spec §2：AWF→插件走独立 WS（指令下行），插件→AWF 走 HTTP POST（确认/结果/事件上行）。
+ * 本文件把 `adapters/dsh/bridge.cjs` 的「传输无关通道」接到真实 socket 与 HTTP 面上：
+ *   - WS：`/bridge/dsh` 升级成功 = 插件已连接 → `attachSocket()`（通道转 connected）
+ *   - HTTP：`POST /bridge/dsh/callback` → `handleCallback(body)`（accepted/result/event 分发）
+ *
+ * **单实例**：一个 AWF server 进程对一个 DSH 全局后台（spec §2「DSH 后台全局单实例」），
+ * 故这里是进程级单例；指令里带 `projectRoot` 由插件侧路由到项目，不按项目分通道。
+ *
+ * 边界（明确不做）：
+ *   - 不自动重连、不重发在途指令（spec §5：连接恢复 ≠ 任务恢复）；断开即 `detach`，在途指令判「无法确认」。
+ *   - 不做鉴权之外的业务判断：本通道只搬指令与回报。
+ */
+
+const { createDshBridge } = require('../adapters/dsh/bridge.cjs');
+const { encodeTextFrame } = require('./ws.cjs');
+
+/** 当前连接的插件 socket（未连接时 null） */
+let pluginSocket = null;
+/** 进程级通道单例 */
+let bridge = null;
+
+/** 取（惰性建）通道单例 */
+function channel() {
+  if (!bridge) {
+    bridge = createDshBridge({
+      send: (command) => {
+        if (!pluginSocket || pluginSocket.destroyed || pluginSocket.writable === false) {
+          // 抛错 → 通道判 not-delivered（未交给平台），不是静默丢帧
+          throw new Error('DSH 插件未连接（无可用 WS 通道）');
+        }
+        pluginSocket.write(encodeTextFrame(JSON.stringify(command)));
+      },
+    });
+  }
+  return bridge;
+}
+
+/**
+ * WS 升级成功：登记 socket 并把通道置为已连接。
+ * @param {object} socket net.Socket
+ * @param {{platform?: string, pluginVersion?: string}} [meta] 握手事实（对接的是哪一版插件，spec §6 原则）
+ */
+function attachSocket(socket, meta = { platform: 'dsh' }) {
+  // A second `dsh web` loads plugins before failing with EADDRINUSE. It must not
+  // steal the healthy host's bridge and leave that host silently disconnected.
+  if (pluginSocket && pluginSocket !== socket && !pluginSocket.destroyed && pluginSocket.writable !== false) {
+    try { socket.destroy(); } catch { /* only reject the newcomer */ }
+    return false;
+  }
+  pluginSocket = socket;
+  channel().attach(meta);
+  return true;
+}
+
+/**
+ * WS 断开：清 socket + detach 通道（在途指令判「无法确认」，现场保留）。
+ *
+ * **必须传是哪个 socket**（`socket` 参数）：插件重连时会出现「新 socket 已 attach，旧 socket 的
+ * close/error 才到」的迟到事件。不做身份判断就会把**正连着的**通道误判为断开 —— 表现是服务端
+ * 一直回「指令通道未连接：ws closed」，而插件那边一切正常（真机踩到：重启 dsh 后台后 `awf plan`
+ * 全断，插件日志里连接是好的）。
+ * @param {string} [reason]
+ * @param {object} [socket] 触发本次断开的 socket；给了就只在它仍是当前 socket 时生效
+ * @returns {boolean} 是否真的执行了 detach（false = 迟到事件，已忽略）
+ */
+function detachSocket(reason = 'ws closed', socket = undefined) {
+  if (socket !== undefined && pluginSocket !== null && socket !== pluginSocket) {
+    return false; // 迟到事件：当前连的是另一个 socket，别动它
+  }
+  pluginSocket = null;
+  channel().detach(reason);
+  return true;
+}
+
+/**
+ * 插件回传入口（HTTP POST body）。
+ * @param {object} payload `{commandId, phase, ok, result, error}` 或 `{kind:'event', event, facts}`
+ * @returns {boolean} 是否被通道消费（false → 调用方记日志，不假装成功）
+ */
+function handleCallback(payload) {
+  return channel().onCallback(payload);
+}
+
+/** 当前通道句柄（api/诊断用；注意是单例） */
+/**
+ * 强制关掉当前插件连接（server 关停时用）。
+ *
+ * **为什么必须有**：WS 是 `upgrade` 上来的 socket，**不在 http server 的连接表里** ——
+ * `server.closeAllConnections()` 管不到它。于是 `server.close(cb)` 的回调**永不触发**，
+ * 空闲回收那条 `stop().then(() => process.exit(0))` 也就永不执行：进程变成**僵尸**
+ * （不再 listen 但活着），而插件仍连着它 —— 新起的 server 收不到插件，
+ * `awf plan` 报「指令通道未连接：ws closed」。真机踩到过（旧 server 00:06 起，
+ * 被孤立到 01:10 还活着，期间 8787 已经换人 listen）。
+ * @returns {boolean} 是否真的关掉了某个 socket
+ */
+function closeSocket() {
+  const s = pluginSocket;
+  pluginSocket = null;
+  if (bridge) { try { bridge.detach('server shutdown'); } catch { /* 已断 */ } }
+  if (!s) return false;
+  try { s.destroy(); } catch { /* 已断 */ }
+  return true;
+}
+
+function current() {
+  return channel();
+}
+
+/** 复位（测试 / server 关闭）：断开并丢弃单例 */
+function reset() {
+  if (bridge) bridge.detach('reset');
+  bridge = null;
+  pluginSocket = null;
+}
+
+module.exports = { channel, current, attachSocket, detachSocket, closeSocket, handleCallback, reset };

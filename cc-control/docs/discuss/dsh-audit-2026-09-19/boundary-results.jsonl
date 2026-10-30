@@ -1,0 +1,5 @@
+{"name":"R1 CLI ensureSession","created":true,"unhandledRejections":["dsh session.stop: 未交给平台：指令通道未连接（未交给平台）：本进程没有 bridge（CLI 侧只做装配/检查，不驱动会话）","dsh session.create: 未交给平台：指令通道未连接（未交给平台）：本进程没有 bridge（CLI 侧只做装配/检查，不驱动会话）"]}
+{"name":"R2 session identity","createdSession":"session-45366359-6843-45f8-a3fd-1e8b4fd1fdae","actualPromptTarget":"plan-old"}
+{"name":"R3 accepted result timeout","returned":{"ok":true,"url":null,"sessionId":null}}
+{"name":"R4 shared facts","bExists":true,"bCwd":"/project-a"}
+{"name":"R5 stop failure","returned":{"ok":true,"result":{"sessionId":"main","cancelled":true,"subagents":[],"subagentsSeen":["child"],"subagentsAvailable":true,"errors":["child: still running"]}}}

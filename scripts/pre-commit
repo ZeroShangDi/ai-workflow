@@ -7,6 +7,18 @@
 
 set -euo pipefail
 
+# --- web 侧自动格式化 ------------------------------------------------------
+# 规则本身住在 web 项目里（cc-control/web/scripts/pre-commit-format.sh），这里只委托。
+# 放在分支范围检查**之前**：格式化与分支无关，非受限分支也要跑。
+WEB_FORMAT="$(git rev-parse --show-toplevel)/cc-control/web/scripts/pre-commit-format.sh"
+if [[ -x "$WEB_FORMAT" ]]; then
+    STAGED_FOR_FORMAT=$(git diff --cached --name-only --diff-filter=ACMR)
+    if [[ -n "$STAGED_FOR_FORMAT" ]]; then
+        # shellcheck disable=SC2086  # 需要按行拆成多个参数
+        "$WEB_FORMAT" $STAGED_FOR_FORMAT
+    fi
+fi
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # --- 分支 → 允许目录映射 ---

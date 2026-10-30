@@ -1,0 +1,63 @@
+/* Implementation contract for the new cc-work UI; not imported into the legacy AWF UI. */
+@import './cc-work.tokens.css';
+
+.cc-work, .cc-work * { box-sizing: border-box; }
+.cc-work {
+  color: var(--cc-color-text-primary);
+  background: var(--cc-color-bg-app);
+  font: var(--cc-type-body-size)/var(--cc-type-body-line) var(--cc-font-ui);
+  height: 100dvh;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cc-main { display: flex; flex: 1; min-height: 0; }
+.cc-sidebar { width: var(--cc-layout-sidebar-width); flex-shrink: 0; background: var(--cc-color-bg-sidebar); }
+.cc-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.cc-topbar { height: var(--cc-layout-topbar-height); flex-shrink: 0; display: flex; align-items: center; }
+.cc-view { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.cc-content { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.cc-panel { width: var(--cc-layout-panel-width); flex-shrink: 0; overflow-y: auto; min-height: 0; }
+.cc-rail { width: var(--cc-layout-rail-width); flex-shrink: 0; }
+.cc-statusbar { height: var(--cc-layout-statusbar-height); flex-shrink: 0; display: flex; white-space: nowrap; overflow: hidden; }
+.cc-message-stream, .cc-settings-content { flex: 1; min-height: 0; overflow-y: auto; }
+.cc-message { height: auto; overflow-wrap: anywhere; }
+.cc-composer { flex-shrink: 0; padding: var(--cc-spacing-16); }
+.cc-settings-content > * { width: 100%; max-width: var(--cc-layout-settings-max); }
+.cc-logs { overflow: auto; min-width: 0; min-height: 0; white-space: pre; font-family: var(--cc-font-mono); }
+.cc-modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: var(--cc-spacing-16); overflow-y: auto; }
+.cc-modal {
+  width: min(var(--cc-layout-modal-max), 100%);
+  max-height: calc(100dvh - 2 * var(--cc-spacing-16));
+  overflow-y: auto;
+  padding: var(--cc-spacing-24);
+  border: var(--cc-border-width) solid var(--cc-color-border-default);
+  border-radius: var(--cc-radius-12);
+  background: var(--cc-color-bg-elevated);
+  box-shadow: var(--cc-effect-modal-x) var(--cc-effect-modal-y) var(--cc-effect-modal-blur) var(--cc-effect-modal-spread) var(--cc-effect-modal-color);
+}
+.cc-control { min-height: var(--cc-layout-control-height); border-radius: var(--cc-radius-6); }
+.cc-compact-nav { display: none; }
+.cc-work :focus-visible { outline: var(--cc-spacing-2) solid var(--cc-color-status-info); outline-offset: var(--cc-spacing-2); }
+/* Media queries cannot use CSS var(): values mirror layout/breakpoint tokens. */
+@media (width < 1280px) {
+  .cc-panel { width: var(--cc-layout-panel-min); }
+  .cc-statusbar [data-priority="secondary"] { display: none; }
+}
+@media (width < 1024px) {
+  .cc-sidebar { display: none; }
+  .cc-compact-nav { display: flex; }
+  .cc-panel { display: none; }
+  .cc-view[data-panel-open="true"] > .cc-content { display: none; }
+  .cc-view[data-panel-open="true"] > .cc-panel { display: block; width: 100%; flex: 1; }
+  .cc-sidebar[data-drawer-open="true"] { display: block; position: fixed; inset: 0 auto 0 0; max-width: calc(100vw - var(--cc-spacing-48)); z-index: 1; overflow-y: auto; }
+}
+@media (width < 768px) {
+  .cc-rail { display: none; }
+  .cc-view { flex-direction: column; }
+  .cc-modal { padding: var(--cc-spacing-16); }
+  .cc-actions { display: flex; flex-wrap: wrap; gap: var(--cc-spacing-8); }
+}
+@media (pointer: coarse) {
+  .cc-control, .cc-actions button { min-height: var(--cc-layout-control-touch); }
+}

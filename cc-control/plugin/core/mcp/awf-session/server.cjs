@@ -1,0 +1,285 @@
+'use strict';
+
+// AWF Session MCP Server — observes the tmux session controlled by the HTTP server.
+// Thin MCP wrapper: most session control happens via HTTP (CLI → HTTP → tmux).
+// The AI inside tmux uses these tools to introspect its own session.
+
+const http = require('http');
+
+// MCP is a Server client: even pane capture is performed by the Server host.
+const HTTP_TIMEOUT_MS = Number(process.env.CC_HTTP_TIMEOUT_MS || 3000);
+// T1-078/079：MCP 只碰本 run —— 带自身 CC_SID（server 按 sid 槽定位）
+// 单 server 多项目：本项目根（bootstrap env CC_PROJECT / .mcp env AWF_PROJECT_ROOT）
+const PROJ_ROOT = process.env.AWF_PROJECT_ROOT || process.env.CC_PROJECT || '';
+/**
+ * server 请求 query：默认 sid(命中本 run 槽)，可由 AWF_SESSION_TARGET_SID 覆盖；
+ * p(多项目路由到本项目)；无则空串。
+ * 读**与写**都必须带：写端点此前漏带 → 请求落到 server 的 boot 项目/default 槽，
+ * 单项目下「看起来对」，多项目下静默写错项目（T1-110 收口写类端点时照出）。
+ */
+function sessionQuery() {
+  const parts = [];
+  const targetSid = process.env.AWF_SESSION_TARGET_SID === 'project'
+    ? ''
+    : (process.env.AWF_SESSION_TARGET_SID ?? process.env.CC_SID);
+  if (targetSid) parts.push(`sid=${encodeURIComponent(String(targetSid))}`);
+  if (PROJ_ROOT) parts.push(`p=${encodeURIComponent(PROJ_ROOT)}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+// 请求时读取 AWF_BASE（MCP env 注入，渲染自 config 单源 port）。缺失即抛——配置错误应显式暴露，
+// 而不是回退到硬编码地址；工具分发层 catch 后以错误文本返回。测试可随时切换 mock server。
+const baseUrl = () => {
+  const base = process.env.AWF_BASE;
+  if (!base) throw new Error('awf-session: AWF_BASE 未设置（应经 MCP env 注入 http://127.0.0.1:<port>）');
+  return base;
+};
+
+// ---- helpers ----
+
+function httpPost(path, body) {
+  return new Promise((resolve) => {
+    const url = new URL(path, baseUrl());
+    const data = body || '';
+    const options = {
+      hostname: url.hostname, port: url.port, path: url.pathname + (url.search || ''),
+      method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
+    };
+    const req = http.request(options, (res) => {
+      let raw = '';
+      res.setEncoding('utf8'); // 见 awf-state/server.cjs httpJson：不设编码会切碎多字节字符
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(raw)); } catch { resolve(raw); }
+      });
+    });
+    req.on('error', (err) => resolve({ ok: false, error: err.message }));
+    req.setTimeout(HTTP_TIMEOUT_MS, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+    req.write(data);
+    req.end();
+  });
+}
+
+function httpGet(path) {
+  return new Promise((resolve) => {
+    const url = new URL(path, baseUrl());
+    const req = http.get({ hostname: url.hostname, port: url.port, path: url.pathname + (url.search || '') }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8'); // 同上：capture pane 等大中文响应会被切碎
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(raw)); } catch { resolve(raw); }
+      });
+    });
+    req.on('error', (err) => resolve({ ok: false, error: err.message }));
+    req.setTimeout(HTTP_TIMEOUT_MS, () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+  });
+}
+
+// capture 经 host 端口：优先 server GET /status?snapshot=1（server 经其 tmux/host 抓 pane）；
+// server 无快照/失败 → 降级本地 tmux（离线/旧版/单测）。
+async function capturePane() {
+  const query = sessionQuery();
+  const body = await httpGet(`/status${query ? `${query}&` : '?'}snapshot=1`);
+  if (body && typeof body === 'object' && typeof body.snapshot === 'string' && body.snapshot) return body.snapshot;
+  return body?.error || 'Server 当前未提供会话截图';
+}
+
+function textResult(obj) {
+  return { content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] };
+}
+
+// ---- tool definitions ----
+
+const TOOLS = [
+  {
+    name: 'awf_session_status',
+    description: '查询 tmux session 状态（ready/busy + session alive）',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'awf_capture_pane',
+    description: '抓取当前 tmux pane 的完整文本内容',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'awf_session_intervene',
+    description: 'w-monitor 在 CLI 已 pause 后向 tmux Claude Code 发送修复提示。Server 会强制校验 mode=pause；允许 busy 时排队发送',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '发送给 tmux Claude Code 的恢复/修复提示' },
+        reason: { type: 'string', description: '本次介入原因，用于日志' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'awf_session_interrupt',
+    description: 'w-monitor 在 CLI 已 pause 后中断 tmux Claude Code 当前响应（Ctrl-C）。仅作升级修复，Server 会强制校验 mode=pause',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: '必须说明为什么温和介入不足' },
+      },
+      required: ['reason'],
+    },
+  },
+  {
+    name: 'awf_await_choice',
+    description: '通知 CLI 当前需要用户做选择（如选项列表、yes/no）。CLI 会展示问题+选项并等待用户输入',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: '需要用户选择的问题，如"请选择下一步操作"' },
+        options: { type: 'array', items: { type: 'string' }, description: '可选项列表，如 ["继续", "跳过", "中止"]' },
+        context: { type: 'string', description: '可选，补充上下文（如当前任务ID、相关代码等），帮助决策者理解背景' },
+      },
+      required: ['question'],
+    },
+  },
+  {
+    name: 'awf_await_input',
+    description: '通知 CLI 当前需要用户自由输入文本（如补充需求描述）。CLI 会展示问题并等待用户输入',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: '需要用户回答的问题，如"请描述缺少的需求细节"' },
+        context: { type: 'string', description: '可选，补充上下文（如当前任务ID、相关代码等），帮助决策者理解背景' },
+      },
+      required: ['question'],
+    },
+  },
+  {
+    name: 'awf_context_ready',
+    description: '通知 CLI：上下文压缩快照已就绪（已按 code-context-onboard 写入 .awf/context/handoff.md）。CLI 将执行 /clear 清空对话并把快照注入下一个任务。必须在写完快照文件后才调用',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+];
+
+// ---- JSON-RPC / MCP handler ----
+
+function send(msg) {
+  process.stdout.write(JSON.stringify(msg) + '\n');
+}
+
+function logStderr(msg) {
+  process.stderr.write(`[awf-session] ${msg}\n`);
+}
+
+const handlers = {
+  async initialize(params) {
+    return {
+      protocolVersion: '2024-11-05',
+      capabilities: { tools: {} },
+      serverInfo: { name: 'awf-session-mcp', version: '1.0.0' },
+    };
+  },
+
+  async 'tools/list'() {
+    return { tools: TOOLS };
+  },
+
+  async 'tools/call'(params) {
+    // 修复 args 引用 bug：此前只解构 name，args 未定义导致 awf_await_choice/input 抛 ReferenceError
+    const { name, arguments: args } = params || {};
+
+    try {
+      switch (name) {
+        case 'awf_session_status': {
+          // T1-079：+sid → 读本 run 槽状态；pane 预览经 server snapshot
+          const status = await httpGet('/status' + sessionQuery());
+          status.pane = (await capturePane()).slice(0, 500); // first 500 chars as preview
+          return textResult(status);
+        }
+        case 'awf_capture_pane': {
+          return textResult(await capturePane());
+        }
+        case 'awf_session_intervene': {
+          if (!args || typeof args.text !== 'string' || !args.text.length) {
+            return textResult({ ok: false, error: 'text is required' });
+          }
+          return textResult(await httpPost('/intervene' + sessionQuery(), JSON.stringify({ text: args.text, reason: args.reason })));
+        }
+        case 'awf_session_interrupt': {
+          if (!args || typeof args.reason !== 'string' || !args.reason.length) {
+            return textResult({ ok: false, error: 'reason is required' });
+          }
+          return textResult(await httpPost('/intervene/interrupt' + sessionQuery(), JSON.stringify({ reason: args.reason })));
+        }
+        case 'awf_await_choice': {
+          logStderr(`await_choice: ${args.question}`);
+          const result = await httpPost('/choice' + sessionQuery(), JSON.stringify({
+            question: args.question, options: args.options, context: args.context,
+          }));
+          return textResult(result);
+        }
+        case 'awf_await_input': {
+          logStderr(`await_input: ${args.question}`);
+          const result = await httpPost('/ask' + sessionQuery(), JSON.stringify({
+            question: args.question, context: args.context,
+          }));
+          return textResult(result);
+        }
+        case 'awf_context_ready': {
+          logStderr('context_ready');
+          const result = await httpPost('/context-ready' + sessionQuery(), JSON.stringify({}));
+          return textResult(result);
+        }
+        default:
+          return textResult({ ok: false, error: `unknown tool: ${name}` });
+      }
+    } catch (err) {
+      return textResult({ ok: false, error: err.message });
+    }
+  },
+};
+
+// ---- main ----
+
+let buffer = '';
+process.stdin.setEncoding('utf-8');
+process.stdin.on('data', (chunk) => {
+  buffer += chunk;
+  while (buffer.includes('\n')) {
+    const idx = buffer.indexOf('\n');
+    const line = buffer.slice(0, idx).trim();
+    buffer = buffer.slice(idx + 1);
+    if (!line) continue;
+    try {
+      const msg = JSON.parse(line);
+      handleMessage(msg);
+    } catch (e) {
+      logStderr(`parse error: ${e.message}`);
+    }
+  }
+});
+
+async function handleMessage(msg) {
+  const { id, method, params } = msg;
+
+  if (id === undefined || id === null) {
+    if (method === 'notifications/initialized') {
+      logStderr('client initialized');
+    }
+    return;
+  }
+
+  const handler = handlers[method];
+  if (!handler) {
+    send({ jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } });
+    return;
+  }
+
+  try {
+    const result = await handler(params || {});
+    send({ jsonrpc: '2.0', id, result });
+  } catch (err) {
+    logStderr(`error in ${method}: ${err.message}`);
+    send({ jsonrpc: '2.0', id, error: { code: -32603, message: err.message } });
+  }
+}
+
+logStderr('started');
+
+// 测试可访问：直接调用 handlers / httpGet / httpPost / capturePane / handleMessage
+module.exports = { handlers, httpGet, httpPost, capturePane, textResult, send, handleMessage, TOOLS, baseUrl };

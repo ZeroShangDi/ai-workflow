@@ -1,0 +1,3 @@
+[subagent-settle] T2 -> done（via dsh）
+{"name":"R6 actual runtime/store","mainSessionId":null,"state":[{"id":"T1","status":"active"},{"id":"T2","status":"done"}]}
+{"name":"R7 decision race","promptOrder":["NEXT TASK","DECISION INSTRUCTION"]}

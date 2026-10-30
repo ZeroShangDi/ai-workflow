@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://awf.local/schemas/decision-result.schema.json",
+  "title": "AWF Decision Result",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "decision_id",
+    "answer",
+    "type",
+    "finality",
+    "real_question",
+    "decisive_factors",
+    "reconsider_when"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "answer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "resolved",
+        "deferred",
+        "no_action",
+        "validation_required",
+        "reframed"
+      ]
+    },
+    "finality": {
+      "type": "string",
+      "enum": ["final", "provisional"]
+    },
+    "impact": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "real_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decisive_factors": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string" }
+    },
+    "causal_chain": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "facts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "reversible": {
+      "type": "boolean"
+    },
+    "reconsider_when": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "fallback": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

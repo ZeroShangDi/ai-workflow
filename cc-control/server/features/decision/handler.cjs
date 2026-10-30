@@ -1,0 +1,417 @@
+'use strict';
+/**
+ * decision/handler.cjs — 决策流程编排（Stop 闸门 / AskUserQuestion 决策化 / 落盘 / 纠偏任务）
+ *
+ * 抽象动机：原 server.cjs 把「决策事件怎么分流、结果怎么落盘、续跑怎么置位」写死在文件中间，
+ * 与 ready/busy 状态机、路由分发混在一起。这里收敛成**一个 handler**，它显式声明自己需要什么
+ * （会话态 + 落盘 + 日志 + 决策存储 + 上报事件），不再穿透整个 pcx。
+ *
+ * 边界：
+ *   - 判定规则（什么算失败、什么算决策入口）在 gate.cjs；本模块只做**编排**。
+ *   - 决策内容（answer 本身）由 DC（decision-core 技能）产出，本模块不解释其语义。
+ *   - `persist` 只负责「记录 + 置续跑位」，不驱动执行 —— 续跑的注入由 run 域在就绪时消费。
+ */
+
+const gateRules = require('./gate.cjs');
+const { parseDecisionResult } = require('./core.cjs');
+const decisionInstruction = require('./instruction.cjs');
+const { shapes } = require('../../adapters/ports.cjs');
+
+/** 被拦截提问的暂存时效：超出即不再并入后续决策（见 handle 内的 takeCaptured） */
+const CAPTURED_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * @param {object} deps
+ * @param {object} deps.session            会话内存态（decisionGate / decisionResume / setDecision / clearDecision / setReady）
+ * @param {object} deps.logger             运行日志（logDecision / captureFromTranscript）
+ * @param {Function} deps.newDecisionStore 决策追加式存储工厂
+ * @param {Function} deps.decisionEnabled  决策闸门是否开启（读配置）
+ * @param {Function} deps.publishEvent     上报领域事件（host 事件环）
+ * @param {object} deps.stores             state store（纠偏任务要写任务图；见返回面的 appendDecisionReviewTask）
+ */
+function createDecisionHandler({
+  session, logger, newDecisionStore, decisionEnabled, publishEvent = () => {}, stores,
+}) {
+  /** 下一个决策 id（序号由会话持有，保证同一会话内单调） */
+  function nextId() {
+    return session.decisionSeqGen.nextId();
+  }
+
+  /**
+   * 取暂存的「被拦截提问」（一次性消费）。
+   * 拦截与决策标签通常在同一回合内完成；隔了很久说明那次提问没走到决策，
+   * 不该粘到后面的决策上，故超时即弃。丢弃会让本次决策退回「问答」形态、选项丢失 ——
+   * 不做静默降级，留一条可追的痕迹。
+   */
+  function takeCaptured() {
+    const captured = session.takeCapturedRequest();
+    if (!captured) return null;
+    if (Date.now() - (captured.at || 0) <= CAPTURED_TTL_MS) return captured;
+    console.log(`[decision-gate] 拦截到的提问已过期（>${CAPTURED_TTL_MS / 60000}min），本次决策不并入其选项`);
+    return null;
+  }
+
+  /**
+   * 当前正在执行的任务 id（任务级归属）。
+   *
+   * 只有「恰好一个任务 active」才有资格归属：多 agent 下主会话在派发/收尾，活跃任务有多个，
+   * 这条决策不属于其中任何一个 —— 记 null 比塞一个假的强。
+   */
+  function activeTaskId() {
+    try {
+      const tasks = stores?.state?.readSync()?.tasks || [];
+      const active = tasks.filter((t) => t.status === 'active');
+      return active.length === 1 ? active[0].id : null;
+    } catch {
+      return null; // state 读不出不该影响决策落盘
+    }
+  }
+
+  /** 无有效结果时的兜底模板（构造归 gate） */
+  function fallbackResult() {
+    return gateRules.deferredFallbackResult();
+  }
+
+  /**
+   * 捕获落盘 + 置续跑位；返回 decisionId。
+   * 顺序有意固定：先 append（幂等，重复完成不会二次落盘）→ 记日志 → 置续跑位 → 上报事件。
+   * 续跑位（decisionResume）只是「待消费的答复」，不驱动执行；真正注入由 run 域在就绪时读取，
+   * 从而决策与执行解耦（本模块不持有执行权）。
+   *
+   * @param {string|null} decisionId 问题侧已用的 id（deciding 分支落的 decision_requested）。
+   *   传了就必须沿用，否则 requested 与 completed 会各占一个 id，页面上一条决策变两行。
+   *   用 appendEvent（按 decision_id+event 去重）而不是 append：append 是按 decision_id
+   *   **跨事件**去重的，requested 一落，completed 就会被静默丢掉（issue 016 的同一坑）。
+   */
+  function persist(result, source, decisionId = null) {
+    const id = decisionId || nextId();
+    const createdAt = new Date().toISOString();
+    const record = gateRules.buildCompletedRecord({ decisionId: id, result, source, createdAt });
+    const appended = newDecisionStore().appendEvent(record);
+    if (!appended.appended) console.log(`[decision-gate] append skipped for ${id}`);
+    logger.logDecision({
+      at: createdAt,
+      decisionId: id,
+      event: 'decision_completed',
+      detail: result.fallback === true ? `fallback type=${result.type}` : `resolved type=${result.type}`,
+    });
+    session.setDecisionResume({
+      decision_id: id,
+      answer: result.answer,
+      type: result.type,
+      finality: result.finality,
+      fallback: result.fallback === true,
+    });
+    publishEvent('decision.record', {
+      decisionId: id,
+      answer: result.answer ?? null,
+      type: result.type ?? null,
+      finality: result.finality ?? null,
+      fallback: result.fallback === true,
+    });
+    return id;
+  }
+
+  /**
+   * AskUserQuestion 的 PreToolUse 决策化。
+   * 这是决策门阀的**第二条入口**（第一条是 Stop 的文本标记）：闸门关时只「捕获」不改写控制流，
+   * 把待决问题存进会话（供 Review/记忆），返回 null 表示不干预，提问工具照常工作。
+   * @returns {object|null} 需回给 cc 的 ccOutput 片段（null = 不干预）
+   */
+  function onAskUserQuestion(body) {
+    const questions = body?.tool_input?.questions;
+    if (!questions || questions.length === 0) return null;
+
+    const deciding = session.decisionGate?.phase === 'deciding';
+    const action = gateRules.classifyAskQuestion({ enabled: decisionEnabled(), deciding, questions });
+
+    if (action.kind === 'capture') {
+      const q = action.question || questions[0];
+      const questionItems = questions.map(item => ({
+        header: item.header || null,
+        question: item.question || '',
+        multiSelect: !!item.multiSelect,
+        options: (item.options || []).map(option => ({ label: option.label || '', description: option.description || '' })),
+      }));
+      // 捕获即落记录（复盘要求）：不问「谁来答」，先记下「它发生了」——
+      // 走人/AI/自动哪条路由是之后的事，记录必须都在。此前只存内存，决策一旦答完就无迹可查。
+      const decisionId = nextId();
+      const pending = {
+        decisionId,
+        // 归一成决策内核认识的形状：多选 → multiSelect，单选 → choice；选项只留 label。
+        type: q.multiSelect ? 'multiSelect' : 'choice',
+        multiSelect: !!q.multiSelect,
+        question: q.question,
+        options: (q.options || []).map((o) => ({ label: o.label || '', description: o.description || '' })),
+        questions: questionItems,
+        header: q.header || null,
+        source: 'AskUserQuestion',
+      };
+      session.setDecision(pending);
+      recordAsked({
+        decisionId: pending.decisionId,
+        question: pending.question,
+        options: pending.options,
+        questions: pending.questions,
+        form: gateRules.formOfQuestion(q),
+        source: 'AskUserQuestion',
+        status: 'awaiting_human', // 闸门关：仍是「等人应答」的旧语义
+      });
+      // 决策「挂起」也推一条：前端/W-Monitor 靠它知道该刷新了。
+      // 旧树由 /choice 端点推同名的 decision.required，重构后只在决策**完成**时推 decision.record，
+      // 挂起信号断了（2026-09-13 收口发现，见 .awf/issues/016）。
+      publishEvent?.('decision.required', {
+        decisionId: pending.decisionId,
+        question: pending.question,
+        options: pending.options,
+        source: 'AskUserQuestion',
+      });
+      console.log(`[hook] AskUserQuestion detected (PreToolUse): ${q.question}`);
+      return null;
+    }
+    if (action.kind === 'deny_deciding') {
+      console.log('[hook] AskUserQuestion denied (deciding): 决策闭合前禁再问');
+      return action.output;
+    }
+    // deny_gate：CC 被拦回去，改用文字标签重问。**结构化的问题与选项就在这一刻丢的** ——
+    // 标签里只有自由文本，选项无从恢复。所以先暂存进会话，等它带着标签收尾时并进本次决策
+    // （见 onStop 的 deciding 分支）。暂存只取一次，且带时效（见 CAPTURED_TTL_MS）。
+    const q = action.question || questions[0];
+    const questionItems = questions.map(item => ({
+      header: item.header || null,
+      question: item.question || '',
+      multiSelect: !!item.multiSelect,
+      options: (item.options || []).map(option => ({ label: option.label || '', description: option.description || '' })),
+    }));
+    session.setCapturedRequest({
+      at: Date.now(),
+      question: q.question,
+      options: (q.options || []).map((o) => ({ label: o.label || '', description: o.description || '' })),
+      questions: questionItems,
+      form: gateRules.formOfQuestion(q),
+    });
+    console.log('[hook] AskUserQuestion denied (gate on): 改以决策标签收尾');
+    return action.output;
+  }
+
+  /**
+   * Stop 统一闸门。
+   * 按 gateRules.classifyStop 给的三分支分派：deciding=拦截并注入指令；resolve=解析落盘并放行；
+   * complete=清态放行。三种分支都以「本回合结束后的会话态」为准做清理，避免残留 deciding 标记。
+   * @returns {object|null} 需回给 cc 的 ccOutput（null = 放行）
+   */
+  function onStop(body) {
+    const text = typeof body?.last_assistant_message === 'string' ? body.last_assistant_message : '';
+    const deciding = session.decisionGate?.phase === 'deciding';
+    const branch = gateRules.classifyStop({
+      enabled: decisionEnabled(),
+      text,
+      deciding,
+      stopHookActive: body?.stop_hook_active,
+    });
+
+    if (branch.branch === 'deciding') {
+      const startedAt = new Date().toISOString();
+      // 首次进入：生成本次决策 id —— 问题侧（requested）与结论侧（completed）共用同一个，
+      // 否则页面上一条决策会显示成两行。同时落 deciding 相位、清上一轮残留的续跑位。
+      const decisionId = nextId();
+      session.decisionGate = { phase: 'deciding', startedAt, decisionId };
+      session.setDecisionResume(null);
+      // 问题侧落盘：优先用被拦截的提问（原样的问题与选项），退化为标签正文（纯文本入口）。
+      // 这条是「AI 决策了什么」之外的「它当初在纠结什么」，复盘与技能强化都靠它。
+      // 两处都取不到就落 null —— 展示兜底不该写进数据。
+      const captured = takeCaptured();
+      recordAsked({
+        decisionId,
+        taskId: activeTaskId(),
+        question: captured?.question || gateRules.extractDecisionRequiredText(text) || null,
+        options: captured?.options || [],
+        questions: captured?.questions || [],
+        form: captured?.form || 'qa',
+        source: captured ? 'AskUserQuestion' : 'text',
+        status: 'deciding', // 场景 3：AI 即将自决，没有人要答
+      });
+      logger.logDecision({
+        at: startedAt,
+        decisionId,
+        event: 'decision_started',
+        detail: captured ? `决策入口（提问被拦截 → ${captured.form}）` : '决策入口（<AWF_DECISION_REQUIRED>）',
+      });
+      let instruction;
+      try {
+        instruction = decisionInstruction.readDecisionInstruction();
+      } catch {
+        // 指令文件缺失（如部署布局里没有 decision 插件）不能让闸门卡死：用一句话兜底文案继续。
+        instruction = '决策模式：请产出 <AWF_DECISION_RESULT> 包裹的 Decision Result。';
+      }
+      return shapes.blockDecision(instruction);
+    }
+
+    if (branch.branch === 'resolve') {
+      const parsed = parseDecisionResult(text);
+      // 解析失败不悬空：用 deferred fallback 走同一条落盘链路（见 gate.deferredFallbackResult）。
+      if (!parsed.valid) console.log(`[decision-gate] no valid result (${parsed.error}); deferred fallback`);
+      // 沿用 deciding 分支生成的 id：requested 与 completed 必须落在同一条决策上。
+      persist(parsed.valid ? parsed.result : fallbackResult(), 'text', session.decisionGate?.decisionId || null);
+      session.decisionGate = null;
+      session.clearDecision();
+      session.clearCapturedRequest(); // 决策已闭合：暂存的提问不再并入后续决策
+      session.setReady();
+      logger.captureFromTranscript();
+      return null;
+    }
+
+    // complete：闸门关或普通回合收尾——清掉一切决策态后放行（放行 = 返回 null）。
+    session.clearDecision();
+    session.decisionGate = null;
+    session.setDecisionResume(null);
+    session.setReady();
+    logger.captureFromTranscript();
+    return null;
+  }
+
+  /**
+   * 决策「问题侧」落记录（问题 / 作答形态 / 选项）。
+   *
+   * 两个入口都经这里：被拦截的提问（单选 / 多选，有选项）与文本标签（问答，无选项）。
+   * 必须用 appendEvent（按 (decision_id, event) 去重）：append 是按 decision_id **跨事件**去重的，
+   * 那样同一次决策的 requested 一落，completed 就会被静默丢掉（2026-09-13 实测，issue 016）。
+   * @param {{ decisionId: string, taskId?: string|null, question: string, options?: object[], questions?: object[],
+   *           form: string, source: string, status?: 'deciding'|'awaiting_human'|'escalated' }} input
+   */
+  function recordAsked({ decisionId, taskId = null, question, options = [], questions = [], form, source, status = 'deciding' }) {
+    const appended = newDecisionStore().appendEvent(gateRules.buildRequestedRecord({
+      decisionId,
+      taskId,
+      question,
+      options,
+      questions,
+      form,
+      source,
+      status,
+      createdAt: new Date().toISOString(),
+    }));
+    if (!appended?.appended) console.log(`[decision] request append skipped for ${decisionId}`);
+    return appended;
+  }
+
+  /**
+   * 子 Agent 举牌上抛的落账（**任务级**决策）。
+   *
+   * 子 Agent 被禁止提问，遇到自己定不了的事只能举牌（`NEEDS_INPUT`），举牌内容自带 taskId、
+   * 问题、选项 —— 正好是决策记录要的问题侧三件套，且任务归属**天然精确**。
+   * 此前它只写进 `subagent-needs-input.jsonl`（给宿主当挂起游标），决策侧一片空白。
+   *
+   * 状态用 `awaiting_human`：宿主确实会暂停补位等人，这个值不撒谎。
+   * 注意它**没有自己的答题回路** —— 现状靠主会话再问一遍（那条问句会被 PreToolUse 捕获，
+   * 但捕获不到是替哪个任务问的）。这是已知缺口，不是本方法的职责。
+   */
+  function recordEscalation({ taskId, question, options = [], agentId = null }) {
+    const decisionId = nextId();
+    recordAsked({
+      decisionId,
+      taskId: taskId || null,
+      question: question || null,
+      options,
+      form: options.length ? 'single' : 'qa',
+      source: 'subagent_needs_input',
+      status: 'awaiting_human',
+    });
+    logger.logDecision({
+      at: new Date().toISOString(),
+      decisionId,
+      event: 'decision_escalated',
+      detail: `${taskId || '(无任务)'} · agent ${agentId || '?'}：${String(question || '').slice(0, 40)}`,
+    });
+    return decisionId;
+  }
+
+  /**
+   * 人工复审「已通过」落记录。
+   *
+   * 与 override（已改写）对称：override 追加纠偏任务，approve 只留痕 ——
+   * 少了这笔记录就分不清「这条审过、认可」与「这条压根没人看」。
+   * 走 appendToDecisionRun 而非 appendEvent：必须落回原决策所在的 run 文件，
+   * 否则前端按 runStamp + decision_id 聚合会把复审拆成另一条记录。
+   * @returns {{ appended: boolean, runStamp?: string, error?: string }}
+   */
+  function recordReviewed({ decisionId, reviewer = null, note = null }) {
+    if (!decisionId) return { appended: false, error: 'decisionId 必填' };
+    const event = gateRules.buildReviewedRecord({
+      decisionId,
+      reviewer,
+      note,
+      createdAt: new Date().toISOString(),
+    });
+    try {
+      return newDecisionStore().appendToDecisionRun(decisionId, event);
+    } catch (error) {
+      return { appended: false, error: error.message };
+    }
+  }
+
+  /**
+   * 决策「被答」落记录：`answeredBy` 标明走了哪条路由，复盘时据此区分人答的、AI 判的、还是自动选的第一项。
+   * @param {{ decisionId: string, value: string, answeredBy?: 'human'|'auto'|'ai' }} input
+   */
+  function recordAnswered({ decisionId, value, answeredBy = 'human' }) {
+    if (!decisionId) return null;
+    // 同 recordAsked：生命周期事件要用 appendEvent，否则会被同 decision_id 的 requested 挡掉
+    return newDecisionStore().appendEvent({
+      event: 'decision_answered',
+      decision_id: decisionId,
+      status: 'answered',
+      source: answeredBy,
+      answered_by: answeredBy,
+      created_at: new Date().toISOString(),
+      value,
+    });
+  }
+
+  // 纠偏任务写入：由本实例面透出（web 层一律经 rt 取能力，不直连本模块文件）。
+  // 注：函数本体仍单独导出 —— 它是「任务图写入」不是「决策流程」，模块外的复用面不变。
+  return {
+    nextId, fallbackResult, persist, onAskUserQuestion, onStop,
+    recordAnswered, recordReviewed, recordEscalation,
+    appendDecisionReviewTask: (input) => appendDecisionReviewTask(stores, input),
+  };
+}
+
+/**
+ * override → 向任务列表追加纠偏任务（kind=dev / source=decision_review）。
+ *
+ * 与 handler 分开导出：它是「任务图写入」，不是「决策流程」，消费方是 decisions 路由。
+ * 幂等：任务 id 固定为 `<decision_id>-REV`，同一决策重复 override 只保留一条纠偏任务
+ * （updateSync 返回 false = 不改写 state，existing 标记告知调用方已存在）。
+ * @returns {{ ok: boolean, taskId?: string, existing?: boolean, error?: string }}
+ */
+function appendDecisionReviewTask(stores, { decision_id, instruction, original_answer }) {
+  let out;
+  stores.state.updateSync((s) => {
+    if (!s) { out = { ok: false, error: 'state.json unreadable' }; return false; }
+    const id = `${decision_id}-REV`;
+    const existing = (s.tasks || []).find((t) => t.id === id);
+    if (existing) { out = { ok: true, taskId: id, existing: true }; return false; }
+
+    s.tasks = s.tasks || [];
+    s.tasks.push({
+      id,
+      kind: 'dev',
+      status: 'pending',
+      title: `决策纠偏：${instruction.length > 28 ? `${instruction.slice(0, 28)}…` : instruction}`,
+      source: 'decision_review',
+      prompt: `决策纠偏（decision ${decision_id}）：人工 override 指令——${instruction}。原决策 answer：${original_answer || '(无)'}。请据此对受影响产物执行修正并落账。`,
+      deps: [],
+      plannedFiles: [],
+      constraints: [],
+      acceptance: `按 override 指令完成 ${decision_id} 的纠偏`,
+      exec: { decision_id, instruction, original_answer: original_answer || null },
+    });
+    s.lastUpdated = new Date().toISOString();
+    out = { ok: true, taskId: id };
+    return true;
+  });
+  return out;
+}
+
+module.exports = { createDecisionHandler, appendDecisionReviewTask };

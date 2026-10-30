@@ -1,0 +1,165 @@
+'use strict';
+/**
+ * cli/commands/run.cjs — awf run（薄）
+ *
+ * CLI 在 run 里的全部职责，只有四件：
+ *   ① 起环境（server / 会话 / settings / .mcp.json）；② 提交 run；③ 订阅事件与状态并展示；
+ *   ④ 把人机决策转给用户、把回应写回。
+ *
+ * 三种接入方式（T-P1-06 后语义对齐）：
+ *   fresh   起环境后**提交**新 run；
+ *   resume  起环境（复用现场）后**先查活跃 run**：有则挂接、无则提交（`-r` 的现场核对）；
+ *   attach  起环境后**只挂接**：没有活跃 run 就报错，绝不擅自新提交。
+ *
+ * **不做**：不挑任务、不推进阶段、不做多 agent 调度、不直接读写 state 的编排字段 ——
+ * 那些都在 server 的 run host 里（宿主拥有调度权）。本文件里每一次状态写入都是经 HTTP 的
+ * `POST /run/state/mode`（CLI 不再是 state 的写者之一）。
+ */
+
+const { readJsonSync } = require('../../server/shared/store-core.cjs');
+const { stateFilePath } = require('../../server/shared/project-paths.cjs');
+const { buildContext } = require('../lib/context.cjs');
+const { createClient } = require('../lib/client.cjs');
+const session = require('../lib/session.cjs');
+const pages = require('./open.cjs');
+const { answerDecision } = require('../lib/decision.cjs');
+const { createRunDisplay, renderEvent } = require('../lib/run-display.cjs');
+const { decisionMode: readDecisionMode } = require('../../server/features/decision/config.cjs');
+
+const C = { cyan: '[36m', dim: '[2m', red: '[31m', yellow: '[33m', reset: '[0m' };
+const POLL_MS = 1500;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 订阅事件与状态，直到 run 进入终态。
+ * @returns {{ ok: boolean, error?: string }}
+ */
+async function observe(client, { runId, afterSeq = 0, mode = 'auto', output = process.stdout }) {
+  const display = createRunDisplay({ output });
+  let after = afterSeq;
+  try {
+    for (;;) {
+      const ev = await client.pollRunEvents({ runId, afterSeq: String(after) });
+      if (ev?.ok === false) return { ok: false, error: ev.error };
+      for (const e of ev.events || []) {
+        if (e.type && !e.type.startsWith('decision.')) display.event(e);
+        after = Math.max(after, e.seq ?? after);
+      }
+
+      const st = await client.runSnapshot(runId ? { runId } : undefined);
+      if (st?.ok === false) return { ok: false, error: st.error };
+
+      // 人机决策挂在会话面（/status 的 decisionPending），不在 run 快照里 → 单独问一次。
+      // 谁来答由配置的策略决定（manual / ai / auto），三路由的应答都经 /respond 落记录。
+      const s = await client.getStatus();
+      if (s?.decisionPending) {
+        const r = await display.duringPrompt(() => answerDecision({ pending: s.decisionPending, client, mode }));
+        if (r.answered) display.log(`  ${C.dim}⚡ 决策已答（${r.by}）：${String(r.value).slice(0, 40)}${C.reset}`);
+        else display.log(`  ${C.dim}⏸ 决策待答（${r.by}）：${r.reason}${C.reset}`);
+      }
+
+      const status = st.run?.status;
+      if (status === 'done') return { ok: true };
+      if (status && status !== 'running' && status !== 'queued') {
+        return { ok: false, error: `run 终止于 ${status}${st.run.error ? `：${st.run.error}` : ''}` };
+      }
+      await sleep(POLL_MS);
+    }
+  } finally {
+    display.stop();
+  }
+}
+
+/**
+ * 查询活跃 run 并挂接其事件流（**不重复提交**）。
+ *
+ * `--attach` 与 `run -r`（T-P1-06）共用这条路径：两者都表示「我要接上现场看」。
+ * 不带 runId 的 snapshot 返回全部 run 摘要 —— 取其中 `running|queued` 的那个。
+ * @returns {Promise<object|null>} 挂接的 run 摘要；没有活跃 run → null（由调用方决定报错还是新提交）
+ * @throws {Error} 观察过程中 run 异常终止
+ */
+async function attachActiveRun(client, decisionMode) {
+  const snap = await client.runSnapshot();
+  const active = (snap.runs || []).find((r) => r.status === 'running' || r.status === 'queued');
+  if (!active) return null;
+  console.log(`${C.dim}  挂接 runId=${active.runId}${C.reset}`);
+  const outcome = await observe(client, { runId: active.runId, mode: decisionMode });
+  if (!outcome.ok) throw new Error(outcome.error);
+  return active;
+}
+
+async function runCommand(task, options = {}) {
+  const ctx = buildContext(process.cwd());
+  if (!readJsonSync(stateFilePath(ctx.projectRoot))) {
+    console.error(`${C.red}未找到 .awf/state.json，请先规划（awf plan）${C.reset}`);
+    process.exit(1);
+  }
+  const connectionMode = options.attach ? 'attach' : options.resume ? 'resume' : 'fresh';
+  const decisionMode = readDecisionMode(ctx.projectRoot); // 决策策略：manual / ai / auto
+  const state = readJsonSync(stateFilePath(ctx.projectRoot));
+  const preservePause = connectionMode !== 'fresh' && state.mode === 'pause';
+
+  const stop = () => session.stopSession(ctx);
+  const stopOnSignal = () => { stop().catch((err) => console.warn(`停止会话失败：${err.message}`)).finally(() => process.exit(0)); };
+  process.on('SIGINT', stopOnSignal);
+  process.on('SIGTERM', stopOnSignal);
+
+  console.log(`${C.cyan}⚡ AI Workflow${C.reset}  ${C.dim}${state.plan?.summary || task || ''}${C.reset}`);
+
+  await session.bringUp(ctx, { reuseExisting: connectionMode !== 'fresh' });
+  await pages.openPage(ctx, 'dashboard');
+  const client = createClient({ port: ctx.port, project: ctx.projectRoot });
+
+  let done = false;
+  let workflowRun = null;
+  try {
+    if (!preservePause && state.mode !== 'run') {
+      const r = await client.setMode('run');
+      if (r?.ok === false) throw new Error(`无法置 mode=run：${r.error}`);
+    }
+    if (connectionMode === 'attach') {
+      if (!(await attachActiveRun(client, decisionMode))) throw new Error('没有活跃 run 可挂接');
+      done = true;
+      return;
+    }
+    // run -r（T-P1-06）：先查活跃 run → 有则挂接（与 --attach 同路径，不重复提交）；
+    // 无则按现状提交。**不**新增崩溃恢复、**不**自动重置 active（U3 已确认范围）。
+    if (connectionMode === 'resume' && (await attachActiveRun(client, decisionMode))) {
+      console.log(`${C.dim}  run -r：已挂接到现场（未重复提交）${C.reset}`);
+      done = true;
+      return;
+    }
+    const sub = await client.startWorkflowRun({
+      requirementId: undefined, runId: options.runId || undefined,
+      mode: options.multiAgent ? 'batch' : undefined,
+    });
+    if (sub?.ok === false) throw new Error(`提交 run 失败：${sub.error}`);
+    workflowRun = { workflowSessionId: sub.workflowSessionId, attemptId: sub.attemptId };
+    console.log(`${C.dim}  runId=${sub.runId} mode=${sub.mode}${C.reset}`);
+
+    const outcome = await observe(client, { runId: sub.runId, mode: decisionMode });
+    if (!outcome.ok) throw new Error(outcome.error);
+    const idle = await client.setMode('idle');
+    if (idle?.ok === false) throw new Error(`run 已完成但无法置 mode=idle：${idle.error}`);
+    const finished = await client.finishWorkflowRun({ ...workflowRun, status: 'completed' });
+    if (finished?.ok === false) throw new Error(`Run 已完成，但 Server 无法结束 attempt：${finished.error}`);
+    done = true;
+  } finally {
+    if (done) {
+      try {
+        await stop();
+        console.log(`${C.dim}  已停止运行会话（server 常驻保留）${C.reset}`);
+      } catch (err) {
+        console.warn(`  Run 已完成，但停止运行会话失败：${err.message}`);
+      }
+    } else {
+      if (workflowRun) {
+        const finished = await client.finishWorkflowRun({ ...workflowRun, status: 'failed', errorText: 'CLI run 未正常完成' });
+        if (finished?.ok === false) console.warn(`Run attempt 状态未能同步到 Server：${finished.error}`);
+      }
+      console.log(`${C.yellow}  运行异常退出：保留 tmux 与 server 现场，供 w-monitor 诊断${C.reset}`);
+    }
+  }
+}
+
+module.exports = { runCommand, observe, renderEvent, attachActiveRun };

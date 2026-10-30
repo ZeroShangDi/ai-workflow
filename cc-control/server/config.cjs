@@ -1,0 +1,42 @@
+'use strict';
+/**
+ * server/config.cjs — 控制平面运行期常量单源（平台无关的就绪/超时阈值）
+ *
+ * 原散在 server.cjs 顶部的超时阈值。集中在此，便于单测覆盖与运行期调整，
+ * 也让「等多久算超时」这类判断只有一个出处 —— 谁想改阈值只有这一个文件可改。
+ *
+ * 全部支持环境变量覆盖（CC_*），缺省值即下方字面量；这里的常量是**装配期**读取的
+ * 一次性快照，不随运行期变化（进程内不再重新读取 env）。
+ *
+ * `READY_TIMEOUT_MS` 服务于运行期的会话就绪等待与单 agent 无进展告警间隔。
+ * Web API 的同步请求超时与会话启动超时由各自配置控制。
+ *
+ * `ENTER_DELAY_MS`（注文本与回车之间的节奏）**不在这里**：它是平台机制细节，T-P1-02 已
+ * 下沉进 host 适配器（`server/adapters/cc/host.cjs` 的 `sendPrompt`，env 仍是 CC_ENTER_DELAY_MS）。
+ */
+
+module.exports = {
+  /**
+   * 等会话 ready / 自结算告警间隔（ms），缺省 5 分钟。
+   * 两处语义共享同一个值：
+   *   - session.waitReady(timeout)：会话从 busy 回到 ready 的最长等待；
+ *   - executor 自结算循环：会话已 idle 但任务未落账时的告警间隔。
+   * 到期只记录告警并继续等待，不会终止任务或改写任务状态。
+   */
+  READY_TIMEOUT_MS: Number(process.env.CC_READY_TIMEOUT_MS || 5 * 60 * 1000),
+  /**
+   * 执行器「等任务自我结算」的轮询间隔（ms，缺省 500）。
+   * 任务落账由平台侧的 MCP 工具异步完成，这个间隔决定宿主多快看到结算；测试可用 `CC_EXECUTOR_POLL_MS=10` 加速。
+   */
+  EXECUTOR_POLL_MS: Number(process.env.CC_EXECUTOR_POLL_MS || 500),
+  /**
+   * 本地 slash 命令（/clear 等，无 Stop hook 回执）兜底回 ready 的时间（ms）。
+   * 本地命令不产生 Stop 事件，会话态会一直卡在 busy；靠这个定时器强制放回 ready。
+   */
+  LOCAL_CMD_FALLBACK_MS: Number(process.env.CC_LOCAL_CMD_MS || 1500),
+  /**
+   * 人工决策应答后兜底回 ready 的时间（ms；人思考无上限，故很长，缺省 5 分钟）。
+   * /respond 注入答案后起这个兜底：会话若迟迟不回 Stop，也不能把人锁在 busy 上。
+   */
+  DECISION_FALLBACK_MS: Number(process.env.CC_DECISION_FALLBACK_MS || 300000),
+};

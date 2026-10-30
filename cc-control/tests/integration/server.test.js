@@ -1,0 +1,885 @@
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { makeApi } from '../helpers/http-api.js';
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+
+// ── mocks：注入到 server.cjs（原生 require 的 CJS 依赖无法用 vi.mock 拦截）──
+
+const m = {
+  host: {
+    hasSession: vi.fn(() => true),
+    sendText: vi.fn(),
+    sendPrompt: vi.fn(),
+    sendEnter: vi.fn(),
+    sendCtrlC: vi.fn(),
+    capture: vi.fn(() => 'pane content'),
+    sessionName: 'cc',
+  },
+  logger: {
+    resetTranscript: vi.fn(),
+    captureFromTranscript: vi.fn(),
+    captureSubagentTranscript: vi.fn(),
+    logChoice: vi.fn(),
+    logPrompt: vi.fn(),
+    logDecision: vi.fn(),
+  },
+};
+
+class MockRunLogger {
+  constructor() {}
+  get enabled() { return false; }
+  get path() { return ''; }
+  resetTranscript() { m.logger.resetTranscript(); }
+  captureFromTranscript() { m.logger.captureFromTranscript(); }
+  captureSubagentTranscript(...args) { m.logger.captureSubagentTranscript(...args); }
+  logChoice(...args) { m.logger.logChoice(...args); }
+  logPrompt(...args) { m.logger.logPrompt(...args); }
+  logDecision(...args) { m.logger.logDecision(...args); }
+}
+
+// ── 临时目录：state.json 存在/不存在 + HTML 文件存在性控制 ──
+
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-server-test-'));
+// 「未构建」态的落点：空目录（web 产物缺失 → server 回落 legacy 观测页）
+const EMPTY_WEB_DIR = path.join(TMP, 'empty-web');
+fs.mkdirSync(EMPTY_WEB_DIR, { recursive: true });
+const projectWithState = path.join(TMP, 'with-state');
+const projectNoState = path.join(TMP, 'no-state');
+const fakeHome = path.join(TMP, 'home');
+fs.mkdirSync(path.join(projectWithState, '.awf'), { recursive: true });
+fs.mkdirSync(path.join(projectNoState, '.awf'), { recursive: true });
+fs.mkdirSync(fakeHome, { recursive: true });
+fs.writeFileSync(
+  path.join(projectWithState, '.awf', 'state.json'),
+  JSON.stringify({ mode: 'run', version: '0.1.0', currentState: 'CODE', tasks: [{ id: 'T1', status: 'done' }] }),
+);
+
+
+// ── env + 注入：必须在 import server.cjs 之前 ──
+process.env.CC_PROJECT = projectWithState;
+process.env.CC_READY_TIMEOUT_MS = '300';   // 加速 waitReady 超时路径
+process.env.CC_ENTER_DELAY_MS = '0';       // submit 不等待
+process.env.CC_LOCAL_CMD_MS = '60';        // /cmd fallback
+process.env.HOME = fakeHome;
+global.__CC_HOST__ = m.host;
+global.__CC_RUNLOGGER__ = { RunLogger: MockRunLogger };
+
+const SERVER_PATH = fileURLToPath(new URL('../../server/server.cjs', import.meta.url));
+
+let server;
+let api;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+beforeAll(async () => {
+  const mod = await import(SERVER_PATH);
+  server = mod;
+  const { url } = await server.start(0);
+  api = makeApi(url, projectWithState);
+});
+
+afterAll(async () => {
+  await server?.stop();
+  delete global.__CC_HOST__;
+  delete global.__CC_RUNLOGGER__;
+  delete process.env.CC_WEB_PUBLIC;
+  for (const k of ['CC_PROJECT', 'CC_READY_TIMEOUT_MS', 'CC_ENTER_DELAY_MS', 'CC_LOCAL_CMD_MS']) {
+    delete process.env[k];
+  }
+  fs.rmSync(TMP, { recursive: true, force: true });
+});
+
+beforeEach(() => {
+  server._resetForTest();
+  vi.clearAllMocks();
+  m.host.hasSession.mockReturnValue(true);
+  process.env.CC_PROJECT = projectWithState;
+  // T1-118：本仓库可能**已经构建过** src/server/public（`npm run build` 会构建）。
+  // 那些断言 legacy 观测页的用例必须钉住「未构建」态，否则结果随本地是否构建而漂移。
+  process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR;
+  fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'run-diagnosis.json'), { force: true });
+});
+
+// ─────────────────────────────────────────────
+// 路由测试（TC1–TC20）
+// ─────────────────────────────────────────────
+
+describe('路由', () => {
+  // T1-119：legacy 观测页（dashboard/decisions/diagnostics.html）退役，页面只由 web 构建产物承载。
+  // 本文件把 CC_WEB_PUBLIC 钉在空目录（= 未构建），故这里断言的是「缺产物」那一条：明确告警、不静默。
+  it('TC1: GET / 未构建 → 503 + 明确告警（提示 npm run build，不再回落 legacy 页面）', async () => {
+    const res = await api('GET', '/');
+    expect(res.status).toBe(503);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toContain('npm run build');
+    expect(res.body.expected.endsWith(path.join('index.html'))).toBe(true); // 缺什么就报什么路径
+  });
+
+  it('TC4: GET /ui → 404（ui.html 已废弃删除）', async () => {
+    const res = await api('GET', '/ui');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ ok: false, error: 'not found' });
+  });
+
+  it('TC4b: 所有页面路径同一套处理（/diagnostics、/decisions.html、/dashboard）—— 不再各自读 html', async () => {
+    for (const p of ['/diagnostics', '/decisions.html', '/dashboard']) {
+      const res = await api('GET', p);
+      expect(res.status, p).toBe(503);
+      expect(res.body.error, p).toContain('npm run build');
+    }
+  });
+
+  it('TC6: GET /awf/state → 200 + JSON', async () => {
+    const res = await api('GET', '/awf/state');
+    expect(res.status).toBe(200);
+    expect(res.contentType).toContain('application/json');
+    expect(res.body.mode).toBe('run');
+    expect(res.body.currentState).toBe('CODE');
+    expect(res.body.tasks).toHaveLength(1);
+  });
+
+  it('TC7: /awf/state 单项目绑定 — 装配器 projectRoot 启动即定，切换 CC_PROJECT 不改绑', async () => {
+    // 旧实现每请求重读 CC_PROJECT；收敛后 server 在启动时经 run-context 绑定单一项目（CC_PROJECT 固定）。
+    // 切换 env 不再改绑 → 仍返回启动项目的 state。
+    process.env.CC_PROJECT = projectNoState;
+    try {
+      const res = await api('GET', '/awf/state');
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('run');
+    } finally {
+      process.env.CC_PROJECT = projectWithState; // 还原，避免影响后续用例
+    }
+  });
+
+  it('TC8: GET /status → 返回 state/session/decisionPending', async () => {
+    const res = await api('GET', '/status');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.state).toBe('ready');
+    expect(res.body.session).toBe(true);
+    expect(res.body.decisionPending).toBeNull();
+    expect(res.body.projectRoot).toBe(projectWithState);
+  });
+
+  it('TC8b: GET /awf/metrics → 返回运行指标', async () => {
+    const slug = projectWithState.replace(/\//g, '-');
+    const transcriptDir = path.join(fakeHome, '.claude', 'projects', slug);
+    fs.mkdirSync(transcriptDir, { recursive: true });
+    fs.mkdirSync(path.join(projectWithState, '.awf', 'context'), { recursive: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'context', 'usage.json'), JSON.stringify({
+      used_percentage: 62,
+      remaining_percentage: 38,
+      context_window_size: 200000,
+      total_input_tokens: 124000,
+      updatedAt: '2026-09-02T00:00:00.000Z',
+    }));
+    fs.writeFileSync(path.join(transcriptDir, 'sess-main.jsonl'), [
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'u1',
+        timestamp: new Date(Date.now() - 5000).toISOString(),
+        message: {
+          id: 'm1',
+          usage: { input_tokens: 120, output_tokens: 30, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 },
+        },
+      }),
+      JSON.stringify({
+        type: 'cost-state',
+        startTime: Date.now() - 20000,
+      }),
+    ].join('\n'));
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    const res = await api('GET', '/awf/metrics');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.metrics.agentMode).toBe('single');
+    expect(res.body.metrics.tokens.total).toBe(150);
+    expect(res.body.metrics.tokens.output).toBe(30);
+    expect(res.body.metrics.tokens.coverage).toBe('exact');
+    expect(res.body.metrics.context.usedPercentage).toBe(62);
+    expect(res.body.metrics.outputSpeed.currentTokensPerSecond).toBeGreaterThan(0);
+    expect(res.body.metrics.elapsedMs).toBeGreaterThan(0);
+  });
+
+  it('TC8c: GET /awf/diagnostics → 未诊断时返回 null', async () => {
+    const res = await api('GET', '/awf/diagnostics');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, diagnosis: null });
+  });
+
+  // TC8d/TC8e（诊断）已移到下方 describe「诊断介入（monitor）」：新树的诊断走 features/monitor
+  // 的 oneshot 端口，旧树的 global.__CC_RUN_DIAGNOSIS__ 注入缝未搬过来，故在这层（server.cjs
+  // 的真实 runtime）里无法注入替身；改在可注入的 runtime/api 装配面上测。
+
+  it('TC9: GET /status?snapshot=true → 包含 snapshot', async () => {
+    const res = await api('GET', '/status?snapshot=true');
+    expect(res.status).toBe(200);
+    expect(res.body.snapshot).toBe('pane content');
+    expect(res.body.state).toBe('ready');
+    expect(m.host.capture).toHaveBeenCalled();
+  });
+
+  it('TC10: POST /send → 正常发送 prompt', async () => {
+    const res = await api('POST', '/send', { text: 'do something' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, sent: 'do something' });
+    expect(m.logger.captureFromTranscript).toHaveBeenCalled();
+    expect(m.logger.logPrompt).toHaveBeenCalledWith('do something');
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('do something');
+    expect(server._getState().state).toBe('busy');
+  });
+
+  it('TC11: POST /send → text 为空 → 400', async () => {
+    const res = await api('POST', '/send', { text: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('body must be {text: non-empty string}');
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it('TC12: POST /send → session 不存在 → 503', async () => {
+    m.host.hasSession.mockReturnValue(false);
+    const res = await api('POST', '/send', { text: 'hi' });
+    expect(res.status).toBe(503);
+    expect(res.body.error).toContain('session');
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it('TC13: POST /send → waitReady 超时 → 409', async () => {
+    await api('POST', '/hook', { event: 'UserPromptSubmit' }); // state = busy
+    const started = Date.now();
+    const res = await api('POST', '/send', { text: 'hi' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('still busy (ready timeout)');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250); // READY_TIMEOUT=300
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it('TC14: POST /cmd → 正常发送命令', async () => {
+    const res = await api('POST', '/cmd', { cmd: '/clear' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, sent: '/clear' });
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('/clear');
+    expect(server._getState().state).toBe('busy');
+    // LOCAL_CMD fallback(60ms) 恢复 ready
+    await sleep(120);
+    expect(server._getState().state).toBe('ready');
+  });
+
+  it('TC15: POST /cmd → cmd 为空 → 400', async () => {
+    const res = await api('POST', '/cmd', {});
+    expect(res.status).toBe(400);
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it('TC16: POST /cmd → session 不存在 → 503', async () => {
+    m.host.hasSession.mockReturnValue(false);
+    const res = await api('POST', '/cmd', { cmd: '/clear' });
+    expect(res.status).toBe(503);
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it('TC17: POST /respond → 正常回应（跳过 waitReady）', async () => {
+    await api('POST', '/choice', { question: 'Q', options: ['A', 'B'] });
+    await api('POST', '/hook', { event: 'UserPromptSubmit' }); // state = busy
+    const res = await api('POST', '/respond', { value: '1' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, sent: '1' });
+    expect(m.logger.logChoice).toHaveBeenCalledWith('Q', '1');
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('1');
+  });
+
+  it('TC18: POST /choice → 正常设置 decision', async () => {
+    const res = await api('POST', '/choice', { question: '选择?', options: ['A', 'B'] });
+    expect(res.status).toBe(200);
+    const d = server._getState().decisionPending;
+    expect(d.type).toBe('choice');
+    expect(d.options).toEqual(['A', 'B']);
+  });
+
+  it('TC19: POST /ask → 正常设置 decision', async () => {
+    const res = await api('POST', '/ask', { question: '输入?' });
+    expect(res.status).toBe(200);
+    const d = server._getState().decisionPending;
+    expect(d.type).toBe('text');
+    expect(d.question).toBe('输入?');
+  });
+
+  it('TC20: 未知路由 → 404', async () => {
+    const res = await api('GET', '/nonexistent');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ ok: false, error: 'not found' });
+  });
+
+  it('TC-CR1: POST /context-ready → 置位，/status 透出', async () => {
+    const res = await api('POST', '/context-ready');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, contextReady: true });
+    expect(server._getState().contextReady).toBe(true);
+    const st = await api('GET', '/status');
+    expect(st.body.contextReady).toBe(true);
+  });
+
+  it('TC-CR2: GET /context-ready → 返回标记并一次性消费（读后复位）', async () => {
+    await api('POST', '/context-ready');
+    const res1 = await api('GET', '/context-ready');
+    expect(res1.body).toEqual({ ok: true, ready: true });
+    expect(server._getState().contextReady).toBe(false); // 已消费
+    const res2 = await api('GET', '/context-ready');
+    expect(res2.body).toEqual({ ok: true, ready: false });
+  });
+
+  it('TC-CR3: GET /context-ready 未置位 → ready:false', async () => {
+    const res = await api('GET', '/context-ready');
+    expect(res.body).toEqual({ ok: true, ready: false });
+  });
+});
+
+// ─────────────────────────────────────────────
+// 诊断介入（monitor）
+// ─────────────────────────────────────────────
+//
+// 诊断在新树里是 features/monitor 的一个端口（`createMonitor({ ..., oneshot })`，形状与旧树不同），
+// 旧树的 `global.__CC_RUN_DIAGNOSIS__` 注入缝没有搬过来 —— 所以不能再注入到 server.cjs 的真实
+// runtime 上。这里改在**可注入的装配面**上测：自建 runtime + createApi，诊断进程用替身 oneshot。
+// （协议细节 —— 互斥 / 两拍写 / 失败收口 / --safe-mode 安全隔离 / 后效对齐 —— 由
+//  tests/unit/server-monitor.test.js 直接覆盖；本组钉的是它在 HTTP 面上的路由与守卫。）
+describe('诊断介入（monitor）', () => {
+  const { createProjectRuntime } = require('../../server/runtime/index.cjs');
+  const { createApi } = require('../../server/web/api/index.cjs');
+  const { createMonitor } = require('../../server/features/monitor/index.cjs');
+
+  let diagRoot;
+  let diagServer;
+  let diagPort;
+  let rt;
+
+  const call = (method, p, body) => fetch(
+    `http://127.0.0.1:${diagPort}${p}?p=${encodeURIComponent(diagRoot)}`,
+    {
+      method,
+      headers: body === undefined ? {} : { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+  );
+
+  beforeAll(async () => {
+    diagRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-server-diag-'));
+    fs.mkdirSync(path.join(diagRoot, '.awf'), { recursive: true });
+    const registry = {
+      bootRoot: diagRoot,
+      resolveRuntime: () => rt,
+      list: () => [{ projectRoot: diagRoot }],
+      all: () => [rt],
+    };
+    const diagApi = createApi({ registry, stopServer: async () => {} });
+    diagServer = http.createServer(diagApi.handle);
+    await new Promise((r) => diagServer.listen(0, '127.0.0.1', r));
+    diagPort = diagServer.address().port;
+  });
+
+  afterAll(async () => {
+    await new Promise((r) => diagServer.close(r));
+    fs.rmSync(diagRoot, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    rt = createProjectRuntime({ projectRoot: diagRoot });
+  });
+
+  it('TC8d: POST /awf/diagnostics → 独立 AI 诊断并持久化结果', async () => {
+    // 把 runtime 的 monitor 换成带替身 oneshot 的实例（诊断进程不起真 claude）
+    let finishOneshot;
+    const oneshot = {
+      spawnClaudeP: vi.fn(() => new Promise((resolve) => { finishOneshot = resolve; })),
+    };
+    rt.monitor = createMonitor({ ctx: rt.ctx, session: rt.session, observability: rt.observability, oneshot });
+    fs.rmSync(path.join(diagRoot, '.awf', 'logs', 'run-diagnosis.json'), { force: true });
+
+    const res = await call('POST', '/awf/diagnostics');
+    expect(res.status).toBe(202);
+    expect((await res.json()).diagnosis.status).toBe('running'); // 第一拍：立刻受理并回占位快照
+
+    finishOneshot({
+      ok: true,
+      stdout: JSON.stringify({ severity: 'watch', summary: '输出吞吐偏低，需要观察等待时间。', findings: [], dataGaps: [] }),
+      stderr: '', code: 0,
+    });
+    await sleep(0);
+
+    expect(oneshot.spawnClaudeP).toHaveBeenCalledTimes(1);
+    const saved = await (await call('GET', '/awf/diagnostics')).json(); // 第二拍：同一份快照被覆盖为 complete
+    expect(saved.diagnosis.status).toBe('complete');
+    expect(saved.diagnosis.diagnosis.summary).toContain('输出吞吐偏低');
+  });
+
+  it('TC8e: 诊断期间的隔离会话不能重置主会话', async () => {
+    // 主会话就位（此刻没有诊断在跑）
+    await call('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    expect(rt.session.mainSessionId).toBe('sess-main');
+
+    // 模拟诊断进行中：monitor 的 inFlight 闩（新树守卫的判据，见 web/api/hook.cjs）。直接置闩，不真起进程。
+    rt.monitor.inFlight = true;
+    const foreign = await call('POST', '/hook', { event: 'SessionStart', session_id: 'sess-diagnosis' });
+    expect(foreign.status).toBe(200);
+    expect(rt.session.mainSessionId).toBe('sess-main'); // 隔离会话的启动被忽略，主会话未被重置
+
+    // 反证：闩解除（诊断结束）后，同一异会话 SessionStart 会正常接管主会话 —— 证明上面的「不动」来自守卫本身
+    rt.monitor.inFlight = false;
+    await call('POST', '/hook', { event: 'SessionStart', session_id: 'sess-diagnosis' });
+    expect(rt.session.mainSessionId).toBe('sess-diagnosis');
+  });
+});
+
+// ─────────────────────────────────────────────
+// /stop 中断
+// ─────────────────────────────────────────────
+
+describe('/stop', () => {
+  it('发送 Ctrl+C 并清除决策', async () => {
+    server.setDecision({ type: 'choice', question: 'Q' });
+    server.setBusy();
+    const res = await api('POST', '/stop');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, stopped: true });
+    expect(m.host.sendCtrlC).toHaveBeenCalled();
+    expect(server._getState().decisionPending).toBeNull();
+  });
+
+  it('session 不存在 → 503', async () => {
+    m.host.hasSession.mockReturnValue(false);
+    const res = await api('POST', '/stop');
+    expect(res.status).toBe(503);
+    expect(res.body.error).toContain('session');
+    expect(m.host.sendCtrlC).not.toHaveBeenCalled();
+  });
+
+  it('无 Stop hook 时 fallback 恢复 ready', async () => {
+    server.setBusy();
+    await api('POST', '/stop');
+    expect(server._getState().state).toBe('busy'); // 立即仍是 busy，等 Stop hook 或 fallback
+    await sleep(120); // LOCAL_CMD fallback = 60ms
+    expect(server._getState().state).toBe('ready');
+  });
+});
+
+describe('w-monitor 受控介入', () => {
+  const statePath = path.join(projectWithState, '.awf', 'state.json');
+
+  beforeEach(() => {
+    fs.writeFileSync(statePath, JSON.stringify({ mode: 'run', currentState: 'CODE', tasks: [] }));
+  });
+
+  it('未 pause 时拒绝自动介入', async () => {
+    const res = await api('POST', '/intervene', { text: '继续', reason: 'test' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('mode=pause');
+    expect(m.host.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it('pause 后允许在 busy 状态发送修复提示', async () => {
+    fs.writeFileSync(statePath, JSON.stringify({ mode: 'pause', currentState: 'CODE', tasks: [] }));
+    server.setBusy();
+    const res = await api('POST', '/intervene', { text: '检查错误后继续', reason: 'run_task_error' });
+    expect(res.status).toBe(200);
+    expect(m.host.sendPrompt).toHaveBeenCalledWith('检查错误后继续');
+    expect(m.logger.logPrompt).toHaveBeenCalledWith(expect.stringContaining('run_task_error'));
+  });
+
+  it('自动中断同样要求 pause', async () => {
+    let res = await api('POST', '/intervene/interrupt', { reason: 'stuck' });
+    expect(res.status).toBe(409);
+    fs.writeFileSync(statePath, JSON.stringify({ mode: 'pause', currentState: 'CODE', tasks: [] }));
+    res = await api('POST', '/intervene/interrupt', { reason: 'stuck' });
+    expect(res.status).toBe(200);
+    expect(m.host.sendCtrlC).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────
+// 状态机（TC21–TC27）
+// ─────────────────────────────────────────────
+
+describe('状态机', () => {
+  it('TC21: SessionStart → setReady 唤醒所有 waiters', async () => {
+    server.setBusy();
+    // 新树不在快照里暴露真实等待者（_getState().waiters 恒空，注释明写「已不在快照里暴露」），
+    // 故不断言 waiters 数量，改断言**效果**：先前挂起的 waitReady 在 SessionStart 触发的
+    // setReady 后真的解挂并返回 true。
+    const p1 = server.waitReady(10000);
+    const p2 = server.waitReady(10000);
+
+    const res = await api('POST', '/hook', { event: 'SessionStart' });
+    expect(res.status).toBe(200);
+    expect(await p1).toBe(true);
+    expect(await p2).toBe(true);
+    expect(server._getState().state).toBe('ready');
+    expect(m.logger.resetTranscript).toHaveBeenCalled();
+  });
+
+  it('TC22: UserPromptSubmit → setBusy', async () => {
+    const res = await api('POST', '/hook', { event: 'UserPromptSubmit' });
+    expect(res.status).toBe(200);
+    expect(server._getState().state).toBe('busy');
+  });
+
+  it('TC23: Stop → clearDecision + setReady', async () => {
+    server.setDecision({ type: 'choice', question: 'Q' });
+    server.setBusy();
+    await api('POST', '/hook', { event: 'Stop' });
+    expect(server._getState().decisionPending).toBeNull();
+    expect(server._getState().state).toBe('ready');
+    expect(m.logger.captureFromTranscript).toHaveBeenCalled();
+  });
+
+  it('TC24: ready→busy→ready 完整往返', async () => {
+    await api('POST', '/send', { text: 'task' });
+    let st = await api('GET', '/status');
+    expect(st.body.state).toBe('busy');
+
+    await api('POST', '/hook', { event: 'Stop' });
+    st = await api('GET', '/status');
+    expect(st.body.state).toBe('ready');
+  });
+
+  it('TC25: waitReady 当前 ready → 立即返回 true', async () => {
+    const result = await server.waitReady(5000);
+    expect(result).toBe(true);
+    expect(server._getState().waiters).toHaveLength(0);
+  });
+
+  it('TC26: waitReady busy → setReady 后返回 true', async () => {
+    server.setBusy();
+    const p = server.waitReady(10000);
+    setTimeout(() => server.setReady(), 30);
+    expect(await p).toBe(true);
+  });
+
+  it('TC27: waitReady 超时 → false，waiter 移除', async () => {
+    server.setBusy();
+    const result = await server.waitReady(60);
+    expect(result).toBe(false);
+    expect(server._getState().waiters).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────
+// /hook 事件（TC28–TC32）
+// ─────────────────────────────────────────────
+
+describe('/hook 事件', () => {
+  it('TC28: /hook SessionStart → ready + resetTranscript', async () => {
+    const res = await api('POST', '/hook', { event: 'SessionStart' });
+    expect(res.body).toEqual({ ok: true, event: 'SessionStart', state: 'ready' });
+    expect(m.logger.resetTranscript).toHaveBeenCalled();
+  });
+
+  it('TC29: /hook UserPromptSubmit → busy', async () => {
+    const res = await api('POST', '/hook', { event: 'UserPromptSubmit' });
+    expect(res.body).toEqual({ ok: true, event: 'UserPromptSubmit', state: 'busy' });
+  });
+
+  it('TC30: /hook Stop → clearDecision + ready', async () => {
+    server.setDecision({ type: 'choice', question: 'Q' });
+    server.setBusy();
+    const res = await api('POST', '/hook', { event: 'Stop' });
+    expect(res.body.state).toBe('ready');
+    expect(server._getState().decisionPending).toBeNull();
+  });
+
+  it('TC31: /hook PreToolUse AskUserQuestion → setDecision', async () => {
+    await api('POST', '/hook', {
+      event: 'PreToolUse',
+      tool_name: 'AskUserQuestion',
+      tool_input: {
+        questions: [{ question: '选择方案', multiSelect: false, options: [{ label: 'A' }, { label: 'B' }] }],
+      },
+    });
+    const d = server._getState().decisionPending;
+    expect(d.source).toBe('AskUserQuestion');
+    expect(d.question).toBe('选择方案');
+    expect(d.options).toEqual(['A', 'B']);
+    expect(d.type).toBe('choice');
+  });
+
+  it('TC32: /hook PostToolUse AskUserQuestion → 更新 answer', async () => {
+    await api('POST', '/hook', {
+      event: 'PreToolUse',
+      tool_name: 'AskUserQuestion',
+      tool_input: { questions: [{ question: '选择方案', options: [{ label: 'A' }, { label: 'B' }] }] },
+    });
+    await api('POST', '/hook', {
+      event: 'PostToolUse',
+      tool_name: 'AskUserQuestion',
+      tool_response: { answer: 'A方案' },
+    });
+    const d = server._getState().decisionPending;
+    expect(d.answer).toBe('A方案');
+    expect(d.answered).toBe(true);
+  });
+
+  // ── M2: mainSessionId 隔离 + 子 agent 观测 ──
+
+  it('TC33: SessionStart 透传 payload → 记录 mainSessionId', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    expect(server._getState().mainSessionId).toBe('sess-main');
+    expect(server._getState().state).toBe('ready');
+  });
+
+  it('TC34: 子 agent 的 UserPromptSubmit（非主 session_id）不翻转主闩锁', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    const res = await api('POST', '/hook', { event: 'UserPromptSubmit', session_id: 'sess-sub' });
+    expect(res.body.state).toBe('ready'); // 子 agent 事件被过滤
+    expect(server._getState().state).toBe('ready');
+  });
+
+  it('TC35: 主 session 才驱动 busy/ready；子 agent Stop 不提前置 ready', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    await api('POST', '/hook', { event: 'UserPromptSubmit', session_id: 'sess-main' });
+    expect(server._getState().state).toBe('busy');
+    // 子 agent Stop（子 session）→ 不置 ready，仍 busy（闩锁只认主）
+    await api('POST', '/hook', { event: 'Stop', session_id: 'sess-sub' });
+    expect(server._getState().state).toBe('busy');
+    // 主 Stop → ready
+    await api('POST', '/hook', { event: 'Stop', session_id: 'sess-main' });
+    expect(server._getState().state).toBe('ready');
+  });
+
+  it('TC36: SubagentStart/Stop 只进观测 registry，不驱动主闩锁', async () => {
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-sub' });
+    expect(server._getState().activeAgents).toBe(1);
+    expect(server._getState().state).toBe('ready'); // 不翻转
+    await api('POST', '/hook', { event: 'SubagentStop', session_id: 'sess-sub' });
+    expect(server._getState().activeAgents).toBe(0);
+  });
+
+  it('TC37: /status 隔离非主会话子 Agent', async () => {
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-sub' });
+    const res = await api('GET', '/status');
+    expect(res.body.mainSessionId).toBe('sess-main');
+    expect(res.body.activeAgents).toBe(0);
+  });
+
+  it('TC37b: 外部监控子 Agent 不进入 worker 失败补发链路', async () => {
+    const failedLog = path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl');
+    fs.rmSync(failedLog, { force: true });
+    await api('POST', '/hook', { event: 'SessionStart', session_id: 'sess-main' });
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-monitor', agent_id: 'probe-1' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-monitor', agent_id: 'probe-1',
+      last_assistant_message: 'PROBE_RESULT: {"status":"normal"}',
+    });
+    expect(fs.existsSync(failedLog)).toBe(false);
+    expect(server._getState().activeAgents).toBe(0);
+  });
+
+  // ── M2+: SubagentStop 落账（解析 last_assistant_message 的 RESULT → 写 state）──
+
+  it('TC38: SubagentStop 落账——解析 RESULT 写 state（done + exec）', async () => {
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-1' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-1',
+      last_assistant_message: '完成。\n\nRESULT: {"taskId": "T1", "status": "done", "result": "做完了", "files": ["a.js"]}',
+    });
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('done');
+    expect(s.tasks[0].exec).toEqual(expect.objectContaining({ result: '做完了', files: ['a.js'] }));
+    expect(m.logger.captureSubagentTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ agent_id: 'agent-1' }), 'T1', 'agent-1',
+    );
+  });
+
+  it('TC39: SubagentStop 无有效 RESULT → 不落账 + 写失败记录（可恢复，CLI 补发依据）', async () => {
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-1' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-1',
+      last_assistant_message: '我没按格式输出',
+    });
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('pending');
+    // 缺 RESULT 是可恢复失败（agent 还在）→ 写失败记录，CLI 据此 SendMessage 补齐
+    const rec = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), 'utf-8').trim().split('\n').pop());
+    expect(rec.agentId).toBe('agent-1');
+    expect(rec.reason).toContain('no valid RESULT');
+  });
+
+  it('TC40: SubagentStop 落账失败（taskId 不存在）→ 写 subagent-failed.jsonl（补发依据）', async () => {
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-bad' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-bad',
+      last_assistant_message: 'RESULT: {"taskId": "T999", "status": "done"}', // taskId 不存在
+    });
+    const logPath = path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl');
+    expect(fs.existsSync(logPath)).toBe(true);
+    const rec = JSON.parse(fs.readFileSync(logPath, 'utf-8').trim().split('\n').pop());
+    expect(rec.agentId).toBe('agent-bad');
+    expect(rec.resultTaskId).toBe('T999');
+    expect(rec.reason).toContain('not found');
+    // state 不变（落账失败）
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('pending');
+  });
+
+  it('TC41: RESULT taskId 指向已 done 任务 → 良性拒绝，不写失败记录（防重复补发循环）', async () => {
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE',
+      tasks: [
+        { id: 'T3', status: 'done' },               // 已完成（子 Agent 误把 taskId 写到这里）
+        { id: 'X1', status: 'pending' },            // 真实任务，应落账
+      ],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-x1' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-x1',
+      last_assistant_message: 'RESULT: {"taskId": "T3", "status": "done", "result": "创建 test/util.test.js"}', // 错写 T3
+    });
+    // T3 未被二次覆盖；X1 仍 pending（落账拒绝）
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks.find((t) => t.id === 'T3').status).toBe('done');
+    expect(s.tasks.find((t) => t.id === 'X1').status).toBe('pending');
+    // already done = 良性（phantom 先落账 / 重复 Stop）→ 不写失败记录、不触发 CLI 补发
+    expect(fs.existsSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'))).toBe(false);
+  });
+
+  it('TC42: SubagentStop NEEDS_INPUT → 写 subagent-needs-input.jsonl，不落账（决策挂起）', async () => {
+    // 清理前置测试可能残留的失败记录（NEEDS_INPUT 不应触发落账失败）
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-n' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-n',
+      last_assistant_message: 'RESULT: {"taskId": "T1", ...}\n\nNEEDS_INPUT: {"taskId": "T1", "question": "API 用 v1 还是 v2？", "options": ["v1", "v2"]}',
+    });
+    // 决策记录
+    const logPath = path.join(projectWithState, '.awf', 'logs', 'subagent-needs-input.jsonl');
+    expect(fs.existsSync(logPath)).toBe(true);
+    const rec = JSON.parse(fs.readFileSync(logPath, 'utf-8').trim().split('\n').pop());
+    expect(rec.taskId).toBe('T1');
+    expect(rec.question).toContain('v1 还是 v2');
+    expect(rec.options).toEqual(['v1', 'v2']);
+    // 不落账（任务保持 pending，等待决策）
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('pending');
+    // 不应写失败记录（NEEDS_INPUT 不是落账失败）
+    expect(fs.existsSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'))).toBe(false);
+  });
+
+  it('TC43: 未跟踪 SubagentStop（无 SubagentStart）→ 跳过，不落账、不写失败记录', async () => {
+    // 幽灵 Stop（agent_type:"" / 无 Start / 无 transcript）：不能为不存在的 agent 生成补发记录
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'phantom-x',
+      last_assistant_message: 'RESULT: {"taskId": "T1", "status": "done", "result": "x"}',
+    });
+    // 不落账：T1 仍 pending
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('pending');
+    // 不写失败记录（否则 CLI 补发到不存在的 agent，反复 RESET/等待）
+    expect(fs.existsSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'))).toBe(false);
+  });
+
+  it('TC44: RESULT status=failed/fail（协议允许终态）→ 落账映射为 blocked（调度识别终态）', async () => {
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', status: 'pending' }],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-f' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-f',
+      last_assistant_message: 'RESULT: {"taskId": "T1", "status": "failed", "result": "门禁 FAIL"}',
+    });
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('blocked');
+    expect(s.tasks[0].exec.result).toBe('门禁 FAIL');
+    // 落账成功 → 不写失败记录（不再触发补发）
+    expect(fs.existsSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'))).toBe(false);
+  });
+
+  it('TC45: RESULT 带 verdict → 落账写 exec.verdict（门禁闭环依据）', async () => {
+    fs.rmSync(path.join(projectWithState, '.awf', 'logs', 'subagent-failed.jsonl'), { force: true });
+    fs.writeFileSync(path.join(projectWithState, '.awf', 'state.json'), JSON.stringify({
+      mode: 'run', currentState: 'CODE', tasks: [{ id: 'T1', kind: 'review', status: 'pending' }],
+    }));
+    await api('POST', '/hook', { event: 'SubagentStart', session_id: 'sess-main', agent_id: 'agent-g' });
+    await api('POST', '/hook', {
+      event: 'SubagentStop', session_id: 'sess-main', agent_id: 'agent-g',
+      last_assistant_message: 'RESULT: {"taskId": "T1", "status": "failed", "verdict": {"level": "fail", "conclusion": "方向性错误"}, "architecture": {"changeAxis": "场景策略", "boundary": "ScenePolicy", "path": "refactor-then-change", "boundaryChanged": true, "note": "UI 中存在重复判断"}, "result": "门禁 FAIL", "files": [".awf/reports/review/review-r1.md"]}',
+    });
+    const s = JSON.parse(fs.readFileSync(path.join(projectWithState, '.awf', 'state.json'), 'utf-8'));
+    expect(s.tasks[0].status).toBe('blocked'); // failed → blocked 终态
+    expect(s.tasks[0].exec.verdict).toEqual({ level: 'fail', conclusion: '方向性错误' });
+    expect(s.tasks[0].exec.result).toBe('门禁 FAIL');
+    expect(s.tasks[0].exec.files).toEqual(['.awf/reports/review/review-r1.md']);
+    expect(s.tasks[0].exec.architecture).toEqual(expect.objectContaining({ boundary: 'ScenePolicy', path: 'refactor-then-change' }));
+  });
+});
+
+// ─────────────────────────────────────────────
+// dashboard.html（TC33–TC37）
+// ─────────────────────────────────────────────
+
+describe('web 产物静态托管（T1-093：build→server/public SPA）', () => {
+  it('产物存在：root 由 React SPA 承载；assets 托管；无扩展名 SPA 路由回退 index；API 不受影响', async () => {
+    const webDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-webpub-'));
+    try {
+      fs.mkdirSync(path.join(webDir, 'assets'), { recursive: true });
+      fs.writeFileSync(path.join(webDir, 'index.html'), '<!doctype html><title>awf-web-app</title><div id="root"></div>');
+      fs.writeFileSync(path.join(webDir, 'assets', 'app.js'), 'console.log("awf-app-js")');
+      process.env.CC_WEB_PUBLIC = webDir;
+
+      const root = await api('GET', '/');
+      expect(root.status).toBe(200);
+      expect(root.text).toContain('awf-web-app');
+
+      const asset = await api('GET', '/assets/app.js');
+      expect(asset.status).toBe(200);
+      expect(asset.text).toContain('awf-app-js');
+      expect(asset.contentType).toContain('javascript');
+
+      const spa = await api('GET', '/wbs-tree'); // 前端路由（无扩展名）→ SPA 回退 index.html
+      expect(spa.status).toBe(200);
+      expect(spa.text).toContain('awf-web-app');
+
+      const st = await api('GET', '/status'); // 显式 API 端点仍优先（不被静态托管吞掉）
+      expect(st.status).toBe(200);
+      expect(st.body).not.toBe(null);
+      expect(st.body.ok).toBe(true);
+    } finally {
+      process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR; // 回到「未构建」态（不 delete：缺省会指向已构建的 src/server/public）
+      fs.rmSync(webDir, { recursive: true, force: true });
+    }
+  });
+
+  it('产物缺失（未构建）：页面路径 503 + 告警；未知 GET 404（不回退、不空白页）', async () => {
+    process.env.CC_WEB_PUBLIC = EMPTY_WEB_DIR; // 显式钉住「未构建」：缺省的 src/server/public 可能已被 npm run build 填上
+    const root = await api('GET', '/');
+    expect(root.status).toBe(503);
+    expect(root.body.error).toContain('npm run build');
+
+    const miss = await api('GET', '/nope-404');
+    expect(miss.status).toBe(404);
+    expect(miss.body).toEqual({ ok: false, error: 'not found' });
+  });
+});

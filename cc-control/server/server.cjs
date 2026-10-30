@@ -1,0 +1,131 @@
+'use strict';
+/**
+ * server.cjs — 装配根（唯一入口）
+ *
+ * 它只做一件事：**把三块装起来** —— 项目注册表、HTTP 面、进程生命周期。
+ * 不再是那个 1599 行的单体：路由在 `api/`、生命周期在 `bootstrap/`、每项目能力在 `projects/runtime.cjs`、
+ * 编排在 `run/`、决策在 `decision/`、观测在 `observability/`、cc 接入在 `adapters/`。
+ *
+ * 装配顺序有意义：registry 先建（boot 上下文），api 拿 registry，bootstrap 拿 api 的 handler；
+ * `stopServer` 用箭头函数延迟取 bootstrap（打破构造期的循环引用）。
+ */
+
+const { createProjectRegistry } = require('./runtime/registry.cjs');
+const { createApi } = require('./web/api/index.cjs');
+const bridgeChannel = require('./web/bridge-channel.cjs'); // DSH 指令通道（入口层注入给适配器）
+const { createBootstrap } = require('./runtime/lifecycle.cjs');
+const { createPersistenceApplication } = require('./application/persistence.cjs');
+const { createIdleScheduler } = require('./application/idle-scheduler.cjs');
+
+// ── 测试注入缝（生产环境不设置 → 一律回落真实实现）──
+// 旧 server 曾在此读 global.__CC_TMUX__ / __CC_RUNLOGGER__，重构时漏搬，导致靠它拦 tmux 的
+// 集成用例全部改成真调 tmux（.awf/issues/015）。这里按原语义补回：**只回落到真实默认**，
+// 不改任何生产行为 —— 传 undefined 时由 runtime/project.cjs 自己建真实 host 端口与 RunLogger。
+// T-P1-02：注入缝随能力面改名 __CC_TMUX__ → __CC_HOST__（`ctx.tmux` → `ctx.host`），不留双名。
+const injectedHost = global.__CC_HOST__ || null;
+const hostFactory = injectedHost ? () => injectedHost : undefined;
+const RunLogger = global.__CC_RUNLOGGER__?.RunLogger || undefined;
+// oneshot 端口同理：旧 server.cjs 读过它（/oneshot 的无状态调用），重构漏搬；缺省 undefined → api 用真实 adapter
+const injectedOneshot = global.__CC_ONESHOT__ || undefined;
+
+// ── 装配：三块按依赖顺序串起来 ──
+// adapterDeps：平台工厂的额外依赖。**由入口注入**（entry → web + runtime），adapters 本身不反向依赖 web。
+const adapterDeps = { bridge: bridgeChannel.channel() };
+// Server-owned application seam for integration tests and mock-driven Web flow work.
+const persistenceApplication = global.__CC_PERSISTENCE_APPLICATION__
+  || createPersistenceApplication({
+    databaseFilePath: process.env.AWF_DATABASE_PATH,
+    environmentFilePath: process.env.AWF_ENVIRONMENT_FILE,
+  });
+const registry = createProjectRegistry({ env: process.env, hostFactory, RunLogger, adapterDeps }); // ① 注册表（构造即预置 boot runtime）
+const BOOT = () => registry.runtimeFor(registry.bootRoot);    // 取 boot 项目 runtime 的简写
+const PORT = BOOT().ctx.port;                                 // ② 端口来自 boot 上下文（runtime-config）
+
+const api = createApi({
+  registry,                             // api 靠 registry 把 ?p 解析成对应 runtime
+  stopServer: () => stopServerImpl(),  // ③ 延迟取生命周期关闭函数
+  oneshot: injectedOneshot,             // 测试注入缝；undefined → 域内用真实 oneshot adapter
+  persistenceApplication,               // Server 内部负责项目身份解析与持久化访问
+});
+
+// bootstrap 拿 api 的 handler 与端口，反过来 api 的 /shutdown 又要回调 bootstrap.stop —— 用箭头打破这个构造期循环
+const bootstrap = createBootstrap({
+  registry,
+  handler: api.handle,
+  onUpgrade: api.handleUpgrade,
+  projectRoot: BOOT().ctx.projectRoot,
+  sessionName: BOOT().ctx.runSessionName,
+  // 关停前必须先关掉的长连接：插件的 WS 是 upgrade 上来的，不在 http server 的连接表里，
+  // 不关它 server.close 的回调不触发 → 空闲回收的 exit 不执行 → 进程变僵尸（真机踩到）。
+  // 装配根注入，runtime 因此不必反向依赖 web 层（结构门禁的方向约束）。
+  closeTransports: [() => bridgeChannel.closeSocket()],
+  onStopped: () => { idleScheduler?.stop(); persistenceApplication.close(); },
+});
+let idleScheduler = null;
+function startIdleScheduler(port) {
+  if (process.env.AWF_IDLE_SCHEDULER === '0') return;
+  idleScheduler ||= createIdleScheduler({ app: persistenceApplication, registry, anyHostActive: bootstrap.anyHostActive, touch: bootstrap.touch, port });
+  idleScheduler.start();
+}
+let stopServerImpl = () => bootstrap.stop();
+api.setTouch(bootstrap.touch); // 把「活动刷新」注入 api：每个请求经 touch() 参与空闲回收计时
+
+// ---- lifecycle（对外 API，与旧 server.cjs 同名同义）----
+
+/** 启动 HTTP server；先复位各项目 subagent 记录，再交给 bootstrap 监听 */
+function start(port = PORT) {
+  for (const rt of registry.all()) rt.subagent.reset();
+  return bootstrap.start(port).then((r) => {
+    startIdleScheduler(r.port);
+    console.log(`[server] listening http://127.0.0.1:${r.port} project=${BOOT().ctx.projectRoot} pid=${process.pid} at ${new Date().toISOString()}`);
+    return r;
+  });
+}
+
+/** 优雅关闭（/shutdown 与 CLI 都走这里） */
+function stop() { idleScheduler?.stop(); return bootstrap.stop(); }
+stopServerImpl = stop;
+
+// ---- test helpers（定向 boot 上下文，与旧单槽导出等价）----
+
+/** 读 boot 会话内存态快照（测试断言用；waiters 恒空——已不在快照里暴露真实等待者） */
+function _getState() {
+  const rt = BOOT();
+  return {
+    state: rt.session.state,
+    decisionPending: rt.session.decisionPending,
+    waiters: [],
+    contextReady: rt.session.contextReady,
+    decisionGate: rt.session.decisionGate,
+    decisionResume: rt.session.decisionResume,
+    mainSessionId: rt.session.mainSessionId,
+    activeAgents: rt.observability.activeAgentCount(),
+  };
+}
+
+/** 测试复位：清空注册表（含所有 runtime）+ boot 的 run-meta（防用例间串状态） */
+function _resetForTest() {
+  registry.reset();
+  const { resetRunMeta } = require('./observability/metrics.cjs');
+  resetRunMeta(BOOT().ctx.projectRoot);
+}
+
+// 导出面：生命周期 + 测试助手 + 一组「转发到 boot 会话」的便捷方法（旧单槽 API 的兼容层）
+module.exports = {
+  server: bootstrap.server,
+  start,
+  stop,
+  _getState,
+  _resetForTest,
+  setDecision: (d) => BOOT().session.setDecision(d),
+  clearDecision: () => BOOT().session.clearDecision(),
+  setReady: () => BOOT().session.setReady(),
+  setBusy: () => BOOT().session.setBusy(),
+  waitReady: (timeout) => BOOT().session.waitReady(timeout),
+};
+
+// 直接以 `node server.cjs` 运行时才真监听（被 require 时只导出，不起进程）
+if (require.main === module) {
+  for (const rt of registry.all()) rt.subagent.reset();
+  bootstrap.listen(PORT).then((result) => startIdleScheduler(result.port));
+}

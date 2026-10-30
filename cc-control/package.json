@@ -1,0 +1,53 @@
+{
+  "name": "ai-workflow",
+  "version": "0.2.0",
+  "description": "AI Workflow Framework — persistent multi-session workflow orchestration for Claude Code, with CLI bootstrap",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "awf": "./cli/awf.cjs"
+  },
+  "files": [
+    "server/",
+    "cli/",
+    "scripts/"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "lint": "bash scripts/lint.sh",
+    "build": "bash scripts/build.sh",
+    "build:web": "node scripts/build-web.mjs",
+    "prepack": "npm run build:plugin && node scripts/build-web.mjs --required",
+    "test:eval": "bash scripts/test-eval.sh",
+    "test:coverage": "vitest run --coverage",
+    "test:real": "node tests/regression/fullflow-regression.mjs",
+    "check:arch": "node scripts/check-architecture.mjs",
+    "check:capability": "node scripts/check-capability.mjs",
+    "build:plugin": "node server/adapters/cc/build.cjs && node server/adapters/dsh/build.cjs && node scripts/render-config.mjs",
+    "prepare": "npm run build:plugin",
+    "pretest": "npm run build:plugin",
+    "prebuild": "npm run build:plugin"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.5.2",
+    "commander": "^12.1.0"
+  },
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "ai-workflow",
+    "workflow",
+    "w-plan",
+    "w-dev",
+    "w-review",
+    "autonomous",
+    "cli"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
+    "vitest": "^4.1.10"
+  }
+}

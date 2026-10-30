@@ -1,0 +1,61 @@
+{
+  "id": "needs-input-suspend",
+  "name": "M5 决策上抛 × 滑动窗口：一个任务挂起决策，其他任务并行，决策解决后补位完成",
+  "requirements": "多任务场景验证 M5：T1 决策上抛（NEEDS_INPUT → 主 Agent AskUserQuestion）期间，T2 独立完成、T3（deps=T2）就绪但挂起不补位；T1 决策解决后 T3 补位，全部落账完成。",
+  "config": {
+    "run": { "agents": { "max": 2 } }
+  },
+  "seed": {
+    "mode": "run",
+    "version": "0.1.0",
+    "currentState": "CODE",
+    "plan": { "summary": "M5 决策上抛 × 滑动窗口验证" },
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "选择 API 版本并实现 apiFetch",
+        "kind": "dev",
+        "wbsRef": "W1-001",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/api.js"],
+        "acceptance": "src/api.js 导出 apiFetch，按所选 API 版本实现",
+        "prompt": "在 src/api.js 实现并导出 apiFetch。\n\n【关键决策】实现前必须确定用哪个 API 版本（v1 或 v2），但你无法自行决定——遇到此选择时必须用 NEEDS_INPUT 上抛给主 Agent 询问用户（不要自行猜测）：\n`NEEDS_INPUT: {\"taskId\": \"T1\", \"question\": \"apiFetch 用哪个 API 版本？\", \"options\": [\"v1\", \"v2\"], \"context\": \"两种均可，需用户选择\"}`\n\n然后按用户选择实现：\n- v1 → `export const apiFetch = () => fetch('/api/v1');`\n- v2 → `export const apiFetch = () => fetch('/api/v2');`"
+      },
+      {
+        "id": "T2",
+        "title": "实现 getBase",
+        "kind": "dev",
+        "wbsRef": "W1-002",
+        "status": "pending",
+        "deps": [],
+        "plannedFiles": ["src/base.js"],
+        "acceptance": "src/base.js 导出 getBase，返回 '/base'",
+        "prompt": "在 src/base.js 实现并导出 getBase，返回 '/base'。\n`export const getBase = () => '/base';`"
+      },
+      {
+        "id": "T3",
+        "title": "实现 getPath（依赖 T2）",
+        "kind": "dev",
+        "wbsRef": "W1-003",
+        "status": "pending",
+        "deps": ["T2"],
+        "plannedFiles": ["src/path.js"],
+        "acceptance": "src/path.js 导出 getPath，返回 '/base/path'",
+        "prompt": "在 src/path.js 实现并导出 getPath，返回 '/base/path'。\n`export const getPath = () => '/base/path';`"
+      }
+    ],
+    "milestones": []
+  },
+  "expected": {
+    "tasksDone": true,
+    "files": ["src/api.js", "src/base.js", "src/path.js"],
+    "fileContain": [
+      { "file": ".awf/logs/subagent-needs-input.jsonl", "contains": ["T1", "API 版本"] }
+    ],
+    "verify": [
+      "node", "--input-type=module", "-e",
+      "const a = await import('./src/api.js'); const b = await import('./src/base.js'); const p = await import('./src/path.js');\nif (typeof a.apiFetch !== 'function' || b.getBase() !== '/base' || p.getPath() !== '/base/path') { console.error('VERIFY_FAIL'); process.exit(1); }\nconsole.log('ALL_OK');"
+    ]
+  }
+}

@@ -46,6 +46,9 @@ Desktop.ini
 .claude/user/
 .claude/awf-state.json
 .claude/settings.local.json
+cc-control/.claude/user/
+cc-control/.claude/awf-state.json
+cc-control/.claude/settings.local.json
 
 # === Environment ===
 .env
@@ -59,6 +62,16 @@ weights/
 *.pth
 *.ckpt
 
+# === Sandbox ===
+cc-control/sandbox/
+
 # === Gradio ===
 .gradio/
 uploads/
+cc-control/.claude/
+cc-control/.mcp.json
+cc-control/.awf/context/usage.json
+cc-control/.awf/logs/*.json
+cc-control/.awf/run-settings.json
+cc-control/.awf/plan/
+/cc-control/.awf/probe/dsh

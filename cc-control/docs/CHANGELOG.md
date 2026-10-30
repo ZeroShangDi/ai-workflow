@@ -1,0 +1,105 @@
+# Changelog
+
+格式参考 Keep a Changelog + 语义化版本。重点概括项目级版本变迁，细节见各功能文档 / 开发日志。
+
+## [Unreleased]
+
+### Fixed
+
+- **hook 链路失败不再静默（issue 009）** —— hook 网关此前拿到非 2xx / 超时 / 连接失败一律静默 `exit 0`，server 侧 `/hook` 缺 `?p` 直接 400 且**不落日志**；于是整条 hook 链断掉时两边都没有现场，run 卡 `still busy (ready timeout)` 死亡却查不到原因。现在：网关在**run 会话内**把失败（含 `CC_PROJECT` 缺失会被 400 丢弃、连接失败、HTTP 错误码）写到 stderr 与 `<项目>/.awf/logs/hook-gateway.log`，SessionStart 成功也留一行（hook 链是否建立的唯一判据）；server 的 `缺 ?p` 400 分支补 `console.warn`。普通交互会话（非 run）保持安静，不刷屏。
+- **动态任务规划：人工批准的应用判据**（真机 case `dynamic-planning-run` 驱动）——旧口径拿**整份 state 的哈希**做 CAS，而 `approve_then_apply` 的设计前提恰恰是「未受影响的并行任务仍可继续」：只要 run 在动（别的任务结算、`markActive`、阶段与 mode 切换），哈希必变，于是**运行中发出的提案永远批不过**（实测 proposal 创建 2 秒后 T1 结算，批准即 `conflicted`）。现改为**双检**：先比「受影响闭包的结构指纹 + `plan.acceptanceCriteria`」，再在锁内用当初的 operations 对**最新 state 重放**，写出去的是重放结果（只放宽判据不重放，会把 run 的新进展回退掉）。`conflicted` 恢复为「相关前提真的变了」。
+- **真机回归 harness：定向跑覆盖全量汇总证据** —— `--case <name>` 曾把汇总写进 `evidence-all.json`（全量汇总的约定位置），一次定向跑就静默销毁上一轮全量证据；现在只有 `--case all` 写它，定向写 `evidence-<case>-summary.json`。
+
+### Added
+
+- **动态任务规划的两组真机证据** —— 回归侧 `dynamic-planning`（31 断言，真 server + 真 awf-state MCP 的跨进程边界链路）与 `dynamic-planning-run`（22 断言，真 tmux + 真 Claude，**一次 run 走到底**：AI 自己从 state 里找出计划缺口并发起提案 → 人在 run 进行中批准 → 同一 run 继续，前置先于目标执行）；eval 侧同源用例 `tests/eval/cases/dynamic-planning/`。
+- **eval 用例的运行中钩子机制** —— `tests/eval/cases/<id>/hooks.mjs` 可导出 `duringRun` / `afterRun`，与 `awf run` **并发**执行（声明式 `case.json` 只能「跑完看结果」，而人工批准这类动作必须发生在 run 进行中）。
+
+### Changed
+
+- **旧树 `src/` 退役收口（2026-09-14）** —— 两套实现收敛为一棵：`cli/` + `server/`。删 `src/` 会同时打断四条链路（`scripts/render-config.mjs` 硬 `import` 它、`package.json` 的 `bin`/`files` 指向它、插件 MCP 三处回退取它、70 个测试文件 `import` 它），故按「先接线 → 再重定向测试 → 再改门禁 → 最后删」一次走完，共 7 个提交（方案 / P0 接线 / P1+P2 测试与门禁 / P3 删除 / P4 文档 / 两条补遗）。方案与逐段执行结果见 `docs/discuss/legacy-tree-retirement.md`。
+  - **发布包此前不含新树**：`bin` 指向 `src/awf.js`、`files` 只有 `plugin/`+`src/`+`scripts/` —— 装出来的 `awf` 一直是旧 CLI。现 `bin → cli/awf.cjs`、`files` 补 `server/`+`cli/`（已用真机装包冒烟验证：`npm i <tarball>` 后 `awf --help` 跑通）。
+  - **补回四处重构漏搬的能力**：插件注册渲染器（**唯一会直接打断 `npm run build` / `prepack` 的旧树独有能力**）迁入 `server/shared/plugin-render.cjs`；`server.log` 单代轮转（新 CLI 初版内联写入后丢了轮转，日志会无限增长）；会话就绪守卫（轮询 `sessionSeq` + 每 5s 补 Enter —— server 一直还在产该信号但 CLI 零消费者，`bootstrap.sh` 只剩一记 `sleep 3 + Enter`，打空即复现 2026-09-10 dual-b：派发文本被信任弹窗吞掉）；server 入口的三条测试注入缝（`__CC_TMUX__` / `__CC_RUNLOGGER__` / `__CC_ONESHOT__` —— 运行时通道一路都在，只有入口没读全局没往下传）。
+  - **修一处真 bug（issue 016）**：决策生命周期记录的 `recordAsked` / `recordAnswered` 用了 `DecisionStore.append`，而 `append` 是**按 `decision_id` 跨事件**去重的 —— 同一次决策的 `decision_answered` 被 `decision_requested` 静默挡掉，「谁答的 / 答了什么」永远查不到。改用 `appendEvent`（按 `(decision_id, event)` 去重），并恢复「决策挂起」的 WS 推送 `decision.required`。
+  - **结构门禁改根（P2）**：旧门禁的层规则、白名单、豁免表、扫描根全部硬编码 `src/` —— 删旧树后会**合法地扫 0 个文件 → 永远绿**（最危险的沉默失效）。现按新树分层与**实测的依赖边**声明允许方向，自洽断言收紧为「扫到 >100 个文件 + 解析出 >10 条层间边」，并加**元验证**（临时造方向越界 + 零引用文件 → 必须 exit 1）。
+  - **删除优于标注**：删掉无人生产引用的聚合桶 `server/features/index.js`（由门禁报出）。
+  - **未搬能力已登记而非静默丢弃（issue 017）**：TTY 表现层 `src/lib/ui/*`（边界＝内容由 server 提供、CLI 只管输出/UI）、`auto` 路由的多选应答、交互式版本选择器、以及 `decisionResume` 消费者存疑。
+  - 收口期间 `web/` 正被另一个模型重构，本轮**未触碰任何 `web/` 文件**。
+- **DSH 接入 P1：CC 基线契约收口（T-P1-01～06）** —— 为「同一 AWF 服务 CC 与 DSH 两个平台」先让共同语义在现有平台上长齐（设计见 `docs/discuss/dsh-adapter-design-codex.md`，执行见 `docs/discuss/dsh-adapter-execution.md` §2.4）。
+  - **按项目解析平台（C01/C02）**：`ports.cjs` 新增 `ADAPTER_PLATFORMS` 注册表与 `resolveAdapterName` / `resolveProjectAdapters`（读 `.awf/config.json` 的 `runtime.adapter`，`CC_ADAPTER` 可覆盖，缺省 `cc`）；未知或未落地平台**显式抛错并点名责任任务**，不静默回落。cc 的依赖检查清单从 CLI 下沉到 `cc/checks.cjs`，`awf init` 不再写死 tmux/claude/node。
+  - **7 端口全部收口（T1-113 的旧债）**：`session` 由 `not-landed` 转正 —— 新增 `cc/session.cjs`（exists/cwd/start/kill/nudge/attach），`cli/lib/session.cjs` 与 `attach.cjs` 的 5 处 tmux 直连清零，CLI 侧零 `tmux` 字面。
+  - **能力面命名去机制化**：`ctx.tmux` → `ctx.host`（含注入缝 `__CC_HOST__`、参数 `hostFactory`、测试替身与断言同批迁移）；`ccShapes` → `shapes`；`ENTER_DELAY_MS` 下沉进 `cc/host.cjs` 的 `sendPrompt(text)` —— 上层只说「提交一段输入」，不再知道 tmux 分两次发。
+  - **编排模板迁入 server（T-P1-04）**：`server/templates/prompts.json` 持有 9 条编排协议模板，插件的 `prompts.json` 只保留 plan 入口模板与 `platform-vars`（worker 类型 / dev 命令 / 技能名）。迁移用冻结渲染产物的 golden fixture 守卫（逐字节一致）。
+  - **`run -r` 最小恢复（T-P1-06）**：`-r` 先查活跃 run → 有则挂接（与 `--attach` 同路径），无则照常提交；修复了帮助文案承诺而代码从未实现的「活跃 run 挂接续观」（此前会 409）。不新增通用崩溃恢复、不自动重置 active。
+  - **适配器一致性与测试分层（T-P1-05）**：新增 `tests/conformance/adapters.conformance.test.js`（对每个已落地平台跑同一套端口契约断言，`dsh` 转正后自动纳入）+ `REQUIRED_PORT_METHODS` / `assertRequiredMethods()` 加载即自检。
+  - 出口状态：`npm test` 110/110 文件、1043/1043 用例；`check:capability` / `check:arch` / `lint` / `build` 全绿。**未改任何调度算法**；DSH 适配器本体（`server/adapters/dsh/`）属 P2。
+- **DSH 接入 P3～P4：编排闭环与交付面（T-P3-01/02、T-P4-01/02）** —— 多 agent batch 在 DSH 上真跑通、回合末决策门阀落位、三个 CLI 入口页不再静默回退、发布包可装可卸；能力矩阵按「已完成 vs 占位」逐面标注（`docs/features/adapters.md`）。
+  - **多 agent（T-P3-01）**：子 Agent 生命周期收敛为**平台无关**处理器（起建基线、停按末条文本落账；cc 走 hook 路由、DSH 走事件总线，落账语义只有一份）；派发提示词按平台填措辞（`platform-vars-<平台>`，DSH 用 `subagent` 工具且把输出协议写进任务正文）；真机 `--batch` 得 **run=done T1=done**。
+  - **回合末门阀（T-P3-02）**：DSH 没有 CC 那种 block-Stop 回灌通道 → 门阀指令由 AWF **再发一条 prompt** 回会话；真机 `--decision` 两轮事件 + 决策结论落盘。`run -r` 重启组合未验（如实登记）。
+  - **三个入口页（T-P4-01）**：`awf open dashboard|tree|ui` 此前因路由表缺 key 而**静默回退到项目页**；现在落到显式占位页并保留到真实业务页的入口，产物含占位文案并加了「改了没重建」护栏。
+  - **生产装配块的两处隐蔽缺陷（F42/F43）**：`awf init` 写的 profile 配置块漏了 `awfBase`（插件拿不到 AWF 地址就不启动指令通道）与 `awfRepo`（插件挂项目 MCP 需要包根，缺了 `session.create` 直接失败）；`webPort` 还曾误写 AWF 端口。三者都只在**真实安装**路径暴露（探针用 `AWF_DSH_BASE`/`AWF_DSH_REPO` 环境变量兜底），已修并补「只读 profile 配置」的真机用例；`installProfile` 现在会**原地更新**内容有变的托管块，升级无需先卸载。
+  - **发布包（T-P4-02）**：`files` 漏 `dsh-plugin/` 会让装出来的包缺 DSH 插件半侧（开发机不可见）；补上并用真 `npm pack` → 新目录解包 → **用包里的 CLI** 装配隔离 profile → 卸载复原，另断言包内不含开发机绝对路径。
+- **DSH 接入 P2：适配器 + 插件真实可用（P2-1～P2-6f）** —— `ADAPTER_PLATFORMS.dsh.status` 由 `not-landed` 转 `factory`：新增 AWF 侧适配器（`server/adapters/dsh/`：7 端口 + 指令通道 + profile 装配）与生产插件 host 半侧（`dsh-plugin/`：WS 客户端、会话/规划/一次性调用等 op 表）。逐项验收对照见执行记录 §2.18。
+  - **指令通道承担全部会话操作**：建会话（`agents.create` 的**发布前 setup** 窗口装模型选择 + preset + 会话级项目 MCP）、提交（`prompt(request, signal)`）、回合结束 → `session.ready`、可读快照、`session.stop`（**先取子 Agent 名单 → cancel 父 → 逐个 `subagents.interrupt`**；停止回执含被打断的子会话 id，不再吞掉）。
+  - **零副作用纪律下的真机验证**：全部实验只在隔离 `DSH_HOME`（`scripts/probe/dsh/`：guard/env/install-fixture/serve + `roundtrip.cjs` 九个模式 + `cli-install.cjs`），用户真实 `~/.dsh` 配置面每轮 `guard.sh check` 恒 `IDENTICAL`。实测覆盖：通道往返、会话创建/停止、真落账（模型经 20 个 `mcp__awf-state__*` 工具写 state）、快照、`plan.launch`、`llm.oneshot`、单任务 `run` 端到端、双项目隔离（单后台）、子 Agent 派出与逐个打断、`awf plugin install` 装进 profile（`dsh --dump-config` 承认）、`awf init` 干净项目幂等。
+  - **过程中打到的真缺陷**（都补了单测/夹具护栏）：CLI 装配路径写死空 env 吞掉 `CC_ADAPTER`（干净项目上 `awf init` 按 cc 注册）；`init` 不把解析到的平台记进 `.awf/config.json`（资产按 dsh 装、项目却解析成 cc）；指令不带 `projectRoot` 让多项目打到同一会话；会话身份按路径**字符串**比（`/var` 与 `/private/var` 被判成两个项目）；executor 结算循环引用已删除的 `sleep`（**CC 路径同样受影响**的 P1 回归）。
+
+## [0.2.0] - 2026-09-11
+
+> **全量一次性架构重构 + 决策闸门里程碑**（2026-09-07 决策闸门收敛 → 2026-09-11 重构收尾）。
+> 细节见 `docs/features/`（36 份功能文档）、正式架构文档 `docs/discuss/architecture-v0.2.0.md`、
+> 纪律对照取证 `.awf/reports/architecture-discipline-audit.md`。
+> 一句话：**不是让 Claude Code 变聪明，是让它变持久** —— 常驻单写者控制平面 + 编排权归宿主 + 边界可机器验证。
+
+### Added
+
+- **常驻 Session Server 控制平面** —— server 从「run 期间的临时服务」变成常驻单写者控制平面：单实例多项目（`?p` 路由到各自 `ProjectCtx`）、空闲回收（`server-idle.cjs`）、`/shutdown` 优雅关闭、server 输出落 `.awf/logs/server.log`、36 条 HTTP 路由（参考 `docs/features/api.md`）
+- **run 域（server 侧编排宿主）** —— 编排从 CLI 进程搬进 server：`run-host`（driveSingle / driveBatch / 事件环 / 收尾归档）+ `run-driver`（阶段链：simple DEV→COMMIT / medium DEV→TEST→COMMIT / complex DEV→DOCS→REVIEW→TEST→COMMIT）+ `run-scheduler`（滑动窗口：就绪池 + 四级配额 + plannedFiles 冲突 + 独占 + 补位）+ `batch-transport`（多 agent 派发与完成感知）+ `task-channel`（任务前上下文压缩检查 + 收尾协商）+ `gate-fix`（门禁闭环 verdict → 派生修复 → 复审，`MAX_RECHECK=3`）
+- **宿主拥有调度权** —— 子 Agent 无调度权：禁写 state、只回吐 `RESULT` / `NEEDS_INPUT`（`plugin/core/agents/awf-worker.md`）；落账原子化走 `awf_task_complete`
+- **`src/adapters/` 端口契约** —— `ports.cjs` 成为「进入 adapters 的唯一门」：7 端口名册 + `status: 'factory' | 'not-landed'` + 加载时自检（缺 `note`/`responsible` 直接抛错），避免「沉默的未收口」
+- **store 持久化层** —— `store-core.cjs`（`state.lock` 单写序列化 + 原子写）+ `store.cjs`（按数据族分型：JsonFileStore / AppendFileStore / SnapshotStore / WriteQueue）；run state / 运行日志 / usage / decision / run-meta / metrics 全部收口
+- **`web/` 前端工程（React + Vite）** —— 四视图（Dashboard / WBS-Tree / Decisions / Diagnostics）迁移；轮询 → WS 事件驱动；`?p` 项目作用域取数与项目切换条；构建产物入 `src/server/public` 并由 server 托管，构建接进 `npm run build` / `prepack`
+- **决策闸门 + `ai-workflow-decision` 第三插件** —— 决策内核（decision-core）与协议资产（PROTOCOL / decision-result.schema / mode-instruction）独立成插件；`<AWF_DECISION_REQUIRED>` 标记 → Stop 闸门 → DC 自决 → `<AWF_DECISION_RESULT>` → DecisionStore 落盘（`.awf/decisions/runs/<runStamp>.jsonl`）+ CLI 中继续跑；`run.decision.enabled` 单源开关（缺省 false）
+- **质量与验证体系** —— `scripts/check-architecture.mjs` 从取证工具升级为**可失败门禁**（三条不变量：零生产引用 / 依赖方向 / 可配置结构断言；进 `npm run build`）；真机回归 harness `npm run test:real`（13 个 case × 150 断言，全量 `--case all` / 定向 `--case <name>` 两入口，证据落 `sandbox/regression/`）
+- **架构纪律文字化** —— 依赖单向 / 实例隔离 / 事件 schema 版本三条写入审查 checklist（`code-review-architecture`），并按纪律逐模块对照取证
+- **正式架构文档** —— `docs/discuss/architecture-v0.2.0.md`（纪律 / 组织图 / 功能映射 / 决策归档）
+
+### Changed
+
+- **cli 薄化** —— `awf run` 由「司机」变为薄终端面（起环境 + 提交 run + 订阅事件 + 决策中继 + 收尾复位），新增 `run-client` 与 `src/lib/session/client.js`；调度写路径改经 server → 单写者成立
+- **单 server 多项目 + sid 贯穿** —— 请求带 `?p=<projectRoot>` 路由到各自上下文；tmux 会话名 `cc-<projectSid>`；state / 日志 / 决策 / 槽位按实例分片
+- **插件 MCP 收 server 薄代理** —— `awf-session` / `awf-oneshot` 全经 HTTP；`awf-state` 支持 `CC_AWF_STATE_SERVER=1` 单写者模式（非该模式仍有直连文件与降级回取，见未收口登记）
+- **注册与渲染单源化** —— `plugin/config.json` 为唯一配置源，`scripts/render-config.mjs` 按 `marketplace.plugins` 遍历生成各插件 `plugin.json` + marketplace + 引擎插件 hooks/mcp
+- **hooks 收口** —— 7 个 hook（SessionStart / UserPromptSubmit / Stop / SubagentStart / SubagentStop / PreToolUse / PostToolUse）统一经 `gateway.cjs` 网关转发（端口由渲染注入，hooks 单源只渲染进引擎插件）；hook 事件带项目根与 sid
+- **超时判据改为「无变化窗口」** —— CC 仍 busy 不计时，仅 idle 且持续无变化才进收尾协商；`awf run` 主 run 不再注入 `CC_SID`（修 sid 分片 404）
+- **版本统一 0.2.0** —— package / 三插件 / marketplace / state 对齐（version 单源入 `plugin/config.json` 经渲染下发）
+- **前端资产托管** —— 页面路径统一由 `src/server/public` 的构建产物承载；缺产物时 **503 + 明确告警**（不静默回落、不留空白页）
+
+### Fixed
+
+- **写类端点缺 `?p` 静默兜底到 boot 项目** —— 曾导致不带 `?p` 的手工 curl 改写 boot 项目状态、把在跑的 run 暂停 4 小时；现写类端点缺 `?p` 一律 **400**（唯一豁免 `/shutdown`）
+- **单 agent 派发路径绕过 pause 闩锁** —— 多 agent 与 channel 走了闩锁而 `max=1` 没走；现三条等待路径（`task-channel` / 单 agent executor / `batch-transport`）统一经 `pause.js`，且挂起超阈值产出告警
+- **`tmux display-message` 对不存在的会话返回空串且 exit 0** —— `path.resolve('')` 静默取 cwd，导致 `--attach`/`--resume` 永远「假装复用」不存在的会话
+- **前端从未被构建过** —— 根因是 `eslint-plugin-react-hooks` 的 peer 与 `eslint ^9` 冲突使 `web/` 的 `npm install` 直接失败；修复后构建接进 pipeline
+- **`coverage/` 34 个陈旧跟踪文件入库** —— 内容是重构前的代码树（引用路径均已不存在）；已出库并加 `.gitignore`
+- **嵌套 run 的环境污染** —— 真机 harness 从父 run 会话内执行时需剔除 `CC_*`/`AWF_*`，同一修法反向修到单测层（`tests/setup-env-scrub.js`）
+
+### Removed
+
+- **6 个未接线抽象模块** —— `run-registry` / `session-launch` / `server/app` / `server/api` / `layout-migrate` / `persist-pipeline`（生产侧零引用，能力已在 live 路径别处实现）+ 级联的迁移器骨架 `migrate.cjs`；专属测试同删
+- **另两个零引用「单源」模块** —— `state-schema.cjs`（枚举失真、从未被消费）与 `statemachine.cjs`
+- **旧前端资产** —— `dashboard.html` / `decisions.html` / `diagnostics.html` / `theme.css` / `common.js` / `ui.html`；`GET /` 等的 html 回退路由与 `defaultAliases()` 一并移除
+- **旧决策入口（资产层）** —— `awf_await_choice` / `awf_await_input` 标记停用，决策改走门阀；**代码面仍在**（互斥化待定，见未收口）
+- **`coverage/` 目录** —— 34 个陈旧跟踪文件出库
+
+### 未收口（已在册，非本版承诺）
+
+- **`adapters → server` 反向依赖** —— host/hook 的实现仍在 `src/server/`；`session` 端口的 live 实现仍是 `scripts/bootstrap.sh`（`not-landed`）。责任 `T1-113`
+- **事件信封无版本字段**（审计 F8）—— 兼容读策略未定
+- **`src/server/server.cjs` 仍是单体**（1491 行 / 结构断言上限 1600）
+- **旧决策入口的代码面**（`/choice` `/ask` `/respond` 与两个 MCP 工具）与资产层的「已停用」标注并存。责任 `T1-106`（用户裁定暂缓）
+- **真机回归的 case 隔离性** —— 全量连跑与单跑结论不一致。责任 `T3-011-F1`
+
+> **版本说明**：本条目对应 awf state/runStamp 版本 0.2.0；npm 包版本见 `package.json`（同 0.2.0）。
+> 三插件版本、marketplace 与 `plugin/config.json` 均已对齐 0.2.0（单源渲染，改 config 重跑即一致）。
+> 多 agent 决策闸门、第二工具的接缝等后置项见 `docs/discuss/architecture-v0.2.0.md` §4.3。
