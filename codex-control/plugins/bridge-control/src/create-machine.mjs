@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { isUnknownResult } from './hub-client.mjs';
+import { isUnknownResult } from './backend-client.mjs';
 
 const REQUIRED_DRAFT_FIELDS = Object.freeze(['project', 'request']);
 const AFFIRMATIVE = /^(确认|确认创建|是的|是|好|可以|同意|对|yes|y|ok|okay|confirm|approve)[。.!！]?$/i;
@@ -69,7 +69,7 @@ export class CreateDraftMachine {
       const transcript = await this.latestUserTranscript({ sessionId: draft.sessionId });
       draft.baselineTurnId = transcript?.turnId || transcript?.sequence || null;
       if (!draft.baselineTurnId) {
-        throw new Error('Hub latestUserTranscript must provide turnId or sequence');
+        throw new Error('latestUserTranscript must provide turnId or sequence');
       }
     }
     draft.status = nextStatus;

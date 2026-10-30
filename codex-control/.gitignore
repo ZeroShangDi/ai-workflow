@@ -9,3 +9,5 @@ coverage/
 dist/
 **/dist/
 *.log
+.env
+.env.local

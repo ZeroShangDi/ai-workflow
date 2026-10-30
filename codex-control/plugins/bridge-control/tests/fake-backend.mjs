@@ -1,4 +1,4 @@
-export function createVoiceHub(overrides = {}) {
+export function createVoiceBackend(overrides = {}) {
   return {
     latestUserTranscript: async () => ({ turnId: 'turn-1', text: '创建任务' }),
     getPending: async () => null,
@@ -16,7 +16,7 @@ export function createVoiceHub(overrides = {}) {
   };
 }
 
-export function createWorkHub(overrides = {}) {
+export function createWorkBackend(overrides = {}) {
   return {
     emitProgress: async () => ({ status: 'accepted' }),
     requestInput: async () => ({ status: 'pending', interactionId: 'question-1', binding: 'bind-q' }),

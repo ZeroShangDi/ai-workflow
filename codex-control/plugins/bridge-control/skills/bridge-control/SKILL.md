@@ -1,11 +1,11 @@
 ---
 name: bridge-control
-description: Use the Hub-managed Bridge Control profile for voice-led work control or work-session reporting while preserving profile isolation and transcript-authorized writes.
+description: Use the independent CMB-backed Bridge Control profile for voice-led work control or work-session reporting while preserving profile isolation and transcript-authorized writes.
 ---
 
 # Bridge Control
 
-This package is loaded by a trusted Hub with exactly one profile. Never claim both profiles are active and never try to expose a tool from the other profile.
+This package is loaded by a trusted host with exactly one profile. It talks directly to CMB and never requires Hub. Never claim both profiles are active and never try to expose a tool from the other profile.
 
 ## Voice Controller
 

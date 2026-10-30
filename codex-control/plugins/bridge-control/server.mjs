@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import readline from 'node:readline';
+import { loadControlConfig } from './src/config.mjs';
+import { createDirectBackend } from './src/direct-backend.mjs';
 import { createControlPlugin } from './src/plugin.mjs';
 import { devMode, parseProfile, toolsForProfile } from './src/profiles.mjs';
-import { loadHubFromEnvironment } from './src/hub-loader.mjs';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const argv = process.argv.slice(2);
 const profile = parseProfile(argv);
 const dev = devMode(argv);
@@ -42,8 +43,8 @@ function toolError(id, errorValue) {
 
 async function getService() {
   if (service) return service;
-  const hub = await loadHubFromEnvironment();
-  service = createControlPlugin({ hub, profile, dev });
+  const backend = createDirectBackend(loadControlConfig());
+  service = createControlPlugin({ backend, profile, dev });
   return service;
 }
 
@@ -57,8 +58,9 @@ async function handle(message) {
       serverInfo: { name: `bridge-control:${profile}`, version: VERSION },
       instructions: [
         `Loaded internal bridge-control profile: ${profile}.`,
-        'This package is designed for a trusted Hub host, not ordinary global Codex exposure.',
-        'Creation and approvals are authorized only by the latest real user transcript supplied by the Hub.',
+        'This package is designed for a trusted internal host, not ordinary global Codex exposure.',
+        'CMB is accessed directly through its public HTTP/SSE API.',
+        'Creation and approvals are authorized only by the latest real user transcript recorded by voice-control.',
       ].join(' '),
     });
   }
@@ -97,3 +99,6 @@ lines.on('line', (line) => {
     if (message?.id != null) error(message.id, -32603, failure.message || 'Internal error');
   });
 });
+
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));

@@ -11,7 +11,7 @@ import {
   parseProfile,
   toolNamesForProfile,
 } from '../src/plugin.mjs';
-import { createVoiceHub, createWorkHub } from './fake-hub.mjs';
+import { createVoiceBackend, createWorkBackend } from './fake-backend.mjs';
 
 const VOICE_CONTROL_TOOLS = [
   'bridge_chat_create',
@@ -67,11 +67,11 @@ test('legacy bridge_chat requires both voice profile and explicit dev mode', () 
 
 test('runtime rejects calls outside the selected profile', async () => {
   const voice = new ControlService({
-    hub: createVoiceHub(),
+    backend: createVoiceBackend(),
     profile: PROFILE_VOICE_CONTROLLER,
   });
   const work = new ControlService({
-    hub: createWorkHub(),
+    backend: createWorkBackend(),
     profile: PROFILE_WORK_REPORTER,
   });
   await assert.rejects(

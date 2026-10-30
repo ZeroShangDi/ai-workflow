@@ -54,11 +54,13 @@ check('plugins/bridge-control/src', [
   'codex-mobile-bridge/bridge',
   '/bridge/api/',
   'bridge-hub/',
+  'voice-control',
 ]);
 check('plugins/bridge-control/profiles', [
   'codex-mobile-bridge/bridge',
   '/bridge/api/',
   'bridge-hub/',
+  'voice-control',
 ]);
 check('bridge-hub', [
   '../../plugins/voice-control',
@@ -79,5 +81,9 @@ if (failures.length) {
   for (const failure of failures) console.error(`✗ ${failure}`);
   process.exitCode = 1;
 } else {
-  console.log('Dependency boundaries are valid; CMB submodule is clean.');
+  if (fs.existsSync(path.join(submodule, '.git'))) {
+    console.log('Dependency boundaries are valid; CMB submodule is clean.');
+  } else {
+    console.log('Dependency boundaries are valid; CMB submodule is not initialized (source isolation checked statically).');
+  }
 }

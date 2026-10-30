@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { CreateDraftMachine } from './create-machine.mjs';
-import { assertHubClient, isUnknownResult, unknownWriteReceipt } from './hub-client.mjs';
+import { assertControlBackend, isUnknownResult, unknownWriteReceipt } from './backend-client.mjs';
 import { assertToolAvailable } from './profiles.mjs';
 
 function requireString(value, name) {
@@ -12,12 +12,12 @@ function oneTarget(args) {
   if (!args.sessionId && !args.workId) throw new Error('sessionId or workId is required');
 }
 
-async function writeOnce(hubMethod, idempotencyKey) {
+async function writeOnce(backendMethod, idempotencyKey) {
   try {
-    const value = await hubMethod(idempotencyKey);
+    const value = await backendMethod(idempotencyKey);
     return isUnknownResult(value) ? unknownWriteReceipt(idempotencyKey) : value;
   } catch (failure) {
-    if (failure.code === 'UNKNOWN_RESULT' || failure.code === 'ETIMEDOUT') {
+    if (failure.unknown === true || failure.code === 'UNKNOWN_RESULT' || failure.code === 'ETIMEDOUT') {
       return unknownWriteReceipt(idempotencyKey);
     }
     throw failure;
@@ -25,15 +25,15 @@ async function writeOnce(hubMethod, idempotencyKey) {
 }
 
 export class ControlService {
-  constructor({ hub, profile, dev = false, now, idFactory }) {
+  constructor({ backend, profile, dev = false, now, idFactory }) {
     this.profile = profile;
     this.dev = dev;
-    this.hub = assertHubClient(hub, profile);
+    this.backend = assertControlBackend(backend, profile);
     this.idFactory = idFactory || (() => crypto.randomUUID());
     this.createMachine = profile === 'voice-controller'
       ? new CreateDraftMachine({
-        createWork: (request) => this.hub.createWork(request),
-        latestUserTranscript: (request) => this.hub.latestUserTranscript(request),
+        createWork: (request) => this.backend.createWork(request),
+        latestUserTranscript: (request) => this.backend.latestUserTranscript(request),
         now,
         idFactory,
       })
@@ -50,10 +50,10 @@ export class ControlService {
   }
 
   async latestTranscript(sessionId) {
-    const transcript = await this.hub.latestUserTranscript({ sessionId });
-    if (!transcript?.text) throw new Error('The Hub has no recent user transcript for this interaction');
+    const transcript = await this.backend.latestUserTranscript({ sessionId });
+    if (!transcript?.text) throw new Error('The backend has no recent user transcript for this interaction');
     if (!transcript.turnId && !transcript.sequence) {
-      throw new Error('Hub latestUserTranscript must provide turnId or sequence');
+      throw new Error('latestUserTranscript must provide turnId or sequence');
     }
     return transcript;
   }
@@ -61,7 +61,7 @@ export class ControlService {
   async boundInteraction({ sessionId, interactionId, binding }) {
     requireString(interactionId, 'interactionId');
     requireString(binding, 'binding');
-    const pending = await this.hub.getPending({ sessionId, interactionId });
+    const pending = await this.backend.getPending({ sessionId, interactionId });
     if (!pending || pending.interactionId !== interactionId || pending.binding !== binding) {
       const failure = new Error('Interaction binding is stale or unknown');
       failure.code = 'STALE_INTERACTION';
@@ -79,8 +79,8 @@ export class ControlService {
   async callVoice(toolName, args) {
     if (toolName === 'bridge_chat') {
       requireString(args.text, 'text');
-      if (typeof this.hub.devChat !== 'function') throw new Error('Hub client does not provide devChat');
-      return this.hub.devChat(args);
+      if (typeof this.backend.devChat !== 'function') throw new Error('Control backend does not provide devChat');
+      return this.backend.devChat(args);
     }
     if (toolName === 'bridge_chat_create') {
       if (args.draftId || args.binding) {
@@ -104,30 +104,30 @@ export class ControlService {
       });
     }
     if (toolName === 'bridge_chat_find') {
-      return this.hub.findWork({ query: requireString(args.query, 'query'), limit: args.limit });
+      return this.backend.findWork({ query: requireString(args.query, 'query'), limit: args.limit });
     }
     if (toolName === 'bridge_chat_status') {
       oneTarget(args);
-      return this.hub.getStatus(args);
+      return this.backend.getStatus(args);
     }
     if (toolName === 'bridge_chat_send') {
       requireString(args.text, 'text');
       oneTarget(args);
       const idempotencyKey = `send:${this.idFactory()}`;
       return writeOnce(
-        (key) => this.hub.sendMessage({ ...args, mode: args.mode || 'send', idempotencyKey: key }),
+        (key) => this.backend.sendMessage({ ...args, mode: args.mode || 'send', idempotencyKey: key }),
         idempotencyKey,
       );
     }
     if (toolName === 'bridge_chat_read') {
       oneTarget(args);
-      return this.hub.readWork(args);
+      return this.backend.readWork(args);
     }
     if (toolName === 'bridge_chat_events') {
-      return this.hub.readEvents(args);
+      return this.backend.readEvents(args);
     }
     if (toolName === 'bridge_chat_pending') {
-      return this.hub.getPending(args);
+      return this.backend.getPending(args);
     }
     if (toolName === 'bridge_chat_answer') {
       const sessionId = requireString(args.sessionId, 'sessionId');
@@ -137,7 +137,7 @@ export class ControlService {
       const transcript = await this.latestTranscript(sessionId);
       const idempotencyKey = `answer:${args.interactionId}:${transcript.turnId || transcript.sequence}`;
       return writeOnce(
-        (key) => this.hub.resolveAnswer({
+        (key) => this.backend.resolveAnswer({
           sessionId,
           interactionId: args.interactionId,
           binding: args.binding,
@@ -156,7 +156,7 @@ export class ControlService {
       const transcript = await this.latestTranscript(sessionId);
       const idempotencyKey = `approval:${args.interactionId}:${transcript.turnId || transcript.sequence}`;
       return writeOnce(
-        (key) => this.hub.resolveApproval({
+        (key) => this.backend.resolveApproval({
           sessionId,
           interactionId: args.interactionId,
           binding: args.binding,
@@ -171,7 +171,7 @@ export class ControlService {
       oneTarget(args);
       const idempotencyKey = `stop:${this.idFactory()}`;
       return writeOnce(
-        (key) => this.hub.stopWork({ ...args, idempotencyKey: key }),
+        (key) => this.backend.stopWork({ ...args, idempotencyKey: key }),
         idempotencyKey,
       );
     }
@@ -184,33 +184,33 @@ export class ControlService {
     if (toolName === 'bridge_chat_emit_progress') {
       requireString(args.text, 'text');
       return writeOnce(
-        (key) => this.hub.emitProgress({ ...args, idempotencyKey: key }),
+        (key) => this.backend.emitProgress({ ...args, idempotencyKey: key }),
         idempotencyKey,
       );
     }
     if (toolName === 'bridge_chat_request_input') {
       if (!Array.isArray(args.questions) || !args.questions.length) throw new Error('questions are required');
       return writeOnce(
-        (key) => this.hub.requestInput({ ...args, idempotencyKey: key }),
+        (key) => this.backend.requestInput({ ...args, idempotencyKey: key }),
         idempotencyKey,
       );
     }
     if (toolName === 'bridge_chat_request_approval') {
       return writeOnce(
-        (key) => this.hub.requestApproval({ ...args, idempotencyKey: key }),
+        (key) => this.backend.requestApproval({ ...args, idempotencyKey: key }),
         idempotencyKey,
       );
     }
     if (toolName === 'bridge_chat_publish_artifact') {
       if (!args.artifact) throw new Error('artifact is required');
       return writeOnce(
-        (key) => this.hub.publishArtifact({ ...args, idempotencyKey: key }),
+        (key) => this.backend.publishArtifact({ ...args, idempotencyKey: key }),
         idempotencyKey,
       );
     }
     if (toolName === 'bridge_chat_finish') {
       return writeOnce(
-        (key) => this.hub.finishWork({ ...args, idempotencyKey: key }),
+        (key) => this.backend.finishWork({ ...args, idempotencyKey: key }),
         idempotencyKey,
       );
     }
@@ -225,6 +225,6 @@ export class ControlService {
     if (!['spoken', 'interrupted', 'failed'].includes(args.deliveryStatus)) {
       throw new Error('deliveryStatus must be spoken, interrupted, or failed');
     }
-    return this.hub.ackAnnouncement(args);
+    return this.backend.ackAnnouncement(args);
   }
 }

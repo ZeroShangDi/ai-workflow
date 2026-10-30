@@ -3,12 +3,12 @@ import test from 'node:test';
 
 import { ControlService } from '../src/control-service.mjs';
 import { PROFILE_VOICE_CONTROLLER } from '../src/plugin.mjs';
-import { createVoiceHub } from './fake-hub.mjs';
+import { createVoiceBackend } from './fake-backend.mjs';
 
 test('create draft transitions through needs_input and confirmation without boolean authorization', async () => {
   let transcript = { turnId: 'turn-1', text: '帮我创建一个测试任务' };
   let createCalls = 0;
-  const hub = createVoiceHub({
+  const backend = createVoiceBackend({
     latestUserTranscript: async () => transcript,
     createWork: async (request) => {
       createCalls += 1;
@@ -18,7 +18,7 @@ test('create draft transitions through needs_input and confirmation without bool
       return { status: 'accepted', workId: 'work-42' };
     },
   });
-  const service = new ControlService({ hub, profile: PROFILE_VOICE_CONTROLLER });
+  const service = new ControlService({ backend, profile: PROFILE_VOICE_CONTROLLER });
 
   const incomplete = await service.call('bridge_chat_create', {
     sessionId: 'voice-session',
@@ -59,7 +59,7 @@ test('negative transcript cancels a draft and terminal state does not recreate',
   let transcript = { turnId: 'turn-1', text: '创建任务' };
   let createCalls = 0;
   const service = new ControlService({
-    hub: createVoiceHub({
+    backend: createVoiceBackend({
       latestUserTranscript: async () => transcript,
       createWork: async () => {
         createCalls += 1;
@@ -92,7 +92,7 @@ test('editing a draft invalidates the confirmation baseline', async () => {
   let transcript = { turnId: 'turn-1', text: '创建任务' };
   let createCalls = 0;
   const service = new ControlService({
-    hub: createVoiceHub({
+    backend: createVoiceBackend({
       latestUserTranscript: async () => transcript,
       createWork: async () => {
         createCalls += 1;
@@ -126,7 +126,7 @@ test('unknown create result keeps the confirmation state and is not replayed', a
   let transcript = { turnId: 'turn-1', text: '创建任务' };
   let createCalls = 0;
   const service = new ControlService({
-    hub: createVoiceHub({
+    backend: createVoiceBackend({
       latestUserTranscript: async () => transcript,
       createWork: async () => {
         createCalls += 1;
@@ -161,7 +161,7 @@ test('unknown create result keeps the confirmation state and is not replayed', a
 test('a failed create receipt is never reported as confirmed', async () => {
   let transcript = { turnId: 'turn-1', text: '创建任务' };
   const service = new ControlService({
-    hub: createVoiceHub({
+    backend: createVoiceBackend({
       latestUserTranscript: async () => transcript,
       createWork: async () => ({
         status: 'failed',

@@ -1,22 +1,22 @@
 {
   "name": "bridge-control",
-  "version": "0.2.0",
-  "description": "Trusted internal voice-control and work-reporting profiles loaded by bridge-hub.",
+  "version": "0.3.0",
+  "description": "Independent voice-control and work-reporting profiles backed directly by CMB.",
   "author": {
     "name": "Codex Control"
   },
   "license": "MIT",
   "keywords": [
     "bridge",
-    "bridge-hub",
+    "cmb",
     "voice",
     "mcp"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Bridge Control",
-    "shortDescription": "Internal control profiles for a trusted Hub",
-    "longDescription": "Hub-managed control capability with isolated voice-controller and work-reporter profiles. This is not intended for ordinary global Codex exposure.",
+    "shortDescription": "Independent internal profiles backed directly by CMB",
+    "longDescription": "Independent CMB-backed control capability with isolated voice-controller and work-reporter profiles. This is not intended for ordinary global Codex exposure.",
     "developerName": "Codex Control",
     "category": "Developer Tools",
     "capabilities": [

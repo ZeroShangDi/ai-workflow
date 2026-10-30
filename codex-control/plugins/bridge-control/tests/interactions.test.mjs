@@ -3,11 +3,11 @@ import test from 'node:test';
 
 import { ControlService } from '../src/control-service.mjs';
 import { PROFILE_VOICE_CONTROLLER } from '../src/plugin.mjs';
-import { createVoiceHub } from './fake-hub.mjs';
+import { createVoiceBackend } from './fake-backend.mjs';
 
 test('question answers require an exact stable interaction binding', async () => {
   let answerCalls = 0;
-  const hub = createVoiceHub({
+  const backend = createVoiceBackend({
     latestUserTranscript: async () => ({ turnId: 'turn-9', text: '选第二个' }),
     getPending: async ({ interactionId }) => ({
       interactionId,
@@ -21,7 +21,7 @@ test('question answers require an exact stable interaction binding', async () =>
       return { status: 'accepted' };
     },
   });
-  const service = new ControlService({ hub, profile: PROFILE_VOICE_CONTROLLER });
+  const service = new ControlService({ backend, profile: PROFILE_VOICE_CONTROLLER });
 
   await assert.rejects(
     () => service.call('bridge_chat_answer', {
@@ -46,7 +46,7 @@ test('question answers require an exact stable interaction binding', async () =>
 
 test('approvals pass the latest transcript and never accept a model boolean', async () => {
   let approvalCalls = 0;
-  const hub = createVoiceHub({
+  const backend = createVoiceBackend({
     latestUserTranscript: async () => ({ turnId: 'turn-10', text: '确认' }),
     getPending: async ({ interactionId }) => ({
       interactionId,
@@ -60,7 +60,7 @@ test('approvals pass the latest transcript and never accept a model boolean', as
       return { status: 'accepted' };
     },
   });
-  const service = new ControlService({ hub, profile: PROFILE_VOICE_CONTROLLER });
+  const service = new ControlService({ backend, profile: PROFILE_VOICE_CONTROLLER });
   const receipt = await service.call('bridge_chat_approve', {
     sessionId: 'session',
     interactionId: 'approval-1',

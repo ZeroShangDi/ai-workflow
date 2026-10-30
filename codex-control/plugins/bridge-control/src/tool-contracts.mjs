@@ -49,7 +49,7 @@ export const VOICE_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: 'bridge_chat_find',
-    description: 'Find bounded work or conversation candidates through the Hub.',
+    description: 'Find bounded work or conversation candidates through CMB.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -105,7 +105,7 @@ export const VOICE_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: 'bridge_chat_events',
-    description: 'Read Hub events after a cursor, including notices that may be announced when the voice host is idle.',
+    description: 'Read control events after a cursor, including notices announced by voice-control.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -157,7 +157,7 @@ export const VOICE_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: 'bridge_chat_approve',
-    description: 'Resolve one bound approval after the Hub verifies the latest real user utterance.',
+    description: 'Resolve one bound approval after the backend verifies the latest real user utterance.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -300,7 +300,7 @@ export const WORK_TOOL_DEFINITIONS = Object.freeze([
 
 export const DEV_TOOL_DEFINITION = Object.freeze({
   name: 'bridge_chat',
-  description: 'Development-only convenience for a simple Hub chat round trip. Never valid for confirmation, approval, or announcement handling.',
+  description: 'Development-only convenience for a simple CMB chat round trip. Never valid for confirmation, approval, or announcement handling.',
   inputSchema: {
     type: 'object',
     properties: {

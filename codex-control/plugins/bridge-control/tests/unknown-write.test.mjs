@@ -3,12 +3,12 @@ import test from 'node:test';
 
 import { ControlService } from '../src/control-service.mjs';
 import { PROFILE_VOICE_CONTROLLER } from '../src/plugin.mjs';
-import { createVoiceHub, createWorkHub } from './fake-hub.mjs';
+import { createVoiceBackend, createWorkBackend } from './fake-backend.mjs';
 
 test('unknown write results are returned once and are not retryable', async () => {
   let sendCalls = 0;
   const service = new ControlService({
-    hub: createVoiceHub({
+    backend: createVoiceBackend({
       sendMessage: async () => {
         sendCalls += 1;
         return { status: 'unknown' };
@@ -30,7 +30,7 @@ test('unknown write results are returned once and are not retryable', async () =
 test('unknown write exceptions are normalized without a second call', async () => {
   let finishCalls = 0;
   const service = new ControlService({
-    hub: createWorkHub({
+    backend: createWorkBackend({
       finishWork: async () => {
         finishCalls += 1;
         const failure = new Error('response lost');

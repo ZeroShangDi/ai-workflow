@@ -14,14 +14,15 @@ function productionSources(directory) {
   });
 }
 
-test('production control code has no concrete CMB import', () => {
+test('production control code directly depends on CMB and does not depend on bridge-hub', () => {
   const files = [...productionSources(path.join(plugin, 'src')), path.join(plugin, 'server.mjs')];
-  const importedCmb = files.filter((file) => {
+  const source = files.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+  assert.match(source, /cmb-client\.mjs/);
+  const forbidden = files.filter((file) => {
     const source = fs.readFileSync(file, 'utf8');
-    return /import\s+[^;]*\bcmb\b|import\s*\([^)]*\bcmb\b/i.test(source);
+    return /bridge-hub|hub-loader|hub-client|BRIDGE_CONTROL_HUB_MODULE/.test(source);
   });
-  assert.deepEqual(importedCmb, []);
-  assert.equal(fs.existsSync(path.join(plugin, 'src', 'adapters', 'cmb.mjs')), false);
+  assert.deepEqual(forbidden, []);
 });
 
 test('Codex marketplace metadata does not expose the internal MCP server globally', () => {

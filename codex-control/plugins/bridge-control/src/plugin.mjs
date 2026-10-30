@@ -6,7 +6,7 @@ export function createControlPlugin(options) {
 
 export { ControlService } from './control-service.mjs';
 export { CreateDraftMachine } from './create-machine.mjs';
-export { assertHubClient, requiredHubMethods } from './hub-client.mjs';
+export { assertControlBackend, requiredBackendMethods } from './backend-client.mjs';
 export { HOST_TOOL_NAMES } from './tool-contracts.mjs';
 export {
   DEFAULT_PROFILE,

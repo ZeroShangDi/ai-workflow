@@ -25,21 +25,21 @@ const WORK_METHODS = Object.freeze([
   'finishWork',
 ]);
 
-export function requiredHubMethods(profile) {
+export function requiredBackendMethods(profile) {
   if (profile === 'voice-controller') return VOICE_METHODS;
   if (profile === 'work-reporter') return WORK_METHODS;
   throw new Error(`Unknown bridge-control profile: ${profile}`);
 }
 
-export function assertHubClient(hub, profile) {
-  if (!hub || typeof hub !== 'object') {
-    throw new TypeError('A Hub client is required');
+export function assertControlBackend(backend, profile) {
+  if (!backend || typeof backend !== 'object') {
+    throw new TypeError('A control backend is required');
   }
-  const missing = requiredHubMethods(profile).filter((method) => typeof hub[method] !== 'function');
+  const missing = requiredBackendMethods(profile).filter((method) => typeof backend[method] !== 'function');
   if (missing.length) {
-    throw new TypeError(`Hub client is missing methods for ${profile}: ${missing.join(', ')}`);
+    throw new TypeError(`Control backend is missing methods for ${profile}: ${missing.join(', ')}`);
   }
-  return hub;
+  return backend;
 }
 
 export function isUnknownResult(value) {
