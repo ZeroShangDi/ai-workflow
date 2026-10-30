@@ -139,8 +139,9 @@ The plugin never calls TTS or controls the microphone.
 6. When complete, the plugin returns `awaiting_confirmation` with a deterministic summary and confirmation prompt.
 7. The voice host ensures the confirmation prompt is spoken.
 8. The user answers with an explicit affirmative or negative.
-9. The model calls `bridge_chat_confirm`.
-10. The backend verifies the latest user transcript against the pending draft and either confirms or cancels.
+9. The voice host persists the final real user transcript through the Hub's host-only ingress API.
+10. The model calls `bridge_chat_confirm`.
+11. The backend re-reads the stored transcript against the pending draft and either confirms or cancels.
 
 The backend, not the model, decides whether the user confirmed. A model-provided boolean is never sufficient authorization.
 
@@ -158,6 +159,11 @@ Long-running work cannot be awaited inside the create turn.
 6. The host writes `spoken`, `interrupted`, or `failed` playback acknowledgements.
 
 A disconnected voice session does not cancel work and does not lose events.
+
+The voice model never submits an authorization sentence. The voice host records
+the real final transcript at the Hub boundary; confirmations and approvals then
+re-read that stored value. This keeps transcript capture in the voice layer,
+authorization in the Hub, and execution in the external work adapter.
 
 ## 8. Security Boundaries
 

@@ -95,6 +95,7 @@ export function loadConfig({
       ),
       token: env.BRIDGE_HUB_VOICE_TOKEN
         || (voice.tokenFile ? readSecret(path.resolve(base, voice.tokenFile), 'voice token file') : null),
+      triggerId: env.BRIDGE_HUB_VOICE_TRIGGER_ID || voice.triggerId || null,
       timeoutMs: integer(voice.timeoutMs, 15000, 'voice.timeoutMs', 1000, 120000),
     },
   };

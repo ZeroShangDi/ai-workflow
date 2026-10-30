@@ -189,9 +189,10 @@ export class CmbAdapter {
     body,
     signal,
     retryAuth = true,
+    classifyWrite = method !== 'GET',
   } = {}) {
     await this.login();
-    const write = method !== 'GET';
+    const write = classifyWrite;
     let response;
     try {
       response = await this.#raw(pathname, {
@@ -214,7 +215,13 @@ export class CmbAdapter {
       this.cookie = null;
       this.csrf = null;
       await this.login();
-      return this.request(pathname, { method, body, signal, retryAuth: false });
+      return this.request(pathname, {
+        method,
+        body,
+        signal,
+        retryAuth: false,
+        classifyWrite,
+      });
     }
     const text = await response.text();
     const value = tryParseJson(text);
@@ -269,9 +276,72 @@ export class CmbAdapter {
     };
   }
 
+  async projects() {
+    const value = await this.request('/api/projects');
+    return {
+      projects: (value.projects || []).map((project) => ({
+        key: project.key,
+        name: project.name || project.projectName || project.key,
+        cwd: project.cwd || null,
+        type: project.type || project.kind || 'desktop',
+        host: project.host || 'local',
+      })),
+      environments: value.environments || [],
+    };
+  }
+
+  async createSession({
+    project,
+    title,
+    requestId = crypto.randomUUID(),
+  } = {}) {
+    const body = {
+      project: requireText(project, 'project', 4096),
+      title: requireText(title, 'title', 120),
+      id: requireText(requestId, 'requestId', 128),
+    };
+    const value = await this.request('/api/sessions', {
+      method: 'POST',
+      body,
+    });
+    const id = requireText(value.id, 'session.id', 128);
+    return {
+      ...value,
+      id,
+    };
+  }
+
   async view(sessionId) {
     const id = assertSessionId(sessionId);
     return this.request(`/api/sessions/${encodeURIComponent(id)}`);
+  }
+
+  async history(sessionId) {
+    const id = assertSessionId(sessionId);
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/history`, {
+      method: 'POST',
+      body: {},
+      classifyWrite: false,
+    });
+  }
+
+  async respond(sessionId, requestId, response) {
+    const id = assertSessionId(sessionId);
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/respond`, {
+      method: 'POST',
+      body: {
+        requestId: requireText(requestId, 'requestId', 128),
+        response,
+      },
+    });
+  }
+
+  async stop(sessionId) {
+    const id = assertSessionId(sessionId);
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/stop`, {
+      method: 'POST',
+      body: {},
+    });
   }
 
   async send(sessionId, {

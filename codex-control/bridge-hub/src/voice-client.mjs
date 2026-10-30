@@ -5,12 +5,14 @@ export class VoiceTriggerClient {
   constructor({
     baseUrl,
     token = null,
+    triggerId = null,
     timeoutMs = 15000,
     fetchImpl = fetch,
   }) {
     if (!baseUrl) {
       this.baseUrl = null;
       this.token = null;
+      this.triggerId = null;
       this.timeoutMs = timeoutMs;
       this.fetch = fetchImpl;
       return;
@@ -32,6 +34,7 @@ export class VoiceTriggerClient {
     }
     this.baseUrl = url.href.replace(/\/$/, '');
     this.token = token;
+    this.triggerId = triggerId;
     this.timeoutMs = timeoutMs;
     this.fetch = fetchImpl;
   }
@@ -82,11 +85,17 @@ export class VoiceTriggerClient {
   }
 
   health() {
-    return this.request('/api/v1/health');
+    return this.request('/api/health');
   }
 
   publishTrigger(trigger) {
-    return this.request('/api/v1/triggers', {
+    if (!this.triggerId) {
+      throw new CmbError('voice.triggerId is required to dispatch a trigger', {
+        code: 'voice_trigger_not_configured',
+        status: 503,
+      });
+    }
+    return this.request(`/api/triggers/${encodeURIComponent(this.triggerId)}/dispatch`, {
       method: 'POST',
       body: assertObject(trigger, 'trigger'),
     });

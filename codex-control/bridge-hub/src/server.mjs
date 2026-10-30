@@ -102,6 +102,117 @@ async function handle(hub, request, response, { apiToken = null } = {}) {
     return sendJson(response, 200, hub.status());
   }
 
+  if (method === 'POST' && url.pathname === '/api/v1/transcripts') {
+    const result = hub.recordTranscript(await readBody(request));
+    return sendJson(response, result.duplicate ? 200 : 201, result);
+  }
+
+  if (method === 'GET' && url.pathname === '/api/v1/chat/latest-user-transcript') {
+    return sendJson(response, 200, {
+      transcript: hub.latestUserTranscript({
+        sessionId: url.searchParams.get('sessionId'),
+        consumer: url.searchParams.get('consumer'),
+      }),
+    });
+  }
+
+  if (method === 'GET' && url.pathname === '/api/v1/chat/pending') {
+    const interaction = hub.getPending({
+      sessionId: url.searchParams.get('sessionId'),
+      interactionId: url.searchParams.get('interactionId'),
+      consumer: url.searchParams.get('consumer'),
+    });
+    if (!interaction) {
+      throw new HubError(404, 'interaction_not_found', 'interaction does not exist');
+    }
+    return sendJson(response, 200, { interaction });
+  }
+
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/create') {
+    return sendJson(response, 200, await hub.createWork(await readBody(request)));
+  }
+  if (method === 'GET' && url.pathname === '/api/v1/chat/work/find') {
+    return sendJson(response, 200, await hub.findWork({
+      consumer: url.searchParams.get('consumer'),
+      query: url.searchParams.get('query') || '',
+      limit: url.searchParams.get('limit') || 20,
+    }));
+  }
+  if (method === 'GET' && url.pathname === '/api/v1/chat/work/status') {
+    return sendJson(response, 200, await hub.getStatus({
+      consumer: url.searchParams.get('consumer'),
+      sessionId: url.searchParams.get('sessionId'),
+      workId: url.searchParams.get('workId'),
+    }));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/send') {
+    return sendJson(response, 200, await hub.sendWorkMessage(await readBody(request)));
+  }
+  if (method === 'GET' && url.pathname === '/api/v1/chat/work/read') {
+    return sendJson(response, 200, await hub.readWork({
+      consumer: url.searchParams.get('consumer'),
+      sessionId: url.searchParams.get('sessionId'),
+      workId: url.searchParams.get('workId'),
+      view: url.searchParams.get('view') || 'history',
+      after: url.searchParams.get('after') || '0',
+      limit: boundedInteger(url.searchParams.get('limit'), {
+        fallback: 50,
+        minimum: 1,
+        maximum: 100,
+        field: 'limit',
+      }),
+    }));
+  }
+  if (method === 'GET' && url.pathname === '/api/v1/chat/events') {
+    const sessionId = url.searchParams.get('sessionId');
+    const result = hub.readEvents({
+      after: url.searchParams.get('after') || '0',
+      limit: boundedInteger(url.searchParams.get('limit'), {
+        fallback: 100,
+        minimum: 1,
+        maximum: 100,
+        field: 'limit',
+      }),
+      consumer: url.searchParams.get('consumer') || null,
+      topics: listParam(url, 'topic'),
+    });
+    if (!sessionId) return sendJson(response, 200, result);
+    return sendJson(response, 200, {
+      ...result,
+      events: result.events.filter((event) => (
+        event.scope?.controlSessionId === sessionId
+        || event.scope?.sessionId === sessionId
+      )),
+    });
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/answer') {
+    return sendJson(response, 200, await hub.resolveAnswer(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/approve') {
+    return sendJson(response, 200, await hub.resolveApproval(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/stop') {
+    return sendJson(response, 200, await hub.stopWork(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/progress') {
+    return sendJson(response, 200, await hub.emitProgress(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/request-input') {
+    return sendJson(response, 200, await hub.requestInput(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/request-approval') {
+    return sendJson(response, 200, await hub.requestApproval(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/artifact') {
+    return sendJson(response, 200, await hub.publishArtifact(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/work/finish') {
+    return sendJson(response, 200, await hub.finishWork(await readBody(request)));
+  }
+  if (method === 'POST' && url.pathname === '/api/v1/chat/announcement/ack') {
+    return sendJson(response, 200, await hub.ackAnnouncement(await readBody(request)));
+  }
+
   if (method === 'POST' && url.pathname === '/api/events') {
     const result = hub.appendEvent(await readBody(request));
     return sendJson(response, result.duplicate ? 200 : 201, result);

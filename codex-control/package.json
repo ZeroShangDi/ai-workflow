@@ -1,0 +1,16 @@
+{
+  "name": "codex-control-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "plugins/*",
+    "bridge-hub"
+  ],
+  "scripts": {
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "test:integration": "node --test integration/*.test.mjs",
+    "test": "node scripts/test-all.mjs",
+    "verify": "npm run check:boundaries && npm test"
+  }
+}

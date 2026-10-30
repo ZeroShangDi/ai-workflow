@@ -11,6 +11,8 @@
   },
   "dataDir": ".local",
   "voice": {
-    "baseUrl": "http://127.0.0.1:4311"
+    "baseUrl": "http://127.0.0.1:8791",
+    "triggerId": "hub-events",
+    "timeoutMs": 15000
   }
 }

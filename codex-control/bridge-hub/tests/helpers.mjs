@@ -22,9 +22,16 @@ export async function startMockCmb() {
   const state = {
     loginCount: 0,
     sendCount: 0,
+    createCount: 0,
+    historyCount: 0,
+    stopCount: 0,
+    respondCount: 0,
     readCalls: [],
     sendCalls: [],
+    createCalls: [],
+    respondCalls: [],
     sendMode: 'success',
+    createMode: 'success',
     sessionExpired: false,
   };
   let baseUrl = '';
@@ -86,13 +93,63 @@ export async function startMockCmb() {
       }));
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/sessions/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee') {
-      state.readCalls.push({ path: url.pathname });
+    if (request.method === 'GET' && url.pathname === '/api/projects') {
       response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', status: 'idle' }));
+      response.end(JSON.stringify({
+        projects: [
+          {
+            key: 'local|demo',
+            name: 'demo',
+            cwd: '/tmp/demo',
+            type: 'desktop',
+            host: 'local',
+          },
+          {
+            key: 'local|independent',
+            name: 'Independent',
+            cwd: null,
+            type: 'desktop',
+            host: 'local',
+          },
+        ],
+      }));
       return;
     }
-    if (request.method === 'POST' && url.pathname === '/api/sessions/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/send') {
+    if (request.method === 'POST' && url.pathname === '/api/sessions') {
+      if (
+        request.headers.origin !== baseUrl
+        || request.headers['x-csrf-token'] !== 'test-csrf'
+      ) {
+        response.writeHead(403, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'origin or csrf rejected' }));
+        return;
+      }
+      const value = await body(request);
+      state.createCount += 1;
+      state.createCalls.push(value);
+      if (state.createMode === 'unknown') {
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'synthetic create failure' }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ id: value.id, host: 'local', project: value.project }));
+      return;
+    }
+    const sessionRoute = url.pathname.match(
+      /^\/api\/sessions\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/(send|events|history|stop|respond))?$/,
+    );
+    if (sessionRoute && !sessionRoute[2] && request.method === 'GET') {
+      state.readCalls.push({ path: url.pathname });
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        id: sessionRoute[1],
+        title: 'Mock chat',
+        status: 'idle',
+      }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'send' && request.method === 'POST') {
       if (
         request.headers.origin !== baseUrl
         || request.headers['x-csrf-token'] !== 'test-csrf'
@@ -113,11 +170,34 @@ export async function startMockCmb() {
       response.end(JSON.stringify({ status: 'accepted', id: value.id }));
       return;
     }
-    if (request.method === 'GET' && url.pathname === '/api/sessions/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/events') {
+    if (sessionRoute?.[2] === 'events' && request.method === 'GET') {
       response.writeHead(200, { 'Content-Type': 'text/event-stream' });
       response.write('event: state\n');
       response.write('data: {"status":"active","connected":true}\n\n');
       response.end();
+      return;
+    }
+    if (sessionRoute?.[2] === 'history' && request.method === 'POST') {
+      state.historyCount += 1;
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        id: sessionRoute[1],
+        messages: [{ role: 'user', text: 'mock history' }],
+      }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'stop' && request.method === 'POST') {
+      state.stopCount += 1;
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ status: 'accepted' }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'respond' && request.method === 'POST') {
+      const value = await body(request);
+      state.respondCount += 1;
+      state.respondCalls.push(value);
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ status: 'accepted' }));
       return;
     }
     response.writeHead(404, { 'Content-Type': 'application/json' });

@@ -10,7 +10,15 @@ Current prototype scope:
 - CMB login, session listing, send, SSE, and reply wait;
 - local tests only.
 
-The prototype is not the final exposure model.
+The first integrated slice now also provides:
+
+- a standalone voice plugin with bounded events, explicit triggers, and local playback receipts;
+- isolated `voice-controller` and `work-reporter` profiles;
+- a Hub-hosted control API backed by persisted transcripts, work state, and interactions;
+- CMB session creation and continuation through public HTTP only;
+- an end-to-end confirmation, progress, approval, completion, notice, and playback-ack test.
+
+This remains a local development slice; it is not yet a globally installed plugin release.
 
 ## Three Parallel Tracks
 

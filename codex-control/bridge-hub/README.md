@@ -63,6 +63,7 @@ The configured `dataDir` contains:
 - `trust.json`: lifecycle facts and pairing state;
 - `subscriptions.json`: explicit consumer subscriptions;
 - `bindings.json`: control, work, and voice session bindings;
+- `control.json`: bounded real-user transcripts, work state, and pending interactions;
 - `inbox.json`: durable delivery state;
 - `idempotency.json`: write receipts and unreconciled `unknown` results.
 
@@ -140,11 +141,54 @@ A timeout, disconnected write, or upstream 5xx is returned as `unknown`. The
 result must be reconciled by reading CMB state. The Hub never automatically
 replays an unknown or failed write.
 
+### Control protocol
+
+The internal control plugin connects through the same token-protected Hub API.
+Set:
+
+```text
+BRIDGE_HUB_URL
+BRIDGE_HUB_API_TOKEN
+BRIDGE_CONTROL_CONSUMER
+BRIDGE_VOICE_CONSUMER
+BRIDGE_CONTROL_TIMEOUT_MS
+BRIDGE_CONTROL_HUB_MODULE=/absolute/path/to/bridge-hub/src/control-client.mjs
+```
+
+The host posts final real user speech to `POST /api/v1/transcripts` before
+asking the control plugin to confirm or resolve an interaction. The Hub reads
+that persisted transcript again; the model cannot supply authorization text.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/transcripts` | Persist one final real user transcript |
+| `GET` | `/api/v1/chat/latest-user-transcript` | Read the newest transcript |
+| `POST` | `/api/v1/chat/work/create` | Create a CMB session from a confirmed draft |
+| `GET` | `/api/v1/chat/work/find` | Find local or CMB work |
+| `GET` | `/api/v1/chat/work/status` | Merge work, CMB, and pending state |
+| `POST` | `/api/v1/chat/work/send` | Send, queue, or steer a message |
+| `GET` | `/api/v1/chat/work/read` | Read history or Hub activity |
+| `GET` | `/api/v1/chat/events` | Read subscribed events after a cursor |
+| `POST` | `/api/v1/chat/work/answer` | Resolve a bound question |
+| `POST` | `/api/v1/chat/work/approve` | Resolve a bound approval |
+| `POST` | `/api/v1/chat/work/stop` | Stop a work session |
+| `POST` | `/api/v1/chat/work/progress` | Report bounded work progress |
+| `POST` | `/api/v1/chat/work/request-input` | Create a pending question |
+| `POST` | `/api/v1/chat/work/request-approval` | Create a pending approval |
+| `POST` | `/api/v1/chat/work/artifact` | Register an artifact reference |
+| `POST` | `/api/v1/chat/work/finish` | Record a terminal outcome |
+| `POST` | `/api/v1/chat/announcement/ack` | Record an observed playback outcome |
+
+Approval and answer writes verify both the immutable interaction binding and
+the newest persisted user transcript. Unknown external writes remain
+unreconciled and are never retried automatically.
+
 ## Voice boundary
 
 `src/voice-client.mjs` is an optional public HTTP protocol client. It imports no
 voice-control implementation and is not required for the Hub's CMB, event,
-subscription, binding, or inbox functionality.
+subscription, binding, or inbox functionality. Trigger dispatch stays disabled
+unless both `voice.baseUrl` and an explicit `voice.triggerId` are configured.
 
 ## Test
 
@@ -154,5 +198,5 @@ npm test
 
 The suite starts a local mock CMB over HTTP/SSE and verifies public adapter
 contracts, cursor replay, subscription default-off behavior, pairing
-requirements, idempotency, unknown writes, inbox acknowledgement, authenticated
-Hub routes, and dependency isolation.
+requirements, persisted transcript authorization, idempotency, unknown writes,
+inbox acknowledgement, authenticated Hub routes, and dependency isolation.

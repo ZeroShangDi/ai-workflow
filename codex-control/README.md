@@ -61,3 +61,16 @@ bridge-hub -. optional public SDK/API .-> voice-control
 `voice-control` 不依赖 `bridge-hub` 或 `bridge-control`。安装不等于可用，必须完成配置、健康检查、配对和事件订阅。
 
 当前 [`plugins/bridge-control`](plugins/bridge-control) 的五工具 MCP 版本是本地集成原型，不会被当作最终普通 Codex 插件发布。
+
+## Development
+
+```bash
+npm run check:boundaries   # 依赖方向与 CMB submodule 清洁检查
+npm test                   # 依次运行三个项目并执行跨组件闭环测试
+npm run test:integration   # 只运行控制插件、Hub、CMB 模拟器的端到端链路
+npm run verify             # 边界检查 + 全部测试
+```
+
+运行时配置、日志和本地部署产物放在各项目的 `.local/`，不得提交。
+语音宿主必须把最终真实用户转写写入 Hub 的 host-only 入口；确认、审批和回答
+由 Hub 重新读取该转写，不能由模型代填授权文本。

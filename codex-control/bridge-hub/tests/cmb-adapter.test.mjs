@@ -22,6 +22,15 @@ test('CMB adapter uses public login, session, view, send, and SSE HTTP contracts
   assert.equal(sessions.sessions[0].title, 'Mock chat');
   assert.match(cmb.state.readCalls[0].query, /source=all/);
 
+  const projects = await adapter.projects();
+  assert.equal(projects.projects[0].key, 'local|demo');
+  const created = await adapter.createSession({
+    project: 'local|demo',
+    title: 'Voice work',
+    requestId: '11111111-2222-4333-8444-555555555555',
+  });
+  assert.equal(created.id, '11111111-2222-4333-8444-555555555555');
+
   const view = await adapter.view('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
   assert.equal(view.status, 'idle');
 
@@ -32,6 +41,18 @@ test('CMB adapter uses public login, session, view, send, and SSE HTTP contracts
   assert.equal(receipt.status, 'accepted');
   assert.equal(cmb.state.sendCalls[0].text, 'hello');
   assert.equal(cmb.state.sendCalls[0].mode, 'send');
+
+  const history = await adapter.history('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+  assert.equal(history.messages[0].text, 'mock history');
+  const stopped = await adapter.stop('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+  assert.equal(stopped.status, 'accepted');
+  const responded = await adapter.respond(
+    'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    'request-1',
+    { approved: true },
+  );
+  assert.equal(responded.status, 'accepted');
+  assert.equal(cmb.state.respondCalls[0].response.approved, true);
 
   cmb.state.sessionExpired = true;
   const stream = await adapter.openEvents('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');

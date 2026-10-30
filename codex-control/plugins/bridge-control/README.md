@@ -79,10 +79,17 @@ node server.mjs --profile work-reporter
 本地 MCP 调用需要一个导出 `createHubClient({ env })` 的 Hub 模块：
 
 ```sh
-BRIDGE_CONTROL_HUB_MODULE=/absolute/path/to/fake-hub.mjs \
+BRIDGE_CONTROL_HUB_MODULE=/absolute/path/to/bridge-hub/src/control-client.mjs \
+BRIDGE_HUB_URL=http://127.0.0.1:4310 \
+BRIDGE_HUB_API_TOKEN=local-development-token \
+BRIDGE_CONTROL_CONSUMER=bridge-control \
 BRIDGE_CONTROL_PROFILE=voice-controller \
 node server.mjs
 ```
+
+工作会话使用同一客户端并把 `BRIDGE_CONTROL_CONSUMER` 切换为已配对、已订阅的
+`work-reporter` 标识。远端 MCP 集成可复用 `tests/fake-hub.mjs`，但 fake Hub
+只能用于测试，不能作为部署后端。
 
 只有同时满足 `voice-controller` 且显式传入 `--dev` 或 `BRIDGE_CONTROL_DEV=1` 时，才暴露历史便利工具 `bridge_chat`。它只用于本地快速联调，不能用于创建确认、审批或后台通知。
 
