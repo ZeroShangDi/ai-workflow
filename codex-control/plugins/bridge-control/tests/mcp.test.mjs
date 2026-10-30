@@ -1,45 +1,55 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import test from 'node:test';
 
 const plugin = path.resolve(import.meta.dirname, '..');
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-control-mcp-'));
 
-test.after(() => fs.rmSync(home, { recursive: true, force: true }));
-
-function ask(child, message) {
-  child.stdin.write(`${JSON.stringify(message)}\n`);
-}
-
-test('advertises the adapter-based tools over MCP stdio', async () => {
-  const child = spawn(process.execPath, ['server.mjs'], {
+async function listedTools(args) {
+  const env = { ...process.env };
+  delete env.BRIDGE_CONTROL_PROFILE;
+  delete env.BRIDGE_CONTROL_DEV;
+  const child = spawn(process.execPath, ['server.mjs', ...args], {
     cwd: plugin,
-    env: { ...process.env, CODEX_HOME: home },
+    env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const messages = [];
   lines.on('line', (line) => messages.push(JSON.parse(line)));
-  ask(child, {
+  child.stdin.write(`${JSON.stringify({
     jsonrpc: '2.0',
     id: 1,
     method: 'initialize',
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
-  });
-  ask(child, { jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
-  ask(child, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+  })}\n`);
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} })}\n`);
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
   const deadline = Date.now() + 5000;
   while (messages.length < 2 && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   child.kill();
-  assert.equal(messages[0].result.serverInfo.name, 'bridge-control');
-  assert.deepEqual(
-    messages[1].result.tools.map((tool) => tool.name),
-    ['bridge_status', 'bridge_configure', 'bridge_projects', 'bridge_sessions', 'bridge_chat'],
-  );
+  assert.equal(messages.length, 2);
+  return messages[1].result.tools.map((tool) => tool.name);
+}
+
+test('default MCP profile exposes only work reporting tools', async () => {
+  const names = await listedTools([]);
+  assert.deepEqual(names, [
+    'bridge_chat_emit_progress',
+    'bridge_chat_request_input',
+    'bridge_chat_request_approval',
+    'bridge_chat_publish_artifact',
+    'bridge_chat_finish',
+  ]);
+});
+
+test('voice MCP profile adds legacy bridge_chat only in explicit dev mode', async () => {
+  const voice = await listedTools(['--profile', 'voice-controller']);
+  const dev = await listedTools(['--profile', 'voice-controller', '--dev']);
+  assert.equal(voice.includes('bridge_chat'), false);
+  assert.equal(dev.includes('bridge_chat'), true);
+  assert.equal(voice.includes('bridge_chat_ack'), false);
 });

@@ -1,10 +1,17 @@
 {
   "name": "bridge-control",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:voice": "BRIDGE_CONTROL_PROFILE=voice-controller node --test tests/*.test.mjs"
+  },
+  "exports": {
+    ".": "./src/plugin.mjs"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

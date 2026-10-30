@@ -3,18 +3,16 @@
     "bridge_control": {
       "command": "./scripts/launch",
       "cwd": ".",
-      "args": [],
-      "enabled": true,
+      "args": ["--profile", "work-reporter"],
+      "enabled": false,
       "startup_timeout_sec": 20,
       "tool_timeout_sec": 240,
       "env_vars": [
-        "CMB_BASE_URL",
-        "CMB_USERNAME",
-        "CMB_PASSWORD",
-        "CMB_PASSWORD_FILE",
-        "CMB_CONTROL_CONFIG",
-        "CODEX_HOME",
-        "HOME",
+        "BRIDGE_CONTROL_PROFILE",
+        "BRIDGE_CONTROL_DEV",
+        "BRIDGE_CONTROL_HUB_MODULE",
+        "BRIDGE_HUB_BASE_URL",
+        "BRIDGE_HUB_CREDENTIAL_FILE",
         "PATH"
       ]
     }

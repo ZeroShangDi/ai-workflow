@@ -4,7 +4,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 if command -v node >/dev/null 2>&1; then
-  exec node "$root/server.mjs"
+  exec node "$root/server.mjs" "$@"
 fi
 
 for candidate in \
@@ -13,7 +13,7 @@ for candidate in \
   "${HOME:-}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
 do
   if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-    exec "$candidate" "$root/server.mjs"
+    exec "$candidate" "$root/server.mjs" "$@"
   fi
 done
 
