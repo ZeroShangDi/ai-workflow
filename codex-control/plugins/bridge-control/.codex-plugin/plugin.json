@@ -1,0 +1,36 @@
+{
+  "name": "bridge-control",
+  "version": "0.1.0",
+  "description": "Control external agent bridges through one adapter-based MCP plugin.",
+  "author": {
+    "name": "Codex Control"
+  },
+  "license": "MIT",
+  "keywords": [
+    "bridge",
+    "codex-mobile-bridge",
+    "mobile",
+    "mcp"
+  ],
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Bridge Control",
+    "shortDescription": "Use external agent bridges from Codex",
+    "longDescription": "Connect Codex to external agent bridges through a stable adapter interface. The first adapter targets Codex Mobile Bridge.",
+    "developerName": "Codex Control",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Check my bridge connection",
+      "Send a test message through Codex Mobile Bridge",
+      "Continue a bridge conversation and show the reply"
+    ],
+    "brandColor": "#0F766E",
+    "screenshots": []
+  }
+}

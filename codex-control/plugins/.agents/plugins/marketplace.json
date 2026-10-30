@@ -1,0 +1,23 @@
+{
+  "name": "codex-control",
+  "interface": {
+    "displayName": "Codex Control"
+  },
+  "plugins": [
+    {
+      "name": "bridge-control",
+      "source": {
+        "source": "local",
+        "path": "./bridge-control"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

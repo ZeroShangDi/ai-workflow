@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "bridge_control": {
+      "command": "./scripts/launch",
+      "cwd": ".",
+      "args": [],
+      "enabled": true,
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 240,
+      "env_vars": [
+        "CMB_BASE_URL",
+        "CMB_USERNAME",
+        "CMB_PASSWORD",
+        "CMB_PASSWORD_FILE",
+        "CMB_CONTROL_CONFIG",
+        "CODEX_HOME",
+        "HOME",
+        "PATH"
+      ]
+    }
+  }
+}
