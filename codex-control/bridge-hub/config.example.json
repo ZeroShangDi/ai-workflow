@@ -1,0 +1,16 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4310
+  },
+  "cmb": {
+    "baseUrl": "http://127.0.0.1:8765",
+    "username": "admin",
+    "passwordFile": "/absolute/private/path/cmb-password",
+    "timeoutMs": 120000
+  },
+  "dataDir": ".local",
+  "voice": {
+    "baseUrl": "http://127.0.0.1:4311"
+  }
+}
