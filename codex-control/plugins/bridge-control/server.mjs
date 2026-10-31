@@ -3,16 +3,45 @@
 import readline from 'node:readline';
 import { loadControlConfig } from './src/config.mjs';
 import { createDirectBackend } from './src/direct-backend.mjs';
-import { createControlPlugin } from './src/plugin.mjs';
-import { devMode, parseProfile, toolsForProfile } from './src/profiles.mjs';
+import { devMode, parseProfile, resolveRuntimeProfile, toolsForProfile } from './src/profiles.mjs';
+import { loadControlWsConfig } from './src/ws-config.mjs';
+import { WsEventStore } from './src/ws-event-store.mjs';
+import { ControlWebSocketServer } from './src/ws-server.mjs';
+import { ControlWebSocketService } from './src/ws-service.mjs';
+import { ControlToolGateway } from './src/tool-gateway.mjs';
 
 const VERSION = '0.3.0';
 const argv = process.argv.slice(2);
-const profile = parseProfile(argv);
+const profile = resolveRuntimeProfile(parseProfile(argv));
 const dev = devMode(argv);
 const tools = toolsForProfile(profile, { dev });
 let initialized = false;
 let service;
+let wsServer;
+let wsStore;
+let wsService;
+let toolGateway;
+
+async function startWebSocketServer() {
+  const config = loadControlWsConfig();
+  if (!config.enabled) return;
+  wsStore = new WsEventStore(config.eventStoreFile);
+  wsServer = new ControlWebSocketServer({
+    host: config.host,
+    port: config.port,
+    token: config.token,
+    store: wsStore,
+    handler: async (request) => {
+      wsService ||= new ControlWebSocketService({
+        toolCall: (value) => getToolGateway().call(value),
+      });
+      return wsService.handle(request.event);
+    },
+    handshakeTimeoutMs: config.handshakeTimeoutMs,
+    heartbeatMs: config.heartbeatMs,
+  });
+  await wsServer.start();
+}
 
 function output(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -43,9 +72,28 @@ function toolError(id, errorValue) {
 
 async function getService() {
   if (service) return service;
-  const backend = createDirectBackend(loadControlConfig());
-  service = createControlPlugin({ backend, profile, dev });
+  service = getToolGateway().service(profile);
   return service;
+}
+
+function getToolGateway() {
+  if (toolGateway) return toolGateway;
+  const config = loadControlConfig();
+  const backend = createDirectBackend(config, {
+    publishEvent: async (event) => wsServer?.publish({
+      schemaVersion: 1,
+      eventId: event.eventId,
+      correlationId: event.payload?.controlSessionId || null,
+      topic: event.topic,
+      source: 'bridge-control',
+      createdAt: event.createdAt,
+      payload: event,
+    }),
+  });
+  toolGateway = new ControlToolGateway({ backend, defaultProject: config.workspace?.projectKey || null });
+  const gatewayService = toolGateway.service(profile);
+  if (dev) gatewayService.dev = true;
+  return toolGateway;
 }
 
 async function handle(message) {
@@ -100,5 +148,17 @@ lines.on('line', (line) => {
   });
 });
 
-process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));
+async function shutdown() {
+  await wsServer?.close();
+  wsStore?.close();
+  toolGateway?.close();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => { void shutdown(); });
+process.on('SIGINT', () => { void shutdown(); });
+
+startWebSocketServer().catch((failure) => {
+  process.stderr.write(`bridge-control websocket failed to start: ${failure.message}\n`);
+  process.exitCode = 1;
+});

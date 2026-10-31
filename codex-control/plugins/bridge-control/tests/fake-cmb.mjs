@@ -20,17 +20,22 @@ export async function startMockCmb() {
     loginCount: 0,
     sendCount: 0,
     createCount: 0,
+    projectRegisterCount: 0,
     historyCount: 0,
     stopCount: 0,
     respondCount: 0,
     readCalls: [],
     sendCalls: [],
     createCalls: [],
+    projectRegisterCalls: [],
     respondCalls: [],
     sendMode: 'success',
     createMode: 'success',
+    projectRegisterMode: 'success',
     stopMode: 'success',
     sessionExpired: false,
+    historyText: 'mock history',
+    historyTurn: 1,
   };
   let baseUrl = '';
 
@@ -113,6 +118,35 @@ export async function startMockCmb() {
       }));
       return;
     }
+    if (request.method === 'POST' && url.pathname === '/api/projects') {
+      if (
+        request.headers.origin !== baseUrl
+        || request.headers['x-csrf-token'] !== 'test-csrf'
+      ) {
+        response.writeHead(403, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'origin or csrf rejected' }));
+        return;
+      }
+      const value = await body(request);
+      state.projectRegisterCount += 1;
+      state.projectRegisterCalls.push(value);
+      if (state.projectRegisterMode === 'unknown') {
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'synthetic project registration failure' }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        project: {
+          key: 'local|voice-workspace',
+          name: 'voice-workspace',
+          cwd: value.path,
+          type: value.kind,
+          host: value.host,
+        },
+      }));
+      return;
+    }
     if (request.method === 'POST' && url.pathname === '/api/sessions') {
       if (
         request.headers.origin !== baseUrl
@@ -135,7 +169,10 @@ export async function startMockCmb() {
       return;
     }
     const sessionRoute = url.pathname.match(
-      /^\/api\/sessions\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/(send|events|history|stop|respond))?$/,
+      /^\/api\/sessions\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/(send|events|history|stop|respond|settings))?$/,
+    );
+    const sessionExtraRoute = url.pathname.match(
+      /^\/api\/sessions\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\/catalog$/,
     );
     if (sessionRoute && !sessionRoute[2] && request.method === 'GET') {
       state.readCalls.push({ path: url.pathname });
@@ -144,7 +181,22 @@ export async function startMockCmb() {
         id: sessionRoute[1],
         title: 'Mock chat',
         status: 'idle',
+        turns: [{
+          id: `turn-${state.historyTurn}`,
+          status: 'completed',
+          messages: [{
+            id: `message-${state.historyTurn}`,
+            role: 'user',
+            text: state.historyText,
+          }],
+        }],
       }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'settings' && request.method === 'POST') {
+      const value = await body(request);
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ applied: true, confirmed: true, ...value }));
       return;
     }
     if (sessionRoute?.[2] === 'send' && request.method === 'POST') {
@@ -180,7 +232,28 @@ export async function startMockCmb() {
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({
         id: sessionRoute[1],
-        messages: [{ role: 'user', text: 'mock history' }],
+        turns: [{
+          id: `turn-${state.historyTurn}`,
+          status: 'completed',
+          messages: [{
+            id: `message-${state.historyTurn}`,
+            role: 'user',
+            text: state.historyText,
+          }],
+        }],
+      }));
+      return;
+    }
+    if (sessionExtraRoute && request.method === 'GET') {
+      state.readCalls.push({ path: url.pathname, query: url.search });
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        kind: 'skills',
+        skills: [{
+          id: 'skill-work-reporter',
+          name: 'bridge-control-work-reporter',
+          displayName: 'bridge-control-work-reporter',
+        }],
       }));
       return;
     }
@@ -216,5 +289,9 @@ export async function startMockCmb() {
     baseUrl,
     state,
     close: () => new Promise((resolve) => server.close(resolve)),
+    setUserTranscript(text) {
+      state.historyText = text;
+      state.historyTurn += 1;
+    },
   };
 }

@@ -35,9 +35,11 @@ export class VoiceControlApp {
     triggerConfigStore,
     chatProvider = null,
     noticeStore = null,
-    transcriptRecorder = null,
     audioTransport = null,
     llmProxy = null,
+    integrationConfig = null,
+    controlBridge = null,
+    integrationCoordinator = null,
     now = () => new Date(),
     idFactory = () => randomUUID(),
   }) {
@@ -45,9 +47,11 @@ export class VoiceControlApp {
     this.triggerConfigStore = triggerConfigStore;
     this.chatProvider = chatProvider;
     this.noticeStore = noticeStore;
-    this.transcriptRecorder = transcriptRecorder;
     this.audioTransport = audioTransport;
     this.llmProxy = llmProxy;
+    this.integrationConfig = integrationConfig;
+    this.controlBridge = controlBridge;
+    this.integrationCoordinator = integrationCoordinator;
     this.now = now;
     this.idFactory = idFactory;
     this.sessions = new Map();
@@ -74,6 +78,25 @@ export class VoiceControlApp {
     return this.#summary(session);
   }
 
+  async openSession({ title } = {}) {
+    let integration;
+    try {
+      integration = this.integrationCoordinator
+        ? await this.integrationCoordinator.ensureReady()
+        : { mode: 'standalone', reason: 'integration_disabled' };
+    } catch (error) {
+      const status = error.code === 'desktop_unavailable'
+        ? 409
+        : (String(error.code || '').includes('timeout') ? 504 : 502);
+      throw new VoiceControlError(
+        error.code || 'integration_initialization_failed',
+        error.message || 'Voice integration initialization failed',
+        { status, cause: error },
+      );
+    }
+    return { session: this.createSession({ title }), integration };
+  }
+
   getSession(sessionId) {
     return this.#summary(this.#requireSession(sessionId));
   }
@@ -88,6 +111,20 @@ export class VoiceControlApp {
         input.status,
         typeof input.message === 'string' ? input.message : null,
       );
+      this.controlBridge?.publish?.({
+        schemaVersion: 1,
+        eventId: `evt_${this.idFactory()}`,
+        correlationId: input.noticeId,
+        topic: 'voice.playback.result',
+        source: 'voice-control',
+        createdAt: this.now().toISOString(),
+        payload: {
+          noticeId: input.noticeId,
+          status: input.status,
+          message: typeof input.message === 'string' ? input.message : null,
+          sessionId,
+        },
+      });
     }
     return result;
   }
@@ -132,12 +169,6 @@ export class VoiceControlApp {
       text: prompt,
       dedupeKey: `user:${turnId}`,
     }).event;
-    this.transcriptRecorder?.({
-      sessionId,
-      turnId,
-      text: prompt,
-      createdAt: userEvent.createdAt,
-    });
     this.#append(session, {
       type: 'activity',
       state: 'thinking',
@@ -411,6 +442,15 @@ export class VoiceControlApp {
       audio: this.audioTransport?.status?.() || { configured: false },
       llmProxy: this.llmProxy?.status?.() || { configured: false, search: { configured: false } },
       notices,
+      integration: this.integrationConfig
+        ? {
+          configured: true,
+          configPath: this.integrationConfig.configPath,
+          eventFiles: { ...this.integrationConfig.eventFiles },
+        }
+        : { configured: false },
+      controlBridge: this.controlBridge?.statusValue?.() || { state: 'disabled', connected: false },
+      integrationFlow: this.integrationCoordinator?.status?.() || { state: 'disabled' },
     };
   }
 

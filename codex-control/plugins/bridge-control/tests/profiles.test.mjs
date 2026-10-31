@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { ControlService } from '../src/control-service.mjs';
@@ -9,11 +12,14 @@ import {
   PROFILE_WORK_REPORTER,
   devMode,
   parseProfile,
+  resolveRuntimeProfile,
   toolNamesForProfile,
 } from '../src/plugin.mjs';
 import { createVoiceBackend, createWorkBackend } from './fake-backend.mjs';
 
 const VOICE_CONTROL_TOOLS = [
+  'bridge_chat_control_config_load',
+  'bridge_chat_control_workspace_ensure',
   'bridge_chat_create',
   'bridge_chat_confirm',
   'bridge_chat_find',
@@ -39,12 +45,28 @@ test('defaults to the least-privilege work reporter profile', () => {
   assert.equal(DEFAULT_PROFILE, PROFILE_WORK_REPORTER);
   assert.equal(parseProfile([], {}), PROFILE_WORK_REPORTER);
   assert.equal(parseProfile(['--profile', PROFILE_VOICE_CONTROLLER], {}), PROFILE_VOICE_CONTROLLER);
+  assert.equal(parseProfile(['--profile=auto'], {}), 'auto');
   assert.throws(() => parseProfile(['--profile=unknown'], {}), /Unknown bridge-control profile/);
   assert.throws(() => parseProfile(['--profile'], {}), /requires a value/);
   assert.throws(
     () => parseProfile(['--profile', PROFILE_VOICE_CONTROLLER], { BRIDGE_CONTROL_PROFILE: PROFILE_WORK_REPORTER }),
     /conflicts/,
   );
+});
+
+test('auto profile selects voice-controller for the fixed thread and work-reporter for a bound work thread', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'control-profile-auto-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(directory, 'control-state.json'), JSON.stringify({
+    works: { work_1: { sessionId: 'work-thread-1' } },
+  }));
+  const env = {
+    BRIDGE_CONTROL_DATA_DIR: directory,
+    BRIDGE_CONTROL_AUTO_DEFAULT: PROFILE_VOICE_CONTROLLER,
+  };
+  assert.equal(resolveRuntimeProfile('auto', { ...env, CODEX_THREAD_ID: 'voice-thread-1' }), PROFILE_VOICE_CONTROLLER);
+  assert.equal(resolveRuntimeProfile('auto', { ...env, CODEX_THREAD_ID: 'work-thread-1' }), PROFILE_WORK_REPORTER);
+  assert.equal(resolveRuntimeProfile('auto', { BRIDGE_CONTROL_DATA_DIR: directory }), PROFILE_WORK_REPORTER);
 });
 
 test('profile tool surfaces are disjoint', () => {

@@ -46,17 +46,23 @@ function eventId(value) {
 
 export class ControlEventBus {
   constructor({
-    eventDir = defaultEventDirectory(),
+    eventDir = null,
+    taskFile = null,
     now = () => new Date(),
+    onEvent = null,
   } = {}) {
-    this.eventDir = path.resolve(eventDir);
-    this.taskFile = path.join(this.eventDir, 'task-events.jsonl');
-    this.transcriptFile = path.join(this.eventDir, 'voice-transcripts.jsonl');
+    const resolvedEventDir = eventDir || null;
+    this.eventDir = resolvedEventDir ? path.resolve(resolvedEventDir) : null;
+    this.taskFile = taskFile
+      ? path.resolve(taskFile)
+      : (this.eventDir ? path.join(this.eventDir, 'task-events.jsonl') : null);
     this.now = now;
-    ensureDirectory(this.eventDir);
+    this.onEvent = onEvent;
+    if (this.taskFile) ensureDirectory(path.dirname(this.taskFile));
   }
 
   appendTaskEvent({ topic, text, workId = null, sessionId = null, payload = {}, dedupeKey }) {
+    if (!this.taskFile) throw new Error('task event file is not configured');
     if (typeof topic !== 'string' || !topic.trim()) throw new Error('event topic is required');
     if (typeof text !== 'string' || !text.trim()) throw new Error('event text is required');
     const normalizedDedupe = String(dedupeKey || `${topic}:${this.now().toISOString()}`);
@@ -78,10 +84,23 @@ export class ControlEventBus {
       dedupeKey: normalizedDedupe,
     };
     appendLine(this.taskFile, event);
+    if (this.onEvent) {
+      try {
+        const result = this.onEvent(event);
+        if (result && typeof result.catch === 'function') {
+          result.catch(() => {
+            // The file ledger remains authoritative when best-effort push fails.
+          });
+        }
+      } catch {
+        // The file ledger remains authoritative when best-effort push fails.
+      }
+    }
     return { duplicate: false, event };
   }
 
   readTaskEvents({ after = '0', limit = 100, topics = [], sessionId = null } = {}) {
+    if (!this.taskFile) throw new BridgeError(503, 'event_store_not_configured', 'task event file is not configured');
     if (!/^(0|[1-9][0-9]*)$/.test(String(after))) {
       throw new BridgeError(409, 'cursor_resync', 'invalid event cursor');
     }
@@ -102,12 +121,6 @@ export class ControlEventBus {
       nextCursor: String(start + Math.min(records.length - start, Math.max(1, Math.min(100, Number(limit) || 100)))),
       lastCursor: String(records.length),
     };
-  }
-
-  latestTranscript(sessionId) {
-    const records = readLines(this.transcriptFile)
-      .filter((record) => record && record.sessionId === sessionId && typeof record.text === 'string');
-    return records.at(-1) || null;
   }
 
   workIsTerminal(status) {

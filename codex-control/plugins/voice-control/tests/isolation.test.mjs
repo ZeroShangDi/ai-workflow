@@ -36,5 +36,5 @@ test('the first slice has no task-control capability or runtime dependencies', (
   assert.equal(manifest.capabilities.taskControl, false);
   assert.equal(manifest.capabilities.externalTriggers.default, 'disabled');
   assert.equal(packageValue.dependencies, undefined);
-  assert.equal(packageValue.devDependencies, undefined);
+  assert.deepEqual(packageValue.devDependencies, { ws: '^8.22.1' });
 });

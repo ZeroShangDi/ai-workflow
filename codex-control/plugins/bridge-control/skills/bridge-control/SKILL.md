@@ -1,6 +1,6 @@
 ---
 name: bridge-control
-description: Use the independent CMB-backed Bridge Control profile for voice-led work control or work-session reporting while preserving profile isolation and transcript-authorized writes.
+description: Use the independent CMB-backed Bridge Control profile for voice-led work control or work-session reporting while preserving profile isolation and conversation-authorized writes.
 ---
 
 # Bridge Control

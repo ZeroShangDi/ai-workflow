@@ -1,6 +1,7 @@
 const COMMON_METHODS = Object.freeze([
   'latestUserTranscript',
   'getPending',
+  'ensureWorkspace',
 ]);
 
 const VOICE_METHODS = Object.freeze([

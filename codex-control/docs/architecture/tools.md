@@ -2,6 +2,19 @@
 
 All new tool names use the `bridge_chat_` prefix. Existing `bridge_chat` remains only as a simple short-turn convenience and must not be used for approvals, creation confirmation, or background notifications.
 
+## Integration Configuration Tools
+
+| Tool | Owner | Status | Input | Effect | Boundary |
+| --- | --- | --- | --- | --- | --- |
+| `bridge_chat_voice_config_load` | Voice Control | Implemented | Absolute config path | Validate config and resolve event-file paths | Read-only |
+| `bridge_chat_control_config_load` | Bridge Control | Implemented | Absolute config path | Validate config and switch the Control event ledger to the supplied paths | Read-only config; mutates only the current process event-bus binding |
+| `bridge_chat_voice_config_update` | Voice Control | Implemented | Absolute loaded config path plus reviewed workspace fields | Atomically persist workspace, project and voice-session identity | Local config write; unknown fields are rejected |
+| `bridge_chat_control_workspace_ensure` | Bridge Control | Implemented | Optional `createDirectory` boolean | Reuse the configured project or register the configured directory and return a stable identifier | External project registration occurs only with `createDirectory: true` |
+
+`bridge_chat_control_voice_session_ensure` is not approved. A fixed Voice Codex session is a workflow composition in the Voice integration skill using existing query/create tools; it does not justify a new Control tool.
+
+Control consumes only the generic integration fields it needs. Loading this config must not import, call, or otherwise depend on Voice Control implementation code.
+
 ## Voice Controller Profile
 
 Loaded only in the dedicated voice or app control conversation.
@@ -20,8 +33,8 @@ Returns one of:
 
 Confirms or cancels a pending create draft.
 
-The control backend inspects the latest real user transcript recorded by Voice
-Control. Accept short explicit
+The control backend inspects the latest real user message in the fixed CMB/Codex
+conversation. Accept short explicit
 affirmative or negative replies. The model does not provide the authoritative
 boolean. An affirmative turn is consumed once and cannot create a second work.
 

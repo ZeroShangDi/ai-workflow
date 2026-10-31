@@ -11,11 +11,16 @@ import { LocalVoiceEvents, TaskEventInbox } from '../plugins/voice-control/src/l
 import { NoticeStore } from '../plugins/voice-control/src/notice-store.mjs';
 import { ControlService } from '../plugins/bridge-control/src/control-service.mjs';
 import { createDirectBackend } from '../plugins/bridge-control/src/direct-backend.mjs';
+import { ControlWebSocketServer } from '../plugins/bridge-control/src/ws-server.mjs';
+import { WsEventStore } from '../plugins/bridge-control/src/ws-event-store.mjs';
 import {
   PROFILE_VOICE_CONTROLLER,
   PROFILE_WORK_REPORTER,
 } from '../plugins/bridge-control/src/profiles.mjs';
 import { startMockCmb } from '../plugins/bridge-control/tests/fake-cmb.mjs';
+import { ControlWebSocketClient } from '../plugins/voice-control/src/control-ws-client.mjs';
+
+const WS_TOKEN = 'integration-control-flow-token-0123456789';
 
 async function temporaryDirectory(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-control-e2e-'));
@@ -47,7 +52,6 @@ test('voice and control plugins close the create-progress-playback loop without 
   const app = new VoiceControlApp({
     triggerConfigStore: config,
     noticeStore: notices,
-    transcriptRecorder: (value) => localEvents.appendTranscript(value),
     chatProvider: {
       configured: true,
       async reply({ messages }) {
@@ -71,6 +75,28 @@ test('voice and control plugins close the create-progress-playback loop without 
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const voiceBaseUrl = `http://127.0.0.1:${server.address().port}`;
 
+  const wsStore = new WsEventStore(path.join(dataDir, 'ws-events.sqlite'));
+  const wsServer = new ControlWebSocketServer({ port: 0, token: WS_TOKEN, store: wsStore });
+  const wsAddress = await wsServer.start();
+  t.after(async () => {
+    await wsServer.close();
+    wsStore.close();
+  });
+  const wsEvents = [];
+  const wsClient = new ControlWebSocketClient({
+    url: wsAddress.url,
+    token: WS_TOKEN,
+    reconnectMinMs: 20,
+    reconnectMaxMs: 50,
+    onEvent: (event) => {
+      wsEvents.push(event);
+      if (event.topic.startsWith('task.') && event.payload) app.tunnel(event.payload);
+    },
+  });
+  wsClient.start();
+  await wsClient.waitUntilConnected(2000);
+  t.after(() => wsClient.stop());
+
   const backend = createDirectBackend({
     cmb: {
       baseUrl: cmb.baseUrl,
@@ -80,6 +106,16 @@ test('voice and control plugins close the create-progress-playback loop without 
     },
     dataDir,
     eventDir,
+  }, {
+    publishEvent: (event) => wsServer.publish({
+      schemaVersion: 1,
+      eventId: event.eventId,
+      correlationId: event.payload?.controlSessionId || null,
+      topic: event.topic,
+      source: 'bridge-control',
+      createdAt: event.createdAt,
+      payload: event,
+    }),
   });
   t.after(() => backend.close());
   const controller = new ControlService({ backend, profile: PROFILE_VOICE_CONTROLLER });
@@ -91,6 +127,7 @@ test('voice and control plugins close the create-progress-playback loop without 
     method: 'POST',
     body: { text: '整理交付说明' },
   });
+  cmb.setUserTranscript('整理交付说明');
 
   const missing = await controller.call('bridge_chat_create', {
     sessionId: voiceSessionId,
@@ -109,6 +146,7 @@ test('voice and control plugins close the create-progress-playback loop without 
     method: 'POST',
     body: { text: '确认' },
   });
+  cmb.setUserTranscript('确认');
   const confirmed = await controller.call('bridge_chat_confirm', {
     sessionId: voiceSessionId,
     draftId: missing.draftId,
@@ -116,6 +154,7 @@ test('voice and control plugins close the create-progress-playback loop without 
   });
   assert.equal(confirmed.status, 'confirmed');
   assert.equal(confirmed.creation.status, 'accepted');
+  assert.deepEqual(cmb.state.sendCalls[0].skills, ['skill-work-reporter']);
 
   const progress = await reporter.call('bridge_chat_emit_progress', {
     sessionId: confirmed.creation.sessionId,
@@ -123,6 +162,11 @@ test('voice and control plugins close the create-progress-playback loop without 
     percent: 35,
   });
   assert.equal(progress.status, 'accepted');
+  const wsDeadline = Date.now() + 2000;
+  while (!wsEvents.some((event) => event.topic === 'task.progress') && Date.now() < wsDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(wsEvents.some((event) => event.topic === 'task.progress'), true);
 
   const deadline = Date.now() + 2000;
   let notice;

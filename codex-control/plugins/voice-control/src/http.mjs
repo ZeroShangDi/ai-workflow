@@ -244,7 +244,7 @@ export function createVoiceHttpServer({
       }
       if (url.pathname === '/api/open' && req.method === 'POST') {
         const body = await readJson(req);
-        writeJson(req, res, 201, { ok: true, session: app.createSession(body) }, origins);
+        writeJson(req, res, 201, { ok: true, ...await app.openSession(body) }, origins);
         return;
       }
       if (url.pathname === '/api/close' && req.method === 'POST') {

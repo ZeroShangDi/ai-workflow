@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { CreateDraftMachine } from './create-machine.mjs';
 import { assertControlBackend, isUnknownResult, unknownWriteReceipt } from './backend-client.mjs';
+import { loadIntegrationConfig } from './integration-config.mjs';
 import { assertToolAvailable } from './profiles.mjs';
 
 function requireString(value, name) {
@@ -25,15 +26,17 @@ async function writeOnce(backendMethod, idempotencyKey) {
 }
 
 export class ControlService {
-  constructor({ backend, profile, dev = false, now, idFactory }) {
+  constructor({ backend, profile, dev = false, defaultProject = null, now, idFactory }) {
     this.profile = profile;
     this.dev = dev;
     this.backend = assertControlBackend(backend, profile);
     this.idFactory = idFactory || (() => crypto.randomUUID());
+    this.integrationConfig = null;
     this.createMachine = profile === 'voice-controller'
       ? new CreateDraftMachine({
         createWork: (request) => this.backend.createWork(request),
         latestUserTranscript: (request) => this.backend.latestUserTranscript(request),
+        defaultProject,
         now,
         idFactory,
       })
@@ -77,6 +80,25 @@ export class ControlService {
   }
 
   async callVoice(toolName, args) {
+    if (toolName === 'bridge_chat_control_config_load') {
+      const config = loadIntegrationConfig(requireString(args.configPath, 'configPath'));
+      this.integrationConfig = config;
+      if (typeof this.backend.configureEventFiles !== 'function') {
+        throw new Error('Control backend cannot apply integration event files');
+      }
+      const eventFiles = this.backend.configureEventFiles(config.eventFiles);
+      return { status: 'loaded', ...config, appliedEventFiles: eventFiles };
+    }
+    if (toolName === 'bridge_chat_control_workspace_ensure') {
+      if (!this.integrationConfig) throw new Error('load the integration config first');
+      if (args.createDirectory !== undefined && typeof args.createDirectory !== 'boolean') {
+        throw new Error('createDirectory must be a boolean');
+      }
+      return this.backend.ensureWorkspace({
+        workspace: this.integrationConfig.workspace,
+        createDirectory: args.createDirectory === true,
+      });
+    }
     if (toolName === 'bridge_chat') {
       requireString(args.text, 'text');
       if (typeof this.backend.devChat !== 'function') throw new Error('Control backend does not provide devChat');

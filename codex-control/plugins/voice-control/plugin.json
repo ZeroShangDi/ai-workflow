@@ -6,12 +6,14 @@
   "summary": "Standalone voice chat runtime with local task notices, playback ledgers, and public open/close/tunnel interfaces.",
   "entrypoints": {
     "http": "src/main.mjs",
+    "mcp": "server.mjs",
+    "skill": "skills/voice-integration/SKILL.md",
     "web": "web/index.html",
     "sdk": "sdk/index.mjs"
   },
   "runtime": {
     "engine": "node",
-    "version": ">=20",
+    "version": ">=22",
     "module": "esm",
     "thirdPartyRuntimeDependencies": 0,
     "modes": {
@@ -76,9 +78,14 @@
       "VOICE_CONTROL_LLM_UPSTREAM_URL",
       "VOICE_CONTROL_LLM_UPSTREAM_API_KEY_FILE"
     ],
+    "integrationConfig": "config/settings.json",
     "triggerFile": "data/config.json",
     "exampleFile": "data/config.example.json"
   },
+  "tools": [
+    "bridge_chat_voice_config_load",
+    "bridge_chat_voice_config_update"
+  ],
   "lifecycle": [
     "installed",
     "configured",

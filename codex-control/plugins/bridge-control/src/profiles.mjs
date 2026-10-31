@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { VOICE_TOOL_DEFINITIONS, WORK_TOOL_DEFINITIONS, DEV_TOOL_DEFINITION } from './tool-contracts.mjs';
 
 export const PROFILE_VOICE_CONTROLLER = 'voice-controller';
@@ -7,6 +10,7 @@ export const PROFILE_NAMES = Object.freeze([
   PROFILE_WORK_REPORTER,
 ]);
 export const DEFAULT_PROFILE = PROFILE_WORK_REPORTER;
+export const PROFILE_AUTO = 'auto';
 
 export function parseProfile(argv = [], env = process.env) {
   let argumentProfile;
@@ -27,10 +31,33 @@ export function parseProfile(argv = [], env = process.env) {
     throw new Error('BRIDGE_CONTROL_PROFILE conflicts with --profile');
   }
   const profile = argumentProfile || envProfile || DEFAULT_PROFILE;
-  if (!PROFILE_NAMES.includes(profile)) {
+  if (![...PROFILE_NAMES, PROFILE_AUTO].includes(profile)) {
     throw new Error(`Unknown bridge-control profile: ${profile}`);
   }
   return profile;
+}
+
+export function resolveRuntimeProfile(profile, env = process.env) {
+  if (profile !== PROFILE_AUTO) return profile;
+  const threadId = String(env.CODEX_THREAD_ID || '').trim();
+  if (!threadId) return env.BRIDGE_CONTROL_AUTO_DEFAULT === PROFILE_VOICE_CONTROLLER
+    ? PROFILE_VOICE_CONTROLLER
+    : PROFILE_WORK_REPORTER;
+  const dataDir = path.resolve(env.BRIDGE_CONTROL_DATA_DIR || path.resolve(import.meta.dirname, '..', '.local'));
+  const stateFile = path.join(dataDir, 'control-state.json');
+  try {
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    const isWorkSession = Object.values(state.works || {}).some((work) => work.sessionId === threadId);
+    return isWorkSession ? PROFILE_WORK_REPORTER : (
+      env.BRIDGE_CONTROL_AUTO_DEFAULT === PROFILE_VOICE_CONTROLLER
+        ? PROFILE_VOICE_CONTROLLER
+        : PROFILE_WORK_REPORTER
+    );
+  } catch {
+    return env.BRIDGE_CONTROL_AUTO_DEFAULT === PROFILE_VOICE_CONTROLLER
+      ? PROFILE_VOICE_CONTROLLER
+      : PROFILE_WORK_REPORTER;
+  }
 }
 
 export function devMode(argv = [], env = process.env) {

@@ -11,14 +11,6 @@ import {
 } from '../src/profiles.mjs';
 import { startMockCmb, temporaryDirectory } from './fake-cmb.mjs';
 
-function appendTranscript(eventDir, value) {
-  fs.mkdirSync(eventDir, { recursive: true });
-  fs.appendFileSync(
-    path.join(eventDir, 'voice-transcripts.jsonl'),
-    `${JSON.stringify({ schemaVersion: 1, ...value })}\n`,
-  );
-}
-
 test('control plugin creates and reports CMB work without bridge-hub', async (t) => {
   const cmb = await startMockCmb();
   t.after(cmb.close);
@@ -42,13 +34,7 @@ test('control plugin creates and reports CMB work without bridge-hub', async (t)
     draft: { project: 'demo' },
   });
   assert.equal(missing.status, 'needs_input');
-  appendTranscript(eventDir, {
-    sessionId: 'voice-session-1',
-    turnId: 'turn-1',
-    sequence: '1',
-    text: '整理交付说明',
-    createdAt: new Date().toISOString(),
-  });
+  cmb.setUserTranscript('整理交付说明');
   const awaiting = await controller.call('bridge_chat_create', {
     sessionId: 'voice-session-1',
     draftId: missing.draftId,
@@ -56,13 +42,7 @@ test('control plugin creates and reports CMB work without bridge-hub', async (t)
     draft: { request: '整理交付说明' },
   });
   assert.equal(awaiting.status, 'awaiting_confirmation');
-  appendTranscript(eventDir, {
-    sessionId: 'voice-session-1',
-    turnId: 'turn-2',
-    sequence: '2',
-    text: '确认',
-    createdAt: new Date().toISOString(),
-  });
+  cmb.setUserTranscript('确认');
 
   const confirmed = await controller.call('bridge_chat_confirm', {
     sessionId: 'voice-session-1',
@@ -73,6 +53,9 @@ test('control plugin creates and reports CMB work without bridge-hub', async (t)
   assert.equal(confirmed.creation.status, 'accepted');
   assert.equal(cmb.state.createCount, 1);
   assert.equal(cmb.state.sendCount, 1);
+  assert.deepEqual(cmb.state.sendCalls[0].skills, ['skill-work-reporter']);
+  assert.match(cmb.state.createCalls[0].developerInstructions, /--profile work-reporter/);
+  assert.match(cmb.state.createCalls[0].developerInstructions, /Do not create or control other tasks/);
 
   const reporter = new ControlService({
     backend,
@@ -99,4 +82,43 @@ test('control plugin creates and reports CMB work without bridge-hub', async (t)
     'task.completed',
   ]);
   assert.equal(events.every((event) => event.sessionId === 'voice-session-1'), true);
+});
+
+test('workspace ensure reuses a matching project and initializes a missing configured path', async (t) => {
+  const cmb = await startMockCmb();
+  t.after(cmb.close);
+  const dataDir = await temporaryDirectory(t);
+  const workspacePath = await temporaryDirectory(t);
+  const backend = createDirectBackend({
+    cmb: {
+      baseUrl: cmb.baseUrl,
+      username: 'admin',
+      password: 'test-password',
+      timeoutMs: 2000,
+    },
+    dataDir,
+  });
+  t.after(() => backend.close());
+
+  const existing = await backend.ensureWorkspace({
+    workspace: { path: '/tmp/demo', projectKey: '' },
+  });
+  assert.equal(existing.status, 'exists');
+  assert.equal(existing.workspace.projectKey, 'local|demo');
+
+  const missing = await backend.ensureWorkspace({
+    workspace: { path: workspacePath, projectKey: '' },
+  });
+  assert.equal(missing.status, 'missing');
+  assert.equal(missing.requiresInitialization, true);
+  assert.equal(cmb.state.projectRegisterCount, 0);
+
+  const initialized = await backend.ensureWorkspace({
+    workspace: { path: workspacePath, projectKey: '' },
+    createDirectory: true,
+  });
+  assert.equal(initialized.status, 'initialized');
+  assert.equal(initialized.workspace.projectKey, 'local|voice-workspace');
+  assert.equal(cmb.state.projectRegisterCount, 1);
+  assert.equal(cmb.state.projectRegisterCalls[0].path, workspacePath);
 });

@@ -55,6 +55,37 @@ test('create draft transitions through needs_input and confirmation without bool
   assert.equal(createCalls, 1);
 });
 
+
+test('defaults to the configured workspace when project is omitted', async () => {
+  let transcript = { turnId: 'turn-1', text: '创建任务' };
+  let captured = null;
+  const service = new ControlService({
+    profile: PROFILE_VOICE_CONTROLLER,
+    defaultProject: 'local|voice-workspace',
+    backend: createVoiceBackend({
+      latestUserTranscript: async () => transcript,
+      createWork: async (request) => {
+        captured = request.draft;
+        return { status: 'accepted', workId: 'work-default-project' };
+      },
+    }),
+  });
+  const pending = await service.call('bridge_chat_create', {
+    sessionId: 'session',
+    draft: { request: '输出 hello' },
+  });
+  assert.equal(pending.status, 'awaiting_confirmation');
+  assert.match(pending.summary, /默认工作空间/);
+  transcript = { turnId: 'turn-2', text: '确认创建' };
+  const confirmed = await service.call('bridge_chat_confirm', {
+    sessionId: 'session',
+    draftId: pending.draftId,
+    binding: pending.binding,
+  });
+  assert.equal(confirmed.status, 'confirmed');
+  assert.equal(captured.project, 'local|voice-workspace');
+});
+
 test('negative transcript cancels a draft and terminal state does not recreate', async () => {
   let transcript = { turnId: 'turn-1', text: '创建任务' };
   let createCalls = 0;

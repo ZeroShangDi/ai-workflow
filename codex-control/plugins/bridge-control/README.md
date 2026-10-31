@@ -18,11 +18,7 @@ bridge-control -> CMB public HTTP/SSE
 bridge-control -> local event files -> voice-control
 ```
 
-任务事件只写入本地事件总线，不经过 Hub。事件总线默认位于：
-
-```text
-~/.codex-control/events/task-events.jsonl
-```
+任务事件只写入配置指定的本地事件文件，不经过 Hub。Voice Control 与 Bridge Control 可以加载同一份 integration config；事件路径由配置中的 `eventFiles` 决定，不再默认写入 `~/.codex-control/events`。
 
 Voice Control 使用同一目录接收任务进度、审批和完成通知。两边可以分别启动：
 
@@ -39,12 +35,18 @@ BRIDGE_CONTROL_CMB_PASSWORD
 BRIDGE_CONTROL_CMB_PASSWORD_FILE
 BRIDGE_CONTROL_CMB_TIMEOUT_MS
 BRIDGE_CONTROL_DATA_DIR
+BRIDGE_CONTROL_INTEGRATION_CONFIG
 CODEX_CONTROL_EVENT_DIR
 BRIDGE_CONTROL_PROFILE
 BRIDGE_CONTROL_DEV
+BRIDGE_CONTROL_WS_HOST
+BRIDGE_CONTROL_WS_PORT
+BRIDGE_CONTROL_WS_TOKEN_FILE
 ```
 
 凭据只能通过环境变量或私有文件提供，不能写进工具参数。CMB 源码保持只读；本插件使用自己的公开 HTTP/SSE 客户端。
+
+启动时可设置 `BRIDGE_CONTROL_INTEGRATION_CONFIG` 为 integration config 的绝对路径；MCP 内的 `bridge_chat_control_config_load` 也会在加载校验后立即切换 Control 的事件总线。该配置是通用输入，Control 不导入或调用 Voice Control 实现。`CODEX_CONTROL_EVENT_DIR` 仅作为未加载 integration config 时的显式兼容回退，不再有隐式主目录默认值。
 
 ## 启动
 
@@ -58,13 +60,32 @@ node server.mjs
 
 `server.mjs` 是 stdio MCP 服务。`.mcp.json` 默认关闭，只用于可信宿主按需加载，不作为普通全局插件安装入口。
 
+## WebSocket 事件接口
+
+MCP 进程同时提供本地 WebSocket Server，默认监听 `127.0.0.1:8792`。Voice 使用私有 token 连接，双方都可以发布和订阅事件。
+
+```text
+voice.initialization.requested
+voice.chat_session.create.requested
+voice.chat_session.bind.requested
+voice.chat.user
+control.initialization.started
+control.chat_session.ready / bound
+control.chat.reply
+task.created / task.progress / task.completed / ...
+```
+
+初始化会话位于独立的初始化工作空间，不在固定语音工作空间中。固定聊天创建成功后，Voice 才写回 `voiceSessionId` 并发送绑定事件。事件先写入 SQLite，再推送给已连接订阅者；JSONL 保留为兼容台账。
+
 ## 创建与授权
 
 1. `bridge_chat_create` 先形成草稿，不直接创建任务。
-2. 草稿完整后返回 `awaiting_confirmation`，记录当前真实用户转写。
-3. Voice Control 将最终用户语音写入共享语音转写事件文件。
-4. `bridge_chat_confirm` 重新读取最新转写，只有明确肯定的新发言才能创建 CMB 任务。
-5. 模型不能通过布尔值自授权；同一条转写不能重复授权两个任务。
+2. 草稿完整后返回 `awaiting_confirmation`，记录固定 Codex 会话当前最新用户消息作为基线。
+3. 后续语音/文本消息由该 Codex 会话原生持久化，Voice Control 不另建转写台账。
+4. `bridge_chat_confirm` 从 CMB 会话历史重新读取最新用户消息，只有明确肯定的新发言才能创建 CMB 任务。
+5. 模型不能通过布尔值自授权；同一条消息不能重复授权两个任务。
+
+创建任务会话后，Control 会先解析 `bridge-control-work-reporter` 技能，再把该技能 ID 和任务请求一起发送。技能不存在时任务创建失败关闭，不会启动一个无法上报进度的任务。可信宿主仍需只为该工作会话启动 `work-reporter` MCP profile。
 
 ## 事件
 

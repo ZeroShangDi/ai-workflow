@@ -15,6 +15,7 @@ export {
   PROFILE_WORK_REPORTER,
   devMode,
   parseProfile,
+  resolveRuntimeProfile,
   toolNamesForProfile,
   toolsForProfile,
 } from './profiles.mjs';

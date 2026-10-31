@@ -18,7 +18,7 @@ A self-contained local or remote voice runtime. It owns:
 - the voice page and a single start/stop interaction;
 - ASR and TTS through browser or host providers;
 - the conversation-provider loop;
-- voice sessions, transcript history, SSE events and interruption behavior;
+- live voice sessions, SSE events and interruption behavior;
 - task-notice ingestion, queueing and durable playback state;
 - observed playback acknowledgements;
 - public `open`, `close`, and `tunnel` endpoints.
@@ -31,7 +31,7 @@ An independently runnable internal control plugin backed directly by CMB public 
 
 - CMB login, projects, sessions, send, history, respond and stop;
 - `voice-controller` and `work-reporter` profiles;
-- task creation confirmation based on the newest real voice transcript;
+- task creation confirmation based on the newest real user message in the fixed CMB/Codex conversation;
 - task and interaction state;
 - task-event production for Voice Control.
 
@@ -45,8 +45,7 @@ Optional backend for a future mobile App. It may independently depend on CMB and
 
 ```text
 bridge-control ───────────────────> CMB public HTTP/SSE
-bridge-control ──task events──────> shared local event files
-shared local event files ────────> voice-control
+bridge-control <──local WebSocket──> voice-control
 
 bridge-hub ──────────────────────> CMB public HTTP/SSE              # optional
 bridge-hub ──open/close/tunnel───> voice-control                    # optional
@@ -57,17 +56,19 @@ bridge-control ──X──> bridge-hub
 bridge-control ──X──> voice-control implementation
 ```
 
-The shared local event directory defaults to:
+The primary event transport is an authenticated local WebSocket owned by Bridge Control. Voice connects as a client and falls back to standalone mode when the server is unavailable.
+
+Task events are also retained in the configured JSONL ledger for compatibility and inspection:
 
 ```text
-~/.codex-control/events/
-├── voice-transcripts.jsonl
-└── task-events.jsonl
+plugins/voice-control/config/settings.json
+├── eventFiles.taskEvents
 ```
 
-- `voice-transcripts.jsonl` is written by Voice Control from final real-user speech or text.
 - `task-events.jsonl` is written by Bridge Control for task creation, progress, interactions and completion.
 - Voice Control reads task events, owns notice state, and records observed playback outcomes in its own ledger.
+- Bridge Control receives explicit public parameters from Voice events; it does not read Voice config or import Voice implementation code.
+- Voice chat history is persisted by the fixed Codex conversation. Voice Control does not maintain a parallel transcript file.
 
 ## 4. Standalone and Combined Modes
 
@@ -118,11 +119,11 @@ User speech interrupts active assistant or task-notice playback. A notice is onl
 
 ## 6. Create and Authorization
 
-1. The voice page records final user text and writes a stable transcript event.
+1. The fixed Codex conversation persists the final user text as a native user message.
 2. `bridge-control` builds a draft and returns missing fields.
-3. A complete draft enters `awaiting_confirmation` with a baseline transcript.
-4. Only a newer explicit affirmative transcript can confirm creation.
-5. The same transcript cannot authorize two tasks.
+3. A complete draft enters `awaiting_confirmation` with the latest conversation turn as its baseline.
+4. Only a newer explicit affirmative user message can confirm creation.
+5. The same user message cannot authorize two tasks.
 6. CMB create/send results are idempotent; unknown write outcomes are not replayed.
 
 ## 7. Hub Boundary
@@ -140,6 +141,6 @@ Hub work is deferred until mobile-App requirements are concrete. When added:
 - CMB credentials come from environment variables or private files.
 - Event files are created private to the current user.
 - Work sessions receive only `work-reporter`.
-- Approvals and creation use the newest real user transcript and immutable interaction bindings.
+- Approvals and creation use the newest real user message from the fixed Codex conversation and immutable interaction bindings.
 - Unknown external writes are reconciled, never automatically replayed.
 - Raw audio is never stored by the event bus.

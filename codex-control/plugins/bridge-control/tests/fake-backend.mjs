@@ -2,6 +2,7 @@ export function createVoiceBackend(overrides = {}) {
   return {
     latestUserTranscript: async () => ({ turnId: 'turn-1', text: '创建任务' }),
     getPending: async () => null,
+    ensureWorkspace: async ({ workspace }) => ({ status: 'exists', workspace, requiresConfigUpdate: false }),
     createWork: async () => ({ status: 'accepted', workId: 'work-1' }),
     findWork: async () => ({ candidates: [] }),
     getStatus: async () => ({ status: 'idle' }),
@@ -12,6 +13,7 @@ export function createVoiceBackend(overrides = {}) {
     resolveApproval: async () => ({ status: 'accepted' }),
     stopWork: async () => ({ status: 'accepted' }),
     ackAnnouncement: async () => ({ status: 'accepted' }),
+    configureEventFiles: (eventFiles) => eventFiles,
     ...overrides,
   };
 }

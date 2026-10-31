@@ -57,33 +57,17 @@ function eventText(value) {
 }
 
 export class LocalVoiceEvents {
-  constructor({ eventDir = defaultEventDirectory() } = {}) {
-    this.eventDir = path.resolve(eventDir);
-    this.taskFile = path.join(this.eventDir, 'task-events.jsonl');
-    this.transcriptFile = path.join(this.eventDir, 'voice-transcripts.jsonl');
-    ensurePrivateDirectory(this.eventDir);
-  }
-
-  appendTranscript({ sessionId, text, turnId, createdAt }) {
-    const sequence = this.readTranscripts().length + 1;
-    const record = {
-      schemaVersion: 1,
-      sessionId,
-      turnId,
-      sequence: String(sequence),
-      text,
-      createdAt: createdAt || new Date().toISOString(),
-    };
-    appendJsonLine(this.transcriptFile, record);
-    return record;
+  constructor({ eventDir = null, taskFile = null } = {}) {
+    const resolvedEventDir = eventDir || null;
+    this.eventDir = resolvedEventDir ? path.resolve(resolvedEventDir) : null;
+    this.taskFile = taskFile
+      ? path.resolve(taskFile)
+      : (this.eventDir ? path.join(this.eventDir, 'task-events.jsonl') : null);
+    if (this.taskFile) ensurePrivateDirectory(path.dirname(this.taskFile));
   }
 
   readTaskEvents() {
-    return readJsonLines(this.taskFile);
-  }
-
-  readTranscripts() {
-    return readJsonLines(this.transcriptFile);
+    return this.taskFile ? readJsonLines(this.taskFile) : [];
   }
 
   static normalizeTaskEvent(value, { now = () => new Date(), idFactory = () => crypto.randomUUID() } = {}) {
@@ -129,12 +113,13 @@ export class LocalVoiceEvents {
 
 export class TaskEventInbox {
   constructor({
-    eventDir = defaultEventDirectory(),
+    eventDir = null,
+    taskFile = null,
     onEvent,
     intervalMs = 500,
   } = {}) {
     if (typeof onEvent !== 'function') throw new Error('onEvent is required');
-    this.events = new LocalVoiceEvents({ eventDir });
+    this.events = new LocalVoiceEvents(eventDir ? { eventDir } : { taskFile });
     this.onEvent = onEvent;
     this.intervalMs = intervalMs;
     this.seen = new Set();

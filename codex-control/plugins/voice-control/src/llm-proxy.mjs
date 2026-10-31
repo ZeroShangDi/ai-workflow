@@ -64,24 +64,27 @@ export class OpenAICompatibleProxy {
     upstreamUrl = '',
     apiKey = '',
     searchProvider = null,
+    managedChatProvider = null,
     timeoutMs = 120000,
     fetchImpl = fetch,
   } = {}) {
     this.upstreamUrl = upstreamUrl ? absoluteUrl(upstreamUrl) : null;
     this.apiKey = apiKey;
     this.searchProvider = searchProvider;
+    this.managedChatProvider = managedChatProvider;
     this.timeoutMs = timeoutMs;
     this.fetch = fetchImpl;
   }
 
   get configured() {
-    return Boolean(this.upstreamUrl && this.apiKey);
+    return Boolean((this.upstreamUrl && this.apiKey) || this.managedChatProvider);
   }
 
   status() {
     return {
       configured: this.configured,
       search: { configured: this.searchProvider?.configured === true },
+      managedChat: { configured: this.managedChatProvider?.available === true },
     };
   }
 
@@ -102,6 +105,52 @@ export class OpenAICompatibleProxy {
     }
 
     const request = structuredClone(body);
+    if (this.managedChatProvider?.available) {
+      let reply;
+      try {
+        reply = await this.managedChatProvider.reply(request);
+      } catch (error) {
+        return {
+          status: 502,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({ error: { message: error.message, code: error.code || 'managed_chat_failed' } }),
+        };
+      }
+      const id = `chatcmpl_${reply.messageId || Date.now()}`;
+      const created = Math.floor(Date.now() / 1000);
+      if (request.stream) {
+        const head = {
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model: request.model || 'codex',
+          choices: [{ index: 0, delta: { role: 'assistant', content: reply.text }, finish_reason: null }],
+        };
+        const end = {
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model: request.model || 'codex',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        };
+        return {
+          status: 200,
+          contentType: 'text/event-stream; charset=utf-8',
+          body: `data: ${JSON.stringify(head)}\n\ndata: ${JSON.stringify(end)}\n\ndata: [DONE]\n\n`,
+        };
+      }
+      return {
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          id,
+          object: 'chat.completion',
+          created,
+          model: request.model || 'codex',
+          choices: [{ index: 0, message: { role: 'assistant', content: reply.text }, finish_reason: 'stop' }],
+        }),
+      };
+    }
     const user = latestUser(request.messages);
     if (user && this.searchProvider?.configured && needsWebSearch(user.text)) {
       let search;
@@ -151,7 +200,11 @@ export class OpenAICompatibleProxy {
   }
 }
 
-export function createOpenAICompatibleProxy({ env = process.env, searchProvider = null } = {}) {
+export function createOpenAICompatibleProxy({
+  env = process.env,
+  searchProvider = null,
+  managedChatProvider = null,
+} = {}) {
   const fileKey = env.VOICE_CONTROL_LLM_UPSTREAM_API_KEY_FILE
     ? fs.readFileSync(env.VOICE_CONTROL_LLM_UPSTREAM_API_KEY_FILE, 'utf8').trim()
     : '';
@@ -159,6 +212,7 @@ export function createOpenAICompatibleProxy({ env = process.env, searchProvider 
     upstreamUrl: env.VOICE_CONTROL_LLM_UPSTREAM_URL || '',
     apiKey: env.VOICE_CONTROL_LLM_UPSTREAM_API_KEY || fileKey || '',
     searchProvider,
+    managedChatProvider,
     timeoutMs: Number(env.VOICE_CONTROL_LLM_TIMEOUT_MS || 120000),
   });
 }

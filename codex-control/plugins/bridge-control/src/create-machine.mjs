@@ -9,12 +9,16 @@ function freshId(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
-function requiredFields(draft) {
-  return REQUIRED_DRAFT_FIELDS.filter((field) => typeof draft[field] !== 'string' || !draft[field].trim());
+function requiredFields(draft, defaultProject) {
+  return REQUIRED_DRAFT_FIELDS.filter((field) => {
+    if (field === 'project' && defaultProject) return false;
+    return typeof draft[field] !== 'string' || !draft[field].trim();
+  });
 }
 
-function summaryFor(draft) {
-  return `项目：${draft.project}\n任务：${draft.request}${draft.title ? `\n标题：${draft.title}` : ''}`;
+function summaryFor(draft, defaultProject) {
+  const project = draft.project || (defaultProject ? '默认工作空间' : '');
+  return `项目：${project}\n任务：${draft.request}${draft.title ? `\n标题：${draft.title}` : ''}`;
 }
 
 function decisionFromTranscript(text) {
@@ -25,13 +29,16 @@ function decisionFromTranscript(text) {
 }
 
 export class CreateDraftMachine {
-  constructor({ createWork, latestUserTranscript, now = () => new Date(), idFactory = freshId }) {
+  constructor({ createWork, latestUserTranscript, defaultProject = null, now = () => new Date(), idFactory = freshId }) {
     if (typeof createWork !== 'function') throw new TypeError('createWork must be a function');
     if (typeof latestUserTranscript !== 'function') throw new TypeError('latestUserTranscript must be a function');
     this.createWork = createWork;
     this.latestUserTranscript = latestUserTranscript;
     this.now = now;
     this.idFactory = idFactory;
+    this.defaultProject = typeof defaultProject === 'string' && defaultProject.trim()
+      ? defaultProject.trim()
+      : null;
     this.drafts = new Map();
   }
 
@@ -41,14 +48,14 @@ export class CreateDraftMachine {
       binding: draft.binding,
       status: draft.status,
       draft: { ...draft.draft },
-      summary: summaryFor(draft.draft),
+      summary: summaryFor(draft.draft, this.defaultProject),
       confirmationPrompt: draft.status === 'awaiting_confirmation'
         ? `请确认是否创建：${draft.draft.title || draft.draft.request}`
         : null,
       updatedAt: draft.updatedAt,
     };
     if (draft.status === 'needs_input') {
-      publicValue.missing = requiredFields(draft.draft);
+      publicValue.missing = requiredFields(draft.draft, this.defaultProject);
       publicValue.questions = publicValue.missing.map((field) => ({
         field,
         prompt: field === 'project' ? '要处理哪个项目？' : '需要完成什么任务？',
@@ -63,7 +70,7 @@ export class CreateDraftMachine {
   }
 
   async transition(draft) {
-    const missing = requiredFields(draft.draft);
+    const missing = requiredFields(draft.draft, this.defaultProject);
     const nextStatus = missing.length ? 'needs_input' : 'awaiting_confirmation';
     if (nextStatus === 'awaiting_confirmation' && draft.baselineTurnId === undefined) {
       const transcript = await this.latestUserTranscript({ sessionId: draft.sessionId });
@@ -160,7 +167,10 @@ export class CreateDraftMachine {
         idempotencyKey,
         draftId: current.draftId,
         binding: current.binding,
-        draft: { ...current.draft },
+        draft: {
+          ...current.draft,
+          ...(!current.draft.project && this.defaultProject ? { project: this.defaultProject } : {}),
+        },
         sessionId,
         transcript,
       });

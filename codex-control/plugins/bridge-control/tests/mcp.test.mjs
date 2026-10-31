@@ -10,6 +10,7 @@ async function listedTools(args) {
   const env = { ...process.env };
   delete env.BRIDGE_CONTROL_PROFILE;
   delete env.BRIDGE_CONTROL_DEV;
+  env.BRIDGE_CONTROL_WS_ENABLED = '0';
   const child = spawn(process.execPath, ['server.mjs', ...args], {
     cwd: plugin,
     env,

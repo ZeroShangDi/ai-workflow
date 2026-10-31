@@ -3,7 +3,7 @@ const nullableString = { type: ['string', 'null'] };
 const draftSchema = {
   type: 'object',
   properties: {
-    project: { type: 'string' },
+    project: { type: 'string', description: 'Omit to use the configured fixed workspace; set only when the user explicitly requests another project.' },
     request: { type: 'string' },
     title: { type: 'string' },
     cwd: { type: 'string' },
@@ -19,6 +19,29 @@ const interactionProperties = {
 };
 
 export const VOICE_TOOL_DEFINITIONS = Object.freeze([
+  {
+    name: 'bridge_chat_control_config_load',
+    description: 'Load and validate an integration configuration from an absolute file path.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        configPath: { type: 'string', description: 'Absolute path to the integration JSON file' },
+      },
+      required: ['configPath'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'bridge_chat_control_workspace_ensure',
+    description: 'Check the configured workspace and return its stable project identity. Initialize the directory only when explicitly requested.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        createDirectory: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
+  },
   {
     name: 'bridge_chat_create',
     description: 'Create or refine a work-creation draft. Completion never creates work before bridge_chat_confirm verifies the latest user transcript.',

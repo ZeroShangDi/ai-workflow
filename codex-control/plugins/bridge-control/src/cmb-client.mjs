@@ -193,6 +193,7 @@ export class CmbAdapter {
   } = {}) {
     await this.login();
     const write = classifyWrite;
+    const mutating = method !== 'GET';
     let response;
     try {
       response = await this.#raw(pathname, {
@@ -201,7 +202,7 @@ export class CmbAdapter {
         signal,
         headers: {
           Cookie: this.cookie,
-          ...(write ? {
+          ...(mutating ? {
             Origin: this.baseUrl,
             'Content-Type': 'application/json',
             'X-CSRF-Token': this.csrf,
@@ -290,16 +291,67 @@ export class CmbAdapter {
     };
   }
 
+  async registerProject({ path: projectPath, createDirectory = false, host = 'local', kind = 'desktop' } = {}) {
+    const pathname = requireText(projectPath, 'project.path', 4096);
+    if (!['desktop', 'cli'].includes(kind)) {
+      throw new CmbError('CMB project kind is unsupported', { code: 'invalid_request', status: 400 });
+    }
+    const value = await this.request('/api/projects', {
+      method: 'POST',
+      body: {
+        path: pathname,
+        createDirectory: createDirectory === true,
+        host: requireText(host, 'project.host', 256),
+        kind,
+      },
+    });
+    const project = value.project || value;
+    const key = requireText(project.key, 'project.key', 4096);
+    return {
+      key,
+      name: project.name || project.projectName || key,
+      cwd: project.cwd || pathname,
+      type: project.type || project.kind || kind,
+      host: project.host || host,
+    };
+  }
+
   async createSession({
     project,
     title,
     requestId = crypto.randomUUID(),
+    config = null,
+    developerInstructions = null,
+    permissions = null,
+    approvalPolicy = null,
   } = {}) {
     const body = {
       project: requireText(project, 'project', 4096),
       title: requireText(title, 'title', 120),
       id: requireText(requestId, 'requestId', 128),
     };
+    if (config !== null) {
+      if (!config || typeof config !== 'object' || Array.isArray(config)) {
+        throw new CmbError('CMB session config must be an object', { code: 'invalid_request', status: 400 });
+      }
+      body.config = config;
+    }
+    if (developerInstructions !== null) {
+      body.developerInstructions = requireText(
+        developerInstructions,
+        'developerInstructions',
+        100000,
+      );
+    }
+    if (permissions !== null) {
+      body.permissions = requireText(permissions, 'permissions', 128);
+    }
+    if (approvalPolicy !== null) {
+      if (!['untrusted', 'on-failure', 'on-request', 'never'].includes(approvalPolicy)) {
+        throw new CmbError('CMB approvalPolicy is unsupported', { code: 'invalid_request', status: 400 });
+      }
+      body.approvalPolicy = approvalPolicy;
+    }
     const value = await this.request('/api/sessions', {
       method: 'POST',
       body,
@@ -323,6 +375,28 @@ export class CmbAdapter {
       body: {},
       classifyWrite: false,
     });
+  }
+
+  async updateSecuritySettings(sessionId, {
+    approvalPolicy = 'never',
+    permissions = ':danger-full-access',
+  } = {}) {
+    const id = assertSessionId(sessionId);
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/settings`, {
+      method: 'POST',
+      body: { approvalPolicy, permissions },
+    });
+  }
+
+  async catalog(sessionId, { kind = 'skills', query = '', limit = 50, refresh = false } = {}) {
+    const id = assertSessionId(sessionId);
+    const params = new URLSearchParams({
+      kind,
+      q: query,
+      limit: String(limit),
+      ...(refresh ? { refresh: 'true' } : {}),
+    });
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/catalog?${params}`);
   }
 
   async respond(sessionId, requestId, response) {

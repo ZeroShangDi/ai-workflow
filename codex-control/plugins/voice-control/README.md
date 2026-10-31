@@ -36,14 +36,20 @@ VOICE_CONTROL_LLM_TIMEOUT_MS
 VOICE_CONTROL_SEARCH_URL
 VOICE_CONTROL_SEARCH_TOKEN_FILE
 VOICE_CONTROL_SEARCH_TIMEOUT_MS
-CODEX_CONTROL_EVENT_DIR
+VOICE_CONTROL_INTEGRATION_CONFIG
+VOICE_CONTROL_CONTROL_WS_URL
+VOICE_CONTROL_CONTROL_WS_TOKEN_FILE
 ```
 
 实时语音使用 WebRTC。票据由 Voice Control 签发，SDP offer 通过本插件代理到语音后端，页面不接触上游凭据。`VOICE_CONTROL_TICKET_SECRET_FILE` 必须与语音后端使用的票据密钥一致。
 
-联网聊天由 Voice Control 的 OpenAI-compatible LLM 代理处理。识别到实时信息需求时，先独立查询公开网页，再把结果和来源注入当前对话；搜索不会创建任务。语音后端应把 `VOICE_LLM_URL` 指向本插件 `/v1`。
+联网聊天由 Voice Control 的 OpenAI-compatible LLM 代理处理。Control 可用且固定会话已初始化时，代理把最终用户文本发送到固定 Codex 会话；Control 不可用时回退到独立模型与搜索链路。语音后端应把 `VOICE_LLM_URL` 指向本插件 `/v1`。
 
-事件目录默认是 `~/.codex-control/events`。Voice Control 从 `task-events.jsonl` 读取 `bridge-control` 产生的任务事件，把通知状态保存在自己的 `data/notices.json` 中。
+HTTP 服务默认读取插件内的 `config/settings.json`，也可以通过 `VOICE_CONTROL_INTEGRATION_CONFIG` 指向绝对路径配置。Control WebSocket 地址和任务事件兼容台账路径都从该配置解析。通知状态保存在自己的 `data/notices.json` 中。
+
+启动前必须保证配置中的 `eventFiles.taskEvents` 是预期文件；语音插件自身启动不依赖 Control、人物设定插件或 Hub。语音聊天记录由固定 Codex 会话持久化，不由 Voice Control 另建转写台账。
+
+Voice 启动后会尝试连接 Control WebSocket。握手失败时继续独立运行；握手成功时，`/api/open` 会先完成固定工作空间和固定会话的初始化或绑定，再打开语音。
 
 ## 启动
 

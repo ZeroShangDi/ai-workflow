@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { defaultEventDirectory } from './event-bus.mjs';
+import { loadIntegrationConfig } from './integration-config.mjs';
 
 function required(name, value) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`);
@@ -36,6 +36,9 @@ export function loadControlConfig(env = process.env) {
   const dataDir = path.resolve(env.BRIDGE_CONTROL_DATA_DIR || path.resolve(import.meta.dirname, '..', '.local'));
   const password = env.BRIDGE_CONTROL_CMB_PASSWORD
     || readSecret(env.BRIDGE_CONTROL_CMB_PASSWORD_FILE, 'BRIDGE_CONTROL_CMB_PASSWORD_FILE');
+  const integrationConfig = env.BRIDGE_CONTROL_INTEGRATION_CONFIG
+    ? loadIntegrationConfig(env.BRIDGE_CONTROL_INTEGRATION_CONFIG)
+    : null;
   return {
     cmb: {
       baseUrl: url(env.BRIDGE_CONTROL_CMB_BASE_URL),
@@ -44,6 +47,8 @@ export function loadControlConfig(env = process.env) {
       timeoutMs: Math.max(1000, Math.min(600000, Number(env.BRIDGE_CONTROL_CMB_TIMEOUT_MS) || 120000)),
     },
     dataDir,
-    eventDir: env.CODEX_CONTROL_EVENT_DIR || defaultEventDirectory(env),
+    workspace: integrationConfig?.workspace || null,
+    eventDir: integrationConfig ? null : (env.CODEX_CONTROL_EVENT_DIR || null),
+    taskEvents: integrationConfig?.eventFiles.taskEvents || null,
   };
 }

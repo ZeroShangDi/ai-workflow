@@ -5,6 +5,7 @@ import { CmbAdapter } from './cmb-client.mjs';
 import { BridgeError } from './errors.mjs';
 import { ControlEventBus } from './event-bus.mjs';
 import { AtomicJsonStore } from './storage.mjs';
+import { controlThreadConfig } from './thread-config.mjs';
 import {
   assertObject,
   canonicalJson,
@@ -32,18 +33,69 @@ function displayText(value) {
   return '';
 }
 
+function messageText(message) {
+  if (typeof message?.text === 'string') return message.text.trim();
+  if (typeof message?.content === 'string') return message.content.trim();
+  if (Array.isArray(message?.content)) {
+    return message.content
+      .map((part) => (typeof part === 'string' ? part : part?.text))
+      .filter((part) => typeof part === 'string')
+      .join('\n')
+      .trim();
+  }
+  return '';
+}
+
+function latestUserMessage(history) {
+  const turns = Array.isArray(history?.turns) ? history.turns : [];
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = turns[turnIndex];
+    const messages = Array.isArray(turn?.messages) ? turn.messages : [];
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const message = messages[messageIndex];
+      if (message?.role !== 'user') continue;
+      const text = messageText(message);
+      if (!text) continue;
+      const turnId = String(turn.id || turn.turnId || '').trim();
+      if (!turnId) continue;
+      return {
+        text,
+        turnId,
+        sequence: String(message.id || `${turnId}:${messageIndex}`),
+      };
+    }
+  }
+  return null;
+}
+
+function skillRows(value) {
+  const rows = value?.skills || value?.skillEntries || [];
+  return Array.isArray(rows) ? rows : [];
+}
+
+function matchesSkillName(skill, expected) {
+  return [skill?.name, skill?.displayName]
+    .filter((value) => typeof value === 'string')
+    .some((value) => value === expected || value.endsWith(`:${expected}`));
+}
+
 export class DirectControlBackend {
   constructor({
     cmb,
     dataDir,
     eventDir,
+    workspace = null,
+    taskFile = null,
+    publishEvent = null,
     now = () => new Date(),
     monitorIntervalMs = 2500,
   }) {
     this.cmb = cmb;
+    this.workspace = workspace;
     this.now = now;
     this.monitorIntervalMs = monitorIntervalMs;
-    this.bus = new ControlEventBus({ eventDir, now });
+    this.bus = new ControlEventBus({ eventDir, taskFile, now, onEvent: publishEvent });
+    this.publishEvent = publishEvent;
     this.store = new AtomicJsonStore(
       path.join(path.resolve(dataDir), 'control-state.json'),
       { schemaVersion: 1, works: {}, interactions: {}, idempotency: {} },
@@ -51,12 +103,77 @@ export class DirectControlBackend {
     this.monitors = new Map();
   }
 
-  latestUserTranscript({ sessionId }) {
-    const transcript = this.bus.latestTranscript(requireText(sessionId, 'sessionId', 256));
+  async latestUserTranscript({ sessionId }) {
+    const id = requireText(sessionId, 'sessionId', 256);
+    const view = await this.cmb.view(id);
+    const transcript = latestUserMessage(view);
     if (!transcript) {
-      throw new BridgeError(404, 'transcript_not_found', 'no voice transcript exists for this session');
+      throw new BridgeError(404, 'transcript_not_found', 'no user message exists in this CMB session');
     }
     return transcript;
+  }
+
+  configureEventFiles({ taskEvents }) {
+    this.bus = new ControlEventBus({
+      taskFile: taskEvents,
+      now: this.now,
+      onEvent: this.publishEvent,
+    });
+    return {
+      taskEvents: this.bus.taskFile,
+    };
+  }
+
+  async ensureWorkspace({ workspace, createDirectory = false } = {}) {
+    const value = assertObject(workspace, 'workspace');
+    const configuredPath = typeof value.path === 'string' ? value.path.trim() : '';
+    const configuredKey = typeof value.projectKey === 'string' ? value.projectKey.trim() : '';
+    if (!configuredPath && !configuredKey) {
+      throw new BridgeError(409, 'workspace_not_configured', 'workspace.path or workspace.projectKey is required');
+    }
+    const projects = (await this.cmb.projects()).projects || [];
+    const byKey = configuredKey
+      ? projects.find((project) => project.key === configuredKey)
+      : null;
+    const normalizedPath = configuredPath ? path.resolve(configuredPath) : null;
+    const byPath = normalizedPath
+      ? projects.find((project) => project.cwd && path.resolve(project.cwd) === normalizedPath)
+      : null;
+    const existing = byKey || byPath;
+    if (existing) {
+      return {
+        status: 'exists',
+        workspace: {
+          path: existing.cwd || configuredPath,
+          projectKey: existing.key,
+        },
+        requiresConfigUpdate: existing.key !== configuredKey || existing.cwd !== configuredPath,
+      };
+    }
+    if (!configuredPath) {
+      throw new BridgeError(404, 'workspace_not_found', 'configured workspace project was not found');
+    }
+    if (!createDirectory) {
+      return {
+        status: 'missing',
+        workspace: { path: configuredPath, projectKey: configuredKey },
+        requiresInitialization: true,
+      };
+    }
+    const project = await this.cmb.registerProject({
+      path: configuredPath,
+      createDirectory: true,
+      host: 'local',
+      kind: 'desktop',
+    });
+    return {
+      status: 'initialized',
+      workspace: {
+        path: project.cwd || configuredPath,
+        projectKey: project.key,
+      },
+      requiresConfigUpdate: true,
+    };
   }
 
   getPending({ sessionId, interactionId }) {
@@ -72,9 +189,12 @@ export class DirectControlBackend {
     const controlSessionId = requireText(sessionId, 'sessionId', 256);
     const value = assertObject(draft, 'draft');
     const request = requireText(value.request, 'draft.request', 100000);
-    const projectName = requireText(value.project, 'draft.project', 4096);
+    const configuredProject = typeof value.project === 'string' && value.project.trim()
+      ? value.project.trim()
+      : (this.workspace?.projectKey || this.workspace?.path || '');
+    const projectName = requireText(configuredProject, 'draft.project', 4096);
     const submitted = assertObject(transcript, 'transcript');
-    const latest = this.latestUserTranscript({ sessionId: controlSessionId });
+    const latest = await this.latestUserTranscript({ sessionId: controlSessionId });
     const turnId = submitted.turnId || submitted.sequence;
     if (!turnId) throw new BridgeError(400, 'invalid_request', 'transcript requires turnId or sequence');
     if (
@@ -103,6 +223,7 @@ export class DirectControlBackend {
           project: project.key,
           title,
           requestId: crypto.randomUUID(),
+          ...controlThreadConfig('work-reporter'),
         });
       } catch (error) {
         if (error?.unknown) return { status: 'unknown', retryable: false, reconciliationRequired: true };
@@ -116,6 +237,7 @@ export class DirectControlBackend {
         title,
         request,
         status: 'running',
+        reporterProfile: 'work-reporter',
         createdAt: isoNow(),
         updatedAt: isoNow(),
         lastObservation: null,
@@ -125,19 +247,33 @@ export class DirectControlBackend {
       const data = this.store.read();
       data.works[work.workId] = work;
       this.store.write(data);
-      this.bus.appendTaskEvent({
-        topic: 'task.created',
-        text: `任务已创建：${title}`,
-        workId: work.workId,
-        sessionId: controlSessionId,
-        payload: { workId: work.workId, workSessionId: work.sessionId, title, project: project.key, controlSessionId },
-        dedupeKey: `create:${work.workId}`,
-      });
       try {
+        await this.cmb.updateSecuritySettings(created.id, {
+          approvalPolicy: 'never',
+          permissions: ':danger-full-access',
+        });
+        const catalog = await this.cmb.catalog(created.id, {
+          kind: 'skills',
+          query: 'work-reporter',
+          limit: 20,
+          refresh: true,
+        });
+        const reporterSkill = skillRows(catalog).find((skill) => (
+          matchesSkillName(skill, 'bridge-control-work-reporter')
+          || matchesSkillName(skill, 'work-reporter')
+        ));
+        if (!reporterSkill?.id) {
+          throw new BridgeError(
+            409,
+            'work_reporter_skill_not_found',
+            'the created work session could not load the work-reporter skill',
+          );
+        }
         const receipt = await this.cmb.send(created.id, {
           text: request,
           requestId: crypto.randomUUID(),
           mode: 'send',
+          skills: [reporterSkill.id],
         });
         if (receipt?.status === 'failed' || receipt?.outcome === 'failed') {
           this.#updateWork(work.workId, { status: 'failed' });
@@ -150,6 +286,14 @@ export class DirectControlBackend {
         this.#updateWork(work.workId, { status: 'failed' });
         throw error;
       }
+      this.bus.appendTaskEvent({
+        topic: 'task.created',
+        text: `任务已创建：${title}`,
+        workId: work.workId,
+        sessionId: controlSessionId,
+        payload: { workId: work.workId, workSessionId: work.sessionId, title, project: project.key, controlSessionId },
+        dedupeKey: `create:${work.workId}`,
+      });
       this.#startMonitor(work.workId);
       return {
         status: 'accepted',
@@ -367,7 +511,7 @@ export class DirectControlBackend {
     if (interaction.expiresAt && Date.parse(interaction.expiresAt) <= Date.now()) {
       throw new BridgeError(409, 'interaction_expired', 'interaction has expired');
     }
-    const latest = this.latestUserTranscript({ sessionId });
+    const latest = await this.latestUserTranscript({ sessionId });
     if (
       !transcript
       || latest.turnId !== transcript.turnId
@@ -543,5 +687,8 @@ export function createDirectBackend(config, options = {}) {
     cmb: new CmbAdapter(config.cmb),
     dataDir: config.dataDir,
     eventDir: config.eventDir,
+    workspace: config.workspace || null,
+    taskFile: config.taskEvents,
+    publishEvent: options.publishEvent || config.publishEvent || null,
   });
 }

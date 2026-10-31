@@ -38,3 +38,26 @@ test('injects independent search results before forwarding the chat request', as
   assert.equal(forwarded.body.messages.some((message) => message.role === 'system' && message.content.includes('上海今天晴')), true);
   assert.equal(forwarded.body.messages.some((message) => message.content?.includes('https://example.test/weather')), true);
 });
+
+test('uses the managed fixed Codex conversation for streaming chat when available', async () => {
+  const calls = [];
+  const proxy = new OpenAICompatibleProxy({
+    managedChatProvider: {
+      available: true,
+      async reply(body) {
+        calls.push(body);
+        return { text: '这是固定 Codex 会话的回复。', messageId: 'assistant-1' };
+      },
+    },
+  });
+  const result = await proxy.complete({
+    stream: true,
+    model: 'gpt-test',
+    messages: [{ role: 'user', content: '你好' }],
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.contentType.startsWith('text/event-stream'), true);
+  assert.match(result.body, /这是固定 Codex 会话的回复/);
+  assert.match(result.body, /data: \[DONE\]/);
+  assert.equal(calls[0].messages.at(-1).content, '你好');
+});
