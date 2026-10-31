@@ -45,6 +45,7 @@ python3 -m venv .venv
 
 ```text
 codex-control/
+├── plugins/character-settings/ # 独立人物设定、音色、动作组与选择工具
 ├── plugins/voice-control/   # 自包含语音聊天、通知台账、open/close/tunnel
 ├── plugins/bridge-control/  # 直接依赖 CMB 的独立控制插件
 └── bridge-hub/              # 后续 App 可选后端，不进入本地双插件主链路

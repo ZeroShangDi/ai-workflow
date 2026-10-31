@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 const root = path.resolve(import.meta.dirname, '..');
 const targets = [
   'plugins/voice-control',
+  'plugins/character-settings',
   'plugins/bridge-control/src',
   'plugins/bridge-control/profiles',
   'bridge-hub',
@@ -48,6 +49,12 @@ function check(scope, forbidden) {
 check('plugins/voice-control', [
   'bridge-hub',
   'bridge-control',
+  'codex-mobile-bridge',
+]);
+check('plugins/character-settings', [
+  'bridge-hub',
+  'bridge-control',
+  'voice-control',
   'codex-mobile-bridge',
 ]);
 check('plugins/bridge-control/src', [
