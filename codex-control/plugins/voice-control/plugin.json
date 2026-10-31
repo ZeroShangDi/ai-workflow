@@ -35,6 +35,12 @@
       "bargeIn": true,
       "streamingTts": true
     },
+    "webSearch": {
+      "mode": "independent-query",
+      "createsTasks": false,
+      "requiresSources": true,
+      "configuredAtRuntime": true
+    },
     "textFallback": false,
     "conversation": {
       "protocol": "openai-compatible-chat-completions",
@@ -63,6 +69,12 @@
       "VOICE_CONTROL_TENANT",
       "VOICE_CONTROL_USER",
       "VOICE_CONTROL_DEVICE"
+    ],
+    "searchEnvironment": [
+      "VOICE_CONTROL_SEARCH_URL",
+      "VOICE_CONTROL_SEARCH_TOKEN_FILE",
+      "VOICE_CONTROL_LLM_UPSTREAM_URL",
+      "VOICE_CONTROL_LLM_UPSTREAM_API_KEY_FILE"
     ],
     "triggerFile": "data/config.json",
     "exampleFile": "data/config.example.json"

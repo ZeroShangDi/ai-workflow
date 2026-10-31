@@ -5,6 +5,8 @@ import { createVoiceHttpServer } from './http.mjs';
 import { defaultEventDirectory, LocalVoiceEvents, TaskEventInbox } from './local-events.mjs';
 import { NoticeStore } from './notice-store.mjs';
 import path from 'node:path';
+import { createOpenAICompatibleProxy } from './llm-proxy.mjs';
+import { createWebSearchProvider } from './search.mjs';
 import { createVoiceWebRtcTransport } from './webrtc.mjs';
 
 function portFromEnvironment() {
@@ -32,12 +34,15 @@ const localEvents = new LocalVoiceEvents({ eventDir: defaultEventDirectory() });
 const noticeStore = new NoticeStore({ filePath: path.join(dataDir, 'notices.json') });
 const chatProvider = createChatProvider();
 const audioTransport = createVoiceWebRtcTransport();
+const searchProvider = createWebSearchProvider();
+const llmProxy = createOpenAICompatibleProxy({ searchProvider });
 const app = new VoiceControlApp({
   triggerConfigStore,
   chatProvider,
   noticeStore,
   transcriptRecorder: (value) => localEvents.appendTranscript(value),
   audioTransport,
+  llmProxy,
 });
 const inbox = new TaskEventInbox({
   eventDir: defaultEventDirectory(),

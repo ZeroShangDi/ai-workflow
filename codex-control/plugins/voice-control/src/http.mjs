@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
 import { parseCursor, serializeSseEvent } from './events.mjs';
 import { publicError, VoiceControlError } from './errors.mjs';
@@ -202,6 +203,25 @@ export function createVoiceHttpServer({
 
       if (url.pathname === '/api/health' && req.method === 'GET') {
         writeJson(req, res, 200, app.health(), origins);
+        return;
+      }
+      if (['/v1/chat/completions', '/chat/completions'].includes(url.pathname) && req.method === 'POST') {
+        const body = await readJson(req);
+        const result = await app.completeChat(body);
+        res.writeHead(result.status, {
+          'Content-Type': result.contentType,
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+          ...(String(result.contentType).startsWith('text/event-stream') ? {
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          } : {}),
+        });
+        if (result.body && typeof result.body.getReader === 'function') {
+          Readable.fromWeb(result.body).pipe(res);
+        } else {
+          res.end(result.body || '');
+        }
         return;
       }
       if (url.pathname === '/api/config/triggers' && req.method === 'GET') {

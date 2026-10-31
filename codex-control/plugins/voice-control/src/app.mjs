@@ -37,6 +37,7 @@ export class VoiceControlApp {
     noticeStore = null,
     transcriptRecorder = null,
     audioTransport = null,
+    llmProxy = null,
     now = () => new Date(),
     idFactory = () => randomUUID(),
   }) {
@@ -46,6 +47,7 @@ export class VoiceControlApp {
     this.noticeStore = noticeStore;
     this.transcriptRecorder = transcriptRecorder;
     this.audioTransport = audioTransport;
+    this.llmProxy = llmProxy;
     this.now = now;
     this.idFactory = idFactory;
     this.sessions = new Map();
@@ -209,6 +211,13 @@ export class VoiceControlApp {
       );
     }
     return this.audioTransport.offer(body);
+  }
+
+  completeChat(body) {
+    if (!this.llmProxy?.complete) {
+      throw new VoiceControlError('llm_proxy_not_configured', 'LLM proxy is not configured', { status: 503 });
+    }
+    return this.llmProxy.complete(body);
   }
 
   acceptExternalEvent(input = {}) {
@@ -400,6 +409,7 @@ export class VoiceControlApp {
         configured: this.chatProvider?.configured === true,
       },
       audio: this.audioTransport?.status?.() || { configured: false },
+      llmProxy: this.llmProxy?.status?.() || { configured: false, search: { configured: false } },
       notices,
     };
   }

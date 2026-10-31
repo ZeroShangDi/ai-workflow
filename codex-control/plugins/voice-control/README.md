@@ -30,10 +30,18 @@ VOICE_CONTROL_TICKET_SECRET_FILE
 VOICE_CONTROL_TENANT
 VOICE_CONTROL_USER
 VOICE_CONTROL_DEVICE
+VOICE_CONTROL_LLM_UPSTREAM_URL
+VOICE_CONTROL_LLM_UPSTREAM_API_KEY_FILE
+VOICE_CONTROL_LLM_TIMEOUT_MS
+VOICE_CONTROL_SEARCH_URL
+VOICE_CONTROL_SEARCH_TOKEN_FILE
+VOICE_CONTROL_SEARCH_TIMEOUT_MS
 CODEX_CONTROL_EVENT_DIR
 ```
 
 实时语音使用 WebRTC。票据由 Voice Control 签发，SDP offer 通过本插件代理到语音后端，页面不接触上游凭据。`VOICE_CONTROL_TICKET_SECRET_FILE` 必须与语音后端使用的票据密钥一致。
+
+联网聊天由 Voice Control 的 OpenAI-compatible LLM 代理处理。识别到实时信息需求时，先独立查询公开网页，再把结果和来源注入当前对话；搜索不会创建任务。语音后端应把 `VOICE_LLM_URL` 指向本插件 `/v1`。
 
 事件目录默认是 `~/.codex-control/events`。Voice Control 从 `task-events.jsonl` 读取 `bridge-control` 产生的任务事件，把通知状态保存在自己的 `data/notices.json` 中。
 
@@ -60,6 +68,7 @@ Voice Control 对外只保留三个主要宿主接口：
 - `POST /api/sessions/:id/chat`：执行一次文本对话；
 - `POST /api/voice/session`：签发短时一次性语音票据；
 - `POST /api/voice/offer`：代理 WebRTC SDP offer；
+- `POST /v1/chat/completions`：对话模型代理，并按需注入联网搜索结果；
 - `GET /api/sessions/:id/events`：SSE 事件流；
 - `POST /api/sessions/:id/events`：追加转录、语音状态或播放回执；
 - `GET /api/notices`：查看尚未完成的通知；
