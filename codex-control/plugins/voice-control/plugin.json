@@ -2,7 +2,7 @@
   "schema": "codex-control/plugin-manifest@1",
   "id": "voice-control",
   "displayName": "Voice Control",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "summary": "Standalone voice chat runtime with local task notices, playback ledgers, and public open/close/tunnel interfaces.",
   "entrypoints": {
     "http": "src/main.mjs",
@@ -28,9 +28,12 @@
   "capabilities": {
     "voiceSessions": true,
     "serverSentEvents": true,
-    "browserSpeech": {
-      "asr": "optional-native",
-      "tts": "optional-native"
+    "realtimeAudio": {
+      "transport": "webrtc",
+      "serverVad": true,
+      "continuousTurns": true,
+      "bargeIn": true,
+      "streamingTts": true
     },
     "textFallback": false,
     "conversation": {
@@ -53,6 +56,13 @@
       "VOICE_CONTROL_CHAT_URL",
       "VOICE_CONTROL_CHAT_MODEL",
       "VOICE_CONTROL_CHAT_API_KEY_FILE"
+    ],
+    "audioBackendEnvironment": [
+      "VOICE_CONTROL_AUDIO_SERVICE_URL",
+      "VOICE_CONTROL_TICKET_SECRET_FILE",
+      "VOICE_CONTROL_TENANT",
+      "VOICE_CONTROL_USER",
+      "VOICE_CONTROL_DEVICE"
     ],
     "triggerFile": "data/config.json",
     "exampleFile": "data/config.example.json"

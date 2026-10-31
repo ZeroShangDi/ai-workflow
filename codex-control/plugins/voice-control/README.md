@@ -1,13 +1,13 @@
 # Voice Control
 
-`voice-control` 是独立安装、独立启动的语音插件。它自己负责语音页面、ASR/TTS、对话闭环、会话事件、任务播报队列和播放回执，不依赖 `bridge-hub` 或 `bridge-control` 的接口。
+`voice-control` 是独立安装、独立启动的语音插件。它负责语音页面、WebRTC 会话、事件流、任务播报队列和播放回执；实时 ASR、VAD、对话和流式 TTS 由配置的语音后端提供。
 
 ## 独立能力
 
 只安装并启动 `voice-control` 时：
 
 ```text
-语音输入 -> ASR -> 对话模型 -> assistant 文本 -> TTS -> 播放回执
+浏览器 WebRTC 音频 -> 服务端 VAD/ASR -> 对话模型 -> 流式 PCM TTS -> WebRTC 播放
 ```
 
 页面只有一个语音开关、状态文字和对话文字。用户开始说话时打断当前播报；后台任务通知只在对话空闲时播放。
@@ -24,10 +24,16 @@ VOICE_CONTROL_CHAT_API_KEY
 VOICE_CONTROL_CHAT_API_KEY_FILE
 VOICE_CONTROL_CHAT_MODEL
 VOICE_CONTROL_CHAT_TIMEOUT_MS
+VOICE_CONTROL_AUDIO_SERVICE_URL
+VOICE_CONTROL_AUDIO_TIMEOUT_MS
+VOICE_CONTROL_TICKET_SECRET_FILE
+VOICE_CONTROL_TENANT
+VOICE_CONTROL_USER
+VOICE_CONTROL_DEVICE
 CODEX_CONTROL_EVENT_DIR
 ```
 
-对话后端使用 OpenAI-compatible `/chat/completions` 协议。没有配置对话后端时，页面、会话、任务播报和回执仍可运行，但普通聊天会明确返回 `chat_not_configured`。
+实时语音使用 WebRTC。票据由 Voice Control 签发，SDP offer 通过本插件代理到语音后端，页面不接触上游凭据。`VOICE_CONTROL_TICKET_SECRET_FILE` 必须与语音后端使用的票据密钥一致。
 
 事件目录默认是 `~/.codex-control/events`。Voice Control 从 `task-events.jsonl` 读取 `bridge-control` 产生的任务事件，把通知状态保存在自己的 `data/notices.json` 中。
 
@@ -52,6 +58,8 @@ Voice Control 对外只保留三个主要宿主接口：
 兼容与内部调试接口仍保留：
 
 - `POST /api/sessions/:id/chat`：执行一次文本对话；
+- `POST /api/voice/session`：签发短时一次性语音票据；
+- `POST /api/voice/offer`：代理 WebRTC SDP offer；
 - `GET /api/sessions/:id/events`：SSE 事件流；
 - `POST /api/sessions/:id/events`：追加转录、语音状态或播放回执；
 - `GET /api/notices`：查看尚未完成的通知；

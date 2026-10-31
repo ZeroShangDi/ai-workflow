@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { VoiceControlError } from './errors.mjs';
 import { parseCursor, SessionEventLog } from './events.mjs';
 
-export const VOICE_CONTROL_VERSION = '0.2.0';
+export const VOICE_CONTROL_VERSION = '0.3.0';
 
 const SESSION_OPEN = 'open';
 const SESSION_CLOSED = 'closed';
@@ -36,6 +36,7 @@ export class VoiceControlApp {
     chatProvider = null,
     noticeStore = null,
     transcriptRecorder = null,
+    audioTransport = null,
     now = () => new Date(),
     idFactory = () => randomUUID(),
   }) {
@@ -44,6 +45,7 @@ export class VoiceControlApp {
     this.chatProvider = chatProvider;
     this.noticeStore = noticeStore;
     this.transcriptRecorder = transcriptRecorder;
+    this.audioTransport = audioTransport;
     this.now = now;
     this.idFactory = idFactory;
     this.sessions = new Map();
@@ -185,6 +187,28 @@ export class VoiceControlApp {
       dedupeKey: `listening:${turnId}`,
     });
     return { status: 'accepted', turnId, userEvent, assistantEvent };
+  }
+
+  createVoiceSession() {
+    if (!this.audioTransport?.createSession) {
+      throw new VoiceControlError(
+        'voice_transport_not_configured',
+        'Voice WebRTC backend is not configured',
+        { status: 503 },
+      );
+    }
+    return this.audioTransport.createSession();
+  }
+
+  voiceOffer(body) {
+    if (!this.audioTransport?.offer) {
+      throw new VoiceControlError(
+        'voice_transport_not_configured',
+        'Voice WebRTC backend is not configured',
+        { status: 503 },
+      );
+    }
+    return this.audioTransport.offer(body);
   }
 
   acceptExternalEvent(input = {}) {
@@ -375,6 +399,7 @@ export class VoiceControlApp {
       chat: {
         configured: this.chatProvider?.configured === true,
       },
+      audio: this.audioTransport?.status?.() || { configured: false },
       notices,
     };
   }

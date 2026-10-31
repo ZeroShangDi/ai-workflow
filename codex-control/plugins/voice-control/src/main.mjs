@@ -5,6 +5,7 @@ import { createVoiceHttpServer } from './http.mjs';
 import { defaultEventDirectory, LocalVoiceEvents, TaskEventInbox } from './local-events.mjs';
 import { NoticeStore } from './notice-store.mjs';
 import path from 'node:path';
+import { createVoiceWebRtcTransport } from './webrtc.mjs';
 
 function portFromEnvironment() {
   const raw = process.env.VOICE_CONTROL_PORT || '8791';
@@ -30,11 +31,13 @@ const dataDir = process.env.VOICE_CONTROL_DATA_DIR
 const localEvents = new LocalVoiceEvents({ eventDir: defaultEventDirectory() });
 const noticeStore = new NoticeStore({ filePath: path.join(dataDir, 'notices.json') });
 const chatProvider = createChatProvider();
+const audioTransport = createVoiceWebRtcTransport();
 const app = new VoiceControlApp({
   triggerConfigStore,
   chatProvider,
   noticeStore,
   transcriptRecorder: (value) => localEvents.appendTranscript(value),
+  audioTransport,
 });
 const inbox = new TaskEventInbox({
   eventDir: defaultEventDirectory(),

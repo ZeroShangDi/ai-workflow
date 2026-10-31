@@ -213,6 +213,15 @@ export function createVoiceHttpServer({
         writeJson(req, res, 200, { ok: true, ...app.replaceTriggerConfig(body) }, origins);
         return;
       }
+      if (url.pathname === '/api/voice/session' && req.method === 'POST') {
+        writeJson(req, res, 201, { ok: true, ...app.createVoiceSession() }, origins);
+        return;
+      }
+      if (url.pathname === '/api/voice/offer' && req.method === 'POST') {
+        const body = await readJson(req);
+        writeJson(req, res, 200, { ok: true, ...await app.voiceOffer(body) }, origins);
+        return;
+      }
       if (url.pathname === '/api/open' && req.method === 'POST') {
         const body = await readJson(req);
         writeJson(req, res, 201, { ok: true, session: app.createSession(body) }, origins);
