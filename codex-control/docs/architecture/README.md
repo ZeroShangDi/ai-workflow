@@ -144,3 +144,17 @@ Hub work is deferred until mobile-App requirements are concrete. When added:
 - Approvals and creation use the newest real user message from the fixed Codex conversation and immutable interaction bindings.
 - Unknown external writes are reconciled, never automatically replayed.
 - Raw audio is never stored by the event bus.
+
+## Voice Center successor (2026-11-02)
+
+`plugins/voice-center` is the independently runnable successor voice runtime.
+Its Python backend owns WebRTC/VAD/ASR/TTS and local SQLite voice transcripts; its Node host owns the page, tickets, notice ledger and public Control WebSocket client.
+This local transcript ledger belongs to Voice Center and does not change the legacy Voice Control history contract.
+
+Work mode defaults to `none`. The only optional work mode is `control`.
+The audio host captures real transcription outside model arguments. Its internal work capability forwards each observed turn at most once through `voice.chat.user`.
+The fixed trusted Control conversation owns the entire draft, missing-input and subsequent explicit confirmation workflow.
+Voice Center must not issue a second external create/confirm call after that conversation replies.
+Timeouts and unknown writes consume the turn; users must check state with a new turn.
+The market/mobile work-host bridge is retired from this successor; it is not a runtime dependency.
+Native work sessions still load only work-reporter. CMB source remains read-only.

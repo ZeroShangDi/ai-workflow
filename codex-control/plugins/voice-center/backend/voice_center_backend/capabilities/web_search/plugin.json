@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "web_search",
+  "tools": [
+    {"name": "search_web", "description": "Search public web information and return an answer with sources. Use for current or externally verifiable information; do not use it for private or local data.", "properties": {"query": {"type": "string", "description": "Public search query, at most 2000 characters"}}, "required": ["query"], "timeoutSeconds": 150}
+  ]
+}

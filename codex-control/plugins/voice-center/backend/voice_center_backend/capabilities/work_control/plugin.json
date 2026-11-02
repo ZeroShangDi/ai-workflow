@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "work_control",
+  "tools": [
+    {
+      "name": "control_work",
+      "description": "Forward the latest real spoken user turn to the fixed Control conversation for task creation, confirmation, cancellation, questions or status. Control owns the complete draft and authorization workflow. Do not retry unknown outcomes.",
+      "properties": {},
+      "required": [],
+      "timeoutSeconds": 180
+    }
+  ]
+}

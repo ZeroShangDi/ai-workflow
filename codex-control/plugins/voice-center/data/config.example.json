@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "triggers": [
+    {
+      "id": "trusted-host-events",
+      "enabled": false,
+      "topics": [
+        "task.completed",
+        "task.failed",
+        "interaction.requested"
+      ],
+      "description": "Example only. The default runtime configuration has no triggers."
+    }
+  ]
+}

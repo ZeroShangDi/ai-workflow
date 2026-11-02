@@ -271,7 +271,9 @@ export class ControlWebSocketService {
     this.chatLocks.add(voiceSessionId);
     try {
       const skillId = await this.#bridgeControlSkillId(voiceSessionId);
-      const before = latestAssistantMessage(await this.cmb.view(voiceSessionId));
+      const beforeView = await this.cmb.view(voiceSessionId);
+      const before = latestAssistantMessage(beforeView);
+      const previousTurnId = beforeView?.turns?.at(-1)?.id || null;
       await this.cmb.updateSecuritySettings(voiceSessionId, {
         approvalPolicy: 'never',
         permissions: ':danger-full-access',
@@ -288,7 +290,7 @@ export class ControlWebSocketService {
           message: receipt.error || 'The fixed Codex conversation rejected the message',
         });
       }
-      const assistant = await this.#waitForAssistantReply(voiceSessionId, before?.id || null);
+      const assistant = await this.#waitForAssistantReply(voiceSessionId, before?.id || null, previousTurnId);
       return this.response(event, 'control.chat.reply', {
         voiceSessionId,
         messageId: assistant.id,
@@ -307,12 +309,18 @@ export class ControlWebSocketService {
     });
   }
 
-  async #waitForAssistantReply(voiceSessionId, previousMessageId) {
+  async #waitForAssistantReply(voiceSessionId, previousMessageId, previousTurnId) {
     const deadline = Date.now() + this.chatTimeoutMs;
     while (Date.now() < deadline) {
       const view = await this.cmb.view(voiceSessionId);
       const latest = latestAssistantMessage(view);
       const status = String(view?.status || view?.session?.status || '').toLowerCase();
+      const turn = view?.turns?.at(-1);
+      if (turn?.id && turn.id !== previousTurnId && ['failed', 'interrupted', 'cancelled'].includes(turn.status)) {
+        const error = new Error(turn.error?.message || 'The fixed Codex conversation turn failed');
+        error.code = turn.error?.codexErrorInfo || 'chat_turn_failed';
+        throw error;
+      }
       if (latest && latest.id !== previousMessageId && (!status || status === 'idle')) return latest;
       await new Promise((resolve) => setTimeout(resolve, 300));
     }

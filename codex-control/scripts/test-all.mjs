@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 const root = path.resolve(import.meta.dirname, '..');
 const projects = [
   'plugins/voice-control',
+  'plugins/voice-center',
   'plugins/character-settings',
   'plugins/bridge-control',
   'bridge-hub',

@@ -138,3 +138,23 @@ test('chat session create, bind, and chat use explicit public parameters', async
   assert.equal(chat.payload.text, '你好，我在。');
   assert.equal(cmb.calls.send.at(-1).value.text, '你好');
 });
+
+
+test('a new failed model turn returns its error immediately instead of timing out', async () => {
+  let sent = false;
+  const cmb = fakeCmb({
+    async view() {
+      return { status: sent ? 'systemError' : 'idle', turns: sent ? [{
+        id: 'failed-new-turn', status: 'failed',
+        error: { message: 'Model is not supported', codexErrorInfo: 'modelNotFound' },
+        messages: [],
+      }] : [] };
+    },
+    async send() { sent = true; return { status: 'accepted' }; },
+  });
+  const service = new ControlWebSocketService({ cmb });
+  const result = await service.handle(event('voice.chat.user', { voiceSessionId: 'voice-session-1', text: '你好' }));
+  assert.equal(result.topic, 'control.error');
+  assert.equal(result.payload.code, 'modelNotFound');
+  assert.equal(result.payload.message, 'Model is not supported');
+});

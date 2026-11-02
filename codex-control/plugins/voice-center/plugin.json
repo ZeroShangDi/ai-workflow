@@ -1,0 +1,118 @@
+{
+  "schema": "codex-control/plugin-manifest@1",
+  "id": "voice-center",
+  "displayName": "Voice Center",
+  "version": "0.3.0",
+  "summary": "Standalone Voice Center with a local Pipecat voice backend, SQLite transcripts, and switchable work capabilities.",
+  "entrypoints": {
+    "http": "src/main.mjs",
+    "mcp": "server.mjs",
+    "skill": "skills/voice-integration/SKILL.md",
+    "web": "web/index.html",
+    "sdk": "sdk/index.mjs",
+    "runtime": "backend/voice_center_backend/server.py"
+  },
+  "runtime": {
+    "engine": "node",
+    "version": ">=22",
+    "module": "esm",
+    "thirdPartyRuntimeDependencies": 1,
+    "modes": {
+      "local": {
+        "defaultHost": "127.0.0.1",
+        "defaultPort": 8891
+      },
+      "remote": {
+        "supported": true,
+        "transport": "same-api-behind-deployment-auth"
+      }
+    }
+  },
+  "capabilities": {
+    "voiceSessions": true,
+    "serverSentEvents": true,
+    "realtimeAudio": {
+      "transport": "webrtc",
+      "serverVad": true,
+      "continuousTurns": true,
+      "bargeIn": true,
+      "streamingTts": true
+    },
+    "webSearch": {
+      "mode": "independent-query",
+      "createsTasks": false,
+      "requiresSources": true,
+      "configuredAtRuntime": true
+    },
+    "textFallback": false,
+    "conversation": {
+      "protocol": "openai-compatible-chat-completions",
+      "configuredAtRuntime": true
+    },
+    "taskNotices": {
+      "storage": "local-notice-ledger",
+      "playbackAcknowledgement": "observed-browser-state"
+    },
+    "externalTriggers": {
+      "default": "disabled",
+      "activation": "explicit-configuration"
+    },
+    "taskControl": false
+  },
+  "configuration": {
+    "dataDirectoryEnvironment": "VOICE_CENTER_DATA_DIR",
+    "chatProviderEnvironment": [
+      "VOICE_CENTER_CHAT_URL",
+      "VOICE_CENTER_CHAT_MODEL",
+      "VOICE_CENTER_CHAT_API_KEY_FILE"
+    ],
+    "audioBackendEnvironment": [
+      "VOICE_CENTER_RUNTIME_PYTHON",
+      "VOICE_CENTER_BACKEND_PORT",
+      "VOICE_CENTER_WORK_MODE",
+      "VOICE_CENTER_ASR_PROTOCOL",
+      "VOICE_CENTER_ASR_URL",
+      "VOICE_CENTER_ASR_MODEL",
+      "VOICE_CENTER_ASR_API_KEY_FILE",
+      "VOICE_CENTER_TTS_URL",
+      "VOICE_CENTER_TTS_MODEL",
+      "VOICE_CENTER_TTS_VOICE",
+      "VOICE_CENTER_TTS_SAMPLE_RATE",
+      "VOICE_CENTER_TTS_API_KEY_FILE",
+      "VOICE_CENTER_LLM_URL",
+      "VOICE_CENTER_LLM_MODEL",
+      "VOICE_CENTER_LLM_API_KEY_FILE",
+      "VOICE_CENTER_AI_SERVICE_URL",
+      "VOICE_CENTER_AGENT_SERVICE_URL",
+      "VOICE_CENTER_TENANT",
+      "VOICE_CENTER_USER",
+      "VOICE_CENTER_DEVICE"
+    ],
+    "searchEnvironment": [
+      "VOICE_CENTER_SEARCH_URL",
+      "VOICE_CENTER_SEARCH_TOKEN_FILE",
+      "VOICE_CENTER_LLM_UPSTREAM_URL",
+      "VOICE_CENTER_LLM_UPSTREAM_API_KEY_FILE"
+    ],
+    "integrationConfig": "config/settings.json",
+    "triggerFile": "data/config.json",
+    "exampleFile": "data/config.example.json"
+  },
+  "tools": [
+    "bridge_chat_voice_config_load",
+    "bridge_chat_voice_config_update"
+  ],
+  "lifecycle": [
+    "installed",
+    "configured",
+    "healthy",
+    "paired",
+    "subscribed",
+    "active"
+  ],
+  "security": {
+    "defaultBindHost": "127.0.0.1",
+    "remoteAuthentication": "deployment-boundary",
+    "taskControlExposure": false
+  }
+}
