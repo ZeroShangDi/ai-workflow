@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const MODES = new Set(['control', 'none']);
+const MODES = new Set(['control', 'market', 'none']);
 
 export class WorkModeStore {
   constructor({ dataDir, filePath = null } = {}) {
@@ -14,7 +14,7 @@ export class WorkModeStore {
       const value = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
       return MODES.has(value.mode) ? value.mode : 'none';
     } catch {
-      return 'none';
+      return 'control';
     }
   }
 
@@ -23,7 +23,7 @@ export class WorkModeStore {
   }
 
   set(value) {
-    if (!MODES.has(value)) throw new Error('work mode must be control or none');
+    if (!MODES.has(value)) throw new Error('work mode must be control, market, or none');
     this.mode = value;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
     fs.writeFileSync(this.filePath, `${JSON.stringify({ mode: value }, null, 2)}\n`, { mode: 0o600 });

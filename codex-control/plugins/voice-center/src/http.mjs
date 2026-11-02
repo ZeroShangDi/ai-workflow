@@ -219,8 +219,8 @@ export function createVoiceHttpServer({
       if (url.pathname === '/api/config/work-mode' && req.method === 'GET') {
         writeJson(req, res, 200, {
           ok: true,
-          mode: workModeStore?.get?.() || 'none',
-          modes: ['control', 'none'],
+          mode: workModeStore?.get?.() || 'control',
+          modes: ['control', 'market', 'none'],
           restartRequired: false,
         }, origins);
         return;
@@ -232,7 +232,7 @@ export function createVoiceHttpServer({
         writeJson(req, res, 200, {
           ok: true,
           mode,
-          modes: ['control', 'none'],
+          modes: ['control', 'market', 'none'],
           restartRequired: true,
         }, origins);
         return;

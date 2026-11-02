@@ -29,7 +29,9 @@ def load_package(name):
 
 def active_capabilities():
     always = ["voice_history", "web_search"]
-    mode = os.environ.get("VOICE_CENTER_WORK_MODE", "none").strip().lower()
+    mode = os.environ.get("VOICE_CENTER_WORK_MODE", "control").strip().lower()
+    if mode == "market":
+        return [*always, "work_market"]
     if mode == "control":
         return [*always, "work_control"]
     if mode in {"none", "disabled", ""}:

@@ -84,7 +84,7 @@ async function main() {
   if (!workMode) {
     workMode = new WorkModeStore({ dataDir: process.env.VOICE_CENTER_DATA_DIR || path.join(pluginRoot, 'data') }).get();
   }
-  if (!['control', 'none'].includes(workMode)) throw new Error('VOICE_CENTER_WORK_MODE is invalid');
+  if (!['control', 'market', 'none'].includes(workMode)) throw new Error('VOICE_CENTER_WORK_MODE is invalid');
   const environment = buildLaunchEnvironment({
     env: process.env,
     secret,
