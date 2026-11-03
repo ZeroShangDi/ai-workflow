@@ -1,3 +1,5 @@
+import { createRealtimeAudio } from '/realtime-qwen.js';
+
 const elements = {
   toggle: document.querySelector('#toggle'),
   toggleLabel: document.querySelector('#toggleLabel'),
@@ -15,6 +17,7 @@ const model = {
   peer: null,
   stream: null,
   channel: null,
+  realtime: null,
   noticeQueue: [],
   seen: new Set(),
 };
@@ -76,6 +79,7 @@ function connectLocalEvents() {
 function handleChannelMessage(event) {
   let value;
   try { value = JSON.parse(event.data); } catch { return; }
+  if (model.realtime?.handle(value)) return;
   if (value.type === 'transcript' && ['user', 'assistant'].includes(value.role)) {
     append(value.role, value.text);
     return;
@@ -124,8 +128,25 @@ async function start() {
   controls();
   setState('正在打开麦克风');
   try {
+    let sessionId = null;
+    model.realtime = createRealtimeAudio({
+      send(value) {
+        if (model.channel?.readyState === 'open') model.channel.send(JSON.stringify(value));
+      },
+      onDelivery(value) {
+        if (!sessionId) return;
+        void api(`/api/sessions/${encodeURIComponent(sessionId)}/events`, {
+          method: 'POST', body: JSON.stringify({ type: 'delivery', ...value,
+            dedupeKey: `delivery:${value.noticeId}:${value.status}` }),
+        }).catch(() => {});
+      },
+      onState(state) { setState(state === 'speaking' ? '正在说' : '我在听'); },
+      onError: showError,
+    });
+    await model.realtime.prepare();
     const opened = await api('/api/open', { method: 'POST', body: JSON.stringify({}) });
     model.session = opened.session;
+    sessionId = opened.session.id;
     model.seen.clear();
     connectLocalEvents();
 
@@ -186,6 +207,8 @@ async function start() {
 async function stop(message = '') {
   model.opening = false;
   model.active = false;
+  model.realtime?.close();
+  model.realtime = null;
   model.channel = null;
   model.noticeQueue.length = 0;
   model.source?.close();

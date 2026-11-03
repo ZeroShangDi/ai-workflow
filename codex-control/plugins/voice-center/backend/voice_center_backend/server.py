@@ -17,6 +17,10 @@ from pipecat.workers.runner import WorkerRunner
 
 
 def create_app():
+    from .realtime_qwen import enabled
+    if enabled():
+        from .realtime_qwen.config import Config
+        Config.load()  # Fail startup before issuing tickets for an invalid realtime configuration.
     secret = required("VOICE_TICKET_SECRET")
     if len(secret) < 32:
         raise RuntimeError("VOICE_TICKET_SECRET must be at least 32 characters")

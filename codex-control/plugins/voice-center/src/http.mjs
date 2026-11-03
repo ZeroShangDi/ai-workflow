@@ -13,6 +13,7 @@ const STATIC_FILES = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/realtime-qwen.js', [path.resolve(import.meta.dirname, '../backend/voice_center_backend/realtime_qwen/browser.js'), 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
 ]);
 
@@ -99,7 +100,7 @@ async function serveStatic(req, res, url, webRoot, allowedOrigins) {
     return;
   }
   const [file, contentType] = asset;
-  const body = await fs.readFile(path.join(webRoot, file));
+  const body = await fs.readFile(path.isAbsolute(file) ? file : path.join(webRoot, file));
   res.writeHead(200, {
     ...securityHeaders(),
     ...corsHeaders(req, allowedOrigins),

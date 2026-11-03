@@ -158,3 +158,29 @@ Voice Center must not issue a second external create/confirm call after that con
 Timeouts and unknown writes consume the turn; users must check state with a new turn.
 The market/mobile work-host bridge is retained for future use and is not a dependency of the default Control path.
 Native work sessions still load only work-reporter. CMB source remains read-only.
+
+## Optional Qwen duplex runtime (2026-11-03)
+
+Voice Center keeps `pipeline` as its default voice mode. Setting
+`VOICE_CENTER_VOICE_MODE=qwen-realtime` selects the isolated
+`plugins/voice-center/backend/voice_center_backend/realtime_qwen/` package.
+Voice mode is independent of `VOICE_CENTER_WORK_MODE` (control/market/none).
+The existing host HTTP, task-control WS and notice ledger contracts are reused.
+
+The package owns the Qwen provider connection, continuous PCM input, semantic
+turn detection, tool adaptation, transcript mapping, browser PCM playback and
+all provider-specific emotion/environment configuration and future policies.
+Shared code supplies only runtime selection, startup validation, a static module
+route and generic page lifecycle/delivery hooks. Emotion interpretation must not
+spread into Control, persona storage, shared HTTP configuration or task authority.
+
+Microphone capture still uses the existing WebRTC connection. In Qwen mode,
+output PCM uses the ordered DataChannel and the package's browser AudioContext
+player, allowing cancellation of scheduled samples and observed playback end.
+The legacy mode continues to use its original WebRTC output track. This output
+choice needs real-device latency/echo testing before production activation.
+Qwen owns turn detection; local VAD must not segment or suppress its input audio.
+No provider audio, affect estimate or ambient transcription is a task authorization.
+Only finalized user transcription observed by the runtime may feed the existing
+work capability, which delegates the complete workflow to Control.
+Provider disconnects and unknown writes are never automatically replayed.

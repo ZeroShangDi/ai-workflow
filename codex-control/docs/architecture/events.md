@@ -99,3 +99,26 @@ Only observed audio completion may mark a notice `spoken`.
 - Duplicate delivery is safe and deduplicated by `eventId`.
 
 The JSONL task ledger remains a compatibility and inspection layer; it is no longer the primary real-time transport.
+
+## Voice Center optional Qwen DataChannel (2026-11-03)
+
+These are private audio-host messages on Voice Center's existing WebRTC
+DataChannel, **not** additional Control WebSocket topics. Implementations and
+future emotion/environment policies live entirely in `realtime_qwen/`.
+The shared page only starts/stops the player and forwards observed notice
+outcomes through the existing HTTP `delivery` event contract.
+
+| Message type | Direction | Meaning / fields |
+| --- | --- | --- |
+| `realtime.audio.start` | Python host → module browser player | 开始一段播放；playbackId、noticeId（普通回复为空） |
+| `realtime.audio.delta` | Python host → module browser player | PCM 音频分片；playbackId、audio（Base64，24kHz/16bit/mono） |
+| `realtime.audio.end` | Python host → module browser player | 本段生成结束；playbackId；不代表播放完成 |
+| `realtime.audio.cancel` | Python host → module browser player | 停止并清空该段已排队音频；playbackId、status（interrupted/failed） |
+| `realtime.playback.result` | module browser player → Python host | 实际播放结果；playbackId、status（spoken/interrupted/failed） |
+
+Only the player may emit `spoken` after all audio sources have naturally ended
+and the end marker has been received. No-audio, failed, cancelled or stopped
+playbacks cannot become spoken. Notice outcomes also go to the existing
+`POST /api/sessions/:id/events` with `type=delivery`; Voice persists the ledger
+and sends the existing `voice.playback.result` Control WS event.
+Generation completion, event acceptance and Control echo are not playback proof.

@@ -73,6 +73,9 @@ class VoiceStates(FrameProcessor):
 
 
 def build_pipeline(connection, identity):
+    from .realtime_qwen import enabled, build_pipeline as build_realtime
+    if enabled():
+        return build_realtime(connection, identity)
     transport = SmallWebRTCTransport(connection, TransportParams(audio_in_enabled=True, audio_out_enabled=True))
     stt, tts = create_stt(), StreamingPCMService(voice=identity.get("character") or None)
     llm = VoiceLLMService(api_key=required("VOICE_LLM_API_KEY"), base_url=required("VOICE_LLM_URL"),
