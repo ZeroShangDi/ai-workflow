@@ -14,6 +14,7 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
 from ..character import character_context
+from ..speech_policy import SPEECH_POLICY
 from ..persistence import TranscriptStore
 from ..plugin_host import PluginHost
 from .config import Config
@@ -88,7 +89,7 @@ def build_pipeline(connection, identity):
     config = Config.load()
     context = LLMContext(messages=[])
     plugins = PluginHost(connection, identity, context)
-    instructions = SYSTEM + character_context(identity) + "\n" + "\n".join(plugins.instructions)
+    instructions = SYSTEM + SPEECH_POLICY + character_context(identity) + "\n" + "\n".join(plugins.instructions)
     context.add_message({"role": "system", "content": instructions})
     tools = [{"type": "function", "function": spec.to_default_dict()} for spec, _ in plugins.specs]
     session = RealtimeSession(connection, plugins, TranscriptStore(), identity, context=context)

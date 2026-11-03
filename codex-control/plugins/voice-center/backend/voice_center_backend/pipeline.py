@@ -17,6 +17,7 @@ from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
 from .plugin_host import PluginHost
 from .work_bridge import WorkAnnouncements
 from .character import character_context
+from .speech_policy import SPEECH_POLICY
 from .persistence import TranscriptStore
 from .providers import create_stt, StreamingPCMService, VoiceLLMService, required, voice_llm_extra
 
@@ -84,7 +85,7 @@ def build_pipeline(connection, identity):
     context = LLMContext(messages=[])
     plugins = PluginHost(connection, identity, context)
     store = TranscriptStore()
-    context.add_message({"role": "system", "content": SYSTEM + persona + "\n" + "\n".join(plugins.instructions)})
+    context.add_message({"role": "system", "content": SYSTEM + SPEECH_POLICY + persona + "\n" + "\n".join(plugins.instructions)})
     context.set_tools([spec for spec, _ in plugins.specs])
     plugins.register(llm)
     announcements = WorkAnnouncements(connection, context, prepare_notice=plugins.prepare_notice,

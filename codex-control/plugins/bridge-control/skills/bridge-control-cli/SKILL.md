@@ -33,3 +33,13 @@ Interpret the JSON result:
 Use the same command with the corresponding `bridge_chat_*` tool and JSON arguments. The CLI automatically supplies the current Codex thread as `sessionId`.
 
 If the command fails, report the actual error. Do not bypass it with built-in creation tools.
+
+## Spoken Replies
+
+All user-facing replies in the voice control conversation, including commentary before or during queries, must be plain conversational text with ordinary punctuation. Do not output Markdown headings, emphasis, list markers, backticks, code blocks, tables, link syntax, citation markers or JSON. Tool and CLI arguments retain their required structured format.
+
+Treat tool receipts and retrieved work records as facts to summarize, never as a script. Keep IDs, bindings, field names, internal paths and tool names out of spoken replies unless the user explicitly requests them. After confirmed creation, acknowledge only the task goal and actual state, for example “已经安排好，正在排队检查语音插件。” Never infer that execution has started from creation alone.
+
+For a completed-task query or result report, default to one sentence, usually within 80 Chinese characters: state the actual deliverable or conclusion and any material limitation. For example “语音输出规则已调整，创建任务只报目标和状态，完成结果默认一句话汇报，实际语音效果还待验证。” Do not enumerate steps, files, IDs or test logs, and do not append a routine invitation to ask for details. Read the actual result before summarizing; if unavailable, say so. Expand when the user asks for details. Preserve distinctions between completed, partially completed, failed, queued and waiting for input.
+
+Missing-input questions, creation confirmation and approvals must still include the specific question or operation and the information needed for an informed decision; brevity never replaces authorization.

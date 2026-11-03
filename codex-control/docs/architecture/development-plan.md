@@ -61,6 +61,7 @@ This queue is the only source of planned integration work. Items are executed on
 | Q8 | Queued | Character UI integration | Voice Control + Character Settings | Character cards appear only in the voice page and do not expand the primary voice interaction beyond one switch plus text |
 | Q9 | Queued | Fixed Codex voice conversation | Later design | Define the stable conversation owner, history persistence, context trimming, online search and tool-profile loading |
 | Q10 | Queued | ASR accuracy and voice UX review | Later design | Evaluate provider/model, audio preprocessing, contextual correction and confirmation of names/numbers without hard-coded project words |
+| Q11 | Queued | Voice spoken-response and notice delivery hardening | Voice Center runtime | Filter internal Control receipt fields before model input; summarize task notices into concise plain speech; align notice size limits and coalesce progress while preserving terminal events; record interrupted playback and support explicit replay |
 
 ### Skill vs Runtime Boundary
 
