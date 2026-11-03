@@ -187,3 +187,13 @@ npm start
 `/realtime-qwen.js` 是模块浏览器入口。模块私有消息见
 [事件协议](../../docs/architecture/events.md#voice-center-optional-qwen-datachannel-2026-11-03)。
 真实 API、设备延迟、回声消除、音色效果需要使用自己的账户和麦克风联调，模拟测试不能替代。
+
+## 内置人设模块（准备阶段）
+
+[`backend/voice_center_backend/characters/`](backend/voice_center_backend/characters/README.md)
+提供独立的 Python 人物目录、详情、选择持久化、交流指引与资源解析能力。
+森林精灵和鲸鱼娘的资料、参考音频及已有图片随模块保存，不依赖独立人物插件的目录或进程。
+
+这一步仅完成模块本身，尚未替换现有 `character.py`、接管 MCP 工具或切换运行中的语音人设。
+独立人物插件暂时保留。人物核心只维护通用风格和素材；千问专用音色映射、情绪增强及环境
+策略继续限定在 `realtime_qwen/` 内。

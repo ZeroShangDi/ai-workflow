@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "id": "elf-3",
+  "name": "森林精灵",
+  "card": {
+    "title": "森林精灵",
+    "subtitle": "语音对话人物设定",
+    "summary": "人物卡 · 铃兰 > **工作代号**：铃兰（Lily）——取自她花环上的白色小花。这是占位名，可随时替换为任何你喜欢的名字，替换后本文其余内容无需改动。 > **定位**：原创 AI 桌面精灵 · 亲近的精灵搭档 > **适用**：作为对话模型的独立人设来源直接使用，不依赖任何特定框架、插件或技能。 --- 一、一句话印象 一个在爱里长大的森林精灵。二十岁",
+    "tags": [
+      "陪伴",
+      "语音",
+      "Codex"
+    ]
+  },
+  "voice": {
+    "profile": "elf-3",
+    "mode": "clone",
+    "referenceAudio": "voice/reference.wav",
+    "referenceTextFile": "voice/reference.txt"
+  },
+  "images": {
+    "multiView": "images/elf-sheet-v2.png",
+    "portrait": ""
+  },
+  "actionGroups": {
+    "基础": [
+      {
+        "id": "idle",
+        "label": "待机",
+        "repeats": 0,
+        "randomWeight": 1,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "idle.mp4"
+      },
+      {
+        "id": "happy",
+        "label": "开心",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "happy.mp4"
+      },
+      {
+        "id": "shy",
+        "label": "害羞",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "shy.mp4"
+      },
+      {
+        "id": "sad",
+        "label": "难过",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "sad.mp4"
+      },
+      {
+        "id": "angry",
+        "label": "生气",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "angry.mp4"
+      },
+      {
+        "id": "surprised",
+        "label": "惊讶",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "surprised.mp4"
+      },
+      {
+        "id": "sleepy",
+        "label": "困倦",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "sleepy.mp4"
+      },
+      {
+        "id": "thinking",
+        "label": "思考",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "thinking.mp4"
+      },
+      {
+        "id": "wave",
+        "label": "挥手",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "wave.mp4"
+      },
+      {
+        "id": "nod",
+        "label": "点头",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "nod.mp4"
+      },
+      {
+        "id": "celebrate",
+        "label": "庆祝",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "celebrate.mp4"
+      },
+      {
+        "id": "stretch",
+        "label": "伸懒腰",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          0,
+          0,
+          640,
+          640
+        ],
+        "file": "stretch.mp4"
+      }
+    ]
+  },
+  "documents": {
+    "persona": "persona.md",
+    "skills": "skills.md",
+    "license": "LICENSE.txt"
+  }
+}

@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "characterId": "whale-3",
+  "source": {
+    "package": "dsh-pet",
+    "version": "0.4.1",
+    "repository": "https://github.com/PC2005-cloud/dsh-pet",
+    "format": "webm",
+    "note": "从本机已安装插件 assets/webm 原样复制，未转码。"
+  },
+  "states": {
+    "idle": {
+      "label": "待机",
+      "playback": "rotation",
+      "clips": [
+        {
+          "name": "碎碎念-发呆碎碎念",
+          "file": "idle/碎碎念-发呆碎碎念.webm",
+          "sourceFile": "assets/webm/碎碎念-发呆碎碎念.webm",
+          "sha256": "02da8cc2194250ae9708b137a3deff43fed2ebd40a7aa4a033b6262c3485eb5b",
+          "bytes": 326752
+        },
+        {
+          "name": "待机呼吸休闲",
+          "file": "idle/待机呼吸休闲.webm",
+          "sourceFile": "assets/webm/待机呼吸休闲.webm",
+          "sha256": "deb965d05a85dacf5ff4a20faa757846f0d11679598c3ec578a5571487660395",
+          "bytes": 441437
+        },
+        {
+          "name": "悠闲哼歌",
+          "file": "idle/悠闲哼歌.webm",
+          "sourceFile": "assets/webm/悠闲哼歌.webm",
+          "sha256": "358905afc2c81a9ed478bcf121a8f2f19276766b1d382d0067456bd57d1d7dbb",
+          "bytes": 584008
+        },
+        {
+          "name": "超大伸懒腰",
+          "file": "idle/超大伸懒腰.webm",
+          "sourceFile": "assets/webm/超大伸懒腰.webm",
+          "sha256": "0ac66d918cc5efd49be1273c3830de73eae5f9bdcd5fcb968d1b2f9b487705ad",
+          "bytes": 396987
+        }
+      ]
+    },
+    "opening": {
+      "label": "打开",
+      "playback": "once",
+      "clips": [
+        {
+          "name": "点击回应-元气挥手",
+          "file": "opening/点击回应-元气挥手.webm",
+          "sourceFile": "assets/webm/点击回应-元气挥手.webm",
+          "sha256": "48cd729ccdcf746369942ea954d242e9afdd5643e1dac3827fa5e67450eb8776",
+          "bytes": 421669
+        }
+      ]
+    },
+    "closing": {
+      "label": "关闭",
+      "playback": "once",
+      "clips": [
+        {
+          "name": "女仆屈膝礼仪",
+          "file": "closing/女仆屈膝礼仪.webm",
+          "sourceFile": "assets/webm/女仆屈膝礼仪.webm",
+          "sha256": "6536fb519ba73bbc338d30cf7286b14ffde1278b6d469c64573536dc0f896918",
+          "bytes": 365712
+        }
+      ]
+    },
+    "connecting": {
+      "label": "连接",
+      "playback": "loop",
+      "clips": [
+        {
+          "name": "工作状态-原地踱步张望",
+          "file": "connecting/工作状态-原地踱步张望.webm",
+          "sourceFile": "assets/webm/工作状态-原地踱步张望.webm",
+          "sha256": "a56c17ef901fa531324a46a04def2381f65922d319ec83dadde34d2a4669e411",
+          "bytes": 471725
+        }
+      ]
+    },
+    "waiting": {
+      "label": "倾听与等待",
+      "playback": "loop",
+      "clips": [
+        {
+          "name": "轻快记录",
+          "file": "waiting/轻快记录.webm",
+          "sourceFile": "assets/webm/轻快记录.webm",
+          "sha256": "1da04162fed5cd52bd4a6a6027a6902f50bda0969d34465bc2d332cf3679bbd5",
+          "bytes": 447726
+        }
+      ]
+    },
+    "thinking": {
+      "label": "思考",
+      "playback": "loop",
+      "clips": [
+        {
+          "name": "工作状态-思考冒泡",
+          "file": "thinking/工作状态-思考冒泡.webm",
+          "sourceFile": "assets/webm/工作状态-思考冒泡.webm",
+          "sha256": "b4a36cfa28ea5d7089e362a01972c6e880297c6dcd0d39f1994efd889a3c1be5",
+          "bytes": 408849
+        }
+      ]
+    },
+    "responding": {
+      "label": "说话与播报",
+      "playback": "loop",
+      "clips": [
+        {
+          "name": "碎碎念-对屏碎碎念",
+          "file": "responding/碎碎念-对屏碎碎念.webm",
+          "sourceFile": "assets/webm/碎碎念-对屏碎碎念.webm",
+          "sha256": "fda85ca286e173b7cf868c91829c3445e55c395e0c788b6be310a855b9b37973",
+          "bytes": 364946
+        }
+      ]
+    },
+    "error": {
+      "label": "错误",
+      "playback": "once",
+      "clips": [
+        {
+          "name": "工作状态-垂头叹气冒汗",
+          "file": "error/工作状态-垂头叹气冒汗.webm",
+          "sourceFile": "assets/webm/工作状态-垂头叹气冒汗.webm",
+          "sha256": "ab00c844e62221905574b4c070e0d7b6fa14fb2afa1064c27a160f10e25f7196",
+          "bytes": 198937
+        }
+      ]
+    },
+    "working": {
+      "label": "正在执行",
+      "playback": "loop",
+      "clips": [
+        {
+          "name": "工作状态-忙碌点按",
+          "file": "working/工作状态-忙碌点按.webm",
+          "sourceFile": "assets/webm/工作状态-忙碌点按.webm",
+          "sha256": "b5d702e0c04adb7b255ac702001c24da36c8bf95efc891f693f4976986ab2435",
+          "bytes": 475613
+        }
+      ]
+    },
+    "producing": {
+      "label": "生成产物",
+      "playback": "loop",
+      "clips": [
+        {
+          "name": "工作状态-清点归档",
+          "file": "producing/工作状态-清点归档.webm",
+          "sourceFile": "assets/webm/工作状态-清点归档.webm",
+          "sha256": "8c84f58f3a9e7b912e1cbfd89f77eb3652053fc9b2844295c8440cb636305d3b",
+          "bytes": 362510
+        }
+      ]
+    },
+    "completed": {
+      "label": "执行完成",
+      "playback": "once",
+      "clips": [
+        {
+          "name": "工作状态-雀跃庆祝",
+          "file": "completed/工作状态-雀跃庆祝.webm",
+          "sourceFile": "assets/webm/工作状态-雀跃庆祝.webm",
+          "sha256": "3ff681051a0bb4f152d7535d64b7f3194c30298bf56d41e521216a278f135d3e",
+          "bytes": 488024
+        }
+      ]
+    },
+    "attention": {
+      "label": "需要关注",
+      "playback": "once",
+      "clips": [
+        {
+          "name": "蓝鲸现世",
+          "file": "attention/蓝鲸现世.webm",
+          "sourceFile": "assets/webm/蓝鲸现世.webm",
+          "sha256": "ed72f0ede7c6cd9482d44aa31002214d461b833c456f3ea40a52c3a0ddc20230",
+          "bytes": 482896
+        }
+      ]
+    }
+  }
+}

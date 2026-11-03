@@ -184,3 +184,18 @@ No provider audio, affect estimate or ambient transcription is a task authorizat
 Only finalized user transcription observed by the runtime may feed the existing
 work capability, which delegates the complete workflow to Control.
 Provider disconnects and unknown writes are never automatically replayed.
+
+## Voice Center internal character module (preparation, 2026-11-03)
+
+`plugins/voice-center/backend/voice_center_backend/characters/` owns a provider-independent
+character catalog, bundled character resources, style instructions and local selection.
+It uses only Python standard-library APIs and does not import or access the standalone
+character plugin at runtime. Resources preserve the existing schema and licenses.
+Selection is private and atomically persisted under Voice Center's own data directory.
+
+This first stage provides the module without changing the current `character.py`
+loader, active voice sessions, HTTP/MCP exposure, or the standalone character plugin.
+Future runtime migration consumes this module's public Python API. Character data may
+express general communication style, but Qwen voice mapping and all Qwen-specific
+emotion/environment behavior remain inside `realtime_qwen/`. Neither character data
+nor selection changes authorize work, approvals or playback acknowledgements.
