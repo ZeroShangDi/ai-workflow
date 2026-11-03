@@ -199,3 +199,16 @@ Future runtime migration consumes this module's public Python API. Character dat
 express general communication style, but Qwen voice mapping and all Qwen-specific
 emotion/environment behavior remain inside `realtime_qwen/`. Neither character data
 nor selection changes authorize work, approvals or playback acknowledgements.
+
+## Optional external memory boundary (preparation, 2026-11-03)
+
+Voice Center's `memory/` Python package defines a provider-neutral adapter protocol,
+host-bound tenant/user identity, bounded operations and a model-tool facade.
+It owns no memory database or extraction engine. Disabled by default, it performs
+no I/O and exposes no tools without both enablement and an injected adapter.
+Search failures yield empty context; unknown writes never claim success or retry.
+
+This stage does not register memory in PluginHost or either voice pipeline.
+Future integration may preload a small profile and offer on-demand tools. Qwen
+wire/context adaptation stays in realtime_qwen. Memory data is background only,
+never task authority or a replacement for current task-state queries.
