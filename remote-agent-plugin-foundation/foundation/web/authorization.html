@@ -1,0 +1,28 @@
+<section id="device" hidden>
+  <h2>授权本地插件</h2>
+  <p>仅授权你正在使用的设备。请核对本地显示的代码，不要批准他人发来的请求。</p>
+  <form id="device-form">
+    <label
+      >设备代码<input
+        name="code"
+        autocomplete="off"
+        required
+        maxlength="32" /></label
+    ><button>核对请求</button>
+  </form>
+  <div id="consent" hidden>
+    <p id="client-info"></p>
+    <p>授权后，该设备可访问当前账号的个人数据。</p>
+    <button id="approve">确认授权</button><button id="deny">拒绝</button>
+  </div>
+</section>
+<section id="oauth" hidden>
+  <h2>连接 {{PLUGIN_NAME}}</h2>
+  <p id="oauth-details"></p>
+  <p>
+    授权后，Agent
+    可在你的账号下执行已申请权限范围内的操作。操作结果会显示在本页面。
+  </p>
+  <button id="oauth-approve">允许连接</button>
+  <button id="oauth-deny">拒绝连接</button>
+</section>

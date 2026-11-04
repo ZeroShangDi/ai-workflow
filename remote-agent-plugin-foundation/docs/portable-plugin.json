@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "remote-notes",
+  "version": "0.2.0",
+  "description": "在个人账号中保存和读取笔记，并在网页查看 Agent 操作结果。",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Remote Notes",
+        "shortDescription": "让 Agent 保存笔记，在网页查看结果",
+        "longDescription": "连接你的本地试用服务，登录并授权后，通过 MCP 读取和创建个人笔记。",
+        "developerName": "Remote Agent Plugin Foundation",
+        "category": "Productivity",
+        "websiteURL": "http://localhost:8787",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": ["帮我保存一条笔记：插件连接测试成功。"]
+      }
+    }
+  }
+}

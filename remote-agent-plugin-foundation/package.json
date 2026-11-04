@@ -1,0 +1,40 @@
+{
+  "name": "remote-agent-plugin-foundation",
+  "version": "0.1.0",
+  "description": "",
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx src/main.ts",
+    "build": "node foundation/scripts/build.mjs",
+    "start": "node --env-file=.env dist/src/main.js",
+    "cli": "node --env-file=.env --import tsx src/cli.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && npm run format:check",
+    "init": "node --import tsx foundation/scripts/init.ts",
+    "create": "node --import tsx foundation/scripts/create.ts",
+    "package:plugin": "node --import tsx foundation/scripts/package-plugin.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "1.7.15",
+    "@hono/node-server": "2.1.6",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "better-auth": "1.7.15",
+    "hono": "4.13.16",
+    "zod": "4.6.7"
+  }
+}

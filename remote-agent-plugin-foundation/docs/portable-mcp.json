@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "remote-notes": {
+      "type": "streamable-http",
+      "url": "http://localhost:8787/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": { "mode": "dcr" },
+            "authorizationServerBase": "http://localhost:8787/api/auth",
+            "authorizationUrl": "http://localhost:8787/api/auth/oauth2/authorize",
+            "tokenUrl": "http://localhost:8787/api/auth/oauth2/token",
+            "registrationUrl": "http://localhost:8787/api/auth/oauth2/register",
+            "resource": "http://localhost:8787/mcp",
+            "baseScopes": ["notes", "offline_access"]
+          }
+        }
+      }
+    }
+  }
+}

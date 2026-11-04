@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "remote-notes": {
+      "command": "node",
+      "args": [
+        "/absolute/path/remote-agent-plugin-foundation/dist/cli.js",
+        "serve"
+      ],
+      "env": { "APP_ORIGIN": "http://localhost:8787" }
+    }
+  }
+}

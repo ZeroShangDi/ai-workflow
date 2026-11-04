@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{PLUGIN_NAME}}</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p>{{PLUGIN_NAME}} · 插件底座示例</p>
+        <h1>随时记下，随处访问。</h1>
+        <p>网页与 Agent 使用同一份个人笔记。</p>
+      </header>
+      <p id="status" role="status" aria-live="polite"></p>
+      {{ACCOUNT}}
+      <section id="workspace" hidden>
+        <div class="row">
+          <h2 id="welcome">个人笔记</h2>
+          <button id="logout">退出网页账号</button>
+        </div>
+        <form id="note-form">
+          <label
+            >新笔记<textarea
+              name="text"
+              maxlength="4000"
+              required
+              rows="4"
+            ></textarea></label
+          ><button>保存笔记</button>
+        </form>
+        <button id="refresh">刷新</button>
+        <ul id="notes"></ul>
+        <h2>已连接 Agent</h2>
+        <p>
+          仅显示已完成 OAuth 授权的 Agent
+          连接，网页登录不计入。连接按客户端授权记录展示，不代表物理电脑数量。撤销后
+          Agent 将无法继续访问数据。
+        </p>
+        <button id="sessions">查看 Agent 连接</button>
+        <ul id="devices"></ul>
+      </section>
+      {{AUTHORIZATION}}
+    </main>
+  </body>
+</html>

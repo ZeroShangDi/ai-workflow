@@ -1,0 +1,20 @@
+{
+  "name": "remote-agent-foundation",
+  "interface": {
+    "displayName": "Remote Agent Foundation"
+  },
+  "plugins": [
+    {
+      "name": "remote-notes",
+      "source": {
+        "source": "local",
+        "path": "./artifacts/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
