@@ -1,0 +1,102 @@
+{
+  "schema": "codex-control/plugin-manifest@1",
+  "id": "voice-control",
+  "displayName": "Voice Control",
+  "version": "0.3.0",
+  "summary": "Standalone voice chat runtime with local task notices, playback ledgers, and public open/close/tunnel interfaces.",
+  "entrypoints": {
+    "http": "src/main.mjs",
+    "mcp": "server.mjs",
+    "skill": "skills/voice-integration/SKILL.md",
+    "web": "web/index.html",
+    "sdk": "sdk/index.mjs"
+  },
+  "runtime": {
+    "engine": "node",
+    "version": ">=22",
+    "module": "esm",
+    "thirdPartyRuntimeDependencies": 0,
+    "modes": {
+      "local": {
+        "defaultHost": "127.0.0.1",
+        "defaultPort": 8791
+      },
+      "remote": {
+        "supported": true,
+        "transport": "same-api-behind-deployment-auth"
+      }
+    }
+  },
+  "capabilities": {
+    "voiceSessions": true,
+    "serverSentEvents": true,
+    "realtimeAudio": {
+      "transport": "webrtc",
+      "serverVad": true,
+      "continuousTurns": true,
+      "bargeIn": true,
+      "streamingTts": true
+    },
+    "webSearch": {
+      "mode": "independent-query",
+      "createsTasks": false,
+      "requiresSources": true,
+      "configuredAtRuntime": true
+    },
+    "textFallback": false,
+    "conversation": {
+      "protocol": "openai-compatible-chat-completions",
+      "configuredAtRuntime": true
+    },
+    "taskNotices": {
+      "storage": "local-notice-ledger",
+      "playbackAcknowledgement": "observed-browser-state"
+    },
+    "externalTriggers": {
+      "default": "disabled",
+      "activation": "explicit-configuration"
+    },
+    "taskControl": false
+  },
+  "configuration": {
+    "dataDirectoryEnvironment": "VOICE_CONTROL_DATA_DIR",
+    "chatProviderEnvironment": [
+      "VOICE_CONTROL_CHAT_URL",
+      "VOICE_CONTROL_CHAT_MODEL",
+      "VOICE_CONTROL_CHAT_API_KEY_FILE"
+    ],
+    "audioBackendEnvironment": [
+      "VOICE_CONTROL_AUDIO_SERVICE_URL",
+      "VOICE_CONTROL_TICKET_SECRET_FILE",
+      "VOICE_CONTROL_TENANT",
+      "VOICE_CONTROL_USER",
+      "VOICE_CONTROL_DEVICE"
+    ],
+    "searchEnvironment": [
+      "VOICE_CONTROL_SEARCH_URL",
+      "VOICE_CONTROL_SEARCH_TOKEN_FILE",
+      "VOICE_CONTROL_LLM_UPSTREAM_URL",
+      "VOICE_CONTROL_LLM_UPSTREAM_API_KEY_FILE"
+    ],
+    "integrationConfig": "config/settings.json",
+    "triggerFile": "data/config.json",
+    "exampleFile": "data/config.example.json"
+  },
+  "tools": [
+    "bridge_chat_voice_config_load",
+    "bridge_chat_voice_config_update"
+  ],
+  "lifecycle": [
+    "installed",
+    "configured",
+    "healthy",
+    "paired",
+    "subscribed",
+    "active"
+  ],
+  "security": {
+    "defaultBindHost": "127.0.0.1",
+    "remoteAuthentication": "deployment-boundary",
+    "taskControlExposure": false
+  }
+}

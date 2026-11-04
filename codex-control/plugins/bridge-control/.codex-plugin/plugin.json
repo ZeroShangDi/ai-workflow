@@ -1,0 +1,35 @@
+{
+  "name": "bridge-control",
+  "version": "0.3.0",
+  "description": "Independent voice-control and work-reporting profiles backed directly by CMB.",
+  "author": {
+    "name": "Codex Control"
+  },
+  "license": "MIT",
+  "keywords": [
+    "bridge",
+    "cmb",
+    "voice",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Bridge Control",
+    "shortDescription": "Independent internal profiles backed directly by CMB",
+    "longDescription": "Independent CMB-backed control capability with isolated voice-controller and work-reporter profiles. This is not intended for ordinary global Codex exposure.",
+    "developerName": "Codex Control",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Create a work draft for voice confirmation",
+      "Report progress from this work session",
+      "Request a bound approval from the controller"
+    ],
+    "brandColor": "#0F766E",
+    "screenshots": []
+  }
+}

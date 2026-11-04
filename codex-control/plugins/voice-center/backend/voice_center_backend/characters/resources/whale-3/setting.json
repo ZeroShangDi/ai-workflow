@@ -1,0 +1,1440 @@
+{
+  "schemaVersion": 1,
+  "id": "whale-3",
+  "name": "鲸鱼娘",
+  "card": {
+    "title": "鲸鱼娘",
+    "subtitle": "语音对话人物设定",
+    "summary": "人物卡 · 铃兰 > **工作代号**：铃兰（Lily）——取自她花环上的白色小花。这是占位名，可随时替换为任何你喜欢的名字，替换后本文其余内容无需改动。 > **定位**：原创 AI 桌面精灵 · 亲近的精灵搭档 > **适用**：作为对话模型的独立人设来源直接使用，不依赖任何特定框架、插件或技能。 --- 一、一句话印象 一个在爱里长大的森林精灵。二十岁",
+    "tags": [
+      "陪伴",
+      "语音",
+      "Codex"
+    ]
+  },
+  "voice": {
+    "profile": "whale-3",
+    "mode": "clone",
+    "referenceAudio": "voice/reference.wav",
+    "referenceTextFile": "voice/reference.txt"
+  },
+  "images": {
+    "multiView": "",
+    "portrait": ""
+  },
+  "actionGroups": {
+    "待机": [
+      {
+        "id": "idle",
+        "label": "待机呼吸休闲",
+        "repeats": 0,
+        "randomWeight": 10.0,
+        "bounds": [
+          187,
+          190,
+          258,
+          290
+        ],
+        "file": "idle.mp4"
+      }
+    ],
+    "余额": [
+      {
+        "id": "a-ddbb92db4a58",
+        "label": "余额-分文不剩",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          68,
+          172,
+          486,
+          328
+        ],
+        "file": "a-ddbb92db4a58.mp4"
+      },
+      {
+        "id": "a-bdbc9cb7c092",
+        "label": "余额-数金皱眉",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          200,
+          193,
+          258,
+          286
+        ],
+        "file": "a-bdbc9cb7c092.mp4"
+      },
+      {
+        "id": "a-7a6b3c7eaa0d",
+        "label": "余额-袋空如洗",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          65,
+          170,
+          515,
+          330
+        ],
+        "file": "a-7a6b3c7eaa0d.mp4"
+      },
+      {
+        "id": "a-f37007132d46",
+        "label": "余额-金袋叮当",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          69,
+          164,
+          523,
+          336
+        ],
+        "file": "a-f37007132d46.mp4"
+      },
+      {
+        "id": "a-b03267f17a45",
+        "label": "余额-钱袋如常",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          65,
+          172,
+          491,
+          328
+        ],
+        "file": "a-b03267f17a45.mp4"
+      },
+      {
+        "id": "a-b52711d31a2d",
+        "label": "余额-钱袋满溢",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          74,
+          164,
+          518,
+          336
+        ],
+        "file": "a-b52711d31a2d.mp4"
+      }
+    ],
+    "吃什么": [
+      {
+        "id": "a-37448dbcbae5",
+        "label": "吃Token",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          134,
+          189,
+          373,
+          292
+        ],
+        "file": "a-37448dbcbae5.mp4"
+      },
+      {
+        "id": "a-9cffd9460a6e",
+        "label": "吃冰淇淋融化",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          199,
+          191,
+          241,
+          293
+        ],
+        "file": "a-9cffd9460a6e.mp4"
+      },
+      {
+        "id": "a-b1c1513c2cee",
+        "label": "吃午餐",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          196,
+          192,
+          244,
+          289
+        ],
+        "file": "a-b1c1513c2cee.mp4"
+      },
+      {
+        "id": "a-30e22f229518",
+        "label": "吃大闸蟹",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          195,
+          193,
+          266,
+          307
+        ],
+        "file": "a-30e22f229518.mp4"
+      },
+      {
+        "id": "a-7084585bc682",
+        "label": "吃早餐",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          201,
+          191,
+          239,
+          288
+        ],
+        "file": "a-7084585bc682.mp4"
+      },
+      {
+        "id": "a-def06ff80360",
+        "label": "吃晚餐",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          90,
+          192,
+          470,
+          293
+        ],
+        "file": "a-def06ff80360.mp4"
+      },
+      {
+        "id": "a-8b723897fa8d",
+        "label": "吃白饭",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          192,
+          193,
+          252,
+          293
+        ],
+        "file": "a-8b723897fa8d.mp4"
+      },
+      {
+        "id": "a-6ab12ee9d34c",
+        "label": "吃糖葫芦",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          195,
+          192,
+          262,
+          288
+        ],
+        "file": "a-6ab12ee9d34c.mp4"
+      },
+      {
+        "id": "a-76c2d94a8cdf",
+        "label": "吃西瓜",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          197,
+          192,
+          247,
+          289
+        ],
+        "file": "a-76c2d94a8cdf.mp4"
+      },
+      {
+        "id": "a-124866942643",
+        "label": "吃长寿面",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          119,
+          191,
+          329,
+          287
+        ],
+        "file": "a-124866942643.mp4"
+      },
+      {
+        "id": "a-da7b6fdd8b02",
+        "label": "大口吃零食",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          24,
+          174,
+          576,
+          326
+        ],
+        "file": "a-da7b6fdd8b02.mp4"
+      },
+      {
+        "id": "a-59bb6fa3982a",
+        "label": "涮火锅",
+        "repeats": 1,
+        "randomWeight": 1.3333333333333333,
+        "bounds": [
+          193,
+          193,
+          252,
+          307
+        ],
+        "file": "a-59bb6fa3982a.mp4"
+      }
+    ],
+    "小动作": [
+      {
+        "id": "a-8f7afea4bd41",
+        "label": "偷吃零食被抓住",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          200,
+          160,
+          247,
+          320
+        ],
+        "file": "a-8f7afea4bd41.mp4"
+      },
+      {
+        "id": "a-fbb33ff646c9",
+        "label": "写代码",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          202,
+          191,
+          238,
+          288
+        ],
+        "file": "a-fbb33ff646c9.mp4"
+      },
+      {
+        "id": "a-e8b99d808a86",
+        "label": "原地小憩沉眠",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          197,
+          160,
+          243,
+          321
+        ],
+        "file": "a-e8b99d808a86.mp4"
+      },
+      {
+        "id": "a-6ce4fef761d8",
+        "label": "原地敲击桌面互动",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          193,
+          195,
+          244,
+          285
+        ],
+        "file": "a-6ce4fef761d8.mp4"
+      },
+      {
+        "id": "a-b115185c9a34",
+        "label": "原地重力下蹲压缩",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          198,
+          177,
+          264,
+          308
+        ],
+        "file": "a-b115185c9a34.mp4"
+      },
+      {
+        "id": "a-f2eaf329ffb2",
+        "label": "哈欠连天",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          198,
+          191,
+          243,
+          288
+        ],
+        "file": "a-f2eaf329ffb2.mp4"
+      },
+      {
+        "id": "a-1f757346b490",
+        "label": "女仆屈膝礼仪",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          200,
+          193,
+          238,
+          290
+        ],
+        "file": "a-1f757346b490.mp4"
+      },
+      {
+        "id": "a-031da119ffcb",
+        "label": "小幅度原地360度旋转展示",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          182,
+          179,
+          294,
+          301
+        ],
+        "file": "a-031da119ffcb.mp4"
+      },
+      {
+        "id": "a-73f335ec54b5",
+        "label": "悠闲哼歌",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          134,
+          140,
+          364,
+          339
+        ],
+        "file": "a-73f335ec54b5.mp4"
+      },
+      {
+        "id": "a-ea0c8bdca582",
+        "label": "打瞌睡被惊醒",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          191,
+          152,
+          265,
+          328
+        ],
+        "file": "a-ea0c8bdca582.mp4"
+      },
+      {
+        "id": "a-e3cf10c2c8c2",
+        "label": "摇扇纳凉",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          145,
+          184,
+          335,
+          297
+        ],
+        "file": "a-e3cf10c2c8c2.mp4"
+      },
+      {
+        "id": "a-40686113a5c5",
+        "label": "整体换装试色",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          182,
+          184,
+          301,
+          296
+        ],
+        "file": "a-40686113a5c5.mp4"
+      },
+      {
+        "id": "a-140b3ccbb218",
+        "label": "晨间刷牙",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          177,
+          192,
+          268,
+          304
+        ],
+        "file": "a-140b3ccbb218.mp4"
+      },
+      {
+        "id": "a-3cb38a6cb559",
+        "label": "照镜子",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          188,
+          185,
+          281,
+          294
+        ],
+        "file": "a-3cb38a6cb559.mp4"
+      },
+      {
+        "id": "a-cea2b7483962",
+        "label": "用鲸鱼尾巴拍打地面",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          200,
+          193,
+          278,
+          287
+        ],
+        "file": "a-cea2b7483962.mp4"
+      },
+      {
+        "id": "a-abe652ad87a7",
+        "label": "被吓一跳",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          197,
+          163,
+          246,
+          316
+        ],
+        "file": "a-abe652ad87a7.mp4"
+      },
+      {
+        "id": "a-a1eff7e0a9a4",
+        "label": "超大伸懒腰",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          202,
+          189,
+          238,
+          290
+        ],
+        "file": "a-a1eff7e0a9a4.mp4"
+      },
+      {
+        "id": "a-ddfeb51cf67d",
+        "label": "轻快记录",
+        "repeats": 1,
+        "randomWeight": 1.1111111111111112,
+        "bounds": [
+          184,
+          191,
+          260,
+          288
+        ],
+        "file": "a-ddfeb51cf67d.mp4"
+      }
+    ],
+    "工作状态": [
+      {
+        "id": "a-c2d68dc892ec",
+        "label": "工作状态-原地踱步张望",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          176,
+          173,
+          272,
+          308
+        ],
+        "file": "a-c2d68dc892ec.mp4"
+      },
+      {
+        "id": "a-e2f75af4e38e",
+        "label": "工作状态-垂头叹气冒汗",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          151,
+          180,
+          284,
+          299
+        ],
+        "file": "a-e2f75af4e38e.mp4"
+      },
+      {
+        "id": "a-fdfe67146856",
+        "label": "工作状态-忙碌点按",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          169,
+          140,
+          285,
+          339
+        ],
+        "file": "a-fdfe67146856.mp4"
+      },
+      {
+        "id": "a-119643dbc33b",
+        "label": "工作状态-思考冒泡",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          176,
+          183,
+          268,
+          297
+        ],
+        "file": "a-119643dbc33b.mp4"
+      },
+      {
+        "id": "a-720493ceff33",
+        "label": "工作状态-清点归档",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          204,
+          194,
+          234,
+          285
+        ],
+        "file": "a-720493ceff33.mp4"
+      },
+      {
+        "id": "a-27eea788c037",
+        "label": "工作状态-雀跃庆祝",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          164,
+          148,
+          316,
+          332
+        ],
+        "file": "a-27eea788c037.mp4"
+      }
+    ],
+    "拖拽": [
+      {
+        "id": "a-e033ddce1049",
+        "label": "被鼠标拖拽悬空反馈",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          193,
+          157,
+          266,
+          323
+        ],
+        "file": "a-e033ddce1049.mp4"
+      }
+    ],
+    "文字": [
+      {
+        "id": "a-3173ed3d6efe",
+        "label": "是啊，吃什么",
+        "repeats": 1,
+        "randomWeight": 5.0,
+        "bounds": [
+          46,
+          175,
+          569,
+          325
+        ],
+        "file": "a-3173ed3d6efe.mp4"
+      },
+      {
+        "id": "a-29baf7a02f6b",
+        "label": "深度思考碎碎念",
+        "repeats": 1,
+        "randomWeight": 5.0,
+        "bounds": [
+          86,
+          184,
+          474,
+          300
+        ],
+        "file": "a-29baf7a02f6b.mp4"
+      }
+    ],
+    "时节": [
+      {
+        "id": "a-266b2b10d525",
+        "label": "中秋赏月吃月饼",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          188,
+          181,
+          405,
+          299
+        ],
+        "file": "a-266b2b10d525.mp4"
+      },
+      {
+        "id": "a-1c1d420aae8c",
+        "label": "写福字",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          162,
+          189,
+          281,
+          294
+        ],
+        "file": "a-1c1d420aae8c.mp4"
+      },
+      {
+        "id": "a-736b10e16790",
+        "label": "吃年糕",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          192,
+          194,
+          249,
+          286
+        ],
+        "file": "a-736b10e16790.mp4"
+      },
+      {
+        "id": "a-1b710ba74c4a",
+        "label": "吃汤圆",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          203,
+          194,
+          239,
+          285
+        ],
+        "file": "a-1b710ba74c4a.mp4"
+      },
+      {
+        "id": "a-d648c62443f9",
+        "label": "吃粽子",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          200,
+          194,
+          246,
+          287
+        ],
+        "file": "a-d648c62443f9.mp4"
+      },
+      {
+        "id": "a-e2bf93e23382",
+        "label": "吃腊八粥",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          193,
+          194,
+          247,
+          285
+        ],
+        "file": "a-e2bf93e23382.mp4"
+      },
+      {
+        "id": "a-3f18c8962989",
+        "label": "吃重阳糕",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          203,
+          192,
+          241,
+          288
+        ],
+        "file": "a-3f18c8962989.mp4"
+      },
+      {
+        "id": "a-aa080b4273ce",
+        "label": "吃青团",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          199,
+          193,
+          243,
+          286
+        ],
+        "file": "a-aa080b4273ce.mp4"
+      },
+      {
+        "id": "a-64884c1079b9",
+        "label": "吃饺子",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          184,
+          167,
+          276,
+          323
+        ],
+        "file": "a-64884c1079b9.mp4"
+      },
+      {
+        "id": "a-35553c4c9846",
+        "label": "堆雪人",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          189,
+          194,
+          306,
+          298
+        ],
+        "file": "a-35553c4c9846.mp4"
+      },
+      {
+        "id": "a-724f8a79344f",
+        "label": "插茱萸赏菊",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          199,
+          194,
+          249,
+          286
+        ],
+        "file": "a-724f8a79344f.mp4"
+      },
+      {
+        "id": "a-045116812207",
+        "label": "收红包",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          199,
+          195,
+          249,
+          284
+        ],
+        "file": "a-045116812207.mp4"
+      },
+      {
+        "id": "a-2410a714a069",
+        "label": "放孔明灯",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          153,
+          140,
+          293,
+          360
+        ],
+        "file": "a-2410a714a069.mp4"
+      },
+      {
+        "id": "a-a55f7dc9d730",
+        "label": "放河灯",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          199,
+          194,
+          245,
+          286
+        ],
+        "file": "a-a55f7dc9d730.mp4"
+      },
+      {
+        "id": "a-d86e1843b537",
+        "label": "放烟花",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          13,
+          140,
+          615,
+          360
+        ],
+        "file": "a-d86e1843b537.mp4"
+      },
+      {
+        "id": "a-02ccab9ca45c",
+        "label": "穿针乞巧",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          173,
+          178,
+          373,
+          303
+        ],
+        "file": "a-02ccab9ca45c.mp4"
+      },
+      {
+        "id": "a-9c0c2ad14bb7",
+        "label": "舞狮头",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          193,
+          164,
+          259,
+          317
+        ],
+        "file": "a-9c0c2ad14bb7.mp4"
+      },
+      {
+        "id": "a-aee1a02b51c0",
+        "label": "萌化小幽灵",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          152,
+          179,
+          347,
+          308
+        ],
+        "file": "a-aee1a02b51c0.mp4"
+      },
+      {
+        "id": "a-7eb9d1732a1d",
+        "label": "被落叶淹没",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          23,
+          164,
+          601,
+          336
+        ],
+        "file": "a-7eb9d1732a1d.mp4"
+      },
+      {
+        "id": "a-d6be0b032234",
+        "label": "装点圣诞树",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          49,
+          172,
+          507,
+          328
+        ],
+        "file": "a-d6be0b032234.mp4"
+      },
+      {
+        "id": "a-7f22ed0f52d9",
+        "label": "讨糖南瓜灯",
+        "repeats": 1,
+        "randomWeight": 0.6666666666666666,
+        "bounds": [
+          192,
+          192,
+          263,
+          290
+        ],
+        "file": "a-7f22ed0f52d9.mp4"
+      }
+    ],
+    "点击回应": [
+      {
+        "id": "a-5253e0eaed4f",
+        "label": "点击回应-傲娇生气",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          194,
+          192,
+          244,
+          290
+        ],
+        "file": "a-5253e0eaed4f.mp4"
+      },
+      {
+        "id": "a-bc71fc2828c3",
+        "label": "点击回应-元气挥手",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          199,
+          168,
+          241,
+          312
+        ],
+        "file": "a-bc71fc2828c3.mp4"
+      },
+      {
+        "id": "a-63ee8610df31",
+        "label": "点击回应-害羞惊讶",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          105,
+          195,
+          341,
+          286
+        ],
+        "file": "a-63ee8610df31.mp4"
+      },
+      {
+        "id": "a-c4f9fb775fc2",
+        "label": "点击回应-开心跃动",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          175,
+          148,
+          292,
+          335
+        ],
+        "file": "a-c4f9fb775fc2.mp4"
+      },
+      {
+        "id": "a-f9da9568b49e",
+        "label": "点击回应-挠痒咯咯笑",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          196,
+          189,
+          251,
+          291
+        ],
+        "file": "a-f9da9568b49e.mp4"
+      }
+    ],
+    "玩耍": [
+      {
+        "id": "a-7b461232b0b2",
+        "label": "三球抛接",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          200,
+          168,
+          244,
+          312
+        ],
+        "file": "a-7b461232b0b2.mp4"
+      },
+      {
+        "id": "a-0123d298b09c",
+        "label": "下五子棋",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          194,
+          182,
+          258,
+          311
+        ],
+        "file": "a-0123d298b09c.mp4"
+      },
+      {
+        "id": "a-027a1e4f7809",
+        "label": "优雅女仆舞",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          195,
+          184,
+          278,
+          302
+        ],
+        "file": "a-027a1e4f7809.mp4"
+      },
+      {
+        "id": "a-04f13ee40d26",
+        "label": "凭空生花",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          112,
+          156,
+          445,
+          333
+        ],
+        "file": "a-04f13ee40d26.mp4"
+      },
+      {
+        "id": "a-542bad6030e8",
+        "label": "动物环绕",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          69,
+          160,
+          487,
+          333
+        ],
+        "file": "a-542bad6030e8.mp4"
+      },
+      {
+        "id": "a-d5f1f02602e1",
+        "label": "原地专心玩魔方",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          166,
+          196,
+          281,
+          290
+        ],
+        "file": "a-d5f1f02602e1.mp4"
+      },
+      {
+        "id": "a-297e04d13877",
+        "label": "原地跳跃抓碎头顶物品",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          105,
+          140,
+          431,
+          344
+        ],
+        "file": "a-297e04d13877.mp4"
+      },
+      {
+        "id": "a-83bc9a75b52c",
+        "label": "原地蹲下玩玩具汽车",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          65,
+          185,
+          491,
+          309
+        ],
+        "file": "a-83bc9a75b52c.mp4"
+      },
+      {
+        "id": "a-48b393531c0a",
+        "label": "变鸽子",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          110,
+          150,
+          423,
+          330
+        ],
+        "file": "a-48b393531c0a.mp4"
+      },
+      {
+        "id": "a-44bf6ce6f0bb",
+        "label": "可爱宅舞",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          199,
+          187,
+          253,
+          294
+        ],
+        "file": "a-44bf6ce6f0bb.mp4"
+      },
+      {
+        "id": "a-81976cd18e83",
+        "label": "吹气球",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          10,
+          164,
+          606,
+          336
+        ],
+        "file": "a-81976cd18e83.mp4"
+      },
+      {
+        "id": "a-029cb562e547",
+        "label": "吹笛子",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          64,
+          155,
+          489,
+          329
+        ],
+        "file": "a-029cb562e547.mp4"
+      },
+      {
+        "id": "a-1e7ef22fdf30",
+        "label": "小提琴演奏",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          128,
+          192,
+          350,
+          298
+        ],
+        "file": "a-1e7ef22fdf30.mp4"
+      },
+      {
+        "id": "a-8328bf5bcb4c",
+        "label": "扑克魔术",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          171,
+          194,
+          274,
+          285
+        ],
+        "file": "a-8328bf5bcb4c.mp4"
+      },
+      {
+        "id": "a-5af622a79e07",
+        "label": "抽陀螺",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          156,
+          196,
+          290,
+          296
+        ],
+        "file": "a-5af622a79e07.mp4"
+      },
+      {
+        "id": "a-1f607538b54d",
+        "label": "拆礼物",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          149,
+          176,
+          329,
+          312
+        ],
+        "file": "a-1f607538b54d.mp4"
+      },
+      {
+        "id": "a-f88bcb362956",
+        "label": "撸猫",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          201,
+          193,
+          240,
+          285
+        ],
+        "file": "a-f88bcb362956.mp4"
+      },
+      {
+        "id": "a-60cb26f83b8e",
+        "label": "放风筝",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          95,
+          140,
+          423,
+          341
+        ],
+        "file": "a-60cb26f83b8e.mp4"
+      },
+      {
+        "id": "a-165fccfcb106",
+        "label": "玩水枪",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          23,
+          195,
+          581,
+          305
+        ],
+        "file": "a-165fccfcb106.mp4"
+      },
+      {
+        "id": "a-10352e2bb3f1",
+        "label": "玩游戏气急败坏",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          159,
+          188,
+          299,
+          303
+        ],
+        "file": "a-10352e2bb3f1.mp4"
+      },
+      {
+        "id": "a-325570255b4f",
+        "label": "荡秋千",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          180,
+          148,
+          306,
+          332
+        ],
+        "file": "a-325570255b4f.mp4"
+      },
+      {
+        "id": "a-c656d7377424",
+        "label": "蓝鲸现世",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          120,
+          168,
+          372,
+          312
+        ],
+        "file": "a-c656d7377424.mp4"
+      },
+      {
+        "id": "a-d54d010b8a1c",
+        "label": "蝴蝶蜜蜂环绕头顶开花",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          0,
+          140,
+          640,
+          345
+        ],
+        "file": "a-d54d010b8a1c.mp4"
+      },
+      {
+        "id": "a-12e13a6e6481",
+        "label": "踢毽子",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          184,
+          160,
+          274,
+          321
+        ],
+        "file": "a-12e13a6e6481.mp4"
+      },
+      {
+        "id": "a-d9fd7d269360",
+        "label": "轻快摇摆舞",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          186,
+          191,
+          295,
+          289
+        ],
+        "file": "a-d9fd7d269360.mp4"
+      },
+      {
+        "id": "a-ffab5c66b4f6",
+        "label": "骑木马",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          144,
+          147,
+          359,
+          353
+        ],
+        "file": "a-ffab5c66b4f6.mp4"
+      },
+      {
+        "id": "a-853625e416e3",
+        "label": "鲸鱼吐泡泡特效",
+        "repeats": 1,
+        "randomWeight": 0.7407407407407407,
+        "bounds": [
+          104,
+          165,
+          335,
+          316
+        ],
+        "file": "a-853625e416e3.mp4"
+      }
+    ],
+    "碎碎念": [
+      {
+        "id": "a-cf54999a72f4",
+        "label": "碎碎念-发呆碎碎念",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          196,
+          180,
+          245,
+          300
+        ],
+        "file": "a-cf54999a72f4.mp4"
+      },
+      {
+        "id": "a-ef224f2af3ca",
+        "label": "碎碎念-对屏碎碎念",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          204,
+          192,
+          233,
+          287
+        ],
+        "file": "a-ef224f2af3ca.mp4"
+      },
+      {
+        "id": "a-fe74d0826c31",
+        "label": "碎碎念-擦桌碎碎念",
+        "repeats": 1,
+        "randomWeight": 0,
+        "bounds": [
+          192,
+          194,
+          251,
+          286
+        ],
+        "file": "a-fe74d0826c31.mp4"
+      }
+    ],
+    "移动": [
+      {
+        "id": "a-d7fa4bcd8923",
+        "label": "原地左转奔跑",
+        "repeats": 1,
+        "randomWeight": 1.6666666666666667,
+        "bounds": [
+          112,
+          188,
+          364,
+          296
+        ],
+        "file": "a-d7fa4bcd8923.mp4"
+      },
+      {
+        "id": "a-086341aa2cea",
+        "label": "原地漂浮踏步",
+        "repeats": 1,
+        "randomWeight": 1.6666666666666667,
+        "bounds": [
+          203,
+          191,
+          238,
+          292
+        ],
+        "file": "a-086341aa2cea.mp4"
+      },
+      {
+        "id": "a-7693a9c13c2c",
+        "label": "螃蟹走路",
+        "repeats": 1,
+        "randomWeight": 1.6666666666666667,
+        "bounds": [
+          178,
+          195,
+          281,
+          286
+        ],
+        "file": "a-7693a9c13c2c.mp4"
+      }
+    ],
+    "转向": [
+      {
+        "id": "a-31879963d829",
+        "label": "东张西望",
+        "repeats": 1,
+        "randomWeight": 5.0,
+        "bounds": [
+          199,
+          192,
+          252,
+          289
+        ],
+        "file": "a-31879963d829.mp4"
+      }
+    ]
+  },
+  "documents": {
+    "persona": "persona.md",
+    "skills": "skills.md",
+    "license": "LICENSE.txt"
+  },
+  "animations": {
+    "mapping": "animations/mapping.json",
+    "format": "webm"
+  }
+}

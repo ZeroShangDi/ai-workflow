@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "voice_history",
+  "tools": [
+    {"name": "list_conversations", "description": "List external voice conversations for the current identity.", "properties": {"cursor": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": []},
+    {"name": "read_conversation", "description": "Read messages from one external voice conversation.", "properties": {"conversation_id": {"type": "string"}, "cursor": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 30}}, "required": ["conversation_id"]}
+  ]
+}

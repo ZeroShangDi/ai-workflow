@@ -1,0 +1,26 @@
+{
+  "schema": "codex-control/plugin-manifest@1",
+  "id": "character-settings",
+  "displayName": "Character Settings",
+  "version": "0.1.0",
+  "summary": "Built-in character cards, personas, voice profiles and action groups with query and selection tools.",
+  "entrypoints": {
+    "mcp": "server.mjs",
+    "skill": "skills/character-settings/SKILL.md"
+  },
+  "capabilities": {
+    "characters": true,
+    "voiceProfiles": true,
+    "actionGroups": true,
+    "multiViewImages": true,
+    "defaultCharacter": "elf-3",
+    "taskControl": false
+  },
+  "tools": [
+    "bridge_chat_character_list",
+    "bridge_chat_character_select"
+  ],
+  "security": {
+    "taskControlExposure": false
+  }
+}

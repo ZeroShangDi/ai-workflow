@@ -1,0 +1,297 @@
+import fs from 'node:fs/promises';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+
+export async function temporaryDirectory(t) {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bridge-control-test-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+async function body(request) {
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+}
+
+export async function startMockCmb() {
+  const state = {
+    loginCount: 0,
+    sendCount: 0,
+    createCount: 0,
+    projectRegisterCount: 0,
+    historyCount: 0,
+    stopCount: 0,
+    respondCount: 0,
+    readCalls: [],
+    sendCalls: [],
+    createCalls: [],
+    projectRegisterCalls: [],
+    respondCalls: [],
+    sendMode: 'success',
+    createMode: 'success',
+    projectRegisterMode: 'success',
+    stopMode: 'success',
+    sessionExpired: false,
+    historyText: 'mock history',
+    historyTurn: 1,
+  };
+  let baseUrl = '';
+
+  const server = http.createServer(async (request, response) => {
+    const url = new URL(request.url, baseUrl || 'http://127.0.0.1');
+    const authorized = request.headers.cookie === 'codex_mobile_session=test-session'
+      && !state.sessionExpired;
+    if (request.method === 'POST' && url.pathname === '/api/login') {
+      const value = await body(request);
+      state.loginCount += 1;
+      if (
+        value.username !== 'admin'
+        || value.password !== 'test-password'
+        || request.headers.origin !== baseUrl
+      ) {
+        response.writeHead(401, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'bad credentials' }));
+        return;
+      }
+      state.sessionExpired = false;
+      response.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': 'codex_mobile_session=test-session; HttpOnly; SameSite=Strict; Path=/',
+      });
+      response.end(JSON.stringify({ csrf: 'test-csrf' }));
+      return;
+    }
+    if (!authorized) {
+      response.writeHead(401, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/auth') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        authenticated: true,
+        instanceId: 'mock-instance',
+        computer: { name: 'mock-computer', platform: 'test' },
+        passwordless: false,
+        transport: 'sse',
+        csrf: 'test-csrf',
+      }));
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/sessions') {
+      state.readCalls.push({ path: url.pathname, query: url.search });
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        sessions: [{
+          id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+          title: 'Mock chat',
+          projectName: 'demo',
+          provider: 'codex',
+          source: 'desktop',
+          host: 'local',
+        }],
+        availableSources: ['desktop'],
+      }));
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/projects') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        projects: [
+          {
+            key: 'local|demo',
+            name: 'demo',
+            cwd: '/tmp/demo',
+            type: 'desktop',
+            host: 'local',
+          },
+          {
+            key: 'local|independent',
+            name: 'Independent',
+            cwd: null,
+            type: 'desktop',
+            host: 'local',
+          },
+        ],
+      }));
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/projects') {
+      if (
+        request.headers.origin !== baseUrl
+        || request.headers['x-csrf-token'] !== 'test-csrf'
+      ) {
+        response.writeHead(403, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'origin or csrf rejected' }));
+        return;
+      }
+      const value = await body(request);
+      state.projectRegisterCount += 1;
+      state.projectRegisterCalls.push(value);
+      if (state.projectRegisterMode === 'unknown') {
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'synthetic project registration failure' }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        project: {
+          key: 'local|voice-workspace',
+          name: 'voice-workspace',
+          cwd: value.path,
+          type: value.kind,
+          host: value.host,
+        },
+      }));
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/sessions') {
+      if (
+        request.headers.origin !== baseUrl
+        || request.headers['x-csrf-token'] !== 'test-csrf'
+      ) {
+        response.writeHead(403, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'origin or csrf rejected' }));
+        return;
+      }
+      const value = await body(request);
+      state.createCount += 1;
+      state.createCalls.push(value);
+      if (state.createMode === 'unknown') {
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'synthetic create failure' }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ id: value.id, host: 'local', project: value.project }));
+      return;
+    }
+    const sessionRoute = url.pathname.match(
+      /^\/api\/sessions\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/(send|events|history|stop|respond|settings))?$/,
+    );
+    const sessionExtraRoute = url.pathname.match(
+      /^\/api\/sessions\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\/catalog$/,
+    );
+    if (sessionRoute && !sessionRoute[2] && request.method === 'GET') {
+      state.readCalls.push({ path: url.pathname });
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        id: sessionRoute[1],
+        title: 'Mock chat',
+        status: 'idle',
+        turns: [{
+          id: `turn-${state.historyTurn}`,
+          status: 'completed',
+          messages: [{
+            id: `message-${state.historyTurn}`,
+            role: 'user',
+            text: state.historyText,
+          }],
+        }],
+      }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'settings' && request.method === 'POST') {
+      const value = await body(request);
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ applied: true, confirmed: true, ...value }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'send' && request.method === 'POST') {
+      if (
+        request.headers.origin !== baseUrl
+        || request.headers['x-csrf-token'] !== 'test-csrf'
+      ) {
+        response.writeHead(403, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'origin or csrf rejected' }));
+        return;
+      }
+      const value = await body(request);
+      state.sendCalls.push(value);
+      state.sendCount += 1;
+      if (state.sendMode === 'unknown') {
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'synthetic upstream failure' }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ status: 'accepted', id: value.id }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'events' && request.method === 'GET') {
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.write('event: state\n');
+      response.write('data: {"status":"active","connected":true}\n\n');
+      response.end();
+      return;
+    }
+    if (sessionRoute?.[2] === 'history' && request.method === 'POST') {
+      state.historyCount += 1;
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        id: sessionRoute[1],
+        turns: [{
+          id: `turn-${state.historyTurn}`,
+          status: 'completed',
+          messages: [{
+            id: `message-${state.historyTurn}`,
+            role: 'user',
+            text: state.historyText,
+          }],
+        }],
+      }));
+      return;
+    }
+    if (sessionExtraRoute && request.method === 'GET') {
+      state.readCalls.push({ path: url.pathname, query: url.search });
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        kind: 'skills',
+        skills: [{
+          id: 'skill-work-reporter',
+          name: 'bridge-control-work-reporter',
+          displayName: 'bridge-control-work-reporter',
+        }],
+      }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'stop' && request.method === 'POST') {
+      state.stopCount += 1;
+      if (state.stopMode === 'unknown') {
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'synthetic stop failure' }));
+        return;
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ status: 'accepted' }));
+      return;
+    }
+    if (sessionRoute?.[2] === 'respond' && request.method === 'POST') {
+      const value = await body(request);
+      state.respondCount += 1;
+      state.respondCalls.push(value);
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ status: 'accepted' }));
+      return;
+    }
+    response.writeHead(404, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+  return {
+    baseUrl,
+    state,
+    close: () => new Promise((resolve) => server.close(resolve)),
+    setUserTranscript(text) {
+      state.historyText = text;
+      state.historyTurn += 1;
+    },
+  };
+}

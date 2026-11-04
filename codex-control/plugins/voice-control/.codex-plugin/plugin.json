@@ -1,0 +1,34 @@
+{
+  "name": "voice-control",
+  "version": "0.3.0",
+  "description": "WebRTC voice runtime with an integration config loader and integration skill.",
+  "author": {
+    "name": "Codex Control"
+  },
+  "license": "MIT",
+  "keywords": [
+    "voice",
+    "webrtc",
+    "integration",
+    "config"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Voice Control",
+    "shortDescription": "WebRTC voice runtime",
+    "longDescription": "Standalone WebRTC voice runtime with task notices, playback receipts, config loading, and the voice-integration skill used to compose control and character plugins.",
+    "developerName": "Codex Control",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Initialize the voice integration",
+      "Start a managed voice chat",
+      "Check the voice integration configuration"
+    ],
+    "brandColor": "#4D62C3",
+    "screenshots": []
+  }
+}

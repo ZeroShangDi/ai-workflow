@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "eventFiles": {
+    "taskEvents": "task-events.jsonl"
+  },
+  "workspace": {
+    "path": "/absolute/path/to/voice-workspace",
+    "projectKey": "",
+    "voiceSessionId": "",
+    "voiceSessionTitle": "语音助手",
+    "initialized": false
+  },
+  "plugins": {
+    "control": {
+      "installed": true,
+      "profile": "voice-controller",
+      "websocketUrl": "ws://127.0.0.1:8792",
+      "tokenFile": "/absolute/private/path/control-ws.token",
+      "requestTimeoutMs": 30000
+    },
+    "characters": {
+      "installed": true,
+      "skill": "character-settings",
+      "selectedId": "elf-3"
+    }
+  }
+}

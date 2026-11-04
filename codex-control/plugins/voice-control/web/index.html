@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <title>Voice Control</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main>
+      <p id="state" class="state" role="status" aria-live="polite">准备就绪</p>
+      <div id="transcript" class="transcript" aria-live="polite">
+        <p class="placeholder">点击下方开关开始聊天</p>
+      </div>
+      <button id="toggle" class="voice-toggle" type="button" aria-pressed="false">
+        <span class="toggle-icon" aria-hidden="true"></span>
+        <span id="toggleLabel">开始聊天</span>
+      </button>
+      <p id="error" class="error" role="alert" hidden></p>
+      <audio id="speaker" autoplay playsinline></audio>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

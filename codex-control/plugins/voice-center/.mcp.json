@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "voice_center_integration": {
+      "command": "node",
+      "cwd": ".",
+      "args": [
+        "server.mjs"
+      ],
+      "enabled": false,
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 120
+    }
+  }
+}

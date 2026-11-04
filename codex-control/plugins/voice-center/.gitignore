@@ -1,0 +1,6 @@
+data/*
+!data/.gitkeep
+!data/config.example.json
+config/settings.json
+backend/**/__pycache__/
+backend/**/*.egg-info/

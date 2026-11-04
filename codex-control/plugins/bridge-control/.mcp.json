@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "bridge_control": {
+      "command": "./scripts/launch",
+      "cwd": ".",
+      "args": ["--profile", "work-reporter"],
+      "enabled": false,
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 240,
+      "env_vars": [
+        "BRIDGE_CONTROL_PROFILE",
+        "BRIDGE_CONTROL_DEV",
+        "BRIDGE_CONTROL_WS_ENABLED",
+        "BRIDGE_CONTROL_WS_HOST",
+        "BRIDGE_CONTROL_WS_PORT",
+        "BRIDGE_CONTROL_WS_TOKEN",
+        "BRIDGE_CONTROL_WS_TOKEN_FILE",
+        "BRIDGE_CONTROL_CMB_BASE_URL",
+        "BRIDGE_CONTROL_CMB_USERNAME",
+        "BRIDGE_CONTROL_CMB_PASSWORD",
+        "BRIDGE_CONTROL_CMB_PASSWORD_FILE",
+        "BRIDGE_CONTROL_CMB_TIMEOUT_MS",
+        "BRIDGE_CONTROL_DATA_DIR",
+        "BRIDGE_CONTROL_INTEGRATION_CONFIG",
+        "CODEX_CONTROL_EVENT_DIR",
+        "PATH"
+      ]
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "character-settings",
+  "version": "0.1.0",
+  "description": "Built-in character cards, personas, voice profiles and action groups for AI role selection.",
+  "author": {
+    "name": "Codex Control"
+  },
+  "license": "MIT",
+  "keywords": [
+    "character",
+    "persona",
+    "voice",
+    "settings"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Character Settings",
+    "shortDescription": "Select a built-in character setting",
+    "longDescription": "Provides two built-in character settings with cards, persona, skills, voice profiles, action groups and optional multi-view images. AI can query and select the active setting.",
+    "developerName": "Codex Control",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "List the available character settings",
+      "Switch to the whale character",
+      "Describe the current character setting"
+    ],
+    "brandColor": "#7C3AED",
+    "screenshots": []
+  }
+}

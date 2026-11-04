@@ -1,0 +1,13 @@
+node_modules/
+**/node_modules/
+.local/
+**/.local/
+.tmp/
+**/.tmp/
+coverage/
+**/coverage/
+dist/
+**/dist/
+*.log
+.env
+.env.local

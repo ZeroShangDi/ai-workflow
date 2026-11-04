@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$root/server.mjs" "$@"
+fi
+
+for candidate in \
+  "${CODEX_MCP_NODE_PATH:-}" \
+  "${CODEX_CLI_PATH:+$(dirname "$CODEX_CLI_PATH")/cua_node/bin/node}" \
+  "${HOME:-}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    exec "$candidate" "$root/server.mjs" "$@"
+  fi
+done
+
+printf '%s\n' 'bridge-control could not find a Node runtime.' >&2
+exit 127

@@ -1,0 +1,4 @@
+[submodule "codex-control/codex-mobile-bridge"]
+	path = codex-control/codex-mobile-bridge
+	url = git@github.com:try2love/codex-mobile-bridge.git
+	branch = main
